@@ -32,12 +32,13 @@ export async function GET(request) {
       const res = await fetch(`${DIALPAD_BASE}/stats`, {
         method: "POST",
         headers: headers(),
-        body: JSON.stringify({
+       body: JSON.stringify({
           target_id: OFFICE_ID,
           target_type: "office",
           export_type: "records",
           stat_type: "calls",
-          is_today: true,
+          days_ago_start: 7,
+          days_ago_end: 1,
           timezone: "America/Indiana/Indianapolis",
         }),
       });
