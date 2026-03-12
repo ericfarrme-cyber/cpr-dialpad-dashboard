@@ -33,12 +33,12 @@ export async function GET(request) {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({
-          target_id: OFFICE_ID,
-          target_type: "office",
+         target_id: "6742743981080576",
+          target_type: "department",
           export_type: "records",
           stat_type: "calls",
           days_ago_start: 7,
-          days_ago_end: 1,
+          days_ago_end: 0,
           timezone: "America/Indiana/Indianapolis",
         }),
       });
