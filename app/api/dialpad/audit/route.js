@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { supabase } from "@/lib/supabase";
-import { STORES } from "@/lib/constants";
+import { saveAuditResult, getAuditResults, getEmployeePerformance, getStorePerformance, isCallAudited, getEmployeeStatsFromAudits } from "@/lib/supabase";
 
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
 const API_KEY = process.env.DIALPAD_API_KEY;
@@ -9,234 +8,180 @@ function dialpadHeaders() {
   return { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json", Accept: "application/json" };
 }
 
-const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores. Score this call transcript against these 4 criteria:
+const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
 
-1. **Appointment Offered (1.25 pts)**: Did the employee offer to schedule an appointment? Even if the customer declines, the offer must be made.
-2. **Discount for Scheduling (0.92 pts)**: Did the employee mention any discount, deal, or savings for booking an appointment?
-3. **Lifetime Warranty Mentioned (0.92 pts)**: Did the employee mention CPR's lifetime warranty on repairs?
-4. **Appointment = Faster Turnaround (0.92 pts)**: Did the employee explain that scheduling an appointment means faster/priority service or guaranteed turnaround?
+STEP 1 — CLASSIFY THE CALL:
+- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. The caller does NOT already have a device being repaired.
+- "current_customer": An existing customer checking on repair status, picking up a device, following up on a previous repair, or calling about a device already in the shop.
 
-For each criterion, respond with PASS or FAIL and a brief explanation.
+STEP 2 — SCORE BASED ON CALL TYPE:
 
-Also provide:
-- **Employee Name**: The name of the CPR store employee on the call. Look for how they introduce themselves (e.g., "This is Mahmoud" or "My name is Sarah"). If multiple employees, use the primary one. If truly unknown, use "Unknown".
-- **Caller Inquiry**: what the caller was asking about (e.g., "iPhone 15 screen repair quote")
-- **Outcome**: brief summary of call result (e.g., "Customer booked appointment", "Customer said they'd call back", "Just a price check")
-- **Overall Score**: sum of passed criteria weights (1.25 + 0.92 + 0.92 + 0.92 = 4.01 max, round to 4.00)
+IF call_type = "opportunity", score these 4 criteria:
+1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?
+2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?
+3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?
+4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?
 
-Respond ONLY with valid JSON in this exact format:
+IF call_type = "current_customer", score these 4 criteria:
+1. Clear Status Update (1.00 pts): Did the employee give a clear update on the device/repair status?
+2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time or timeline?
+3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous, patient, and empathetic?
+4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?
+
+STEP 3 — EXTRACT INFORMATION:
+- **Employee Name**: The CPR store agent who answered/made the call
+- **Customer Name**: The caller's name if mentioned (or "Unknown")
+- **Device Type**: Device make and model if mentioned (e.g., "iPhone 15 Pro", "Samsung S24 Ultra") or "Not mentioned"
+- **Caller Inquiry**: What the call was about
+- **Outcome**: Brief summary of call result
+
+Respond ONLY with valid JSON:
 {
+  "call_type": "opportunity" or "current_customer",
   "employee": "Name",
+  "customer_name": "Name or Unknown",
+  "device_type": "Device or Not mentioned",
   "inquiry": "Brief description",
   "outcome": "Brief outcome",
   "criteria": {
+    FOR opportunity calls:
     "appointment_offered": {"pass": true/false, "notes": "explanation"},
     "discount_mentioned": {"pass": true/false, "notes": "explanation"},
     "warranty_mentioned": {"pass": true/false, "notes": "explanation"},
     "faster_turnaround": {"pass": true/false, "notes": "explanation"}
+
+    FOR current_customer calls:
+    "status_update_given": {"pass": true/false, "notes": "explanation"},
+    "eta_communicated": {"pass": true/false, "notes": "explanation"},
+    "professional_tone": {"pass": true/false, "notes": "explanation"},
+    "next_steps_explained": {"pass": true/false, "notes": "explanation"}
   },
   "score": 0.00,
   "max_score": 4.00
 }`;
 
-// Format Dialpad transcript data into readable text
-function formatTranscript(transcriptData) {
-  if (transcriptData.lines) {
-    return transcriptData.lines.map(line => {
-      const speaker = line.speaker || line.name || "Unknown";
-      const text = line.text || line.content || "";
-      return `${speaker}: ${text}`;
-    }).join("\n");
-  }
-  if (transcriptData.transcript) {
-    return typeof transcriptData.transcript === "string"
-      ? transcriptData.transcript
-      : JSON.stringify(transcriptData.transcript);
-  }
-  return JSON.stringify(transcriptData);
-}
-
-// Score a transcript with Claude
-async function scoreTranscript(transcriptText, callInfo) {
-  let context = "";
-  if (callInfo) {
-    context = `\nCall Info: ${callInfo.direction || ""} call, ${callInfo.external_number || "unknown"}, ${callInfo.date_started || ""}, Store: ${callInfo.name || "unknown"}\n`;
-  }
-
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 1000,
-      messages: [{ role: "user", content: `${AUDIT_PROMPT}\n${context}\n--- TRANSCRIPT ---\n${transcriptText}\n--- END TRANSCRIPT ---` }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Claude API failed (${res.status}): ${err}`);
-  }
-
-  const data = await res.json();
-  const responseText = data.content?.[0]?.text || "";
-  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) throw new Error("Could not parse Claude response");
-  return JSON.parse(jsonMatch[0]);
-}
-
-// GET — read audit data from Supabase
-// ?action=list — all audits (paginated)
-// ?action=employees — employee performance view
-// ?action=stores — store performance view
-// ?action=trend — weekly trend
-// ?action=recent&limit=50 — recent audits
+// GET: Read audit results, employee perf, store perf
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
-  const action = searchParams.get("action") || "recent";
+  const action = searchParams.get("action");
   const store = searchParams.get("store");
-  const limit = parseInt(searchParams.get("limit") || "50");
+  const employee = searchParams.get("employee");
+  const callType = searchParams.get("callType");
+  const limit = parseInt(searchParams.get("limit") || "200");
+  const daysBack = parseInt(searchParams.get("days") || "30");
 
-  if (!supabase) {
-    return NextResponse.json({ success: false, error: "Supabase not configured" });
+  if (action === "employees") {
+    // Try the view first, fall back to direct computation
+    let data = await getEmployeePerformance(store);
+    if (!data || data.length === 0) {
+      data = await getEmployeeStatsFromAudits(store);
+    }
+    return NextResponse.json({ success: true, employees: data });
   }
 
-  try {
-    if (action === "recent") {
-      const days = parseInt(searchParams.get("days") || "30");
-      const since = new Date();
-      since.setDate(since.getDate() - days);
-      let query = supabase
-        .from("audit_results")
-        .select("*")
-        .gte("date_started", since.toISOString())
-        .order("date_started", { ascending: false })
-        .limit(limit);
-      if (store && store !== "all") query = query.eq("store", store);
-      const { data, error } = await query;
-      if (error) throw error;
-      return NextResponse.json({ success: true, audits: data });
-    }
-
-    if (action === "employees") {
-      let query = supabase.from("employee_performance").select("*");
-      if (store && store !== "all") query = query.eq("store", store);
-      const { data, error } = await query;
-      if (error) throw error;
-      return NextResponse.json({ success: true, employees: data });
-    }
-
-    if (action === "stores") {
-      const { data, error } = await supabase.from("store_performance").select("*");
-      if (error) throw error;
-      return NextResponse.json({ success: true, stores: data });
-    }
-
-    if (action === "trend") {
-      let query = supabase.from("weekly_trend").select("*").order("week", { ascending: false }).limit(12);
-      if (store && store !== "all") query = query.eq("store", store);
-      const { data, error } = await query;
-      if (error) throw error;
-      return NextResponse.json({ success: true, trend: data });
-    }
-
-    return NextResponse.json({ success: false, error: "Invalid action" });
-  } catch (err) {
-    return NextResponse.json({ success: false, error: err.message });
+  if (action === "stores") {
+    const data = await getStorePerformance();
+    return NextResponse.json({ success: true, stores: data });
   }
+
+  const data = await getAuditResults({ store, employee, callType, limit, daysBack });
+  return NextResponse.json({ success: true, audits: data, count: data.length });
 }
 
-// POST — audit a single call and store result
+// POST: Score a single call and save to Supabase
 export async function POST(request) {
   try {
     const body = await request.json();
     const { callId, callInfo } = body;
 
-    if (!callId) {
-      return NextResponse.json({ success: false, error: "callId required" });
-    }
+    if (!callId) return NextResponse.json({ success: false, error: "callId required" });
 
-    // Check if already audited
-    if (supabase) {
-      const { data: existing } = await supabase
-        .from("audit_results")
-        .select("id")
-        .eq("call_id", callId)
-        .maybeSingle();
-      if (existing) {
-        return NextResponse.json({ success: false, error: "Call already audited", duplicate: true });
-      }
-    }
+    const alreadyDone = await isCallAudited(callId);
+    if (alreadyDone) return NextResponse.json({ success: false, error: "Call already audited", alreadyAudited: true });
 
-    // Fetch transcript from Dialpad
-    const transcriptRes = await fetch(`${DIALPAD_BASE}/transcripts/${callId}`, {
-      method: "GET",
-      headers: dialpadHeaders(),
-    });
-
+    // Fetch transcript
+    const transcriptRes = await fetch(`${DIALPAD_BASE}/transcripts/${callId}`, { method: "GET", headers: dialpadHeaders() });
     if (!transcriptRes.ok) {
-      // Mark as processed with no transcript
-      if (supabase) {
-        await supabase.from("processed_calls").upsert({ call_id: callId, status: "no_transcript" });
-      }
-      return NextResponse.json({ success: false, error: `No transcript available (${transcriptRes.status})` });
+      return NextResponse.json({ success: false, error: transcriptRes.status === 404 ? "No transcript available" : `Transcript fetch failed (${transcriptRes.status})` });
+    }
+    const transcriptData = await transcriptRes.json();
+
+    let formattedTranscript = "";
+    if (transcriptData.lines) {
+      formattedTranscript = transcriptData.lines.map(l => `${l.speaker || l.name || "Unknown"}: ${l.text || l.content || ""}`).join("\n");
+    } else if (transcriptData.transcript) {
+      formattedTranscript = typeof transcriptData.transcript === "string" ? transcriptData.transcript : JSON.stringify(transcriptData.transcript);
+    } else {
+      formattedTranscript = JSON.stringify(transcriptData);
     }
 
-    const transcriptData = await transcriptRes.json();
-    const transcriptText = formatTranscript(transcriptData);
-
-    if (!transcriptText || transcriptText.length < 20) {
-      if (supabase) {
-        await supabase.from("processed_calls").upsert({ call_id: callId, status: "no_transcript" });
-      }
+    if (!formattedTranscript || formattedTranscript.length < 20) {
       return NextResponse.json({ success: false, error: "Transcript too short to audit" });
     }
 
-    // Score with Claude
-    const auditResult = await scoreTranscript(transcriptText, callInfo);
+    let context = "";
+    if (callInfo) {
+      context = `\nCall Info: ${callInfo.direction || ""} call, ${callInfo.external_number || "unknown"}, ${callInfo.date_started || ""}, Store: ${callInfo.name || "unknown"}\n`;
+    }
 
-    // Build the database record
-    const storeKey = callInfo?.store || callInfo?._storeKey || "";
-    const record = {
+    // Score with Claude
+    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1200,
+        messages: [{ role: "user", content: `${AUDIT_PROMPT}\n${context}\n--- TRANSCRIPT ---\n${formattedTranscript}\n--- END TRANSCRIPT ---` }],
+      }),
+    });
+
+    if (!claudeRes.ok) {
+      const err = await claudeRes.text();
+      return NextResponse.json({ success: false, error: `Claude API failed (${claudeRes.status}): ${err.substring(0, 200)}` });
+    }
+
+    const claudeData = await claudeRes.json();
+    const responseText = claudeData.content?.[0]?.text || "";
+
+    let auditResult;
+    try {
+      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      auditResult = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+    } catch (e) { auditResult = null; }
+
+    if (!auditResult) return NextResponse.json({ success: false, error: "Could not parse audit result", raw: responseText.substring(0, 500) });
+
+    const storeName = callInfo?.name || "";
+    const storeKey = callInfo?._storeKey ||
+      (storeName.toLowerCase().includes("fisher") ? "fishers" :
+       storeName.toLowerCase().includes("bloom") ? "bloomington" :
+       storeName.toLowerCase().includes("indian") ? "indianapolis" : "unknown");
+
+    const saved = await saveAuditResult({
       call_id: callId,
-      date_started: callInfo?.date_started || new Date().toISOString(),
+      date: callInfo?.date_started || new Date().toISOString(),
       store: storeKey,
-      store_name: STORES[storeKey]?.name || callInfo?.name || storeKey,
+      store_name: storeName,
+      call_type: auditResult.call_type || "opportunity",
       employee: auditResult.employee || "Unknown",
+      customer_name: auditResult.customer_name || "Unknown",
+      device_type: auditResult.device_type || "Not mentioned",
       phone: callInfo?.external_number || "",
+      direction: callInfo?.direction || "inbound",
+      talk_duration: callInfo?.talk_duration || null,
       inquiry: auditResult.inquiry || "",
       outcome: auditResult.outcome || "",
       score: auditResult.score || 0,
-      max_score: auditResult.max_score || 4,
-      appt_offered: auditResult.criteria?.appointment_offered?.pass || false,
-      appt_notes: auditResult.criteria?.appointment_offered?.notes || "",
-      discount_mentioned: auditResult.criteria?.discount_mentioned?.pass || false,
-      discount_notes: auditResult.criteria?.discount_mentioned?.notes || "",
-      warranty_mentioned: auditResult.criteria?.warranty_mentioned?.pass || false,
-      warranty_notes: auditResult.criteria?.warranty_mentioned?.notes || "",
-      faster_turnaround: auditResult.criteria?.faster_turnaround?.pass || false,
-      turnaround_notes: auditResult.criteria?.faster_turnaround?.notes || "",
-      transcript_preview: transcriptText.substring(0, 500),
-      talk_duration: callInfo?.talk_duration ? parseFloat(callInfo.talk_duration) : null,
-      direction: callInfo?.direction || "inbound",
-    };
-
-    // Save to Supabase
-    if (supabase) {
-      const { error } = await supabase.from("audit_results").insert(record);
-      if (error) {
-        console.error("Supabase insert error:", error);
-        // Still return the result even if DB save fails
-      }
-      await supabase.from("processed_calls").upsert({ call_id: callId, status: "success" });
-    }
+      max_score: auditResult.max_score || 4.0,
+      criteria: auditResult.criteria,
+      transcript_preview: formattedTranscript.substring(0, 500),
+    });
 
     return NextResponse.json({
       success: true,
-      audit: { ...record, criteria: auditResult.criteria },
+      audit: { ...auditResult, call_id: callId, store: storeKey, store_name: storeName, phone: callInfo?.external_number || "", date: callInfo?.date_started, saved: !!saved },
     });
   } catch (err) {
-    console.error("Audit error:", err);
     return NextResponse.json({ success: false, error: err.message });
   }
 }
