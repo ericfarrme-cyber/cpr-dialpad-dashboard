@@ -152,7 +152,38 @@ function AuditTab({ rawCallData, storeFilter }) {
       const res = await fetch("/api/dialpad/audit", { method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({ callId:call.call_id, callInfo:{direction:call.direction,external_number:call.external_number,date_started:call.date_started,name:call.name,_storeKey:call._storeKey,talk_duration:call.talk_duration} }) });
       const json = await res.json();
-      if (json.success && json.audit) { setAudits(prev=>[{...json.audit,call_id:call.call_id,date_started:call.date_started,store:json.audit.store,phone:call.external_number},...prev]); return true; }
+      if (json.success && json.audit) {
+            const a = json.audit;
+            const c = a.criteria || {};
+            // Flatten criteria into Supabase-style flat fields so the display works immediately
+            const flat = {
+              ...a,
+              call_id: call.call_id,
+              date_started: call.date_started,
+              store: a.store,
+              phone: call.external_number,
+              // Opportunity criteria
+              appt_offered: c.appointment_offered?.pass || false,
+              appt_notes: c.appointment_offered?.notes || "",
+              discount_mentioned: c.discount_mentioned?.pass || false,
+              discount_notes: c.discount_mentioned?.notes || "",
+              warranty_mentioned: c.warranty_mentioned?.pass || false,
+              warranty_notes: c.warranty_mentioned?.notes || "",
+              faster_turnaround: c.faster_turnaround?.pass || false,
+              turnaround_notes: c.faster_turnaround?.notes || "",
+              // Current customer criteria
+              status_update_given: c.status_update_given?.pass || false,
+              status_notes: c.status_update_given?.notes || "",
+              eta_communicated: c.eta_communicated?.pass || false,
+              eta_notes: c.eta_communicated?.notes || "",
+              professional_tone: c.professional_tone?.pass || false,
+              tone_notes: c.professional_tone?.notes || "",
+              next_steps_explained: c.next_steps_explained?.pass || false,
+              next_steps_notes: c.next_steps_explained?.notes || "",
+            };
+            setAudits(prev => [flat, ...prev]);
+            return true;
+          }
       else { if(!json.alreadyAudited) setError(json.error||"Audit failed"); return false; }
     } catch(e) { setError(e.message); return false; } finally { setAuditingId(null); }
   };
