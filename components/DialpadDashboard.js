@@ -67,30 +67,42 @@ const SectionHeader = ({ title, subtitle, icon }) => (
   </div>
 );
 
-const DataBanner = ({ isLive, isLoading, onRefresh }) => (
+const DataBanner = ({ isLive, isLoading, isStored, lastSync, onRefresh, onLiveRefresh }) => (
   <div style={{
     margin: "0 0 20px", padding: "10px 16px", borderRadius: 8,
-    background: isLive ? "#4ADE8012" : "#FBBF2412",
-    border: `1px solid ${isLive ? "#4ADE8033" : "#FBBF2433"}`,
-    display: "flex", justifyContent: "space-between", alignItems: "center",
+    background: isStored ? "#7C8AFF12" : isLive ? "#4ADE8012" : "#FBBF2412",
+    border: `1px solid ${isStored ? "#7C8AFF33" : isLive ? "#4ADE8033" : "#FBBF2433"}`,
+    display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8,
   }}>
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <span style={{
         width: 8, height: 8, borderRadius: "50%",
-        background: isLive ? "#4ADE80" : "#FBBF24",
+        background: isStored ? "#7C8AFF" : isLive ? "#4ADE80" : "#FBBF24",
         animation: isLoading ? "pulse 1.5s infinite" : "none",
       }} />
       <span style={{ color: "#C8CAD0", fontSize: 12 }}>
-        {isLoading ? "Fetching live data from Dialpad (this may take up to 60 seconds)..." : isLive ? "Live data from Dialpad API" : "Sample data — add DIALPAD_API_KEY to Vercel env vars for live data"}
+        {isLoading ? "Fetching live data from Dialpad..." :
+         isStored ? `Stored data · Last synced ${lastSync ? new Date(lastSync).toLocaleString() : "unknown"}` :
+         isLive ? "Live data from Dialpad API" :
+         "Sample data — waiting for first sync"}
       </span>
     </div>
-    {!isLoading && (
-      <button onClick={onRefresh} style={{
-        padding: "4px 12px", borderRadius: 6, border: "1px solid #2A2D35",
-        background: "transparent", color: "#8B8F98", fontSize: 11,
-        cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
-      }}>↻ Refresh</button>
-    )}
+    <div style={{ display: "flex", gap: 6 }}>
+      {!isLoading && (
+        <>
+          <button onClick={onRefresh} style={{
+            padding: "4px 12px", borderRadius: 6, border: "1px solid #2A2D35",
+            background: "transparent", color: "#8B8F98", fontSize: 11,
+            cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
+          }}>↻ Reload</button>
+          <button onClick={onLiveRefresh} style={{
+            padding: "4px 12px", borderRadius: 6, border: "1px solid #7C8AFF44",
+            background: "#7C8AFF18", color: "#7C8AFF", fontSize: 11,
+            cursor: "pointer", fontFamily: "'Space Grotesk', sans-serif",
+          }}>⚡ Live Refresh</button>
+        </>
+      )}
+    </div>
   </div>
 );
 
@@ -112,7 +124,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
-// ── Tab Renderers (Overview, Keywords, Missed, Callbacks, Problems) ──
+// ── Tab Renderers ──
 
 function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
   return (
@@ -348,7 +360,7 @@ function ProblemsTab({ overviewStats, problemCalls }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// AUDIT TAB — Persistent Phone Call Quality Scoring
+// AUDIT TAB
 // ═══════════════════════════════════════════════════════════════
 
 function AuditTab({ rawCallData, storeFilter }) {
@@ -358,9 +370,8 @@ function AuditTab({ rawCallData, storeFilter }) {
   const [auditingId, setAuditingId] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [auditView, setAuditView] = useState("overview"); // overview | calls | employee
+  const [auditView, setAuditView] = useState("overview");
 
-  // Load persisted audit data from Supabase
   useEffect(() => {
     async function loadAuditData() {
       setLoading(true);
@@ -374,15 +385,12 @@ function AuditTab({ rawCallData, storeFilter }) {
         if (auditsRes.success) setAudits(auditsRes.audits || []);
         if (employeesRes.success) setEmployees(employeesRes.employees || []);
         if (storesRes.success) setStorePerf(storesRes.stores || []);
-      } catch (err) {
-        console.error("Failed to load audit data:", err);
-      }
+      } catch (err) { console.error("Failed to load audit data:", err); }
       setLoading(false);
     }
     loadAuditData();
   }, [storeFilter]);
 
-  // Recorded calls available for manual audit
   const recordedCalls = useMemo(() => {
     const auditedIds = new Set(audits.map(a => a.call_id));
     return rawCallData
@@ -407,24 +415,12 @@ function AuditTab({ rawCallData, storeFilter }) {
       });
       const json = await res.json();
       if (json.success && json.audit) {
-        // Add to local state immediately
-        setAudits(prev => [{
-          ...json.audit,
-          call_id: call.call_id,
-          date_started: call.date_started,
-          store: json.audit.store,
-          phone: call.external_number,
-        }, ...prev]);
-      } else {
-        setError(json.error || "Audit failed");
-      }
-    } catch (err) {
-      setError(err.message);
-    }
+        setAudits(prev => [{ ...json.audit, call_id: call.call_id, date_started: call.date_started, store: json.audit.store, phone: call.external_number }, ...prev]);
+      } else { setError(json.error || "Audit failed"); }
+    } catch (err) { setError(err.message); }
     setAuditingId(null);
   };
 
-  // Computed stats
   const totalAudits = audits.length;
   const avgScore = totalAudits > 0 ? (audits.reduce((s, a) => s + parseFloat(a.score || 0), 0) / totalAudits).toFixed(2) : "—";
   const criteriaRates = totalAudits > 0 ? {
@@ -434,35 +430,16 @@ function AuditTab({ rawCallData, storeFilter }) {
     turn: ((audits.filter(a => a.faster_turnaround).length / totalAudits) * 100).toFixed(0),
   } : null;
 
-  if (loading) {
-    return (
-      <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>
-        <div style={{ fontSize: 24, marginBottom: 8, animation: "pulse 1.5s infinite" }}>🎯</div>
-        Loading audit data...
-      </div>
-    );
-  }
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}><div style={{ fontSize: 24, marginBottom: 8, animation: "pulse 1.5s infinite" }}>🎯</div>Loading audit data...</div>;
 
   return (
     <div>
-      {/* Sub-navigation */}
       <div style={{ display: "flex", gap: 6, marginBottom: 20 }}>
-        {[
-          { id: "overview", label: "Overview", icon: "📊" },
-          { id: "employees", label: "Employee Scores", icon: "👤" },
-          { id: "calls", label: "Audit Calls", icon: "🎙️" },
-          { id: "history", label: "Audit History", icon: "📋" },
-        ].map(v => (
-          <button key={v.id} onClick={() => setAuditView(v.id)} style={{
-            padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
-            background: auditView === v.id ? "#7C8AFF22" : "#1A1D23",
-            color: auditView === v.id ? "#7C8AFF" : "#8B8F98",
-            fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
-          }}>{v.icon} {v.label}</button>
+        {[{ id: "overview", label: "Overview", icon: "📊" }, { id: "employees", label: "Employee Scores", icon: "👤" }, { id: "calls", label: "Audit Calls", icon: "🎙️" }, { id: "history", label: "Audit History", icon: "📋" }].map(v => (
+          <button key={v.id} onClick={() => setAuditView(v.id)} style={{ padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", background: auditView === v.id ? "#7C8AFF22" : "#1A1D23", color: auditView === v.id ? "#7C8AFF" : "#8B8F98", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>{v.icon} {v.label}</button>
         ))}
       </div>
 
-      {/* ── OVERVIEW ── */}
       {auditView === "overview" && (
         <div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
@@ -471,68 +448,44 @@ function AuditTab({ rawCallData, storeFilter }) {
             <StatCard label="Unaudited Recorded" value={recordedCalls.length} accent="#C084FC" sub="available to score" />
             <StatCard label="Best Criteria" value={criteriaRates ? (parseInt(criteriaRates.appt) >= parseInt(criteriaRates.disc) && parseInt(criteriaRates.appt) >= parseInt(criteriaRates.warr) && parseInt(criteriaRates.appt) >= parseInt(criteriaRates.turn) ? "Appt Offer" : parseInt(criteriaRates.warr) >= parseInt(criteriaRates.disc) && parseInt(criteriaRates.warr) >= parseInt(criteriaRates.turn) ? "Warranty" : parseInt(criteriaRates.disc) >= parseInt(criteriaRates.turn) ? "Discount" : "Fast Turn.") : "—"} accent="#4ADE80" />
           </div>
-
-          {/* Criteria pass rates */}
           {criteriaRates && (
             <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 20 }}>
               <SectionHeader title="Criteria Pass Rates" subtitle="Across all audited calls" icon="📋" />
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
-                {[
-                  { label: "Appointment Offered", rate: criteriaRates.appt, pts: "1.25 pts" },
-                  { label: "Discount Mentioned", rate: criteriaRates.disc, pts: "0.92 pts" },
-                  { label: "Lifetime Warranty", rate: criteriaRates.warr, pts: "0.92 pts" },
-                  { label: "Faster Turnaround", rate: criteriaRates.turn, pts: "0.92 pts" },
-                ].map((item, i) => (
+                {[{ label: "Appointment Offered", rate: criteriaRates.appt, pts: "1.25 pts" }, { label: "Discount Mentioned", rate: criteriaRates.disc, pts: "0.92 pts" }, { label: "Lifetime Warranty", rate: criteriaRates.warr, pts: "0.92 pts" }, { label: "Faster Turnaround", rate: criteriaRates.turn, pts: "0.92 pts" }].map((item, i) => (
                   <div key={i}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
                       <span style={{ color: "#C8CAD0", fontSize: 12 }}>{item.label}</span>
                       <span style={{ color: parseInt(item.rate)>=70?"#4ADE80":parseInt(item.rate)>=40?"#FBBF24":"#F87171", fontSize: 13, fontWeight: 700 }}>{item.rate}%</span>
                     </div>
-                    <div style={{ background: "#12141A", borderRadius: 4, height: 8, overflow: "hidden" }}>
-                      <div style={{ width: `${item.rate}%`, height: "100%", borderRadius: 4, background: parseInt(item.rate)>=70?"#4ADE80":parseInt(item.rate)>=40?"#FBBF24":"#F87171" }} />
-                    </div>
+                    <div style={{ background: "#12141A", borderRadius: 4, height: 8, overflow: "hidden" }}><div style={{ width: `${item.rate}%`, height: "100%", borderRadius: 4, background: parseInt(item.rate)>=70?"#4ADE80":parseInt(item.rate)>=40?"#FBBF24":"#F87171" }} /></div>
                     <div style={{ color: "#6B6F78", fontSize: 10, marginTop: 4 }}>{item.pts}</div>
                   </div>
                 ))}
               </div>
             </div>
           )}
-
-          {/* Store performance cards */}
           {storePerf.length > 0 && (
             <div style={{ display: "grid", gridTemplateColumns: `repeat(${storePerf.length}, 1fr)`, gap: 14 }}>
               {storePerf.map(sp => {
-                const store = STORES[sp.store];
-                if (!store) return null;
+                const store = STORES[sp.store]; if (!store) return null;
                 const scoreColor = sp.avg_score >= 3 ? "#4ADE80" : sp.avg_score >= 2 ? "#FBBF24" : "#F87171";
                 return (
                   <div key={sp.store} style={{ background: "#1A1D23", borderRadius: 12, padding: 20, border: `1px solid ${store.color}33` }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ width: 32, height: 32, borderRadius: 8, background: store.color + "22", display: "flex", alignItems: "center", justifyContent: "center", color: store.color, fontWeight: 800, fontSize: 14 }}>{store.icon}</div>
-                        <div>
-                          <div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{store.name}</div>
-                          <div style={{ color: "#6B6F78", fontSize: 11 }}>{sp.total_audits} audited</div>
-                        </div>
+                        <div><div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{store.name}</div><div style={{ color: "#6B6F78", fontSize: 11 }}>{sp.total_audits} audited</div></div>
                       </div>
-                      <div style={{ padding: "6px 12px", borderRadius: 8, background: scoreColor + "22", color: scoreColor, fontSize: 18, fontWeight: 800 }}>
-                        {parseFloat(sp.avg_score).toFixed(2)}
-                      </div>
+                      <div style={{ padding: "6px 12px", borderRadius: 8, background: scoreColor + "22", color: scoreColor, fontSize: 18, fontWeight: 800 }}>{parseFloat(sp.avg_score).toFixed(2)}</div>
                     </div>
-                    {[
-                      { label: "Appt Offered", rate: sp.appt_rate },
-                      { label: "Discount", rate: sp.discount_rate },
-                      { label: "Warranty", rate: sp.warranty_rate },
-                      { label: "Fast Turn.", rate: sp.turnaround_rate },
-                    ].map((item, i) => (
+                    {[{ label: "Appt Offered", rate: sp.appt_rate }, { label: "Discount", rate: sp.discount_rate }, { label: "Warranty", rate: sp.warranty_rate }, { label: "Fast Turn.", rate: sp.turnaround_rate }].map((item, i) => (
                       <div key={i} style={{ marginTop: 8 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
                           <span style={{ color: "#8B8F98", fontSize: 11 }}>{item.label}</span>
                           <span style={{ color: parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171", fontSize: 11, fontWeight: 700 }}>{parseFloat(item.rate).toFixed(0)}%</span>
                         </div>
-                        <div style={{ background: "#12141A", borderRadius: 4, height: 6, overflow: "hidden" }}>
-                          <div style={{ width: `${item.rate}%`, height: "100%", background: parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171", borderRadius: 4 }} />
-                        </div>
+                        <div style={{ background: "#12141A", borderRadius: 4, height: 6, overflow: "hidden" }}><div style={{ width: `${item.rate}%`, height: "100%", background: parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171", borderRadius: 4 }} /></div>
                       </div>
                     ))}
                   </div>
@@ -540,101 +493,66 @@ function AuditTab({ rawCallData, storeFilter }) {
               })}
             </div>
           )}
-
-          {totalAudits === 0 && (
-            <div style={{ background: "#1A1D23", borderRadius: 12, padding: 40, textAlign: "center" }}>
-              <div style={{ fontSize: 32, marginBottom: 12 }}>🎯</div>
-              <div style={{ color: "#F0F1F3", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>No audits yet</div>
-              <div style={{ color: "#6B6F78", fontSize: 13 }}>Go to "Audit Calls" to score your first call, or wait for the hourly auto-audit to run.</div>
-            </div>
-          )}
+          {totalAudits === 0 && <div style={{ background: "#1A1D23", borderRadius: 12, padding: 40, textAlign: "center" }}><div style={{ fontSize: 32, marginBottom: 12 }}>🎯</div><div style={{ color: "#F0F1F3", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>No audits yet</div><div style={{ color: "#6B6F78", fontSize: 13 }}>Go to "Audit Calls" to score your first call, or wait for the hourly auto-audit.</div></div>}
         </div>
       )}
 
-      {/* ── EMPLOYEE SCORES ── */}
       {auditView === "employees" && (
         <div>
           <SectionHeader title="Employee Leaderboard" subtitle="Ranked by average audit score" icon="🏆" />
           {employees.length > 0 ? (
-            <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
-                  <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Rank</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Employee</th>
-                  <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Store</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Calls</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Avg Score</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Appt %</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Disc %</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Warr %</th>
-                  <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Turn %</th>
-                </tr></thead>
-                <tbody>
-                  {employees.sort((a, b) => b.avg_score - a.avg_score).map((emp, i) => {
-                    const store = STORES[emp.store];
-                    const scoreColor = emp.avg_score >= 3 ? "#4ADE80" : emp.avg_score >= 2 ? "#FBBF24" : "#F87171";
-                    const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
-                    return (
-                      <tr key={`${emp.employee}-${emp.store}`} style={{ borderBottom: "1px solid #1E2028" }}>
-                        <td style={{ padding: "12px", fontSize: 16 }}>{medal}</td>
-                        <td style={{ padding: "12px", color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{emp.employee}</td>
-                        <td style={{ padding: "12px" }}>
-                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: store?.color || "#8B8F98", fontSize: 12, fontWeight: 600 }}>
-                            <span style={{ width: 8, height: 8, borderRadius: "50%", background: store?.color }} />
-                            {store?.name?.replace("CPR ", "") || emp.store}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: "center", padding: "12px", color: "#C8CAD0", fontSize: 13 }}>{emp.total_calls}</td>
-                        <td style={{ textAlign: "center", padding: "12px" }}>
-                          <span style={{ padding: "4px 10px", borderRadius: 6, background: scoreColor + "22", color: scoreColor, fontSize: 14, fontWeight: 800 }}>
-                            {parseFloat(emp.avg_score).toFixed(2)}
-                          </span>
-                        </td>
-                        {["appt_rate", "discount_rate", "warranty_rate", "turnaround_rate"].map(key => {
-                          const val = parseFloat(emp[key]);
-                          return (
-                            <td key={key} style={{ textAlign: "center", padding: "12px", color: val >= 70 ? "#4ADE80" : val >= 40 ? "#FBBF24" : "#F87171", fontSize: 13, fontWeight: 600 }}>
-                              {val.toFixed(0)}%
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div style={{ background: "#1A1D23", borderRadius: 12, padding: 40, textAlign: "center", color: "#6B6F78" }}>
-              No employee data yet. Audit some calls to build the leaderboard.
-            </div>
-          )}
-
-          {/* Employee score chart */}
-          {employees.length > 0 && (
-            <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginTop: 20 }}>
-              <SectionHeader title="Score Comparison" icon="📊" />
-              <div style={{ height: 300 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={employees.sort((a,b) => b.avg_score - a.avg_score).slice(0,10).map(e => ({
-                    name: e.employee, score: parseFloat(e.avg_score),
-                    appt: parseFloat(e.appt_rate), discount: parseFloat(e.discount_rate),
-                    warranty: parseFloat(e.warranty_rate), turnaround: parseFloat(e.turnaround_rate),
-                  }))} layout="vertical" barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
-                    <XAxis type="number" domain={[0, 4]} tick={{ fill: "#6B6F78", fontSize: 10 }} tickLine={false} axisLine={false} />
-                    <YAxis type="category" dataKey="name" tick={{ fill: "#C8CAD0", fontSize: 12 }} width={100} tickLine={false} axisLine={false} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="score" name="Avg Score" fill="#7C8AFF" radius={[0,6,6,0]} barSize={18} />
-                  </BarChart>
-                </ResponsiveContainer>
+            <div>
+              <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Rank</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Employee</th>
+                    <th style={{ textAlign: "left", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Store</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Calls</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Avg Score</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Appt %</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Disc %</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Warr %</th>
+                    <th style={{ textAlign: "center", padding: "10px 12px", color: "#6B6F78", fontSize: 10, textTransform: "uppercase" }}>Turn %</th>
+                  </tr></thead>
+                  <tbody>
+                    {employees.sort((a, b) => b.avg_score - a.avg_score).map((emp, i) => {
+                      const store = STORES[emp.store];
+                      const scoreColor = emp.avg_score >= 3 ? "#4ADE80" : emp.avg_score >= 2 ? "#FBBF24" : "#F87171";
+                      const medal = i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : `${i + 1}`;
+                      return (
+                        <tr key={`${emp.employee}-${emp.store}`} style={{ borderBottom: "1px solid #1E2028" }}>
+                          <td style={{ padding: "12px", fontSize: 16 }}>{medal}</td>
+                          <td style={{ padding: "12px", color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{emp.employee}</td>
+                          <td style={{ padding: "12px" }}><span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: store?.color || "#8B8F98", fontSize: 12, fontWeight: 600 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: store?.color }} />{store?.name?.replace("CPR ", "") || emp.store}</span></td>
+                          <td style={{ textAlign: "center", padding: "12px", color: "#C8CAD0", fontSize: 13 }}>{emp.total_calls}</td>
+                          <td style={{ textAlign: "center", padding: "12px" }}><span style={{ padding: "4px 10px", borderRadius: 6, background: scoreColor + "22", color: scoreColor, fontSize: 14, fontWeight: 800 }}>{parseFloat(emp.avg_score).toFixed(2)}</span></td>
+                          {["appt_rate", "discount_rate", "warranty_rate", "turnaround_rate"].map(key => { const val = parseFloat(emp[key]); return (<td key={key} style={{ textAlign: "center", padding: "12px", color: val >= 70 ? "#4ADE80" : val >= 40 ? "#FBBF24" : "#F87171", fontSize: 13, fontWeight: 600 }}>{val.toFixed(0)}%</td>); })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginTop: 20 }}>
+                <SectionHeader title="Score Comparison" icon="📊" />
+                <div style={{ height: 300 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={employees.sort((a,b) => b.avg_score - a.avg_score).slice(0,10).map(e => ({ name: e.employee, score: parseFloat(e.avg_score) }))} layout="vertical" barGap={2}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
+                      <XAxis type="number" domain={[0, 4]} tick={{ fill: "#6B6F78", fontSize: 10 }} tickLine={false} axisLine={false} />
+                      <YAxis type="category" dataKey="name" tick={{ fill: "#C8CAD0", fontSize: 12 }} width={100} tickLine={false} axisLine={false} />
+                      <Tooltip content={<CustomTooltip />} />
+                      <Bar dataKey="score" name="Avg Score" fill="#7C8AFF" radius={[0,6,6,0]} barSize={18} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             </div>
-          )}
+          ) : <div style={{ background: "#1A1D23", borderRadius: 12, padding: 40, textAlign: "center", color: "#6B6F78" }}>No employee data yet. Audit some calls to build the leaderboard.</div>}
         </div>
       )}
 
-      {/* ── AUDIT CALLS (manual) ── */}
       {auditView === "calls" && (
         <div>
           {error && <div style={{ padding: "8px 12px", borderRadius: 6, background: "#F8717122", color: "#F87171", fontSize: 12, marginBottom: 12 }}>{error}</div>}
@@ -648,43 +566,19 @@ function AuditTab({ rawCallData, storeFilter }) {
                 return (
                   <div key={i} style={{ padding: "12px 0", borderBottom: "1px solid #2A2D35", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                        <span style={{ width: 8, height: 8, borderRadius: "50%", background: store?.color || "#8B8F98" }} />
-                        <span style={{ color: "#E8E9EC", fontSize: 13, fontWeight: 600 }}>{call.external_number}</span>
-                        <span style={{ color: "#6B6F78", fontSize: 11 }}>→ {call.name}</span>
-                      </div>
-                      <div style={{ color: "#6B6F78", fontSize: 11, marginTop: 2 }}>
-                        {d.toLocaleDateString()} {d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · {call.talk_duration ? `${parseFloat(call.talk_duration).toFixed(1)} min` : ""}
-                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 8, height: 8, borderRadius: "50%", background: store?.color || "#8B8F98" }} /><span style={{ color: "#E8E9EC", fontSize: 13, fontWeight: 600 }}>{call.external_number}</span><span style={{ color: "#6B6F78", fontSize: 11 }}>→ {call.name}</span></div>
+                      <div style={{ color: "#6B6F78", fontSize: 11, marginTop: 2 }}>{d.toLocaleDateString()} {d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · {call.talk_duration ? `${parseFloat(call.talk_duration).toFixed(1)} min` : ""}</div>
                     </div>
-                    <button
-                      onClick={() => !isAuditing && runAudit(call)}
-                      disabled={isAuditing}
-                      style={{
-                        padding: "6px 14px", borderRadius: 6, border: "none",
-                        cursor: isAuditing ? "default" : "pointer",
-                        background: isAuditing ? "#7C8AFF22" : "#7C8AFF",
-                        color: isAuditing ? "#7C8AFF" : "#FFF",
-                        fontSize: 12, fontWeight: 600,
-                        animation: isAuditing ? "pulse 1.5s infinite" : "none",
-                      }}
-                    >
-                      {isAuditing ? "Scoring..." : "Audit"}
-                    </button>
+                    <button onClick={() => !isAuditing && runAudit(call)} disabled={isAuditing} style={{ padding: "6px 14px", borderRadius: 6, border: "none", cursor: isAuditing ? "default" : "pointer", background: isAuditing ? "#7C8AFF22" : "#7C8AFF", color: isAuditing ? "#7C8AFF" : "#FFF", fontSize: 12, fontWeight: 600, animation: isAuditing ? "pulse 1.5s infinite" : "none" }}>{isAuditing ? "Scoring..." : "Audit"}</button>
                   </div>
                 );
               })}
-              {recordedCalls.length === 0 && (
-                <div style={{ color: "#6B6F78", fontSize: 13, padding: 20, textAlign: "center" }}>
-                  All recorded calls have been audited! New calls will be auto-scored every hour.
-                </div>
-              )}
+              {recordedCalls.length === 0 && <div style={{ color: "#6B6F78", fontSize: 13, padding: 20, textAlign: "center" }}>All recorded calls have been audited! New calls will be auto-scored every hour.</div>}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── AUDIT HISTORY ── */}
       {auditView === "history" && (
         <div>
           <SectionHeader title="Audit History" subtitle={`${audits.length} calls scored`} icon="📋" />
@@ -699,33 +593,16 @@ function AuditTab({ rawCallData, storeFilter }) {
                   <div key={audit.call_id || i} style={{ padding: 16, borderBottom: "1px solid #2A2D35" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
                       <div>
-                        <div style={{ color: "#E8E9EC", fontSize: 13, fontWeight: 700 }}>
-                          {audit.employee || "Unknown"} — {audit.phone}
-                        </div>
-                        <div style={{ color: "#6B6F78", fontSize: 11 }}>
-                          {d.toLocaleDateString()} {d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <span style={{ color: store?.color }}>{store?.name || audit.store}</span>
-                        </div>
+                        <div style={{ color: "#E8E9EC", fontSize: 13, fontWeight: 700 }}>{audit.employee || "Unknown"} — {audit.phone}</div>
+                        <div style={{ color: "#6B6F78", fontSize: 11 }}>{d.toLocaleDateString()} {d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})} · <span style={{ color: store?.color }}>{store?.name || audit.store}</span></div>
                       </div>
-                      <div style={{ padding: "6px 12px", borderRadius: 8, background: scoreColor + "22", color: scoreColor, fontSize: 16, fontWeight: 800 }}>
-                        {score.toFixed(2)} / 4
-                      </div>
+                      <div style={{ padding: "6px 12px", borderRadius: 8, background: scoreColor + "22", color: scoreColor, fontSize: 16, fontWeight: 800 }}>{score.toFixed(2)} / 4</div>
                     </div>
-                    <div style={{ color: "#C8CAD0", fontSize: 12, marginBottom: 8 }}>
-                      <strong>Inquiry:</strong> {audit.inquiry || "—"}<br />
-                      <strong>Outcome:</strong> {audit.outcome || "—"}
-                    </div>
+                    <div style={{ color: "#C8CAD0", fontSize: 12, marginBottom: 8 }}><strong>Inquiry:</strong> {audit.inquiry || "—"}<br /><strong>Outcome:</strong> {audit.outcome || "—"}</div>
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6 }}>
-                      {[
-                        { key: "appt_offered", label: "Appt", notes: "appt_notes" },
-                        { key: "discount_mentioned", label: "Discount", notes: "discount_notes" },
-                        { key: "warranty_mentioned", label: "Warranty", notes: "warranty_notes" },
-                        { key: "faster_turnaround", label: "Fast Turn.", notes: "turnaround_notes" },
-                      ].map(({ key, label, notes }) => (
+                      {[{ key: "appt_offered", label: "Appt", notes: "appt_notes" }, { key: "discount_mentioned", label: "Discount", notes: "discount_notes" }, { key: "warranty_mentioned", label: "Warranty", notes: "warranty_notes" }, { key: "faster_turnaround", label: "Fast Turn.", notes: "turnaround_notes" }].map(({ key, label, notes }) => (
                         <div key={key} style={{ padding: "6px 8px", borderRadius: 6, background: audit[key] ? "#4ADE8012" : "#F8717112", border: `1px solid ${audit[key] ? "#4ADE8033" : "#F8717133"}` }}>
-                          <div style={{ display: "flex", justifyContent: "space-between" }}>
-                            <span style={{ color: "#8B8F98", fontSize: 10 }}>{label}</span>
-                            <span style={{ color: audit[key] ? "#4ADE80" : "#F87171", fontSize: 10, fontWeight: 700 }}>{audit[key] ? "PASS" : "FAIL"}</span>
-                          </div>
+                          <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#8B8F98", fontSize: 10 }}>{label}</span><span style={{ color: audit[key] ? "#4ADE80" : "#F87171", fontSize: 10, fontWeight: 700 }}>{audit[key] ? "PASS" : "FAIL"}</span></div>
                           <div style={{ color: "#6B6F78", fontSize: 9, marginTop: 2 }}>{audit[notes] || ""}</div>
                         </div>
                       ))}
@@ -733,11 +610,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                   </div>
                 );
               })}
-              {audits.length === 0 && (
-                <div style={{ color: "#6B6F78", fontSize: 13, padding: 20, textAlign: "center" }}>
-                  No audit history yet.
-                </div>
-              )}
+              {audits.length === 0 && <div style={{ color: "#6B6F78", fontSize: 13, padding: 20, textAlign: "center" }}>No audit history yet.</div>}
             </div>
           </div>
         </div>
@@ -746,13 +619,17 @@ function AuditTab({ rawCallData, storeFilter }) {
   );
 }
 
-// ── Main Dashboard ──
+// ══════════════════════════════════════════
+// MAIN DASHBOARD
+// ══════════════════════════════════════════
 
 export default function DialpadDashboard() {
   const [activeTab, setActiveTab] = useState("overview");
   const [storeFilter, setStoreFilter] = useState("all");
   const [isLive, setIsLive] = useState(false);
+  const [isStored, setIsStored] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [lastSync, setLastSync] = useState(null);
   const [rawCallData, setRawCallData] = useState([]);
 
   const [dailyCalls, setDailyCalls] = useState(SAMPLE_DAILY_CALLS);
@@ -762,6 +639,30 @@ export default function DialpadDashboard() {
   const [keywords, setKeywords] = useState(SAMPLE_KEYWORDS);
   const [problemCalls, setProblemCalls] = useState(SAMPLE_PROBLEM_CALLS);
 
+  // Load from Supabase (instant)
+  const loadStoredData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dialpad/stored?days=30");
+      const json = await res.json();
+      if (json.success && json.hasData) {
+        const d = json.data;
+        if (d.dailyCalls?.length > 0) setDailyCalls(d.dailyCalls);
+        if (d.hourlyMissed?.length > 0) setHourlyMissed(d.hourlyMissed);
+        if (d.dowData?.length > 0) setDowData(d.dowData);
+        if (d.callbackData?.length > 0) setCallbackData(d.callbackData);
+        if (d.problemCalls?.length > 0) setProblemCalls(d.problemCalls);
+        setIsStored(true);
+        setLastSync(json.lastSync);
+        console.log("Loaded stored data from Supabase");
+        return true;
+      }
+    } catch (err) {
+      console.error("Failed to load stored data:", err);
+    }
+    return false;
+  }, []);
+
+  // Load from Dialpad API (slow, ~60-90s)
   const loadLiveData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -780,12 +681,23 @@ export default function DialpadDashboard() {
         const problems = transformToProblemCalls(data);
         if (problems.some(p => STORE_KEYS.some(k => p[k] > 0))) setProblemCalls(problems);
         setIsLive(true);
+        setIsStored(false);
       }
     } catch (err) { console.error("Failed to load live data:", err); }
     setIsLoading(false);
   }, []);
 
-  useEffect(() => { loadLiveData(); }, [loadLiveData]);
+  // On mount: try Supabase first, fall back to live
+  useEffect(() => {
+    async function init() {
+      const hasStored = await loadStoredData();
+      if (!hasStored) {
+        // No stored data yet — load live as fallback
+        await loadLiveData();
+      }
+    }
+    init();
+  }, [loadStoredData, loadLiveData]);
 
   const overviewStats = useMemo(() => {
     const totals = { total: 0, answered: 0 }; const storeStats = {};
@@ -821,7 +733,7 @@ export default function DialpadDashboard() {
         ))}
       </div>
       <div style={{ padding: 28 }}>
-        <DataBanner isLive={isLive} isLoading={isLoading} onRefresh={loadLiveData} />
+        <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {activeTab === "overview"  && <OverviewTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} />}
         {activeTab === "keywords"  && <KeywordsTab keywords={keywords} />}
         {activeTab === "missed"    && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} />}
@@ -830,7 +742,7 @@ export default function DialpadDashboard() {
         {activeTab === "audit"     && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
       </div>
       <div style={{ padding: "16px 28px", borderTop: "1px solid #1E2028", color: "#4A4D55", fontSize: 11, textAlign: "center", fontFamily: "'JetBrains Mono', monospace" }}>
-        {isLive ? "Live data from Dialpad API" : "Sample data"} · Focused Technologies LLC
+        {isStored ? `Stored data · Last synced ${lastSync ? new Date(lastSync).toLocaleString() : "—"}` : isLive ? "Live data from Dialpad API" : "Sample data"} · Focused Technologies LLC
       </div>
     </div>
   );
