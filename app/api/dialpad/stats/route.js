@@ -32,7 +32,7 @@ export async function GET(request) {
       const res = await fetch(`${DIALPAD_BASE}/stats`, {
         method: "POST",
         headers: headers(),
-       body: JSON.stringify({
+        body: JSON.stringify({
           target_id: OFFICE_ID,
           target_type: "office",
           export_type: "records",
@@ -42,12 +42,13 @@ export async function GET(request) {
           timezone: "America/Indiana/Indianapolis",
         }),
       });
+      const rawText = await res.text();
+      let data;
+      try { data = JSON.parse(rawText); } catch(e) { data = rawText; }
       if (!res.ok) {
-        const err = await res.text();
-        return NextResponse.json({ success: false, error: `POST failed (${res.status}): ${err}` });
+        return NextResponse.json({ success: false, error: `POST failed (${res.status})`, raw: data });
       }
-      const data = await res.json();
-      return NextResponse.json({ success: true, requestId: data.request_id || data.id, state: "processing" });
+      return NextResponse.json({ success: true, requestId: data.request_id || data.id, state: "processing", raw: data });
     } catch (err) {
       return NextResponse.json({ success: false, error: err.message });
     }
@@ -59,22 +60,33 @@ export async function GET(request) {
         method: "GET",
         headers: headers(),
       });
-      if (!res.ok) {
-        return NextResponse.json({ success: true, state: "processing" });
-      }
+      const status = res.status;
       const ct = res.headers.get("content-type") || "";
-      if (ct.includes("text/csv")) {
-        const csv = await res.text();
-        return NextResponse.json({ success: true, state: "completed", data: parseCSV(csv) });
+      const rawText = await res.text();
+
+      // Return full debug info
+      const debug = { status, contentType: ct, bodyLength: rawText.length, bodyPreview: rawText.substring(0, 500) };
+
+      if (status === 200 && ct.includes("text/csv")) {
+        const rows = parseCSV(rawText);
+        return NextResponse.json({ success: true, state: "completed", data: rows, recordCount: rows.length, debug });
       }
-      const json = await res.json();
-      if (json.file_url) {
-        const csvRes = await fetch(json.file_url, { headers: headers() });
-        const csv = await csvRes.text();
-        return NextResponse.json({ success: true, state: "completed", data: parseCSV(csv) });
+
+      if (status === 200) {
+        let json;
+        try { json = JSON.parse(rawText); } catch(e) { json = null; }
+
+        if (json && json.file_url) {
+          const csvRes = await fetch(json.file_url, { headers: headers() });
+          const csv = await csvRes.text();
+          const rows = parseCSV(csv);
+          return NextResponse.json({ success: true, state: "completed", data: rows, recordCount: rows.length, debug });
+        }
+
+        return NextResponse.json({ success: true, state: json?.state || "unknown", debug, rawJson: json });
       }
-      if (json.state === "failed") return NextResponse.json({ success: false, error: "Export failed" });
-      return NextResponse.json({ success: true, state: "processing" });
+
+      return NextResponse.json({ success: true, state: "processing", debug });
     } catch (err) {
       return NextResponse.json({ success: false, error: err.message });
     }
