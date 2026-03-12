@@ -13,7 +13,7 @@
   "react": "^18.x.x",
   "react-dom": "^18.x.x",
   "recharts": "^2.x.x"
-}
+},
   "devDependencies": {
     "tailwindcss": "^3.4.0",
     "postcss": "^8.4.0",
