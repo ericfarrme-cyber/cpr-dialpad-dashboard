@@ -117,20 +117,39 @@ function AuditTab({ rawCallData, storeFilter }) {
   const [loading, setLoading] = useState(true);
   const [auditView, setAuditView] = useState("overview");
   const [callTypeFilter, setCallTypeFilter] = useState("all");
+  const [expandedEmp, setExpandedEmp] = useState(null);
+  const [repeatCallers, setRepeatCallers] = useState(null);
+  const [repeatLoading, setRepeatLoading] = useState(false);
+  const [roster, setRoster] = useState([]);
+  const [unmatched, setUnmatched] = useState([]);
+  const [rosterForm, setRosterForm] = useState({ name:"", store:"fishers", aliases:"", role:"Technician" });
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       try {
         const sp = storeFilter !== "all" ? `&store=${storeFilter}` : "";
-        const [aR, eR, sR] = await Promise.all([
+        const [aR, sR, rR] = await Promise.all([
           fetch(`/api/dialpad/audit?limit=200&days=30${sp}`).then(r=>r.json()),
-          fetch(`/api/dialpad/audit?action=employees${sp}`).then(r=>r.json()),
           fetch(`/api/dialpad/audit?action=stores`).then(r=>r.json()),
+          fetch(`/api/dialpad/roster?action=list`).then(r=>r.json()).catch(()=>({success:false})),
         ]);
         if (aR.success) setAudits(aR.audits || []);
-        if (eR.success) setEmployees(eR.employees || []);
         if (sR.success) setStorePerf(sR.stores || []);
+        if (rR.success) setRoster(rR.employees || []);
+
+        // Try consolidated (roster-aware) employee data first, fall back to raw
+        const cR = await fetch(`/api/dialpad/roster?action=consolidated${sp}`).then(r=>r.json()).catch(()=>({success:false}));
+        if (cR.success && cR.employees?.length > 0) {
+          setEmployees(cR.employees);
+        } else {
+          const eR = await fetch(`/api/dialpad/audit?action=employees${sp}`).then(r=>r.json());
+          if (eR.success) setEmployees(eR.employees || []);
+        }
+
+        // Load unmatched names
+        const uR = await fetch("/api/dialpad/roster?action=unmatched").then(r=>r.json()).catch(()=>({success:false}));
+        if (uR.success) setUnmatched(uR.unmatched || []);
       } catch (e) { console.error(e); }
       setLoading(false);
     }
@@ -199,6 +218,21 @@ function AuditTab({ rawCallData, storeFilter }) {
   const oppCount = audits.filter(a=>a.call_type==="opportunity").length;
   const currCount = audits.filter(a=>a.call_type==="current_customer").length;
 
+  // Get audits for a specific employee
+  const getEmpAudits = (empName, empStore) => audits.filter(a => a.employee === empName && a.store === empStore);
+
+  // Load repeat callers (dropped ball detection)
+  const loadRepeatCallers = async () => {
+    setRepeatLoading(true);
+    try {
+      const sp = storeFilter !== "all" ? `&store=${storeFilter}` : "";
+      const res = await fetch(`/api/dialpad/repeat-callers?days=7${sp}`);
+      const json = await res.json();
+      if (json.success) setRepeatCallers(json);
+    } catch (e) { console.error(e); }
+    setRepeatLoading(false);
+  };
+
   // Criteria renderer based on call type
   const CriteriaGrid = ({ audit }) => {
     const isOpp = audit.call_type !== "current_customer";
@@ -232,7 +266,7 @@ function AuditTab({ rawCallData, storeFilter }) {
       {/* Sub-nav + call type filter */}
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:6 }}>
-          {[{id:"overview",label:"Overview",icon:"📊"},{id:"employees",label:"Employee Scores",icon:"👤"},{id:"calls",label:"Audit Calls",icon:"🎙️"},{id:"history",label:"Audit History",icon:"📋"}].map(v=>(
+          {[{id:"overview",label:"Overview",icon:"📊"},{id:"employees",label:"Employee Scores",icon:"👤"},{id:"roster",label:"Roster",icon:"📝"},{id:"dropped",label:"Dropped Balls",icon:"🚨"},{id:"calls",label:"Audit Calls",icon:"🎙️"},{id:"history",label:"Audit History",icon:"📋"}].map(v=>(
             <button key={v.id} onClick={()=>setAuditView(v.id)} style={{ padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",background:auditView===v.id?"#7C8AFF22":"#1A1D23",color:auditView===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600,display:"flex",alignItems:"center",gap:6 }}>{v.icon} {v.label}</button>
           ))}
         </div>
@@ -255,9 +289,24 @@ function AuditTab({ rawCallData, storeFilter }) {
             <StatCard label="Unaudited" value={recordedCalls.length} accent="#C084FC" sub="recorded calls available"/>
             <StatCard label="Employees Found" value={employees.length} accent="#FB923C"/>
           </div>
-          {storePerf.length>0&&(
-            <div style={{ display:"grid",gridTemplateColumns:`repeat(${storePerf.length},1fr)`,gap:14,marginBottom:20 }}>
-              {storePerf.map(sp=>{const store=STORES[sp.store];if(!store)return null;const sc=sp.avg_score>=3?"#4ADE80":sp.avg_score>=2?"#FBBF24":"#F87171";return(
+          {storePerf.length>0&&(()=>{
+            // Consolidate duplicate store rows
+            const consolidated = {};
+            storePerf.forEach(sp => {
+              if (!consolidated[sp.store]) { consolidated[sp.store] = { ...sp }; }
+              else {
+                const c = consolidated[sp.store];
+                const totalW = c.total_audits + sp.total_audits;
+                c.avg_score = totalW > 0 ? ((c.avg_score * c.total_audits + sp.avg_score * sp.total_audits) / totalW) : 0;
+                c.total_audits = totalW;
+                c.opportunity_calls = (c.opportunity_calls||0) + (sp.opportunity_calls||0);
+                c.current_calls = (c.current_calls||0) + (sp.current_calls||0);
+              }
+            });
+            const stores = Object.values(consolidated).filter(sp => STORES[sp.store]);
+            return (
+            <div style={{ display:"grid",gridTemplateColumns:`repeat(${Math.min(stores.length,3)},1fr)`,gap:14,marginBottom:20 }}>
+              {stores.map(sp=>{const store=STORES[sp.store];const sc=sp.avg_score>=3?"#4ADE80":sp.avg_score>=2?"#FBBF24":"#F87171";return(
                 <div key={sp.store} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:`1px solid ${store.color}33` }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}><div style={{ width:32,height:32,borderRadius:8,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800,fontSize:14 }}>{store.icon}</div><div><div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{store.name}</div><div style={{ color:"#6B6F78",fontSize:11 }}>{sp.total_audits} audited · {sp.opportunity_calls||0} opp · {sp.current_calls||0} curr</div></div></div>
@@ -266,44 +315,219 @@ function AuditTab({ rawCallData, storeFilter }) {
                 </div>
               );})}
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
-      {/* EMPLOYEES */}
+      {/* EMPLOYEES — expandable rows */}
       {auditView==="employees"&&(
         <div>
-          <SectionHeader title="Employee Leaderboard" subtitle="Ranked by average audit score" icon="🏆"/>
+          <SectionHeader title="Employee Leaderboard" subtitle="Click an employee to expand detailed analysis" icon="🏆"/>
           {employees.length>0?(
             <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:"1px solid #2A2D35" }}>
-                  {["Rank","Employee","Store","Calls","Type Split","Avg Score","Appt %","Warr %"].map((h,i)=><th key={i} style={{ textAlign:i<=2?"left":"center",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>)}
-                </tr></thead>
-                <tbody>
-                  {employees.map((emp,i)=>{
-                    const store=STORES[emp.store];const sc=emp.avg_score>=3?"#4ADE80":emp.avg_score>=2?"#FBBF24":"#F87171";
-                    const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":`${i+1}`;
-                    return(<tr key={`${emp.employee}-${emp.store}`} style={{ borderBottom:"1px solid #1E2028" }}>
-                      <td style={{ padding:"12px",fontSize:16 }}>{medal}</td>
-                      <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</td>
-                      <td style={{ padding:"12px" }}><span style={{ display:"inline-flex",alignItems:"center",gap:6,color:store?.color||"#8B8F98",fontSize:12,fontWeight:600 }}><span style={{ width:8,height:8,borderRadius:"50%",background:store?.color }}/>{store?.name?.replace("CPR ","")||emp.store}</span></td>
-                      <td style={{ textAlign:"center",padding:"12px",color:"#C8CAD0",fontSize:13 }}>{emp.total_calls}</td>
-                      <td style={{ textAlign:"center",padding:"12px",fontSize:11 }}><span style={{ color:"#7C8AFF" }}>{emp.opportunity_calls||0} opp</span> · <span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></td>
-                      <td style={{ textAlign:"center",padding:"12px" }}><span style={{ padding:"4px 10px",borderRadius:6,background:sc+"22",color:sc,fontSize:14,fontWeight:800 }}>{parseFloat(emp.avg_score).toFixed(2)}</span></td>
-                      <td style={{ textAlign:"center",padding:"12px",color:parseFloat(emp.appt_rate)>=70?"#4ADE80":parseFloat(emp.appt_rate)>=40?"#FBBF24":"#F87171",fontSize:13,fontWeight:600 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</td>
-                      <td style={{ textAlign:"center",padding:"12px",color:parseFloat(emp.warranty_rate)>=70?"#4ADE80":parseFloat(emp.warranty_rate)>=40?"#FBBF24":"#F87171",fontSize:13,fontWeight:600 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</td>
-                    </tr>);
-                  })}
-                </tbody>
-              </table>
-              {employees.length>0&&(
-                <div style={{ marginTop:20,height:280 }}>
-                  <ResponsiveContainer width="100%" height="100%"><BarChart data={employees.slice(0,10).map(e=>({name:e.employee,score:parseFloat(e.avg_score)}))} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false}/><XAxis type="number" domain={[0,4]} tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false}/><YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:12}} width={100} tickLine={false} axisLine={false}/><Tooltip content={<CustomTooltip/>}/><Bar dataKey="score" name="Avg Score" fill="#7C8AFF" radius={[0,6,6,0]} barSize={18}/></BarChart></ResponsiveContainer>
-                </div>
-              )}
+              {employees.map((emp,i)=>{
+                const store=STORES[emp.store];const sc=emp.avg_score>=3?"#4ADE80":emp.avg_score>=2?"#FBBF24":"#F87171";
+                const medal=i===0?"🥇":i===1?"🥈":i===2?"🥉":`#${i+1}`;
+                const isExpanded=expandedEmp===`${emp.employee}__${emp.store}`;
+                const empAudits=isExpanded?getEmpAudits(emp.employee,emp.store):[];
+                const empOpp=empAudits.filter(a=>a.call_type==="opportunity");
+                const empCurr=empAudits.filter(a=>a.call_type==="current_customer");
+                return(
+                  <div key={`${emp.employee}-${emp.store}`} style={{ borderBottom:"1px solid #1E2028" }}>
+                    {/* Main row — clickable */}
+                    <div onClick={()=>setExpandedEmp(isExpanded?null:`${emp.employee}__${emp.store}`)}
+                      style={{ padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",borderRadius:8,
+                        background:isExpanded?"#12141A":"transparent",transition:"background 0.2s" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:16,flex:1 }}>
+                        <span style={{ fontSize:18,width:28,textAlign:"center" }}>{medal}</span>
+                        <div style={{ minWidth:120 }}>
+                          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</div>
+                          <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:2 }}>
+                            <span style={{ width:7,height:7,borderRadius:"50%",background:store?.color }}/>
+                            <span style={{ color:store?.color||"#8B8F98",fontSize:11 }}>{store?.name?.replace("CPR ","")||emp.store}</span>
+                          </div>
+                        </div>
+                        <div style={{ textAlign:"center",minWidth:50 }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Calls</div>
+                          <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div>
+                        </div>
+                        <div style={{ textAlign:"center",minWidth:80 }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Type Split</div>
+                          <div style={{ fontSize:11 }}><span style={{ color:"#7C8AFF" }}>{emp.opportunity_calls||0} opp</span> · <span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div>
+                        </div>
+                      </div>
+                      <div style={{ display:"flex",alignItems:"center",gap:16 }}>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9 }}>APPT</div>
+                          <div style={{ color:parseFloat(emp.appt_rate)>=70?"#4ADE80":parseFloat(emp.appt_rate)>=40?"#FBBF24":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9 }}>WARR</div>
+                          <div style={{ color:parseFloat(emp.warranty_rate)>=70?"#4ADE80":parseFloat(emp.warranty_rate)>=40?"#FBBF24":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</div>
+                        </div>
+                        <div style={{ padding:"5px 14px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{parseFloat(emp.avg_score).toFixed(2)}</div>
+                        <span style={{ color:"#6B6F78",fontSize:14,transition:"transform 0.2s",transform:isExpanded?"rotate(180deg)":"rotate(0)" }}>▼</span>
+                      </div>
+                    </div>
+                    {/* Expanded detail */}
+                    {isExpanded&&(
+                      <div style={{ padding:"0 12px 20px 56px" }}>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:8 }}>
+                          {/* Opportunity breakdown */}
+                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #7C8AFF22" }}>
+                            <div style={{ color:"#7C8AFF",fontSize:12,fontWeight:700,marginBottom:10 }}>Opportunity Calls ({empOpp.length})</div>
+                            {empOpp.length>0?(
+                              <div>
+                                {[{label:"Appt Offered",rate:emp.appt_rate,pts:"1.25"},{label:"Discount",rate:emp.discount_rate,pts:"0.92"},{label:"Warranty",rate:emp.warranty_rate,pts:"0.92"},{label:"Fast Turn.",rate:emp.turnaround_rate,pts:"0.92"}].map((item,j)=>(
+                                  <div key={j} style={{ marginBottom:8 }}>
+                                    <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
+                                      <span style={{ color:"#C8CAD0",fontSize:11 }}>{item.label} <span style={{ color:"#6B6F78" }}>({item.pts}pts)</span></span>
+                                      <span style={{ color:parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171",fontSize:12,fontWeight:700 }}>{parseFloat(item.rate||0).toFixed(0)}%</span>
+                                    </div>
+                                    <div style={{ background:"#1A1D23",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:`${item.rate||0}%`,height:"100%",background:parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171",borderRadius:3 }}/></div>
+                                  </div>
+                                ))}
+                                <div style={{ marginTop:12,borderTop:"1px solid #1E2028",paddingTop:10 }}>
+                                  <div style={{ color:"#8B8F98",fontSize:10,marginBottom:6 }}>Recent calls:</div>
+                                  {empOpp.slice(0,3).map((a,j)=>(
+                                    <div key={j} style={{ fontSize:11,color:"#C8CAD0",marginBottom:4,padding:"4px 0",borderBottom:"1px solid #1A1D2366" }}>
+                                      <span style={{ color:parseFloat(a.score)>=3?"#4ADE80":parseFloat(a.score)>=2?"#FBBF24":"#F87171",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span> — {a.inquiry||"No inquiry"} <span style={{ color:"#6B6F78" }}>({new Date(a.date_started||a.date).toLocaleDateString()})</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ):<div style={{ color:"#6B6F78",fontSize:11 }}>No opportunity calls audited yet</div>}
+                          </div>
+                          {/* Current customer breakdown */}
+                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #FBBF2422" }}>
+                            <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>Current Customer Calls ({empCurr.length})</div>
+                            {empCurr.length>0?(
+                              <div>
+                                {[{label:"Status Update",rate:emp.status_rate,pts:"1.00"},{label:"ETA Given",rate:emp.eta_rate,pts:"1.00"},{label:"Prof. Tone",rate:emp.tone_rate,pts:"1.00"},{label:"Next Steps",rate:emp.next_steps_rate,pts:"1.00"}].map((item,j)=>(
+                                  <div key={j} style={{ marginBottom:8 }}>
+                                    <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
+                                      <span style={{ color:"#C8CAD0",fontSize:11 }}>{item.label} <span style={{ color:"#6B6F78" }}>({item.pts}pts)</span></span>
+                                      <span style={{ color:parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171",fontSize:12,fontWeight:700 }}>{parseFloat(item.rate||0).toFixed(0)}%</span>
+                                    </div>
+                                    <div style={{ background:"#1A1D23",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:`${item.rate||0}%`,height:"100%",background:parseFloat(item.rate)>=70?"#4ADE80":parseFloat(item.rate)>=40?"#FBBF24":"#F87171",borderRadius:3 }}/></div>
+                                  </div>
+                                ))}
+                                <div style={{ marginTop:12,borderTop:"1px solid #1E2028",paddingTop:10 }}>
+                                  <div style={{ color:"#8B8F98",fontSize:10,marginBottom:6 }}>Recent calls:</div>
+                                  {empCurr.slice(0,3).map((a,j)=>(
+                                    <div key={j} style={{ fontSize:11,color:"#C8CAD0",marginBottom:4,padding:"4px 0",borderBottom:"1px solid #1A1D2366" }}>
+                                      <span style={{ color:parseFloat(a.score)>=3?"#4ADE80":parseFloat(a.score)>=2?"#FBBF24":"#F87171",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span> — {a.inquiry||"No inquiry"} {a.device_type&&a.device_type!=="Not mentioned"?`(${a.device_type})`:""} <span style={{ color:"#6B6F78" }}>({new Date(a.date_started||a.date).toLocaleDateString()})</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ):<div style={{ color:"#6B6F78",fontSize:11 }}>No current customer calls audited yet. These will appear as the cron classifies new calls.</div>}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
-          ):<div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No employee data yet. Run "Audit All" on the Audit Calls tab to build the leaderboard.</div>}
+          ):<div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No employee data yet. Run "Audit All" to build the leaderboard.</div>}
+        </div>
+      )}
+
+      {/* DROPPED BALLS — repeat caller detection */}
+      {auditView==="dropped"&&(
+        <div>
+          <SectionHeader title="Dropped Ball Tracker" subtitle="Customers who called multiple times — we may have missed proactive updates" icon="🚨"/>
+          {!repeatCallers&&(
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
+              <div style={{ fontSize:32,marginBottom:12 }}>🚨</div>
+              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>Detect repeat callers</div>
+              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>Scans the last 7 days for customers who called the same store multiple times. Flags cases where we likely didn't call them with a proactive update.</div>
+              <button onClick={loadRepeatCallers} disabled={repeatLoading} style={{
+                padding:"10px 24px",borderRadius:8,border:"none",cursor:repeatLoading?"default":"pointer",
+                background:repeatLoading?"#F8717122":"linear-gradient(135deg,#F87171,#FB923C)",
+                color:repeatLoading?"#F87171":"#FFF",fontSize:13,fontWeight:700,
+                animation:repeatLoading?"pulse 1.5s infinite":"none",
+              }}>{repeatLoading?"Scanning...":"🔍 Scan for Dropped Balls"}</button>
+            </div>
+          )}
+          {repeatCallers&&(
+            <div>
+              {/* Summary stats */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
+                <StatCard label="Repeat Callers" value={repeatCallers.summary?.total_repeat_callers||0} accent="#F87171" sub="last 7 days"/>
+                <StatCard label="High Severity" value={repeatCallers.summary?.high_severity||0} accent="#F87171" sub="3+ calls, no outbound"/>
+                <StatCard label="Medium Severity" value={repeatCallers.summary?.medium_severity||0} accent="#FBBF24"/>
+                <StatCard label="Never Called Back" value={repeatCallers.summary?.never_called_back||0} accent="#FB923C" sub="no proactive outreach"/>
+              </div>
+              {/* Store breakdown */}
+              <div style={{ display:"grid",gridTemplateColumns:`repeat(${STORE_KEYS.length},1fr)`,gap:14,marginBottom:20 }}>
+                {STORE_KEYS.map(sk=>{const store=STORES[sk];const sd=repeatCallers.summary?.by_store?.[sk]||{count:0,high:0};return(
+                  <div key={sk} style={{ background:"#1A1D23",borderRadius:10,padding:16,border:`1px solid ${store.color}33`,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      <span style={{ width:8,height:8,borderRadius:"50%",background:store.color }}/>
+                      <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{store.name}</span>
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{sd.count}</div>
+                      {sd.high>0&&<div style={{ color:"#F87171",fontSize:10 }}>{sd.high} high</div>}
+                    </div>
+                  </div>
+                );})}
+              </div>
+              {/* Repeat caller list */}
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Flagged Customers</div>
+                  <button onClick={loadRepeatCallers} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>↻ Rescan</button>
+                </div>
+                <div style={{ maxHeight:500,overflowY:"auto" }}>
+                  {(repeatCallers.repeatCallers||[]).map((rc,i)=>{
+                    const store=STORES[rc.store];
+                    const sevColor=rc.severity==="high"?"#F87171":rc.severity==="medium"?"#FBBF24":"#6B6F78";
+                    return(
+                      <div key={i} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35" }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+                          <div>
+                            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
+                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:sevColor+"22",color:sevColor,textTransform:"uppercase" }}>{rc.severity}</span>
+                              <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{rc.customer_name!=="Unknown"?rc.customer_name:rc.phone}</span>
+                              {rc.customer_name!=="Unknown"&&<span style={{ color:"#6B6F78",fontSize:11 }}>{rc.phone}</span>}
+                            </div>
+                            <div style={{ display:"flex",alignItems:"center",gap:8,fontSize:11,color:"#8B8F98" }}>
+                              <span style={{ width:7,height:7,borderRadius:"50%",background:store?.color }}/>
+                              <span style={{ color:store?.color }}>{store?.name||rc.store}</span>
+                              {rc.device_type!=="Unknown"&&<span>· {rc.device_type}</span>}
+                              <span>· {rc.time_span_hours}h span</span>
+                            </div>
+                          </div>
+                          <div style={{ textAlign:"right" }}>
+                            <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:800 }}>{rc.total_calls}x</div>
+                            <div style={{ fontSize:10,color:rc.we_called_back?"#4ADE80":"#F87171" }}>{rc.we_called_back?`We called back (${rc.outbound_calls}x)`:"Never called back"}</div>
+                          </div>
+                        </div>
+                        {/* Timeline of calls */}
+                        <div style={{ marginTop:10,paddingLeft:8,borderLeft:"2px solid #2A2D35" }}>
+                          {rc.calls.slice(0,5).map((c,j)=>(
+                            <div key={j} style={{ display:"flex",alignItems:"center",gap:8,padding:"4px 0",fontSize:11 }}>
+                              <span style={{ width:6,height:6,borderRadius:"50%",background:c.answered?"#4ADE80":c.missed?"#F87171":"#FBBF24",flexShrink:0 }}/>
+                              <span style={{ color:"#6B6F78",minWidth:120 }}>{new Date(c.date).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                              <span style={{ color:c.answered?"#C8CAD0":"#F87171" }}>{c.answered?"Answered":"Missed"}</span>
+                              {c.employee&&<span style={{ color:"#8B8F98" }}>— {c.employee}</span>}
+                              {c.inquiry&&<span style={{ color:"#6B6F78",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",maxWidth:250 }}>"{c.inquiry}"</span>}
+                            </div>
+                          ))}
+                          {rc.calls.length>5&&<div style={{ color:"#6B6F78",fontSize:10,padding:"4px 0" }}>+{rc.calls.length-5} more calls</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {(repeatCallers.repeatCallers||[]).length===0&&<div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No repeat callers detected — great job! 🎉</div>}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
