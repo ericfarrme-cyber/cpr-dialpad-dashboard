@@ -7,12 +7,13 @@
     "build": "next build",
     "start": "next start"
   },
-  "dependencies": {
-    "next": "^14.2.0",
-    "react": "^18.3.0",
-    "react-dom": "^18.3.0",
-    "recharts": "^2.12.0"
-  },
+ "dependencies": {
+  "@supabase/supabase-js": "^2.39.0",
+  "next": "14.x.x",
+  "react": "^18.x.x",
+  "react-dom": "^18.x.x",
+  "recharts": "^2.x.x"
+}
   "devDependencies": {
     "tailwindcss": "^3.4.0",
     "postcss": "^8.4.0",
