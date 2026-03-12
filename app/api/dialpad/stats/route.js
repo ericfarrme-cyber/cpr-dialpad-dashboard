@@ -76,8 +76,8 @@ export async function GET(request) {
         let json;
         try { json = JSON.parse(rawText); } catch(e) { json = null; }
 
-        if (json && json.file_url) {
-          const csvRes = await fetch(json.file_url, { headers: headers() });
+        if (json && (json.file_url || json.download_url)) {
+          const csvRes = await fetch(json.file_url || json.download_url, { headers: headers() });
           const csv = await csvRes.text();
           const rows = parseCSV(csv);
           return NextResponse.json({ success: true, state: "completed", data: rows, recordCount: rows.length, debug });
