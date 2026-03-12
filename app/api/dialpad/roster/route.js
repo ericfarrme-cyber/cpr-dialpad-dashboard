@@ -21,10 +21,15 @@ export async function GET(request) {
   if (action === "unmatched") {
     // Get all roster aliases
     const { data: roster } = await supabase.from("employee_roster").select("name, store, aliases").eq("active", true);
-    const aliasMap = {};
+    // Build two maps: store-specific and global (for multi-store employees)
+    const aliasMapByStore = {};
+    const aliasMapGlobal = {};
     (roster || []).forEach(r => {
       const allNames = [r.name.toLowerCase(), ...(r.aliases || []).map(a => a.toLowerCase())];
-      allNames.forEach(a => { aliasMap[`${a}__${r.store}`] = r.name; });
+      allNames.forEach(a => {
+        aliasMapByStore[`${a}__${r.store}`] = r.name;
+        aliasMapGlobal[a] = r.name; // global match regardless of store
+      });
     });
 
     // Get distinct employee names from audits
@@ -41,10 +46,12 @@ export async function GET(request) {
       uniqueNames[key].count++;
     });
 
-    // Find unmatched
+    // Find unmatched — check both store-specific and global
     const unmatched = Object.values(uniqueNames).filter(u => {
-      const lookupKey = `${u.name.toLowerCase()}__${u.store}`;
-      return !aliasMap[lookupKey];
+      const storeKey = `${u.name.toLowerCase()}__${u.store}`;
+      if (aliasMapByStore[storeKey]) return false; // matched by store
+      if (aliasMapGlobal[u.name.toLowerCase()]) return false; // matched globally
+      return true;
     }).sort((a, b) => b.count - a.count);
 
     return NextResponse.json({ success: true, unmatched });
@@ -146,25 +153,32 @@ function resolveEmployeeName(transcriptName, store, roster) {
 }
 
 // ── Helper: consolidate audit data using roster aliases ──
+// Groups by employee NAME only (not per-store) so multi-store employees merge
 function consolidateByRoster(roster, audits) {
-  // Build resolution map
+  // Build resolution map — try matching with store first, then without
   const resolveCache = {};
   function resolve(name, store) {
     const key = `${name}__${store}`;
     if (resolveCache[key] !== undefined) return resolveCache[key];
-    resolveCache[key] = resolveEmployeeName(name, store, roster) || name;
+    // Try store-specific match first
+    let resolved = resolveEmployeeName(name, store, roster);
+    // If no match, try matching against all stores (employee works at multiple locations)
+    if (!resolved) resolved = resolveEmployeeName(name, null, roster);
+    resolveCache[key] = resolved || name;
     return resolveCache[key];
   }
 
-  // Group audits by resolved name + store
+  // Group audits by resolved name ONLY (merge across stores)
   const groups = {};
   audits.forEach(a => {
     const realName = resolve(a.employee, a.store);
-    const key = `${realName}__${a.store}`;
+    const key = realName; // group by name only, not name+store
     if (!groups[key]) {
-      const rosterEntry = roster.find(r => r.name === realName && r.store === a.store);
-      groups[key] = { name: realName, store: a.store, store_name: a.store_name, role: rosterEntry?.role || "—", audits: [] };
+      const rosterEntry = roster.find(r => r.name === realName);
+      groups[key] = { name: realName, stores: new Set(), store_names: new Set(), role: rosterEntry?.role || "—", audits: [] };
     }
+    groups[key].stores.add(a.store);
+    if (a.store_name) groups[key].store_names.add(a.store_name);
     groups[key].audits.push(a);
   });
 
@@ -175,10 +189,12 @@ function consolidateByRoster(roster, audits) {
     const opp = all.filter(a => a.call_type === "opportunity");
     const curr = all.filter(a => a.call_type === "current_customer");
     const avg = (arr, field) => arr.length > 0 ? parseFloat(((arr.filter(a => a[field]).length / arr.length) * 100).toFixed(1)) : 0;
+    const storesArr = [...g.stores];
     return {
       employee: g.name,
-      store: g.store,
-      store_name: g.store_name,
+      store: storesArr[0] || "",  // primary store
+      stores: storesArr,           // all stores
+      store_name: [...g.store_names].join(", "),
       role: g.role,
       total_calls: total,
       avg_score: parseFloat((all.reduce((s, a) => s + parseFloat(a.score || 0), 0) / total).toFixed(2)),
@@ -194,6 +210,12 @@ function consolidateByRoster(roster, audits) {
       eta_rate: avg(all, "eta_communicated"),
       tone_rate: avg(all, "professional_tone"),
       next_steps_rate: avg(all, "next_steps_explained"),
+      // Per-store breakdown
+      by_store: storesArr.reduce((acc, s) => {
+        const sa = all.filter(a => a.store === s);
+        acc[s] = { calls: sa.length, avg_score: sa.length > 0 ? parseFloat((sa.reduce((sum, a) => sum + parseFloat(a.score || 0), 0) / sa.length).toFixed(2)) : 0 };
+        return acc;
+      }, {}),
       recent_audits: all.sort((a, b) => new Date(b.date_started) - new Date(a.date_started)).slice(0, 5),
     };
   }).sort((a, b) => b.avg_score - a.avg_score);
