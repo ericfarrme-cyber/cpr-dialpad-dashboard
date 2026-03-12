@@ -77,10 +77,12 @@ export async function GET(request) {
         try { json = JSON.parse(rawText); } catch(e) { json = null; }
 
         if (json && (json.file_url || json.download_url)) {
-          const csvRes = await fetch(json.file_url || json.download_url, { headers: headers() });
+          const dlUrl = json.file_url || json.download_url;
+          const csvRes = await fetch(dlUrl, { headers: headers() });
           const csv = await csvRes.text();
+          const csvStatus = csvRes.status;
           const rows = parseCSV(csv);
-          return NextResponse.json({ success: true, state: "completed", data: rows, recordCount: rows.length, debug });
+          return NextResponse.json({ success: true, state: "completed", data: rows, recordCount: rows.length, csvStatus, csvPreview: csv.substring(0, 1000), debug });
         }
 
         return NextResponse.json({ success: true, state: json?.state || "unknown", debug, rawJson: json });
