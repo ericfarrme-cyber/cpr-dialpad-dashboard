@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { isCallAudited, saveAuditResult, updateSyncState } from "@/lib/supabase";
+import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
 
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
@@ -40,21 +40,19 @@ Respond ONLY with valid JSON in this exact format:
   "max_score": 4.00
 }`;
 
-// Fetch recent calls for a store using the stats initiate/poll pattern
-async function fetchRecentCalls(storeKey) {
+// Fetch call data for a store via Dialpad stats API (initiate/poll)
+async function fetchStoreCallData(storeKey, daysAgoStart = 0, daysAgoEnd = 0) {
   const store = STORES[storeKey];
   if (!store) return [];
 
-  const now = new Date();
-  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000); // Look back 2 hours
+  console.log(`[Cron] Initiating stats request for ${storeKey}...`);
 
-  // Initiate stats request
   const initiateRes = await fetch(`${DIALPAD_BASE}/stats`, {
     method: "POST",
     headers: dialpadHeaders(),
     body: JSON.stringify({
-      days_ago_start: 0,
-      days_ago_end: 0,
+      days_ago_start: daysAgoStart,
+      days_ago_end: daysAgoEnd,
       stat_type: "calls",
       target_id: parseInt(store.dialpadId),
       target_type: "department",
@@ -63,30 +61,31 @@ async function fetchRecentCalls(storeKey) {
   });
 
   if (!initiateRes.ok) {
-    console.error(`Stats initiate failed for ${storeKey}: ${initiateRes.status}`);
+    console.error(`[Cron] Stats initiate failed for ${storeKey}: ${initiateRes.status}`);
     return [];
   }
 
   const { request_id } = await initiateRes.json();
+  console.log(`[Cron] Got request_id ${request_id} for ${storeKey}, waiting 35s...`);
 
-  // Wait for processing
   await new Promise(r => setTimeout(r, 35000));
 
-  // Poll for results
   const pollRes = await fetch(`${DIALPAD_BASE}/stats/${request_id}`, {
     method: "GET",
     headers: dialpadHeaders(),
   });
 
   if (!pollRes.ok) {
-    console.error(`Stats poll failed for ${storeKey}: ${pollRes.status}`);
+    console.error(`[Cron] Stats poll failed for ${storeKey}: ${pollRes.status}`);
     return [];
   }
 
   const pollData = await pollRes.json();
-  if (pollData.status !== "complete" || !pollData.download_url) return [];
+  if (pollData.status !== "complete" || !pollData.download_url) {
+    console.log(`[Cron] Stats not ready for ${storeKey}: ${pollData.status}`);
+    return [];
+  }
 
-  // Download CSV
   const csvRes = await fetch(pollData.download_url);
   const csvText = await csvRes.text();
 
@@ -104,25 +103,18 @@ async function fetchRecentCalls(storeKey) {
     records.push(row);
   }
 
-  // Filter to department-level recorded inbound calls
-  return records.filter(r =>
-    r.target_type === "department" &&
-    r.was_recorded === "true" &&
-    r.direction === "inbound" &&
-    r.categories?.includes("answered")
-  );
+  console.log(`[Cron] Got ${records.length} records for ${storeKey}`);
+  return records;
 }
 
-// Score a single call
+// Score a single call transcript
 async function scoreCall(call) {
-  // Fetch transcript
   const transcriptRes = await fetch(`${DIALPAD_BASE}/transcripts/${call.call_id}`, {
     method: "GET",
     headers: dialpadHeaders(),
   });
 
   if (!transcriptRes.ok) return null;
-
   const transcriptData = await transcriptRes.json();
 
   let formattedTranscript = "";
@@ -143,7 +135,6 @@ async function scoreCall(call) {
 
   const context = `\nCall Info: ${call.direction} call, ${call.external_number || "unknown"}, ${call.date_started}, Store: ${call.name || call._storeKey}\n`;
 
-  // Call Claude
   const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -190,49 +181,75 @@ async function scoreCall(call) {
 }
 
 export async function GET(request) {
-  // Verify cron secret (optional security)
+  // Verify cron secret
   const { searchParams } = new URL(request.url);
   const secret = searchParams.get("secret") || request.headers.get("authorization")?.replace("Bearer ", "");
   if (CRON_SECRET && secret !== CRON_SECRET) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const results = { stores: {}, totalProcessed: 0, totalNew: 0, errors: [] };
+  const results = {
+    callSync: {},
+    auditSync: {},
+    totalCallsSaved: 0,
+    totalNewAudits: 0,
+    errors: [],
+  };
 
   for (const storeKey of Object.keys(STORES)) {
     try {
-      console.log(`[Cron] Fetching calls for ${storeKey}...`);
-      const calls = await fetchRecentCalls(storeKey);
-      let newCount = 0;
+      // ── STEP 1: Fetch and save ALL call records ──
+      console.log(`[Cron] === Processing ${storeKey} ===`);
 
-      for (const call of calls) {
+      // Fetch today's calls (days_ago_start=0, days_ago_end=0)
+      const allCalls = await fetchStoreCallData(storeKey, 0, 0);
+
+      if (allCalls.length > 0) {
+        const { saved, errors: saveErrors } = await saveCallRecords(allCalls);
+        results.callSync[storeKey] = { fetched: allCalls.length, saved };
+        results.totalCallsSaved += saved;
+        await updateCallSyncState(storeKey, saved);
+        console.log(`[Cron] Saved ${saved} call records for ${storeKey}`);
+      } else {
+        results.callSync[storeKey] = { fetched: 0, saved: 0 };
+      }
+
+      // ── STEP 2: Audit new recorded calls ──
+      const recordedCalls = allCalls.filter(r =>
+        r.target_type === "department" &&
+        r.was_recorded === "true" &&
+        r.direction === "inbound" &&
+        r.categories?.includes("answered")
+      );
+
+      let newAudits = 0;
+      for (const call of recordedCalls) {
         if (!call.call_id) continue;
 
-        // Skip if already audited
         const done = await isCallAudited(call.call_id);
         if (done) continue;
 
-        console.log(`[Cron] Scoring ${call.call_id} for ${storeKey}...`);
+        console.log(`[Cron] Scoring call ${call.call_id}...`);
         const audit = await scoreCall(call);
         if (audit) {
           await saveAuditResult(audit);
-          newCount++;
-          results.totalNew++;
+          newAudits++;
+          results.totalNewAudits++;
         }
-        results.totalProcessed++;
 
-        // Small delay to avoid rate limits
+        // Rate limit delay
         await new Promise(r => setTimeout(r, 2000));
       }
 
-      await updateSyncState(storeKey, calls[0]?.call_id || "", newCount);
-      results.stores[storeKey] = { callsFound: calls.length, newAudits: newCount };
+      await updateSyncState(storeKey, recordedCalls[0]?.call_id || "", newAudits);
+      results.auditSync[storeKey] = { recorded: recordedCalls.length, newAudits };
+
     } catch (err) {
       console.error(`[Cron] Error processing ${storeKey}:`, err);
       results.errors.push({ store: storeKey, error: err.message });
     }
   }
 
-  console.log(`[Cron] Complete: ${results.totalNew} new audits`);
+  console.log(`[Cron] Complete: ${results.totalCallsSaved} calls saved, ${results.totalNewAudits} new audits`);
   return NextResponse.json({ success: true, ...results, timestamp: new Date().toISOString() });
 }
