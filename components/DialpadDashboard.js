@@ -435,6 +435,96 @@ function AuditTab({ rawCallData, storeFilter }) {
         </div>
       )}
 
+      {/* ROSTER — employee name management */}
+      {auditView==="roster"&&(
+        <div>
+          <SectionHeader title="Employee Roster" subtitle="Add your real employee names so transcript aliases get consolidated" icon="📝"/>
+          {/* Add employee form */}
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Add Employee</div>
+            <div style={{ display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end" }}>
+              <div>
+                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Full Name</div>
+                <input value={rosterForm.name} onChange={e=>setRosterForm(p=>({...p,name:e.target.value}))}
+                  placeholder="e.g. Mahmoud" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:160,outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Store</div>
+                <select value={rosterForm.store} onChange={e=>setRosterForm(p=>({...p,store:e.target.value}))}
+                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>
+                  {STORE_KEYS.map(k=><option key={k} value={k}>{STORES[k].name}</option>)}
+                </select>
+              </div>
+              <div>
+                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Aliases (comma-separated)</div>
+                <input value={rosterForm.aliases} onChange={e=>setRosterForm(p=>({...p,aliases:e.target.value}))}
+                  placeholder="e.g. Mau, Ma, Mah" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:220,outline:"none" }}/>
+              </div>
+              <div>
+                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Role</div>
+                <select value={rosterForm.role} onChange={e=>setRosterForm(p=>({...p,role:e.target.value}))}
+                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>
+                  {["Manager","Lead Tech","Technician","Front Desk"].map(r=><option key={r} value={r}>{r}</option>)}
+                </select>
+              </div>
+              <button onClick={async()=>{
+                if(!rosterForm.name) return;
+                const res = await fetch("/api/dialpad/roster",{method:"POST",headers:{"Content-Type":"application/json"},
+                  body:JSON.stringify({action:"add",...rosterForm})});
+                const json = await res.json();
+                if(json.success) {
+                  setRoster(prev=>[...prev.filter(r=>!(r.name===rosterForm.name&&r.store===rosterForm.store)),json.employee]);
+                  setRosterForm({name:"",store:rosterForm.store,aliases:"",role:"Technician"});
+                }
+              }} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
+            </div>
+          </div>
+
+          {/* Unmatched names */}
+          {unmatched.length>0&&(
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
+              <div style={{ color:"#FBBF24",fontSize:14,fontWeight:700,marginBottom:8 }}>⚠ Unmatched Transcript Names ({unmatched.length})</div>
+              <div style={{ color:"#6B6F78",fontSize:12,marginBottom:12 }}>These names appear in transcripts but don't match any roster entry. Add the employee above with appropriate aliases.</div>
+              <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
+                {unmatched.map((u,i)=>(
+                  <button key={i} onClick={()=>setRosterForm(p=>({...p,aliases:p.aliases?`${p.aliases}, ${u.name}`:u.name,store:u.store}))}
+                    style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#C8CAD0",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                    <span style={{ width:7,height:7,borderRadius:"50%",background:STORES[u.store]?.color||"#8B8F98" }}/>
+                    "{u.name}" <span style={{ color:"#6B6F78" }}>({u.count}x · {STORES[u.store]?.name?.replace("CPR ","")||u.store})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Current roster */}
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Current Roster ({roster.length} employees)</div>
+            {roster.length>0?(
+              <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                <thead><tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                  {["Name","Store","Role","Aliases",""].map((h,i)=><th key={i} style={{ textAlign:"left",padding:"8px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {roster.map(emp=>{const store=STORES[emp.store];return(
+                    <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028" }}>
+                      <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
+                      <td style={{ padding:"12px" }}><span style={{ display:"inline-flex",alignItems:"center",gap:6,color:store?.color||"#8B8F98",fontSize:12 }}><span style={{ width:7,height:7,borderRadius:"50%",background:store?.color }}/>{store?.name?.replace("CPR ","")||emp.store}</span></td>
+                      <td style={{ padding:"12px",color:"#C8CAD0",fontSize:12 }}>{emp.role}</td>
+                      <td style={{ padding:"12px" }}><div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.aliases||[]).map((a,j)=><span key={j} style={{ padding:"2px 8px",borderRadius:4,background:"#2A2D35",color:"#8B8F98",fontSize:11 }}>{a}</span>)}</div></td>
+                      <td style={{ padding:"12px" }}><button onClick={async()=>{
+                        await fetch("/api/dialpad/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:emp.id})});
+                        setRoster(prev=>prev.filter(r=>r.id!==emp.id));
+                      }} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button></td>
+                    </tr>
+                  );})}
+                </tbody>
+              </table>
+            ):<div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No employees added yet. Add your team above — the system will automatically match transcript names to real names.</div>}
+          </div>
+        </div>
+      )}
+
       {/* DROPPED BALLS — repeat caller detection */}
       {auditView==="dropped"&&(
         <div>
