@@ -149,22 +149,20 @@ export async function GET(request) {
   }
 
   var baseUrl = url.origin;
-  var results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
-  var storeKeys = Object.keys(STORES);
+  var storeParam = url.searchParams.get("store");
 
-  for (var si = 0; si < storeKeys.length; si++) {
-    var storeKey = storeKeys[si];
+  // ── SINGLE STORE MODE: /api/dialpad/cron?store=fishers ──
+  // Each store gets its own 300s budget
+  if (storeParam && STORES[storeParam]) {
+    console.log("[Cron] Single store mode: " + storeParam);
+    var results = { store: storeParam, callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
     try {
-      console.log("[Cron] === " + storeKey + " ===");
-      var allCalls = await fetchStoreCallData(storeKey, baseUrl);
-
+      var allCalls = await fetchStoreCallData(storeParam, baseUrl);
       if (allCalls.length > 0) {
         var saveResult = await saveCallRecords(allCalls);
-        results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
-        results.totalCallsSaved += saveResult.saved;
-        await updateCallSyncState(storeKey, saveResult.saved);
-      } else {
-        results.callSync[storeKey] = { fetched: 0, saved: 0 };
+        results.callSync = { fetched: allCalls.length, saved: saveResult.saved };
+        results.totalCallsSaved = saveResult.saved;
+        await updateCallSyncState(storeParam, saveResult.saved);
       }
 
       var recorded = allCalls.filter(function(r) {
@@ -177,24 +175,50 @@ export async function GET(request) {
         if (!call.call_id) continue;
         var alreadyDone = await isCallAudited(call.call_id);
         if (alreadyDone) continue;
-        console.log("[Cron] Scoring " + call.call_id + "...");
+        console.log("[Cron] [" + storeParam + "] Scoring " + call.call_id + "...");
         var audit = await scoreCall(call);
         if (audit) {
           await saveAuditResult(audit);
           newAudits++;
           results.totalNewAudits++;
         }
-        await new Promise(function(r) { setTimeout(r, 2000); });
+        await new Promise(function(r) { setTimeout(r, 1500); });
       }
 
-      await updateSyncState(storeKey, (recorded[0] && recorded[0].call_id) || "", newAudits);
-      results.auditSync[storeKey] = { recorded: recorded.length, newAudits: newAudits };
+      await updateSyncState(storeParam, (recorded[0] && recorded[0].call_id) || "", newAudits);
+      results.auditSync = { recorded: recorded.length, newAudits: newAudits };
     } catch (err) {
-      console.error("[Cron] Error for " + storeKey + ":", err.message);
-      results.errors.push({ store: storeKey, error: err.message });
+      console.error("[Cron] [" + storeParam + "] Error:", err.message);
+      results.errors.push({ store: storeParam, error: err.message });
     }
+
+    console.log("[Cron] [" + storeParam + "] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
+    return NextResponse.json({ success: true, ...results, timestamp: new Date().toISOString() });
   }
 
-  console.log("[Cron] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
-  return NextResponse.json({ success: true, callSync: results.callSync, auditSync: results.auditSync, totalCallsSaved: results.totalCallsSaved, totalNewAudits: results.totalNewAudits, errors: results.errors, timestamp: new Date().toISOString() });
+  // ── DISPATCHER MODE: /api/dialpad/cron (no store param) ──
+  // Triggers all stores in PARALLEL — each as a separate request with its own 300s budget
+  var storeKeys = Object.keys(STORES);
+  console.log("[Cron] Dispatcher mode: triggering " + storeKeys.length + " stores in parallel");
+
+  var dispatched = [];
+  storeKeys.forEach(function(sk) {
+    var storeUrl = baseUrl + "/api/dialpad/cron?secret=" + (CRON_SECRET || "") + "&store=" + sk;
+    console.log("[Cron] Dispatching: " + sk);
+    // Fire-and-forget — don't await, let each run independently
+    fetch(storeUrl).then(function(r) {
+      console.log("[Cron] " + sk + " responded: " + r.status);
+    }).catch(function(e) {
+      console.error("[Cron] " + sk + " dispatch error:", e.message);
+    });
+    dispatched.push(sk);
+  });
+
+  return NextResponse.json({
+    success: true,
+    mode: "dispatcher",
+    dispatched: dispatched,
+    message: "Triggered " + dispatched.length + " store crons in parallel. Each runs independently with its own 300s budget.",
+    timestamp: new Date().toISOString()
+  });
 }
