@@ -1,8 +1,16 @@
 {
   "crons": [
     {
-      "path": "/api/dialpad/cron",
+      "path": "/api/dialpad/cron?store=fishers",
       "schedule": "0 6,11,15,20 * * *"
+    },
+    {
+      "path": "/api/dialpad/cron?store=bloomington",
+      "schedule": "10 6,11,15,20 * * *"
+    },
+    {
+      "path": "/api/dialpad/cron?store=indianapolis",
+      "schedule": "20 6,11,15,20 * * *"
     }
   ]
 }
