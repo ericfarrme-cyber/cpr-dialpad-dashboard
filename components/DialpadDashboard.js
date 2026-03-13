@@ -274,6 +274,8 @@ function AuditTab({ rawCallData, storeFilter }) {
   var [roster, setRoster] = useState([]);
   var [unmatched, setUnmatched] = useState([]);
   var [rosterForm, setRosterForm] = useState({ name:"", store:"fishers", aliases:"", role:"Technician" });
+  var [linkingName, setLinkingName] = useState(null);
+  var [actionMsg, setActionMsg] = useState(null);
 
   useEffect(function() {
     async function load() {
@@ -414,6 +416,37 @@ function AuditTab({ rawCallData, storeFilter }) {
     });
   };
 
+  var isOnRoster = function(empName) {
+    var lower = empName.toLowerCase();
+    return roster.some(function(r) {
+      if (r.name.toLowerCase() === lower) return true;
+      if ((r.aliases || []).some(function(a){ return a.toLowerCase() === lower; })) return true;
+      return false;
+    });
+  };
+
+  var linkToEmployee = async function(strayName, rosterEmpId, rosterEmp) {
+    try {
+      var newAliases = (rosterEmp.aliases || []).concat([strayName]);
+      var res = await fetch("/api/dialpad/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update", id: rosterEmpId, aliases: newAliases })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: '"' + strayName + '" linked to ' + rosterEmp.name + ' — reload to see merged data' });
+        setLinkingName(null);
+        // Refresh roster
+        try {
+          var rR = await fetch("/api/dialpad/roster?action=list").then(function(r){return r.json();});
+          if (rR.success) setRoster(rR.employees || []);
+        } catch(e) {}
+        setTimeout(function(){ setActionMsg(null); }, 5000);
+      }
+    } catch(e) { setActionMsg({ type: "error", text: "Failed: " + e.message }); }
+  };
+
   var total = filteredAudits.length;
   var avgScore = total>0?(filteredAudits.reduce(function(s,a){return s+parseFloat(a.score||0);},0)/total).toFixed(2):"--";
   var oppCount = audits.filter(function(a){return a.call_type==="opportunity";}).length;
@@ -508,6 +541,11 @@ function AuditTab({ rawCallData, storeFilter }) {
       {auditView==="employees" && (
         <div>
           <SectionHeader title="Employee Leaderboard" subtitle="Click to expand" icon="🏆" />
+          {actionMsg && (
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+              {actionMsg.text}
+            </div>
+          )}
           {employees.length > 0 ? (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
               {employees.map(function(emp, i) {
@@ -519,24 +557,57 @@ function AuditTab({ rawCallData, storeFilter }) {
                 var empAudits = isExpanded ? getEmpAudits(emp.employee) : [];
                 var empOpp = empAudits.filter(function(a){return a.call_type==="opportunity";});
                 var empCurr = empAudits.filter(function(a){return a.call_type==="current_customer";});
+                var isStray = !isOnRoster(emp.employee);
+                var isLinkingThis = linkingName === empKey;
                 return (
                   <div key={empKey} style={{ borderBottom:"1px solid #1E2028" }}>
-                    <div onClick={function(){setExpandedEmp(isExpanded?null:empKey);}} style={{ padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:isExpanded?"#12141A":"transparent" }}>
+                    <div onClick={function(){if(!isLinkingThis)setExpandedEmp(isExpanded?null:empKey);}} style={{ padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:isExpanded?"#12141A":"transparent" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                         <span style={{ fontSize:18,width:28,textAlign:"center" }}>{medal}</span>
                         <div style={{ minWidth:120 }}>
-                          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</div>
+                          <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                            <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</span>
+                            {isStray && <span style={{ padding:"1px 6px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:9,fontWeight:600 }}>unmatched</span>}
+                          </div>
                           <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.stores||[emp.store]).map(function(s){var st=STORES[s];return st?<span key={s} style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:10,color:st.color }}><span style={{width:6,height:6,borderRadius:"50%",background:st.color}} />{st.name.replace("CPR ","")}</span>:null;})}</div>
                         </div>
                         <div style={{ textAlign:"center",minWidth:40 }}><div style={{ color:"#8B8F98",fontSize:9 }}>CALLS</div><div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div></div>
                         <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"#8B8F98",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"#7C8AFF" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div></div>
                       </div>
                       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                        {isStray && (
+                          <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinkingThis?null:empKey);}}
+                            style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinkingThis?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                            {isLinkingThis ? "Cancel" : "Link"}
+                          </button>
+                        )}
                         <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>APPT</div><div style={{ color:parseFloat(emp.appt_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</div></div>
                         <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>WARR</div><div style={{ color:parseFloat(emp.warranty_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</div></div>
                         <div style={{ padding:"5px 14px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{parseFloat(emp.avg_score||0).toFixed(2)}</div>
                       </div>
                     </div>
+                    {/* Link dropdown */}
+                    {isLinkingThis && (
+                      <div style={{ padding:"12px 12px 12px 56px" }}>
+                        <div style={{ padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7C8AFF22" }}>
+                          <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{emp.employee}" as an alias of:</div>
+                          <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                            {roster.map(function(r) {
+                              var st = STORES[r.store];
+                              return (
+                                <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(emp.employee, r.id, r);}}
+                                  style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                  <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                  <span style={{ fontWeight:700 }}>{r.name}</span>
+                                  <span style={{ color:st?st.color:"#6B6F78",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {roster.length === 0 && <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees yet. Add them in the Employees tab first.</div>}
+                        </div>
+                      </div>
+                    )}
                     {isExpanded && (
                       <div style={{ padding:"0 12px 20px 56px" }}>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:8 }}>
