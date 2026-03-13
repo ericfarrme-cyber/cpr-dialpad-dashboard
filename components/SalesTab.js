@@ -30,7 +30,15 @@ function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { mi
 export default function SalesTab() {
   var [view, setView] = useState("leaderboard");
   var [loading, setLoading] = useState(true);
-  var [period, setPeriod] = useState("");
+  var currentPeriod = useMemo(function() {
+    var now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  }, []);
+
+  var [period, setPeriod] = useState(function() {
+    var now = new Date();
+    return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  });
   var [periods, setPeriods] = useState([]);
   var [phones, setPhones] = useState([]);
   var [others, setOthers] = useState([]);
@@ -42,15 +50,10 @@ export default function SalesTab() {
   var [uploading, setUploading] = useState(false);
   var [editingRate, setEditingRate] = useState(null);
   var [editValue, setEditValue] = useState("");
-  var [importPeriod, setImportPeriod] = useState("");
-
-  var currentPeriod = useMemo(function() {
+  var [importPeriod, setImportPeriod] = useState(function() {
     var now = new Date();
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-  }, []);
-
-  // Initialize importPeriod to current month
-  useEffect(function() { if (!importPeriod) setImportPeriod(currentPeriod); }, [currentPeriod]);
+  });
 
   var loadData = async function(p) {
     setLoading(true);
@@ -64,10 +67,11 @@ export default function SalesTab() {
         setAccessories(json.accessories || []);
         setCleanings(json.cleanings || []);
         setRates(json.rates || {});
-        setPeriod(json.period);
+        setPeriod(p || json.period);
         var ap = json.available_periods || [];
-        // Always include current month in dropdown
+        // Always include current month and requested month in dropdown
         if (ap.indexOf(currentPeriod) < 0) ap = [currentPeriod].concat(ap);
+        if (p && ap.indexOf(p) < 0) ap.push(p);
         ap.sort().reverse();
         setPeriods(ap);
       }
