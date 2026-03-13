@@ -14,55 +14,35 @@ function dialpadHeaders() {
 
 var AUDIT_PROMPT = "You are a phone call quality auditor for CPR Cell Phone Repair stores.\n\nSTEP 1 — CLASSIFY THE CALL:\n- \"opportunity\": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. Examples: \"How much to fix my iPhone screen?\", \"Do you repair Samsung tablets?\", \"I cracked my phone, can you fix it today?\"\n- \"current_customer\": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced. Examples: \"Is my phone ready?\", \"I dropped off my iPad yesterday\", \"I need to reschedule my appointment\", \"Any update on that part you ordered?\"\n- \"non_scorable\": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.\n\nSTEP 2 — SCORE BASED ON CALL TYPE:\n\nIF call_type = \"opportunity\", score these 4 criteria:\n1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?\n2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?\n3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?\n4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?\n\nIF call_type = \"current_customer\", score these 4 criteria:\n1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?\n2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?\n3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?\n4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?\n\nIF call_type = \"non_scorable\", set score to 0 and max_score to 0.\n\nSTEP 3 — EXTRACT: Employee Name, Customer Name (or \"Unknown\"), Device Type (or \"Not mentioned\"), Caller Inquiry, Outcome.\n\nRespond ONLY with valid JSON:\n{\n  \"call_type\": \"opportunity\" or \"current_customer\" or \"non_scorable\",\n  \"employee\": \"Name\", \"customer_name\": \"Name or Unknown\", \"device_type\": \"Device or Not mentioned\",\n  \"inquiry\": \"Brief description\", \"outcome\": \"Brief outcome\",\n  \"criteria\": { ... },\n  \"score\": 0.00, \"max_score\": 4.00\n}";
 
-// Use the working stats API route instead of calling Dialpad directly
-async function fetchStoreCallData(storeKey, baseUrl, debug) {
+async function fetchStoreCallData(storeKey, baseUrl) {
   try {
-    // Step 1: Initiate via our working stats route
-    debug.push(storeKey + ": calling stats route to initiate...");
     var initUrl = baseUrl + "/api/dialpad/stats?action=initiate&store=" + storeKey;
     var initRes = await fetch(initUrl);
-    if (!initRes.ok) {
-      debug.push(storeKey + ": stats initiate failed: " + initRes.status);
-      return [];
-    }
+    if (!initRes.ok) { console.log("[Cron] initiate failed for " + storeKey + ": " + initRes.status); return []; }
     var initData = await initRes.json();
-    if (!initData.success || !initData.requestId) {
-      debug.push(storeKey + ": no requestId: " + JSON.stringify(initData).substring(0, 200));
-      return [];
-    }
+    if (!initData.success || !initData.requestId) { console.log("[Cron] no requestId for " + storeKey); return []; }
     var requestId = initData.requestId;
-    debug.push(storeKey + ": got requestId=" + requestId + ", waiting 35s...");
+    console.log("[Cron] " + storeKey + ": requestId=" + requestId + ", waiting 35s...");
 
-    // Step 2: Wait then poll via our working stats route
     await new Promise(function(r) { setTimeout(r, 35000); });
 
     var records = [];
     for (var attempt = 0; attempt < 6; attempt++) {
       var pollUrl = baseUrl + "/api/dialpad/stats?action=poll&requestId=" + requestId;
       var pollRes = await fetch(pollUrl);
-      if (!pollRes.ok) {
-        debug.push(storeKey + ": poll attempt " + (attempt + 1) + " HTTP error: " + pollRes.status);
-        await new Promise(function(r) { setTimeout(r, 10000); });
-        continue;
-      }
+      if (!pollRes.ok) { await new Promise(function(r) { setTimeout(r, 10000); }); continue; }
       var pollData = await pollRes.json();
-      debug.push(storeKey + ": poll attempt " + (attempt + 1) + " state=" + (pollData.state || "unknown") + " records=" + (pollData.data ? pollData.data.length : 0));
-
+      console.log("[Cron] " + storeKey + " poll " + (attempt + 1) + ": state=" + (pollData.state || "?") + " records=" + (pollData.data ? pollData.data.length : 0));
       if (pollData.data && pollData.data.length > 0) {
         records = pollData.data.map(function(row) { row._storeKey = storeKey; return row; });
-        debug.push(storeKey + ": got " + records.length + " records!");
         break;
       }
-
       await new Promise(function(r) { setTimeout(r, 10000); });
     }
-
-    if (records.length === 0) {
-      debug.push(storeKey + ": no records after 6 poll attempts");
-    }
+    console.log("[Cron] " + storeKey + ": " + records.length + " records fetched");
     return records;
   } catch (err) {
-    debug.push(storeKey + ": EXCEPTION: " + err.message);
+    console.error("[Cron] " + storeKey + " fetch error:", err.message);
     return [];
   }
 }
@@ -114,6 +94,7 @@ async function scoreCall(call) {
       transcript_preview: ft.substring(0, 500),
     };
   } catch (err) {
+    console.error("[Cron] Score error:", err.message);
     return null;
   }
 }
@@ -125,40 +106,53 @@ export async function GET(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Get base URL for calling our own stats route
   var baseUrl = url.origin;
-  var debug = [];
-  debug.push("Base URL: " + baseUrl);
-  debug.push("STORES: " + Object.keys(STORES).join(", "));
-  debug.push("Start: " + new Date().toISOString());
-
   var results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
-
-  // Debug mode: only process first store to test
   var storeKeys = Object.keys(STORES);
-  var storeKey = storeKeys[0];
 
-  try {
-    debug.push("=== Processing " + storeKey + " ===");
-    var allCalls = await fetchStoreCallData(storeKey, baseUrl, debug);
+  for (var si = 0; si < storeKeys.length; si++) {
+    var storeKey = storeKeys[si];
+    try {
+      console.log("[Cron] === " + storeKey + " ===");
+      var allCalls = await fetchStoreCallData(storeKey, baseUrl);
 
-    if (allCalls.length > 0) {
-      var saveResult = await saveCallRecords(allCalls);
-      results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
-      results.totalCallsSaved += saveResult.saved;
-      await updateCallSyncState(storeKey, saveResult.saved);
-      debug.push(storeKey + ": saved " + saveResult.saved + " records to Supabase");
-    } else {
-      results.callSync[storeKey] = { fetched: 0, saved: 0 };
+      if (allCalls.length > 0) {
+        var saveResult = await saveCallRecords(allCalls);
+        results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
+        results.totalCallsSaved += saveResult.saved;
+        await updateCallSyncState(storeKey, saveResult.saved);
+      } else {
+        results.callSync[storeKey] = { fetched: 0, saved: 0 };
+      }
+
+      var recorded = allCalls.filter(function(r) {
+        return r.target_type === "department" && r.was_recorded === "true" && r.direction === "inbound" && r.categories && r.categories.includes("answered");
+      });
+
+      var newAudits = 0;
+      for (var ci = 0; ci < recorded.length; ci++) {
+        var call = recorded[ci];
+        if (!call.call_id) continue;
+        var alreadyDone = await isCallAudited(call.call_id);
+        if (alreadyDone) continue;
+        console.log("[Cron] Scoring " + call.call_id + "...");
+        var audit = await scoreCall(call);
+        if (audit) {
+          await saveAuditResult(audit);
+          newAudits++;
+          results.totalNewAudits++;
+        }
+        await new Promise(function(r) { setTimeout(r, 2000); });
+      }
+
+      await updateSyncState(storeKey, (recorded[0] && recorded[0].call_id) || "", newAudits);
+      results.auditSync[storeKey] = { recorded: recorded.length, newAudits: newAudits };
+    } catch (err) {
+      console.error("[Cron] Error for " + storeKey + ":", err.message);
+      results.errors.push({ store: storeKey, error: err.message });
     }
-
-    // Skip auditing for debug run
-    results.auditSync[storeKey] = { recorded: 0, newAudits: 0, skipped: "debug mode - test fetch only" };
-  } catch (err) {
-    debug.push(storeKey + ": ERROR: " + err.message);
-    results.errors.push({ store: storeKey, error: err.message });
   }
 
-  debug.push("End: " + new Date().toISOString());
-  return NextResponse.json({ success: true, ...results, debug: debug, timestamp: new Date().toISOString() });
+  console.log("[Cron] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
+  return NextResponse.json({ success: true, callSync: results.callSync, auditSync: results.auditSync, totalCallsSaved: results.totalCallsSaved, totalNewAudits: results.totalNewAudits, errors: results.errors, timestamp: new Date().toISOString() });
 }
