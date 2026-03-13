@@ -183,7 +183,7 @@ export default function SalesTab() {
   };
 
   var deletePeriod = async function(p) {
-    var label = new Date(p + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    var label = new Date(parseInt(p.split("-")[0]), parseInt(p.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
     if (!confirm("⚠️ DELETE ALL DATA FOR " + label.toUpperCase() + "\n\nThis will permanently delete all phone repairs, other repairs, accessory sales, and cleaning data for this period.\n\nAre you sure?")) return;
     if (!confirm("SECOND CONFIRMATION\n\nAll " + label + " sales and commission data will be erased. This cannot be undone.\n\nProceed?")) return;
     try {
@@ -212,7 +212,7 @@ export default function SalesTab() {
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading sales data...</div>;
 
-  var periodLabel = period ? new Date(period + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "No data";
+  var periodLabel = period ? new Date(parseInt(period.split("-")[0]), parseInt(period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "No data";
 
   return (
     <div>
@@ -228,7 +228,7 @@ export default function SalesTab() {
             <select value={period} onChange={function(e) { setPeriod(e.target.value); loadData(e.target.value); }}
               style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12 }}>
               {periods.map(function(p) {
-                var label = new Date(p + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+                var label = new Date(parseInt(p.split("-")[0]), parseInt(p.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
                 return <option key={p} value={p}>{label}</option>;
               })}
             </select>
