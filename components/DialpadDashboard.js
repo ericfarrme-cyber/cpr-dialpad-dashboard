@@ -7,6 +7,8 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
 import { STORES, TABS } from "@/lib/constants";
+import ScheduleTab from "@/components/ScheduleTab";
+import EmployeeTab from "@/components/EmployeeTab";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
