@@ -11,6 +11,7 @@ import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
 import VoicemailTab from "@/components/VoicemailTab";
 import SalesTab from "@/components/SalesTab";
+import ScorecardTab from "@/components/ScorecardTab";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1067,7 +1068,7 @@ function AuditTab({ rawCallData, storeFilter }) {
 // MAIN
 // ══════════════════════════════════════════
 export default function DialpadDashboard() {
-  var [activeTab, setActiveTab] = useState("overview");
+  var [activeTab, setActiveTab] = useState("scorecard");
   var [storeFilter, setStoreFilter] = useState("all");
   var [isLive, setIsLive] = useState(false);
   var [isStored, setIsStored] = useState(false);
@@ -1168,6 +1169,7 @@ export default function DialpadDashboard() {
       </div>
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
+        {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} />}
         {activeTab==="overview" && <OverviewTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} />}
         {activeTab==="keywords" && <KeywordsTab keywords={keywords} />}
         {activeTab==="missed" && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} />}
