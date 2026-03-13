@@ -446,7 +446,6 @@ function AuditTab({ rawCallData, storeFilter }) {
   var SUBTABS = [
     {id:"overview",label:"Overview",icon:"📊"},
     {id:"employees",label:"Employee Scores",icon:"👤"},
-    {id:"roster",label:"Roster",icon:"📝"},
     {id:"dropped",label:"Dropped Balls",icon:"🚨"},
     {id:"calls",label:"Audit Calls",icon:"🎙️"},
     {id:"history",label:"Audit History",icon:"📋"},
