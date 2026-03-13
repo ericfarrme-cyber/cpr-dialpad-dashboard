@@ -26,6 +26,7 @@ export async function GET(request) {
       }
       dailyMap[dateStr][`${row.store}_total`] = row.total;
       dailyMap[dateStr][`${row.store}_answered`] = row.answered;
+      dailyMap[dateStr][`${row.store}_missed`] = row.missed || 0;
     }
     const dailyCalls = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
