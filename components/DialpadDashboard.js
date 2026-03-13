@@ -575,61 +575,6 @@ function AuditTab({ rawCallData, storeFilter }) {
         </div>
       )}
 
-      {/* ROSTER */}
-      {auditView==="roster" && (
-        <div>
-          <SectionHeader title="Employee Roster" subtitle="Map transcript names to real employees" icon="📝" />
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Add Employee</div>
-            <div style={{ display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end" }}>
-              <div><div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Full Name</div><input value={rosterForm.name} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{name:e.target.value});});}} placeholder="e.g. Mahmoud" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:160,outline:"none" }} /></div>
-              <div><div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Store</div><select value={rosterForm.store} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{store:e.target.value});});}} style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>{STORE_KEYS.map(function(k){return <option key={k} value={k}>{STORES[k].name}</option>;})}</select></div>
-              <div><div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Aliases (comma-separated)</div><input value={rosterForm.aliases} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{aliases:e.target.value});});}} placeholder="e.g. Mau, Ma, Mah" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:220,outline:"none" }} /></div>
-              <div><div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Role</div><select value={rosterForm.role} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{role:e.target.value});});}} style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>{["Manager","Lead Tech","Technician","Front Desk"].map(function(r){return <option key={r} value={r}>{r}</option>;})}</select></div>
-              <button onClick={async function(){
-                if(!rosterForm.name) return;
-                var res = await fetch("/api/dialpad/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"add",name:rosterForm.name,store:rosterForm.store,aliases:rosterForm.aliases,role:rosterForm.role})});
-                var json = await res.json();
-                if(json.success && json.employee) { setRoster(function(prev){return prev.filter(function(r){return !(r.name===rosterForm.name&&r.store===rosterForm.store);}).concat([json.employee]);}); setRosterForm({name:"",store:rosterForm.store,aliases:"",role:"Technician"}); }
-              }} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
-            </div>
-          </div>
-
-          {unmatched.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
-              <div style={{ color:"#FBBF24",fontSize:14,fontWeight:700,marginBottom:8 }}>Unmatched Names ({unmatched.length})</div>
-              <div style={{ color:"#6B6F78",fontSize:12,marginBottom:12 }}>These transcript names have no roster match. Click to add as alias.</div>
-              <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
-                {unmatched.map(function(u, i) {
-                  return <button key={i} onClick={function(){setRosterForm(function(p){return Object.assign({},p,{aliases:p.aliases?p.aliases+", "+u.name:u.name,store:u.store});});}} style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#C8CAD0",fontSize:12,cursor:"pointer" }}>{'"'+u.name+'" ('+u.count+'x, '+(STORES[u.store]?STORES[u.store].name.replace("CPR ",""):u.store)+')'}</button>;
-                })}
-              </div>
-            </div>
-          )}
-
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Current Roster ({roster.length})</div>
-            {roster.length > 0 ? (
-              <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                <thead><tr style={{ borderBottom:"1px solid #2A2D35" }}>{["Name","Store","Role","Aliases",""].map(function(h,i){return <th key={i} style={{ textAlign:"left",padding:"8px 12px",color:"#6B6F78",fontSize:10 }}>{h}</th>;})}</tr></thead>
-                <tbody>{roster.map(function(emp) {
-                  var store = STORES[emp.store];
-                  return (
-                    <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028" }}>
-                      <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
-                      <td style={{ padding:"12px",color:store?store.color:"#8B8F98",fontSize:12 }}>{store?store.name.replace("CPR ",""):emp.store}</td>
-                      <td style={{ padding:"12px",color:"#C8CAD0",fontSize:12 }}>{emp.role}</td>
-                      <td style={{ padding:"12px" }}><div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.aliases||[]).map(function(a,j){return <span key={j} style={{ padding:"2px 8px",borderRadius:4,background:"#2A2D35",color:"#8B8F98",fontSize:11 }}>{a}</span>;})}</div></td>
-                      <td style={{ padding:"12px" }}><button onClick={async function(){ await fetch("/api/dialpad/roster",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:emp.id})}); setRoster(function(prev){return prev.filter(function(r){return r.id!==emp.id;});}); }} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button></td>
-                    </tr>
-                  );
-                })}</tbody>
-              </table>
-            ) : <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No employees added. Add your team above.</div>}
-          </div>
-        </div>
-      )}
-
       {/* DROPPED BALLS */}
       {auditView==="dropped" && (
         <div>
