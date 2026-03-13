@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
+import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
 
 export const maxDuration = 300;
 
@@ -11,8 +12,6 @@ const CRON_SECRET = process.env.CRON_SECRET;
 function dialpadHeaders() {
   return { Authorization: "Bearer " + API_KEY, "Content-Type": "application/json" };
 }
-
-var AUDIT_PROMPT = "You are a phone call quality auditor for CPR Cell Phone Repair stores.\n\nSTEP 1 — CLASSIFY THE CALL:\n- \"opportunity\": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. Examples: \"How much to fix my iPhone screen?\", \"Do you repair Samsung tablets?\", \"I cracked my phone, can you fix it today?\"\n- \"current_customer\": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced. Examples: \"Is my phone ready?\", \"I dropped off my iPad yesterday\", \"I need to reschedule my appointment\", \"Any update on that part you ordered?\"\n- \"non_scorable\": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.\n\nSTEP 2 — SCORE BASED ON CALL TYPE:\n\nIF call_type = \"opportunity\", score these 4 criteria:\n1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?\n2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?\n3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?\n4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?\n\nIF call_type = \"current_customer\", score these 4 criteria:\n1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?\n2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?\n3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?\n4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?\n\nIF call_type = \"non_scorable\", set score to 0 and max_score to 0.\n\nSTEP 3 — EXTRACT: Employee Name, Customer Name (or \"Unknown\"), Device Type (or \"Not mentioned\"), Caller Inquiry, Outcome.\n\nRespond ONLY with valid JSON:\n{\n  \"call_type\": \"opportunity\" or \"current_customer\" or \"non_scorable\",\n  \"employee\": \"Name\", \"customer_name\": \"Name or Unknown\", \"device_type\": \"Device or Not mentioned\",\n  \"inquiry\": \"Brief description\", \"outcome\": \"Brief outcome\",\n  \"criteria\": { ... },\n  \"score\": 0.00, \"max_score\": 4.00\n}";
 
 async function fetchStoreCallData(storeKey, baseUrl) {
   try {
@@ -49,6 +48,25 @@ async function fetchStoreCallData(storeKey, baseUrl) {
 
 async function scoreCall(call) {
   try {
+    // ── Pre-audit filter ──
+    var pf = preAuditFilter(call);
+    if (!pf.pass) {
+      console.log("[Cron] Pre-filter excluded " + call.call_id + ": " + pf.reason);
+      return {
+        call_id: call.call_id, date: call.date_started, store: call._storeKey,
+        store_name: call.name || call._storeKey, call_type: "non_scorable",
+        employee: "Unknown", customer_name: "Unknown", device_type: "Not mentioned",
+        phone: call.external_number || "", direction: call.direction || "inbound",
+        talk_duration: call.talk_duration ? parseFloat(call.talk_duration) : null,
+        inquiry: pf.reason, outcome: "Auto-excluded by pre-filter",
+        score: 0, max_score: 0, confidence: 100,
+        confidence_reason: "Pre-filter auto-exclusion",
+        excluded: true, exclude_reason: pf.detail || pf.reason,
+        criteria: {}, transcript_preview: "",
+      };
+    }
+
+    // ── Fetch transcript ──
     var tRes = await fetch(DIALPAD_BASE + "/transcripts/" + call.call_id, { method: "GET", headers: dialpadHeaders() });
     if (!tRes.ok) return null;
     var tData = await tRes.json();
@@ -60,13 +78,31 @@ async function scoreCall(call) {
     } else {
       ft = JSON.stringify(tData);
     }
-    if (!ft || ft.length < 20) return null;
 
+    // ── Transcript pre-check ──
+    var tc = transcriptPreCheck(ft);
+    if (!tc.pass) {
+      console.log("[Cron] Transcript check excluded " + call.call_id + ": " + tc.reason);
+      return {
+        call_id: call.call_id, date: call.date_started, store: call._storeKey,
+        store_name: call.name || call._storeKey, call_type: "non_scorable",
+        employee: "Unknown", customer_name: "Unknown", device_type: "Not mentioned",
+        phone: call.external_number || "", direction: call.direction || "inbound",
+        talk_duration: call.talk_duration ? parseFloat(call.talk_duration) : null,
+        inquiry: tc.reason, outcome: "Auto-excluded by transcript check",
+        score: 0, max_score: 0, confidence: 100,
+        confidence_reason: "Transcript pre-check exclusion",
+        excluded: true, exclude_reason: tc.detail || tc.reason,
+        criteria: {}, transcript_preview: (ft || "").substring(0, 500),
+      };
+    }
+
+    // ── Score with Claude ──
     var ctx = "\nCall Info: " + call.direction + " call, " + (call.external_number || "unknown") + ", " + call.date_started + ", Store: " + (call.name || call._storeKey) + "\n";
     var cRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
-      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, messages: [{ role: "user", content: AUDIT_PROMPT + "\n" + ctx + "\n--- TRANSCRIPT ---\n" + ft + "\n--- END TRANSCRIPT ---" }] }),
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1500, messages: [{ role: "user", content: AUDIT_PROMPT + "\n" + ctx + "\n--- TRANSCRIPT ---\n" + ft + "\n--- END TRANSCRIPT ---" }] }),
     });
     if (!cRes.ok) return null;
     var cData = await cRes.json();
@@ -74,6 +110,8 @@ async function scoreCall(call) {
     var m = text.match(/\{[\s\S]*\}/);
     var r = m ? JSON.parse(m[0]) : null;
     if (!r) return null;
+
+    var shouldExclude = r.call_type === "non_scorable";
     return {
       call_id: call.call_id,
       date: call.date_started,
@@ -90,6 +128,10 @@ async function scoreCall(call) {
       outcome: r.outcome || "",
       score: r.score || 0,
       max_score: r.max_score || 4.0,
+      confidence: r.confidence || 0,
+      confidence_reason: r.confidence_reason || "",
+      excluded: shouldExclude,
+      exclude_reason: shouldExclude ? "AI classified as non-scorable" : "",
       criteria: r.criteria,
       transcript_preview: ft.substring(0, 500),
     };
