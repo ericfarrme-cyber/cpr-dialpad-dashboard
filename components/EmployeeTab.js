@@ -221,6 +221,7 @@ export default function EmployeeTab({ storeFilter }) {
                   var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
                   var isLinking = linkingName === empName + "__" + emp.store;
                   var sameStoreRoster = roster.filter(function(r){ return r.store === emp.store; });
+                  var otherStoreRoster = roster.filter(function(r){ return r.store !== emp.store; });
 
                   return (
                     <div key={empName+"__"+emp.store} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35" }}>
@@ -253,20 +254,44 @@ export default function EmployeeTab({ storeFilter }) {
                       {isLinking && (
                         <div style={{ marginTop:10,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7C8AFF22" }}>
                           <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{empName}" as an alias of:</div>
-                          {sameStoreRoster.length > 0 ? (
-                            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
-                              {sameStoreRoster.map(function(r) {
-                                return (
-                                  <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
-                                    style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
-                                    <span style={{ fontWeight:700 }}>{r.name}</span>
-                                    <span style={{ color:"#6B6F78",fontSize:10 }}>{r.role}</span>
-                                  </button>
-                                );
-                              })}
+                          {sameStoreRoster.length > 0 && (
+                            <div>
+                              <div style={{ color:"#6B6F78",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Same Store</div>
+                              <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                                {sameStoreRoster.map(function(r) {
+                                  var st = STORES[r.store];
+                                  return (
+                                    <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
+                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                      <span style={{ fontWeight:700 }}>{r.name}</span>
+                                      <span style={{ color:"#6B6F78",fontSize:10 }}>{r.role}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
                             </div>
-                          ) : (
-                            <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees at this store. Add one in Manage Roster first.</div>
+                          )}
+                          {otherStoreRoster.length > 0 && (
+                            <div style={{ marginTop:sameStoreRoster.length>0?10:0 }}>
+                              <div style={{ color:"#6B6F78",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Other Stores</div>
+                              <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                                {otherStoreRoster.map(function(r) {
+                                  var st = STORES[r.store];
+                                  return (
+                                    <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
+                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #7C8AFF22",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                      <span style={{ fontWeight:700 }}>{r.name}</span>
+                                      <span style={{ color:st?st.color:"#6B6F78",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                          {sameStoreRoster.length === 0 && otherStoreRoster.length === 0 && (
+                            <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees yet. Add one in Manage Roster first.</div>
                           )}
                           <div style={{ marginTop:8,borderTop:"1px solid #2A2D35",paddingTop:8 }}>
                             <button onClick={function(e){
