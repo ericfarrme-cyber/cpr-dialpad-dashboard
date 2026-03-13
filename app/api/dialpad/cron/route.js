@@ -75,16 +75,23 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
     var requestId = initData.request_id;
     console.log("[Cron] Got request_id " + requestId + " for " + storeKey + ", waiting...");
 
-    await new Promise(function(r) { setTimeout(r, 35000); });
+    await new Promise(function(r) { setTimeout(r, 30000); });
 
-    var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
-    if (!pollRes.ok) {
-      console.log("[Cron] Poll failed for " + storeKey + ": " + pollRes.status);
-      return [];
+    var pollData = null;
+    for (var attempt = 0; attempt < 6; attempt++) {
+      var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
+      if (!pollRes.ok) {
+        console.log("[Cron] Poll failed for " + storeKey + ": " + pollRes.status);
+        return [];
+      }
+      pollData = await pollRes.json();
+      console.log("[Cron] Poll attempt " + (attempt+1) + " for " + storeKey + ": " + pollData.status);
+      if (pollData.status === "complete" && pollData.download_url) break;
+      pollData = null;
+      await new Promise(function(r) { setTimeout(r, 10000); });
     }
-    var pollData = await pollRes.json();
-    if (pollData.status !== "complete" || !pollData.download_url) {
-      console.log("[Cron] Not complete for " + storeKey + ": " + pollData.status);
+    if (!pollData || !pollData.download_url) {
+      console.log("[Cron] Stats never completed for " + storeKey);
       return [];
     }
 
