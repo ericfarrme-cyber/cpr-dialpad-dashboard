@@ -154,8 +154,10 @@ export async function GET(request) {
   // ── SINGLE STORE MODE: /api/dialpad/cron?store=fishers ──
   // Each store gets its own 300s budget
   if (storeParam && STORES[storeParam]) {
+    var startTime = Date.now();
+    var TIME_BUDGET_MS = 260000; // 260s — leave 40s buffer before 300s Vercel timeout
     console.log("[Cron] Single store mode: " + storeParam);
-    var results = { store: storeParam, callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
+    var results = { store: storeParam, callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, skipped: 0, errors: [] };
     try {
       var allCalls = await fetchStoreCallData(storeParam, baseUrl);
       if (allCalls.length > 0) {
@@ -170,23 +172,31 @@ export async function GET(request) {
       });
 
       var newAudits = 0;
+      var timedOut = false;
       for (var ci = 0; ci < recorded.length; ci++) {
+        // Check time budget before each call
+        if (Date.now() - startTime > TIME_BUDGET_MS) {
+          console.log("[Cron] [" + storeParam + "] Time budget reached after " + newAudits + " audits. " + (recorded.length - ci) + " calls deferred to next run.");
+          results.skipped = recorded.length - ci;
+          timedOut = true;
+          break;
+        }
         var call = recorded[ci];
         if (!call.call_id) continue;
         var alreadyDone = await isCallAudited(call.call_id);
         if (alreadyDone) continue;
-        console.log("[Cron] [" + storeParam + "] Scoring " + call.call_id + "...");
+        console.log("[Cron] [" + storeParam + "] Scoring " + call.call_id + " (" + (ci+1) + "/" + recorded.length + ")...");
         var audit = await scoreCall(call);
         if (audit) {
           await saveAuditResult(audit);
           newAudits++;
           results.totalNewAudits++;
         }
-        await new Promise(function(r) { setTimeout(r, 1500); });
+        await new Promise(function(r) { setTimeout(r, 1000); });
       }
 
       await updateSyncState(storeParam, (recorded[0] && recorded[0].call_id) || "", newAudits);
-      results.auditSync = { recorded: recorded.length, newAudits: newAudits };
+      results.auditSync = { recorded: recorded.length, newAudits: newAudits, timedOut: timedOut };
     } catch (err) {
       console.error("[Cron] [" + storeParam + "] Error:", err.message);
       results.errors.push({ store: storeParam, error: err.message });
