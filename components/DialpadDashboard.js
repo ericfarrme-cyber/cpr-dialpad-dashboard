@@ -879,6 +879,8 @@ export default function DialpadDashboard() {
         {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
+        {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
+        {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
       </div>
       <div style={{ padding:"16px 28px",borderTop:"1px solid #1E2028",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
         {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | Focused Technologies LLC
