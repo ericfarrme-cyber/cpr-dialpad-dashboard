@@ -9,150 +9,57 @@ const API_KEY = process.env.DIALPAD_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
 
 function dialpadHeaders() {
-  return { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json", Accept: "application/json" };
+  return { Authorization: "Bearer " + API_KEY, "Content-Type": "application/json" };
 }
 
-const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
+var AUDIT_PROMPT = "You are a phone call quality auditor for CPR Cell Phone Repair stores.\n\nSTEP 1 — CLASSIFY THE CALL:\n- \"opportunity\": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. Examples: \"How much to fix my iPhone screen?\", \"Do you repair Samsung tablets?\", \"I cracked my phone, can you fix it today?\"\n- \"current_customer\": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced. Examples: \"Is my phone ready?\", \"I dropped off my iPad yesterday\", \"I need to reschedule my appointment\", \"Any update on that part you ordered?\"\n- \"non_scorable\": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.\n\nSTEP 2 — SCORE BASED ON CALL TYPE:\n\nIF call_type = \"opportunity\", score these 4 criteria:\n1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?\n2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?\n3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?\n4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?\n\nIF call_type = \"current_customer\", score these 4 criteria:\n1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?\n2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?\n3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?\n4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?\n\nIF call_type = \"non_scorable\", set score to 0 and max_score to 0.\n\nSTEP 3 — EXTRACT: Employee Name, Customer Name (or \"Unknown\"), Device Type (or \"Not mentioned\"), Caller Inquiry, Outcome.\n\nRespond ONLY with valid JSON:\n{\n  \"call_type\": \"opportunity\" or \"current_customer\" or \"non_scorable\",\n  \"employee\": \"Name\", \"customer_name\": \"Name or Unknown\", \"device_type\": \"Device or Not mentioned\",\n  \"inquiry\": \"Brief description\", \"outcome\": \"Brief outcome\",\n  \"criteria\": { ... },\n  \"score\": 0.00, \"max_score\": 4.00\n}";
 
-STEP 1 — CLASSIFY THE CALL:
-- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer.
-- "current_customer": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced.
-- "non_scorable": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.
-
-STEP 2 — SCORE BASED ON CALL TYPE:
-
-IF call_type = "opportunity", score these 4 criteria:
-1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?
-2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?
-3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?
-4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?
-
-IF call_type = "current_customer", score these 4 criteria:
-1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?
-2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?
-3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?
-4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?
-
-IF call_type = "non_scorable", set score to 0 and max_score to 0.
-
-STEP 3 — EXTRACT: Employee Name, Customer Name (or "Unknown"), Device Type (or "Not mentioned"), Caller Inquiry, Outcome.
-
-Respond ONLY with valid JSON:
-{
-  "call_type": "opportunity" or "current_customer" or "non_scorable",
-  "employee": "Name", "customer_name": "Name or Unknown", "device_type": "Device or Not mentioned",
-  "inquiry": "Brief description", "outcome": "Brief outcome",
-  "criteria": { ... },
-  "score": 0.00, "max_score": 4.00
-}`;
-
-async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd, debug) {
-  var store = STORES[storeKey];
-  if (!store) { debug.push(storeKey + ": store not found in STORES"); return []; }
-
+// Use the working stats API route instead of calling Dialpad directly
+async function fetchStoreCallData(storeKey, baseUrl, debug) {
   try {
-    debug.push(storeKey + ": initiating stats request...");
-    debug.push(storeKey + ": dialpadId=" + store.dialpadId + ", days_ago_start=" + (daysAgoStart || 0) + ", days_ago_end=" + (daysAgoEnd || 7));
-    debug.push(storeKey + ": API_KEY present=" + (API_KEY ? "yes (" + API_KEY.substring(0, 8) + "...)" : "NO"));
-
-    var initBody = {
-      days_ago_start: daysAgoStart || 0,
-      days_ago_end: daysAgoEnd || 7,
-      stat_type: "calls",
-      target_id: parseInt(store.dialpadId),
-      target_type: "department",
-      timezone: "America/Indiana/Indianapolis",
-    };
-
-    var initRes = await fetch(DIALPAD_BASE + "/stats", {
-      method: "POST",
-      headers: dialpadHeaders(),
-      body: JSON.stringify(initBody),
-    });
-
-    debug.push(storeKey + ": initiate status=" + initRes.status);
-
+    // Step 1: Initiate via our working stats route
+    debug.push(storeKey + ": calling stats route to initiate...");
+    var initUrl = baseUrl + "/api/dialpad/stats?action=initiate&store=" + storeKey;
+    var initRes = await fetch(initUrl);
     if (!initRes.ok) {
-      var errText = await initRes.text();
-      debug.push(storeKey + ": initiate error body=" + errText.substring(0, 200));
+      debug.push(storeKey + ": stats initiate failed: " + initRes.status);
       return [];
     }
-
     var initData = await initRes.json();
-    var requestId = initData.request_id;
-    debug.push(storeKey + ": got request_id=" + requestId);
-
-    if (!requestId) {
-      debug.push(storeKey + ": NO request_id in response: " + JSON.stringify(initData).substring(0, 200));
+    if (!initData.success || !initData.requestId) {
+      debug.push(storeKey + ": no requestId: " + JSON.stringify(initData).substring(0, 200));
       return [];
     }
+    var requestId = initData.requestId;
+    debug.push(storeKey + ": got requestId=" + requestId + ", waiting 35s...");
 
-    // Wait 30 seconds
-    debug.push(storeKey + ": waiting 30s before polling...");
-    await new Promise(function(r) { setTimeout(r, 30000); });
+    // Step 2: Wait then poll via our working stats route
+    await new Promise(function(r) { setTimeout(r, 35000); });
 
-    // Poll up to 6 times with 10s gaps
-    var pollData = null;
+    var records = [];
     for (var attempt = 0; attempt < 6; attempt++) {
-      var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
-      debug.push(storeKey + ": poll attempt " + (attempt + 1) + " status=" + pollRes.status);
-
+      var pollUrl = baseUrl + "/api/dialpad/stats?action=poll&requestId=" + requestId;
+      var pollRes = await fetch(pollUrl);
       if (!pollRes.ok) {
-        var pollErrText = await pollRes.text();
-        debug.push(storeKey + ": poll error body=" + pollErrText.substring(0, 200));
-        return [];
+        debug.push(storeKey + ": poll attempt " + (attempt + 1) + " HTTP error: " + pollRes.status);
+        await new Promise(function(r) { setTimeout(r, 10000); });
+        continue;
+      }
+      var pollData = await pollRes.json();
+      debug.push(storeKey + ": poll attempt " + (attempt + 1) + " state=" + (pollData.state || "unknown") + " records=" + (pollData.data ? pollData.data.length : 0));
+
+      if (pollData.data && pollData.data.length > 0) {
+        records = pollData.data.map(function(row) { row._storeKey = storeKey; return row; });
+        debug.push(storeKey + ": got " + records.length + " records!");
+        break;
       }
 
-      pollData = await pollRes.json();
-      debug.push(storeKey + ": poll result status=" + pollData.status + ", has download_url=" + (pollData.download_url ? "yes" : "no"));
-
-      if (pollData.status === "complete" && pollData.download_url) break;
-      pollData = null;
       await new Promise(function(r) { setTimeout(r, 10000); });
     }
 
-    if (!pollData || !pollData.download_url) {
-      debug.push(storeKey + ": stats never completed after 6 attempts");
-      return [];
+    if (records.length === 0) {
+      debug.push(storeKey + ": no records after 6 poll attempts");
     }
-
-    // Fetch the download URL
-    debug.push(storeKey + ": fetching download_url=" + pollData.download_url.substring(0, 100) + "...");
-    var dlRes = await fetch(pollData.download_url);
-    debug.push(storeKey + ": download status=" + dlRes.status + ", content-type=" + (dlRes.headers.get("content-type") || "unknown"));
-
-    var dlText = await dlRes.text();
-    debug.push(storeKey + ": download body length=" + dlText.length + " chars");
-    debug.push(storeKey + ": download body preview=" + dlText.substring(0, 200));
-
-    var records = [];
-    try {
-      var jsonData = JSON.parse(dlText);
-      if (jsonData.data && Array.isArray(jsonData.data)) {
-        records = jsonData.data.map(function(row) { row._storeKey = storeKey; return row; });
-        debug.push(storeKey + ": parsed " + records.length + " JSON records from data array");
-      } else if (Array.isArray(jsonData)) {
-        records = jsonData.map(function(row) { row._storeKey = storeKey; return row; });
-        debug.push(storeKey + ": parsed " + records.length + " JSON array records");
-      } else {
-        debug.push(storeKey + ": unexpected JSON structure, keys=" + Object.keys(jsonData).join(","));
-      }
-    } catch (parseErr) {
-      debug.push(storeKey + ": JSON parse failed (" + parseErr.message + "), trying CSV...");
-      var lines = dlText.split("\n");
-      debug.push(storeKey + ": CSV lines=" + lines.length + ", first line=" + (lines[0] || "").substring(0, 100));
-      var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
-      for (var i = 1; i < lines.length; i++) {
-        if (!lines[i].trim()) continue;
-        var values = (lines[i].match(/("([^"]*)"|[^,]*)/g) || []).map(function(v) { return v.replace(/^"|"$/g, "").trim(); });
-        var row = {};
-        headers.forEach(function(h, j) { row[h] = values[j] || ""; });
-        row._storeKey = storeKey;
-        records.push(row);
-      }
-      debug.push(storeKey + ": parsed " + records.length + " CSV records");
-    }
-
     return records;
   } catch (err) {
     debug.push(storeKey + ": EXCEPTION: " + err.message);
@@ -218,45 +125,40 @@ export async function GET(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Get base URL for calling our own stats route
+  var baseUrl = url.origin;
   var debug = [];
-  debug.push("STORES keys: " + Object.keys(STORES).join(", "));
-  debug.push("API_KEY present: " + (API_KEY ? "yes" : "NO"));
-  debug.push("Start time: " + new Date().toISOString());
+  debug.push("Base URL: " + baseUrl);
+  debug.push("STORES: " + Object.keys(STORES).join(", "));
+  debug.push("Start: " + new Date().toISOString());
 
   var results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
-  var storeKeys = Object.keys(STORES);
 
-  // Only process first store for debugging (to keep it fast)
+  // Debug mode: only process first store to test
+  var storeKeys = Object.keys(STORES);
   var storeKey = storeKeys[0];
+
   try {
     debug.push("=== Processing " + storeKey + " ===");
-    var allCalls = await fetchStoreCallData(storeKey, 0, 7, debug);
+    var allCalls = await fetchStoreCallData(storeKey, baseUrl, debug);
 
     if (allCalls.length > 0) {
       var saveResult = await saveCallRecords(allCalls);
       results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
       results.totalCallsSaved += saveResult.saved;
       await updateCallSyncState(storeKey, saveResult.saved);
-      debug.push(storeKey + ": saved " + saveResult.saved + " call records");
+      debug.push(storeKey + ": saved " + saveResult.saved + " records to Supabase");
     } else {
       results.callSync[storeKey] = { fetched: 0, saved: 0 };
-      debug.push(storeKey + ": no calls to save");
     }
 
     // Skip auditing for debug run
-    results.auditSync[storeKey] = { recorded: 0, newAudits: 0, skipped: "debug mode" };
-
+    results.auditSync[storeKey] = { recorded: 0, newAudits: 0, skipped: "debug mode - test fetch only" };
   } catch (err) {
-    debug.push(storeKey + ": TOP-LEVEL ERROR: " + err.message);
+    debug.push(storeKey + ": ERROR: " + err.message);
     results.errors.push({ store: storeKey, error: err.message });
   }
 
-  debug.push("End time: " + new Date().toISOString());
-
-  return NextResponse.json({
-    success: true,
-    ...results,
-    debug: debug,
-    timestamp: new Date().toISOString()
-  });
+  debug.push("End: " + new Date().toISOString());
+  return NextResponse.json({ success: true, ...results, debug: debug, timestamp: new Date().toISOString() });
 }
