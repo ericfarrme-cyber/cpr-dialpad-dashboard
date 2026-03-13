@@ -115,6 +115,15 @@ export async function GET(request) {
 export async function POST(request) {
   try {
     const body = await request.json();
+    // Delete audits by employee name
+    if (body.action === "delete_by_employee") {
+      if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
+      var query = supabase.from("audit_results").delete().eq("employee", body.employee);
+      if (body.store) query = query.eq("store", body.store);
+      var { data, error } = await query;
+      if (error) return NextResponse.json({ success: false, error: error.message });
+      return NextResponse.json({ success: true, deleted: data ? data.length : 0 });
+    }
     const { callId, callInfo } = body;
 
     if (!callId) return NextResponse.json({ success: false, error: "callId required" });
