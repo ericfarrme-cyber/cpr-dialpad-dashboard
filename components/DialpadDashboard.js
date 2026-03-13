@@ -276,6 +276,8 @@ function AuditTab({ rawCallData, storeFilter }) {
   var [rosterForm, setRosterForm] = useState({ name:"", store:"fishers", aliases:"", role:"Technician" });
   var [linkingName, setLinkingName] = useState(null);
   var [actionMsg, setActionMsg] = useState(null);
+  var [reviewAudits, setReviewAudits] = useState([]);
+  var [reviewLoading, setReviewLoading] = useState(false);
 
   useEffect(function() {
     async function load() {
@@ -447,7 +449,84 @@ function AuditTab({ rawCallData, storeFilter }) {
     } catch(e) { setActionMsg({ type: "error", text: "Failed: " + e.message }); }
   };
 
+  var deleteAudits = async function(empName, empStore) {
+    if (!confirm('Delete all audits for "' + empName + '"? This cannot be undone.')) return;
+    try {
+      var res = await fetch("/api/dialpad/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_by_employee", employee: empName, store: empStore })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: 'Deleted audits for "' + empName + '"' });
+        setAudits(function(prev){ return prev.filter(function(a){ return a.employee !== empName; }); });
+        setEmployees(function(prev){ return prev.filter(function(e){ return e.employee !== empName; }); });
+        setTimeout(function(){ setActionMsg(null); }, 5000);
+      } else {
+        setActionMsg({ type: "error", text: json.error || "Delete failed" });
+      }
+    } catch(e) { setActionMsg({ type: "error", text: "Failed: " + e.message }); }
+  };
+
   var total = filteredAudits.length;
+
+  var loadReviewAudits = async function() {
+    setReviewLoading(true);
+    try {
+      var res = await fetch("/api/dialpad/audit?action=low_confidence&threshold=70&limit=50");
+      var json = await res.json();
+      if (json.success) setReviewAudits(json.audits || []);
+    } catch(e) { console.error(e); }
+    setReviewLoading(false);
+  };
+
+  var excludeCall = async function(callId, reason) {
+    try {
+      var res = await fetch("/api/dialpad/audit", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "exclude", callId: callId, reason: reason || "Manually excluded by manager" }) });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: "Call excluded from scoring" });
+        setAudits(function(prev) { return prev.map(function(a) { return a.call_id === callId ? Object.assign({}, a, { excluded: true, exclude_reason: reason }) : a; }); });
+        setReviewAudits(function(prev) { return prev.filter(function(a) { return a.call_id !== callId; }); });
+        setTimeout(function() { setActionMsg(null); }, 4000);
+      }
+    } catch(e) { setActionMsg({ type: "error", text: e.message }); }
+  };
+
+  var overrideCall = async function(callId, callType, notes) {
+    try {
+      var res = await fetch("/api/dialpad/audit", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "override", callId: callId, callType: callType, notes: notes || "" }) });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: "Audit overridden — reclassified as " + callType });
+        if (callType === "non_scorable") {
+          setAudits(function(prev) { return prev.map(function(a) { return a.call_id === callId ? Object.assign({}, a, { call_type: "non_scorable", score: 0, excluded: true }) : a; }); });
+        }
+        setReviewAudits(function(prev) { return prev.filter(function(a) { return a.call_id !== callId; }); });
+        setTimeout(function() { setActionMsg(null); }, 4000);
+      }
+    } catch(e) { setActionMsg({ type: "error", text: e.message }); }
+  };
+
+  var reauditCall = async function(callId, callInfo) {
+    setAuditingId(callId);
+    try {
+      var res = await fetch("/api/dialpad/audit", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ callId: callId, callInfo: callInfo, forceReaudit: true }) });
+      var json = await res.json();
+      if (json.success && json.audit) {
+        setActionMsg({ type: "success", text: "Re-audited: " + (json.audit.call_type) + " — " + (json.audit.score || 0) + " pts (confidence: " + (json.audit.confidence || "?") + ")" });
+        setAudits(function(prev) { return prev.map(function(a) { return a.call_id === callId ? Object.assign({}, a, json.audit) : a; }); });
+        setTimeout(function() { setActionMsg(null); }, 5000);
+      } else {
+        setActionMsg({ type: "error", text: json.error || "Re-audit failed" });
+      }
+    } catch(e) { setActionMsg({ type: "error", text: e.message }); }
+    setAuditingId(null);
+  };
   var avgScore = total>0?(filteredAudits.reduce(function(s,a){return s+parseFloat(a.score||0);},0)/total).toFixed(2):"--";
   var oppCount = audits.filter(function(a){return a.call_type==="opportunity";}).length;
   var currCount = audits.filter(function(a){return a.call_type==="current_customer";}).length;
@@ -480,6 +559,7 @@ function AuditTab({ rawCallData, storeFilter }) {
     {id:"overview",label:"Overview",icon:"📊"},
     {id:"employees",label:"Employee Scores",icon:"👤"},
     {id:"dropped",label:"Dropped Balls",icon:"🚨"},
+    {id:"review",label:"Needs Review",icon:"⚠️"},
     {id:"calls",label:"Audit Calls",icon:"🎙️"},
     {id:"history",label:"Audit History",icon:"📋"},
   ];
@@ -576,10 +656,16 @@ function AuditTab({ rawCallData, storeFilter }) {
                       </div>
                       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                         {isStray && (
-                          <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinkingThis?null:empKey);}}
-                            style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinkingThis?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
-                            {isLinkingThis ? "Cancel" : "Link"}
-                          </button>
+                          <div style={{ display:"flex",gap:4 }}>
+                            <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinkingThis?null:empKey);}}
+                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinkingThis?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                              {isLinkingThis ? "Cancel" : "Link"}
+                            </button>
+                            <button onClick={function(e){e.stopPropagation(); deleteAudits(emp.employee, emp.store);}}
+                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                              Delete
+                            </button>
+                          </div>
                         )}
                         <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>APPT</div><div style={{ color:parseFloat(emp.appt_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</div></div>
                         <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>WARR</div><div style={{ color:parseFloat(emp.warranty_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</div></div>
@@ -756,10 +842,96 @@ function AuditTab({ rawCallData, storeFilter }) {
         </div>
       )}
 
+      {/* NEEDS REVIEW */}
+      {auditView==="review" && (
+        <div>
+          <SectionHeader title="Needs Review" subtitle="Low-confidence audits that may be misclassified" icon="⚠️" />
+          {actionMsg && (
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+              {actionMsg.text}
+            </div>
+          )}
+          {!reviewLoading && reviewAudits.length===0 && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:30,textAlign:"center" }}>
+              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:12 }}>No low-confidence audits loaded yet.</div>
+              <button onClick={loadReviewAudits} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Load Audits Needing Review</button>
+            </div>
+          )}
+          {reviewLoading && <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading...</div>}
+          {reviewAudits.length > 0 && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,maxHeight:700,overflowY:"auto" }}>
+              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                <div style={{ color:"#8B8F98",fontSize:12 }}>{reviewAudits.length} audits with confidence &lt; 70</div>
+                <button onClick={loadReviewAudits} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Refresh</button>
+              </div>
+              {reviewAudits.map(function(audit, i) {
+                var score = parseFloat(audit.score||0);
+                var sc = score>=3?"#4ADE80":score>=2?"#FBBF24":"#F87171";
+                var store = STORES[audit.store];
+                var d = new Date(audit.date_started||audit.date);
+                var conf = audit.confidence || 0;
+                var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
+                var typeBg = audit.call_type==="opportunity"?"#7C8AFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+                return (
+                  <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35" }}>
+                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
+                      <div>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
+                          <span style={{ color:"#E8E9EC",fontSize:13,fontWeight:700 }}>{audit.employee||"Unknown"}</span>
+                          <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
+                          <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:confColor+"18",color:confColor }}>{"Conf: "+conf+"%"}</span>
+                        </div>
+                        <div style={{ color:"#6B6F78",fontSize:11 }}>
+                          {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
+                          <span style={{ color:store?store.color:"#8B8F98" }}>{store?store.name:audit.store}</span>
+                          {" | "+audit.phone}
+                        </div>
+                        {audit.confidence_reason && <div style={{ color:"#FBBF24",fontSize:11,marginTop:4,fontStyle:"italic" }}>{audit.confidence_reason}</div>}
+                      </div>
+                      <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)}</div>
+                    </div>
+                    <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}</div>
+                    {audit.transcript_preview && <div style={{ color:"#6B6F78",fontSize:10,marginBottom:10,padding:8,background:"#12141A",borderRadius:6,maxHeight:80,overflowY:"auto",fontFamily:"monospace",whiteSpace:"pre-wrap" }}>{audit.transcript_preview}</div>}
+                    <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                      <button onClick={function(){excludeCall(audit.call_id,"Low confidence — excluded by manager");}}
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        Exclude from Scoring
+                      </button>
+                      <button onClick={function(){overrideCall(audit.call_id,"non_scorable","Manager review: not a real customer call");}}
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #6B6F7833",background:"transparent",color:"#6B6F78",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        Mark Non-Scorable
+                      </button>
+                      <button onClick={function(){overrideCall(audit.call_id,"opportunity","Manager review: reclassified as opportunity");}}
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7C8AFF33",background:"transparent",color:"#7C8AFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        → Opportunity
+                      </button>
+                      <button onClick={function(){overrideCall(audit.call_id,"current_customer","Manager review: reclassified as current customer");}}
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #FBBF2433",background:"transparent",color:"#FBBF24",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        → Current Customer
+                      </button>
+                      <button onClick={function(){reauditCall(audit.call_id, { direction:audit.direction, external_number:audit.phone, date_started:audit.date_started, name:audit.store_name, _storeKey:audit.store, talk_duration:audit.talk_duration });}}
+                        disabled={auditingId===audit.call_id}
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #C084FC33",background:"transparent",color:auditingId===audit.call_id?"#6B6F78":"#C084FC",fontSize:11,cursor:auditingId===audit.call_id?"wait":"pointer",fontWeight:600 }}>
+                        {auditingId===audit.call_id?"Re-auditing...":"Re-Audit"}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* HISTORY */}
       {auditView==="history" && (
         <div>
           <SectionHeader title="Audit History" subtitle={filteredAudits.length+" calls"} icon="📋" />
+          {actionMsg && (
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+              {actionMsg.text}
+            </div>
+          )}
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20,maxHeight:600,overflowY:"auto" }}>
             {filteredAudits.map(function(audit, i) {
               var score = parseFloat(audit.score||0);
@@ -767,13 +939,19 @@ function AuditTab({ rawCallData, storeFilter }) {
               var store = STORES[audit.store];
               var d = new Date(audit.date_started||audit.date);
               var typeBg = audit.call_type==="opportunity"?"#7C8AFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+              var conf = audit.confidence || 0;
+              var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
+              var isExcluded = audit.excluded;
               return (
-                <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35" }}>
+                <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35",opacity:isExcluded?0.5:1 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
                     <div>
                       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
                         <span style={{ color:"#E8E9EC",fontSize:13,fontWeight:700 }}>{audit.employee||"Unknown"}{" - "+audit.phone}</span>
                         <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current Customer":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
+                        {conf > 0 && <span style={{ padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:confColor+"18",color:confColor }}>{conf+"%"}</span>}
+                        {isExcluded && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#F8717118",color:"#F87171" }}>EXCLUDED</span>}
+                        {audit.manager_override && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#C084FC18",color:"#C084FC" }}>OVERRIDE</span>}
                       </div>
                       <div style={{ color:"#6B6F78",fontSize:11 }}>
                         {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
@@ -782,10 +960,17 @@ function AuditTab({ rawCallData, storeFilter }) {
                         {audit.device_type&&audit.device_type!=="Not mentioned"?" | "+audit.device_type:""}
                       </div>
                     </div>
-                    <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)+" / 4"}</div>
+                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                      {!isExcluded && audit.call_type !== "non_scorable" && (
+                        <button onClick={function(e){e.stopPropagation(); excludeCall(audit.call_id, "Manually excluded");}}
+                          style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>Exclude</button>
+                      )}
+                      <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)+" / 4"}</div>
+                    </div>
                   </div>
                   <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}<br /><strong>Outcome:</strong> {audit.outcome||"-"}</div>
                   <CriteriaGrid audit={audit} />
+                  {audit.exclude_reason && <div style={{ color:"#F87171",fontSize:10,marginTop:6,fontStyle:"italic" }}>Excluded: {audit.exclude_reason}</div>}
                 </div>
               );
             })}
