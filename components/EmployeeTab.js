@@ -172,7 +172,7 @@ export default function EmployeeTab({ storeFilter }) {
       {/* Sub-nav */}
       <div style={{ display:"flex",gap:4,marginBottom:20 }}>
         {SUBTABS.map(function(v) {
-          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7C8AFF22":"#1A1D23",color:view===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
         })}
       </div>
 
@@ -187,9 +187,9 @@ export default function EmployeeTab({ storeFilter }) {
       {view === "profiles" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="On Roster" value={roster.length} accent="#7C8AFF" sub={strayEmployees.length + " unmatched names"} />
+            <StatCard label="On Roster" value={roster.length} accent="#7B2FFF" sub={strayEmployees.length + " unmatched names"} />
             <StatCard label="Avg Score" value={avgScore + " / 4"} accent={parseFloat(avgScore)>=3?"#4ADE80":parseFloat(avgScore)>=2?"#FBBF24":"#F87171"} />
-            <StatCard label="Total Audits" value={totalAudits} accent="#C084FC" sub="last 30 days" />
+            <StatCard label="Total Audits" value={totalAudits} accent="#00D4FF" sub="last 30 days" />
             <StatCard label="Schedule" value={scheduleConnected ? "Connected" : "Not Connected"} accent={scheduleConnected?"#4ADE80":"#FBBF24"} sub={scheduleConnected?"WhenIWork linked":"Set up in Schedule tab"} />
           </div>
 
@@ -203,7 +203,7 @@ export default function EmployeeTab({ storeFilter }) {
                     <XAxis type="number" domain={[0, 4]} tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} />
                     <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:12}} width={100} tickLine={false} axisLine={false} />
                     <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} labelStyle={{color:"#8B8F98"}} />
-                    <Bar dataKey="score" name="Avg Score" fill="#7C8AFF" radius={[0,6,6,0]} barSize={16} />
+                    <Bar dataKey="score" name="Avg Score" fill="#7B2FFF" radius={[0,6,6,0]} barSize={16} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -240,7 +240,7 @@ export default function EmployeeTab({ storeFilter }) {
                         </div>
                         <div style={{ display:"flex",gap:6 }}>
                           <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinking ? null : empName+"__"+emp.store);}}
-                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinking?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinking?"#7B2FFF22":"transparent",color:"#7B2FFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                             {isLinking ? "Cancel" : "Link to Employee"}
                           </button>
                           <button onClick={function(e){e.stopPropagation(); deleteAudits(empName, emp.store);}}
@@ -252,7 +252,7 @@ export default function EmployeeTab({ storeFilter }) {
 
                       {/* Link dropdown */}
                       {isLinking && (
-                        <div style={{ marginTop:10,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7C8AFF22" }}>
+                        <div style={{ marginTop:10,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7B2FFF22" }}>
                           <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{empName}" as an alias of:</div>
                           {sameStoreRoster.length > 0 && (
                             <div>
@@ -280,7 +280,7 @@ export default function EmployeeTab({ storeFilter }) {
                                   var st = STORES[r.store];
                                   return (
                                     <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
-                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #7C8AFF22",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #7B2FFF22",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
                                       <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
                                       <span style={{ fontWeight:700 }}>{r.name}</span>
                                       <span style={{ color:st?st.color:"#6B6F78",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
@@ -324,10 +324,10 @@ export default function EmployeeTab({ storeFilter }) {
 
               return (
                 <div key={empName+"__"+emp.store} onClick={function(){setExpandedEmp(isExpanded?null:empName);}}
-                  style={{ background:"#1A1D23",borderRadius:12,padding:20,cursor:"pointer",border:"1px solid "+(isExpanded?"#7C8AFF33":"#1E2028"),transition:"border-color 0.2s" }}>
+                  style={{ background:"#1A1D23",borderRadius:12,padding:20,cursor:"pointer",border:"1px solid "+(isExpanded?"#7B2FFF33":"#1E2028"),transition:"border-color 0.2s" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                      <div style={{ width:40,height:40,borderRadius:10,background:(store?store.color:"#7C8AFF")+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store?store.color:"#7C8AFF",fontWeight:800,fontSize:16 }}>
+                      <div style={{ width:40,height:40,borderRadius:10,background:(store?store.color:"#7B2FFF")+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store?store.color:"#7B2FFF",fontWeight:800,fontSize:16 }}>
                         {empName.charAt(0)}
                       </div>
                       <div>
@@ -358,7 +358,7 @@ export default function EmployeeTab({ storeFilter }) {
                     </div>
                     <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
                       <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Opp</div>
-                      <div style={{ color:"#7C8AFF",fontSize:16,fontWeight:700 }}>{emp.opportunity_calls||0}</div>
+                      <div style={{ color:"#7B2FFF",fontSize:16,fontWeight:700 }}>{emp.opportunity_calls||0}</div>
                     </div>
                     <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
                       <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Current</div>
@@ -385,7 +385,7 @@ export default function EmployeeTab({ storeFilter }) {
                               <div style={{ color:"#6B6F78",fontSize:10 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                             </div>
                             <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,background:(a.call_type==="opportunity"?"#7C8AFF":"#FBBF24")+"18",color:a.call_type==="opportunity"?"#7C8AFF":"#FBBF24" }}>
+                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,background:(a.call_type==="opportunity"?"#7B2FFF":"#FBBF24")+"18",color:a.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>
                                 {a.call_type==="opportunity"?"Opp":"Curr"}
                               </span>
                               <span style={{ color:asc,fontWeight:700,fontSize:13 }}>{parseFloat(a.score||0).toFixed(2)}</span>
@@ -452,7 +452,7 @@ export default function EmployeeTab({ storeFilter }) {
                   {["Manager","Lead Tech","Technician","Front Desk"].map(function(r){return <option key={r} value={r}>{r}</option>;})}
                 </select>
               </div>
-              <button onClick={addEmployee} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
+              <button onClick={addEmployee} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
             </div>
           </div>
 
