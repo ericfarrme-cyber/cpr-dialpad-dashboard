@@ -96,15 +96,19 @@ export default function SalesTab() {
     return Object.values(map).map(function(e) {
       e.total_revenue = e.phone_total + e.other_total + e.accy_total + e.clean_total;
       e.total_tickets = e.phone_tickets + e.other_count + e.accy_count + e.clean_count;
-      // Commission calculation (using standard rates — can be overridden per-employee)
-      e.comm_phone = e.phone_tickets * (rates.phone_repair_standard || 1);
-      e.comm_other = e.other_count * (rates.other_repair_rate || 2.5);
-      e.comm_accy = e.accy_gp * (rates.accessory_gp_rate || 0.15);
-      e.comm_clean = e.clean_count * (rates.cleaning_rate || 5);
+      // Commission calculation — respect enabled flags from config
+      var configMap = {};
+      (config || []).forEach(function(c) { configMap[c.config_key] = c; });
+      var isEnabled = function(key) { return configMap[key] ? configMap[key].enabled !== false : true; };
+
+      e.comm_phone = isEnabled("phone_repair_standard") ? e.phone_tickets * (rates.phone_repair_standard || 1) : 0;
+      e.comm_other = isEnabled("other_repair_rate") ? e.other_count * (rates.other_repair_rate || 2.5) : 0;
+      e.comm_accy = isEnabled("accessory_gp_rate") ? e.accy_gp * (rates.accessory_gp_rate || 0.15) : 0;
+      e.comm_clean = isEnabled("cleaning_rate") ? e.clean_total * (rates.cleaning_rate || 0.10) : 0;
       e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean;
       return e;
     }).sort(function(a, b) { return b.total_revenue - a.total_revenue; });
-  }, [phones, others, accessories, cleanings, rates]);
+  }, [phones, others, accessories, cleanings, rates, config]);
 
   var totals = useMemo(function() {
     return employees.reduce(function(t, e) {
@@ -151,6 +155,20 @@ export default function SalesTab() {
         setTimeout(function() { setUploadMsg(null); }, 3000);
       }
     } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
+  };
+
+  var toggleRate = async function(key, currentEnabled) {
+    try {
+      var res = await fetch("/api/dialpad/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "toggle_commission", key: key, enabled: !currentEnabled })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setConfig(function(prev) { return prev.map(function(c) { return c.config_key === key ? Object.assign({}, c, { enabled: !currentEnabled }) : c; }); });
+      }
+    } catch(e) { console.error(e); }
   };
 
   var deletePeriod = async function(p) {
@@ -369,13 +387,20 @@ export default function SalesTab() {
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
             {config.map(function(c) {
               var isEditing = editingRate === c.config_key;
-              var isPercent = c.config_key.includes("gp_rate");
+              var isPercent = c.config_key.includes("gp_rate") || c.config_key === "cleaning_rate";
               var displayValue = isPercent ? (parseFloat(c.config_value) * 100).toFixed(0) + "%" : "$" + parseFloat(c.config_value).toFixed(2);
+              var isOn = c.enabled !== false;
               return (
-                <div key={c.config_key} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                  <div>
-                    <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:600 }}>{c.label}</div>
-                    <div style={{ color:"#6B6F78",fontSize:11 }}>{c.description}</div>
+                <div key={c.config_key} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:isOn?1:0.4 }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                    <div onClick={function(){ toggleRate(c.config_key, isOn); }}
+                      style={{ width:40,height:22,borderRadius:11,background:isOn?"#4ADE80":"#2A2D35",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                      <div style={{ width:16,height:16,borderRadius:8,background:"#FFF",position:"absolute",top:3,left:isOn?21:3,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)" }} />
+                    </div>
+                    <div>
+                      <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:600 }}>{c.label}</div>
+                      <div style={{ color:"#6B6F78",fontSize:11 }}>{c.description}</div>
+                    </div>
                   </div>
                   {isEditing ? (
                     <div style={{ display:"flex",gap:6,alignItems:"center" }}>
@@ -384,16 +409,17 @@ export default function SalesTab() {
                         autoFocus />
                       <button onClick={function(){
                         var val = parseFloat(editValue);
-                        if (isPercent) val = val / 100; // convert 15 → 0.15
+                        if (isPercent) val = val / 100;
                         updateRate(c.config_key, val);
                       }} style={{ padding:"6px 12px",borderRadius:6,border:"none",background:"#4ADE80",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Save</button>
                       <button onClick={function(){setEditingRate(null);}} style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Cancel</button>
                     </div>
                   ) : (
                     <button onClick={function(){
+                      if (!isOn) return;
                       setEditingRate(c.config_key);
                       setEditValue(isPercent ? (parseFloat(c.config_value) * 100).toFixed(0) : parseFloat(c.config_value).toFixed(2));
-                    }} style={{ padding:"6px 16px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#FBBF24",fontSize:16,fontWeight:800,cursor:"pointer",minWidth:80,textAlign:"center" }}>
+                    }} style={{ padding:"6px 16px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:isOn?"#FBBF24":"#6B6F78",fontSize:16,fontWeight:800,cursor:isOn?"pointer":"default",minWidth:80,textAlign:"center" }}>
                       {displayValue}
                     </button>
                   )}
