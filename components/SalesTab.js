@@ -191,7 +191,7 @@ export default function SalesTab() {
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:4 }}>
           {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7C8AFF22":"#1A1D23",color:view===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
           })}
         </div>
         {periods.length > 0 && (
@@ -222,8 +222,8 @@ export default function SalesTab() {
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
             <StatCard label="Total Revenue" value={fmt(totals.revenue)} accent="#4ADE80" sub={totals.tickets + " total tickets"} />
-            <StatCard label="Phone Repairs" value={totals.phone_tickets} accent="#7C8AFF" sub={fmt(totals.phone_total) + " revenue"} />
-            <StatCard label="Accessories" value={totals.accy_count} accent="#C084FC" />
+            <StatCard label="Phone Repairs" value={totals.phone_tickets} accent="#7B2FFF" sub={fmt(totals.phone_total) + " revenue"} />
+            <StatCard label="Accessories" value={totals.accy_count} accent="#00D4FF" />
             <StatCard label="Total Commissions" value={fmt(totals.commission)} accent="#FBBF24" sub={employees.length + " employees"} />
           </div>
 
@@ -239,8 +239,8 @@ export default function SalesTab() {
                       <XAxis type="number" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} tickFormatter={function(v){return "$"+v.toLocaleString();}} />
                       <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:11}} width={130} tickLine={false} axisLine={false} />
                       <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} formatter={function(v){return "$"+parseFloat(v).toLocaleString(undefined,{minimumFractionDigits:2});}} />
-                      <Bar dataKey="phone_total" name="Phone Repairs" fill="#7C8AFF" stackId="rev" barSize={18} />
-                      <Bar dataKey="other_total" name="Other Repairs" fill="#C084FC" stackId="rev" />
+                      <Bar dataKey="phone_total" name="Phone Repairs" fill="#7B2FFF" stackId="rev" barSize={18} />
+                      <Bar dataKey="other_total" name="Other Repairs" fill="#00D4FF" stackId="rev" />
                       <Bar dataKey="accy_total" name="Accessories" fill="#4ADE80" stackId="rev" />
                       <Bar dataKey="clean_total" name="Cleanings" fill="#FBBF24" stackId="rev" radius={[0,4,4,0]} />
                     </BarChart>
@@ -315,7 +315,7 @@ export default function SalesTab() {
               <div style={{ fontSize:32,marginBottom:12 }}>{"💰"}</div>
               <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>No sales data yet</div>
               <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>Import your RepairQ CSV files to see employee performance and commissions.</div>
-              <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>
+              <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>
             </div>
           )}
         </div>
@@ -335,8 +335,8 @@ export default function SalesTab() {
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
             {[
-              { type: "phone_repairs", label: "Phone Repairs", desc: "phone_repairs.csv — Employee, Repair Tkts, Repair Total, Average Repair", icon: "📱", color: "#7C8AFF" },
-              { type: "other_repairs", label: "Other Repairs", desc: "other_repairs.csv — Employee, # Repairs, Repair Total, Avg", icon: "🔧", color: "#C084FC" },
+              { type: "phone_repairs", label: "Phone Repairs", desc: "phone_repairs.csv — Employee, Repair Tkts, Repair Total, Average Repair", icon: "📱", color: "#7B2FFF" },
+              { type: "other_repairs", label: "Other Repairs", desc: "other_repairs.csv — Employee, # Repairs, Repair Total, Avg", icon: "🔧", color: "#00D4FF" },
               { type: "accessories", label: "Accessory Sales", desc: "accessory_sales.csv — Employee, Accy Total, Accy GP, Accy Count", icon: "🛍️", color: "#4ADE80" },
               { type: "cleanings", label: "Charge Port Cleanings", desc: "charge_port_cleanings.csv — Employee, # Cleans, Cleans Total", icon: "🔌", color: "#FBBF24" },
             ].map(function(item) {
@@ -380,7 +380,7 @@ export default function SalesTab() {
                   {isEditing ? (
                     <div style={{ display:"flex",gap:6,alignItems:"center" }}>
                       <input value={editValue} onChange={function(e){setEditValue(e.target.value);}}
-                        style={{ width:80,padding:"6px 10px",borderRadius:6,border:"1px solid #7C8AFF44",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,textAlign:"right" }}
+                        style={{ width:80,padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,textAlign:"right" }}
                         autoFocus />
                       <button onClick={function(){
                         var val = parseFloat(editValue);
