@@ -114,6 +114,16 @@ export async function POST(request) {
       return NextResponse.json({ success: true, config: data?.[0] });
     }
 
+    if (body.action === "toggle_commission") {
+      var { key, enabled } = body;
+      if (!key) return NextResponse.json({ success: false, error: "key required" });
+      var { data, error } = await supabase.from("commission_config")
+        .update({ enabled: !!enabled, updated_at: new Date().toISOString() })
+        .eq("config_key", key).select();
+      if (error) return NextResponse.json({ success: false, error: error.message });
+      return NextResponse.json({ success: true, config: data?.[0] });
+    }
+
     if (body.action === "delete_period") {
       var dp = body.period;
       if (!dp) return NextResponse.json({ success: false, error: "period required" });
