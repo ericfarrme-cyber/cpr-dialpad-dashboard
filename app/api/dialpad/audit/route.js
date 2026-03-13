@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { saveAuditResult, getAuditResults, getEmployeePerformance, getStorePerformance, isCallAudited, getEmployeeStatsFromAudits } from "@/lib/supabase";
+import { supabase, saveAuditResult, getAuditResults, getEmployeePerformance, getStorePerformance, isCallAudited, getEmployeeStatsFromAudits, overrideAudit, excludeAudit, reinstateAudit, deleteAudit, deleteAuditsByEmployee, clearAllAudits, getLowConfidenceAudits } from "@/lib/supabase";
+import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
 
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
 const API_KEY = process.env.DIALPAD_API_KEY;
@@ -8,82 +9,8 @@ function dialpadHeaders() {
   return { Authorization: `Bearer ${API_KEY}`, "Content-Type": "application/json", Accept: "application/json" };
 }
 
-const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
 
-STEP 1 — CLASSIFY THE CALL (this is critical — read carefully):
-
-"opportunity" — The caller is asking about a NEW repair they haven't started yet. They want a price quote, availability, or to schedule a new repair. The store may also be calling out to reach a potential customer. KEY SIGNAL: the customer does NOT currently have a device at the shop.
-
-"current_customer" — The caller ALREADY has a device at the shop, OR is calling about an existing repair/order. This includes ALL of the following:
-  - Checking on repair status ("is my phone ready?")
-  - Asking for an update on a device left for repair
-  - Picking up a repaired device
-  - Rescheduling an existing appointment
-  - Canceling an existing appointment or repair
-  - Following up on a back-ordered part
-  - Asking about a device they previously dropped off
-  - Calling about a warranty issue on a PREVIOUS repair
-  - Any call where a repair ticket or prior visit is referenced
-
-"non_scorable" — The call does not fit either category. Examples:
-  - Wrong number / spam / robocall
-  - Call disconnected immediately after greeting
-  - Vendor or supplier call (not a customer)
-  - Internal call between employees or stores
-  - Transcript is too short or corrupted to evaluate
-
-CLASSIFICATION EXAMPLES:
-- "Calling to check on my Samsung that I dropped off yesterday" → current_customer
-- "How much to fix an iPhone 15 screen?" → opportunity
-- "I need to reschedule my appointment for tomorrow" → current_customer
-- "Is my laptop ready for pickup?" → current_customer
-- "Do you guys fix PS5 controllers?" → opportunity
-- "I was told my part would be in today, any update?" → current_customer
-- "I want to cancel, I found somewhere cheaper" → current_customer
-- (garbled 5-second call with no conversation) → non_scorable
-
-STEP 2 — SCORE BASED ON CALL TYPE:
-
-IF call_type = "opportunity", score these 4 criteria (max 4.01 pts):
-1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment? Even suggesting "want to bring it in at a specific time?" counts.
-2. Discount for Scheduling (0.92 pts): Did the employee mention any discount, deal, or savings for booking an appointment?
-3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty on repairs?
-4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain that scheduling means faster/priority service?
-
-IF call_type = "current_customer", score these 4 criteria (max 4.00 pts):
-1. Clear Status Update (1.00 pts): Did the employee give a clear, specific update on the device/repair? Not just "let me check" — they need to actually communicate the status.
-2. ETA / Timeline (1.00 pts): Did the employee provide a time estimate for completion, or confirm when the device will be ready?
-3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous, patient, and understanding? Especially important if the customer is frustrated about delays.
-4. Next Steps Explained (1.00 pts): Did the employee clearly state what happens next? ("We'll call you when it's ready", "Come in after 3pm", etc.)
-
-IF call_type = "non_scorable", set score to 0 and max_score to 0. Still extract employee name if possible.
-
-STEP 3 — EXTRACT:
-- Employee Name: The CPR agent (who answers the phone for the store)
-- Customer Name: The caller's name if stated (or "Unknown")
-- Device Type: Make/model if mentioned (e.g. "iPhone 15 Pro", "PS5", "Samsung S24") or "Not mentioned"
-- Inquiry: Brief description of what the call was about
-- Outcome: What happened (e.g. "Customer booked appointment", "Device ready for pickup", "Price quoted, customer will call back")
-
-Respond ONLY with valid JSON:
-{
-  "call_type": "opportunity" or "current_customer" or "non_scorable",
-  "employee": "Name",
-  "customer_name": "Name or Unknown",
-  "device_type": "Device or Not mentioned",
-  "inquiry": "Brief description",
-  "outcome": "Brief outcome",
-  "criteria": {
-    FOR opportunity: "appointment_offered", "discount_mentioned", "warranty_mentioned", "faster_turnaround"
-    FOR current_customer: "status_update_given", "eta_communicated", "professional_tone", "next_steps_explained"
-    FOR non_scorable: empty object {}
-    Each criterion: {"pass": true/false, "notes": "brief explanation"}
-  },
-  "score": 0.00,
-  "max_score": 4.00
-}`;
-
-// GET: Read audit results, employee perf, store perf
+// GET: Read audit results, employee perf, store perf, low confidence
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
@@ -94,7 +21,6 @@ export async function GET(request) {
   const daysBack = parseInt(searchParams.get("days") || "30");
 
   if (action === "employees") {
-    // Try the view first, fall back to direct computation
     let data = await getEmployeePerformance(store);
     if (!data || data.length === 0) {
       data = await getEmployeeStatsFromAudits(store);
@@ -107,31 +33,119 @@ export async function GET(request) {
     return NextResponse.json({ success: true, stores: data });
   }
 
+  if (action === "low_confidence") {
+    const threshold = parseInt(searchParams.get("threshold") || "70");
+    const data = await getLowConfidenceAudits(threshold, limit);
+    return NextResponse.json({ success: true, audits: data, count: data.length });
+  }
+
   const data = await getAuditResults({ store, employee, callType, limit, daysBack });
   return NextResponse.json({ success: true, audits: data, count: data.length });
 }
 
-// POST: Score a single call and save to Supabase
+// POST: Score, override, exclude, delete, re-audit
 export async function POST(request) {
   try {
     const body = await request.json();
-    // Delete audits by employee name
-    if (body.action === "delete_by_employee") {
-      if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
-      var query = supabase.from("audit_results").delete().eq("employee", body.employee);
-      if (body.store) query = query.eq("store", body.store);
-      var { data, error } = await query;
-      if (error) return NextResponse.json({ success: false, error: error.message });
-      return NextResponse.json({ success: true, deleted: data ? data.length : 0 });
-    }
-    const { callId, callInfo } = body;
 
+    // ── Delete audits by employee ──
+    if (body.action === "delete_by_employee") {
+      const deleted = await deleteAuditsByEmployee(body.employee, body.store);
+      return NextResponse.json({ success: true, deleted: deleted });
+    }
+
+    // ── Override an audit (manager correction) ──
+    if (body.action === "override") {
+      if (!body.callId) return NextResponse.json({ success: false, error: "callId required" });
+      const result = await overrideAudit(body.callId, {
+        callType: body.callType,
+        score: body.score,
+        notes: body.notes,
+        overrideBy: body.overrideBy || "manager",
+      });
+      if (!result) return NextResponse.json({ success: false, error: "Audit not found" });
+      return NextResponse.json({ success: true, audit: result });
+    }
+
+    // ── Exclude an audit from scoring ──
+    if (body.action === "exclude") {
+      if (!body.callId) return NextResponse.json({ success: false, error: "callId required" });
+      const result = await excludeAudit(body.callId, body.reason);
+      return NextResponse.json({ success: true, audit: result });
+    }
+
+    // ── Reinstate an excluded audit ──
+    if (body.action === "reinstate") {
+      if (!body.callId) return NextResponse.json({ success: false, error: "callId required" });
+      const result = await reinstateAudit(body.callId);
+      return NextResponse.json({ success: true, audit: result });
+    }
+
+    // ── Delete a single audit (for re-audit) ──
+    if (body.action === "delete_single") {
+      if (!body.callId) return NextResponse.json({ success: false, error: "callId required" });
+      const ok = await deleteAudit(body.callId);
+      return NextResponse.json({ success: ok, deleted: ok ? 1 : 0 });
+    }
+
+    // ── Clear ALL audits (for full re-audit) ──
+    if (body.action === "clear_all") {
+      const secret = body.secret;
+      if (secret !== process.env.CRON_SECRET) return NextResponse.json({ success: false, error: "Secret required for bulk clear" });
+      const ok = await clearAllAudits();
+      return NextResponse.json({ success: ok });
+    }
+
+    // ── Score a single call ──
+    const { callId, callInfo, forceReaudit } = body;
     if (!callId) return NextResponse.json({ success: false, error: "callId required" });
 
-    const alreadyDone = await isCallAudited(callId);
-    if (alreadyDone) return NextResponse.json({ success: false, error: "Call already audited", alreadyAudited: true });
+    // If re-auditing, delete old result first
+    if (forceReaudit) {
+      await deleteAudit(callId);
+    } else {
+      const alreadyDone = await isCallAudited(callId);
+      if (alreadyDone) return NextResponse.json({ success: false, error: "Call already audited", alreadyAudited: true });
+    }
 
-    // Fetch transcript
+    // ── Pre-audit filter (inter-store, too short, etc.) ──
+    if (callInfo) {
+      const preCheck = preAuditFilter(callInfo);
+      if (!preCheck.pass) {
+        // Auto-save as non_scorable + excluded
+        const excluded = await saveAuditResult({
+          call_id: callId,
+          date: callInfo.date_started || new Date().toISOString(),
+          store: callInfo._storeKey || "unknown",
+          store_name: callInfo.name || "",
+          call_type: "non_scorable",
+          employee: "Unknown",
+          customer_name: "Unknown",
+          device_type: "Not mentioned",
+          phone: callInfo.external_number || "",
+          direction: callInfo.direction || "inbound",
+          talk_duration: callInfo.talk_duration || null,
+          inquiry: preCheck.reason,
+          outcome: "Auto-excluded by pre-filter",
+          score: 0,
+          max_score: 0,
+          confidence: 100,
+          confidence_reason: "Pre-filter auto-exclusion",
+          excluded: true,
+          exclude_reason: preCheck.detail || preCheck.reason,
+          criteria: {},
+          transcript_preview: "",
+        });
+        return NextResponse.json({
+          success: true,
+          audit: { call_type: "non_scorable", score: 0, max_score: 0, excluded: true, exclude_reason: preCheck.reason, call_id: callId, saved: !!excluded },
+          filtered: true,
+          filterReason: preCheck.reason,
+        });
+      }
+    }
+
+    // ── Fetch transcript ──
     const transcriptRes = await fetch(`${DIALPAD_BASE}/transcripts/${callId}`, { method: "GET", headers: dialpadHeaders() });
     if (!transcriptRes.ok) {
       return NextResponse.json({ success: false, error: transcriptRes.status === 404 ? "No transcript available" : `Transcript fetch failed (${transcriptRes.status})` });
@@ -147,22 +161,52 @@ export async function POST(request) {
       formattedTranscript = JSON.stringify(transcriptData);
     }
 
-    if (!formattedTranscript || formattedTranscript.length < 20) {
-      return NextResponse.json({ success: false, error: "Transcript too short to audit" });
+    // ── Transcript pre-check ──
+    const tCheck = transcriptPreCheck(formattedTranscript);
+    if (!tCheck.pass) {
+      const excluded = await saveAuditResult({
+        call_id: callId,
+        date: callInfo?.date_started || new Date().toISOString(),
+        store: callInfo?._storeKey || "unknown",
+        store_name: callInfo?.name || "",
+        call_type: "non_scorable",
+        employee: "Unknown",
+        customer_name: "Unknown",
+        device_type: "Not mentioned",
+        phone: callInfo?.external_number || "",
+        direction: callInfo?.direction || "inbound",
+        talk_duration: callInfo?.talk_duration || null,
+        inquiry: tCheck.reason,
+        outcome: "Auto-excluded by transcript check",
+        score: 0,
+        max_score: 0,
+        confidence: 100,
+        confidence_reason: "Transcript pre-check exclusion",
+        excluded: true,
+        exclude_reason: tCheck.detail || tCheck.reason,
+        criteria: {},
+        transcript_preview: (formattedTranscript || "").substring(0, 500),
+      });
+      return NextResponse.json({
+        success: true,
+        audit: { call_type: "non_scorable", score: 0, max_score: 0, excluded: true, call_id: callId, saved: !!excluded },
+        filtered: true,
+        filterReason: tCheck.reason,
+      });
     }
 
+    // ── Build context and score with Claude ──
     let context = "";
     if (callInfo) {
       context = `\nCall Info: ${callInfo.direction || ""} call, ${callInfo.external_number || "unknown"}, ${callInfo.date_started || ""}, Store: ${callInfo.name || "unknown"}\n`;
     }
 
-    // Score with Claude
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
         model: "claude-sonnet-4-20250514",
-        max_tokens: 1200,
+        max_tokens: 1500,
         messages: [{ role: "user", content: `${AUDIT_PROMPT}\n${context}\n--- TRANSCRIPT ---\n${formattedTranscript}\n--- END TRANSCRIPT ---` }],
       }),
     });
@@ -189,6 +233,17 @@ export async function POST(request) {
        storeName.toLowerCase().includes("bloom") ? "bloomington" :
        storeName.toLowerCase().includes("indian") ? "indianapolis" : "unknown");
 
+    // Determine if this should be auto-excluded
+    var shouldExclude = auditResult.call_type === "non_scorable";
+    var excludeReason = shouldExclude ? "AI classified as non-scorable" : "";
+
+    // Low confidence + non_scorable classification → auto-exclude
+    var confidence = auditResult.confidence || 0;
+    if (confidence < 50 && auditResult.call_type !== "non_scorable") {
+      // Very low confidence on a scored call — flag but don't exclude
+      // Manager can review via low_confidence endpoint
+    }
+
     const saved = await saveAuditResult({
       call_id: callId,
       date: callInfo?.date_started || new Date().toISOString(),
@@ -205,13 +260,24 @@ export async function POST(request) {
       outcome: auditResult.outcome || "",
       score: auditResult.score || 0,
       max_score: auditResult.max_score || 4.0,
+      confidence: confidence,
+      confidence_reason: auditResult.confidence_reason || "",
+      excluded: shouldExclude,
+      exclude_reason: excludeReason,
       criteria: auditResult.criteria,
       transcript_preview: formattedTranscript.substring(0, 500),
     });
 
     return NextResponse.json({
       success: true,
-      audit: { ...auditResult, call_id: callId, store: storeKey, store_name: storeName, phone: callInfo?.external_number || "", date: callInfo?.date_started, saved: !!saved },
+      audit: {
+        ...auditResult,
+        call_id: callId, store: storeKey, store_name: storeName,
+        phone: callInfo?.external_number || "", date: callInfo?.date_started,
+        confidence: confidence,
+        excluded: shouldExclude, exclude_reason: excludeReason,
+        saved: !!saved,
+      },
     });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message });
