@@ -15,8 +15,8 @@ function dialpadHeaders() {
 const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
 
 STEP 1 — CLASSIFY THE CALL:
-- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. Examples: "How much to fix my iPhone screen?", "Do you repair Samsung tablets?", "I cracked my phone, can you fix it today?"
-- "current_customer": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced. Examples: "Is my phone ready?", "I dropped off my iPad yesterday", "I need to reschedule my appointment", "Any update on that part you ordered?"
+- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer.
+- "current_customer": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced.
 - "non_scorable": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.
 
 STEP 2 — SCORE BASED ON CALL TYPE:
@@ -46,83 +46,101 @@ Respond ONLY with valid JSON:
   "score": 0.00, "max_score": 4.00
 }`;
 
-async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
+async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd, debug) {
   var store = STORES[storeKey];
-  if (!store) return [];
+  if (!store) { debug.push(storeKey + ": store not found in STORES"); return []; }
+
   try {
-    console.log("[Cron] Initiating stats for " + storeKey + "...");
+    debug.push(storeKey + ": initiating stats request...");
+    debug.push(storeKey + ": dialpadId=" + store.dialpadId + ", days_ago_start=" + (daysAgoStart || 0) + ", days_ago_end=" + (daysAgoEnd || 7));
+    debug.push(storeKey + ": API_KEY present=" + (API_KEY ? "yes (" + API_KEY.substring(0, 8) + "...)" : "NO"));
+
+    var initBody = {
+      days_ago_start: daysAgoStart || 0,
+      days_ago_end: daysAgoEnd || 7,
+      stat_type: "calls",
+      target_id: parseInt(store.dialpadId),
+      target_type: "department",
+      timezone: "America/Indiana/Indianapolis",
+    };
+
     var initRes = await fetch(DIALPAD_BASE + "/stats", {
       method: "POST",
       headers: dialpadHeaders(),
-      body: JSON.stringify({
-        days_ago_start: daysAgoStart || 0,
-        days_ago_end: daysAgoEnd || 7,
-        stat_type: "calls",
-        target_id: parseInt(store.dialpadId),
-        target_type: "department",
-        timezone: "America/Indiana/Indianapolis",
-      }),
+      body: JSON.stringify(initBody),
     });
+
+    debug.push(storeKey + ": initiate status=" + initRes.status);
+
     if (!initRes.ok) {
-      console.log("[Cron] Initiate failed for " + storeKey + ": " + initRes.status);
+      var errText = await initRes.text();
+      debug.push(storeKey + ": initiate error body=" + errText.substring(0, 200));
       return [];
     }
+
     var initData = await initRes.json();
     var requestId = initData.request_id;
-    console.log("[Cron] Got request_id " + requestId + " for " + storeKey + ", waiting 30s...");
+    debug.push(storeKey + ": got request_id=" + requestId);
 
-    // Wait 30 seconds before first poll
+    if (!requestId) {
+      debug.push(storeKey + ": NO request_id in response: " + JSON.stringify(initData).substring(0, 200));
+      return [];
+    }
+
+    // Wait 30 seconds
+    debug.push(storeKey + ": waiting 30s before polling...");
     await new Promise(function(r) { setTimeout(r, 30000); });
 
     // Poll up to 6 times with 10s gaps
     var pollData = null;
     for (var attempt = 0; attempt < 6; attempt++) {
       var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
+      debug.push(storeKey + ": poll attempt " + (attempt + 1) + " status=" + pollRes.status);
+
       if (!pollRes.ok) {
-        console.log("[Cron] Poll failed for " + storeKey + ": " + pollRes.status);
+        var pollErrText = await pollRes.text();
+        debug.push(storeKey + ": poll error body=" + pollErrText.substring(0, 200));
         return [];
       }
+
       pollData = await pollRes.json();
-      console.log("[Cron] Poll attempt " + (attempt + 1) + " for " + storeKey + ": " + pollData.status);
+      debug.push(storeKey + ": poll result status=" + pollData.status + ", has download_url=" + (pollData.download_url ? "yes" : "no"));
+
       if (pollData.status === "complete" && pollData.download_url) break;
       pollData = null;
       await new Promise(function(r) { setTimeout(r, 10000); });
     }
+
     if (!pollData || !pollData.download_url) {
-      console.log("[Cron] Stats never completed for " + storeKey);
+      debug.push(storeKey + ": stats never completed after 6 attempts");
       return [];
     }
 
-    // *** KEY FIX: Download URL returns JSON, not CSV ***
+    // Fetch the download URL
+    debug.push(storeKey + ": fetching download_url=" + pollData.download_url.substring(0, 100) + "...");
     var dlRes = await fetch(pollData.download_url);
+    debug.push(storeKey + ": download status=" + dlRes.status + ", content-type=" + (dlRes.headers.get("content-type") || "unknown"));
+
     var dlText = await dlRes.text();
-    console.log("[Cron] Download response length for " + storeKey + ": " + dlText.length + " chars");
+    debug.push(storeKey + ": download body length=" + dlText.length + " chars");
+    debug.push(storeKey + ": download body preview=" + dlText.substring(0, 200));
 
     var records = [];
     try {
-      // Try JSON first (this is what Dialpad actually returns)
       var jsonData = JSON.parse(dlText);
       if (jsonData.data && Array.isArray(jsonData.data)) {
-        // Response format: { success: true, state: "completed", data: [...], recordCount: N }
-        records = jsonData.data.map(function(row) {
-          row._storeKey = storeKey;
-          return row;
-        });
-        console.log("[Cron] Parsed " + records.length + " JSON records for " + storeKey);
+        records = jsonData.data.map(function(row) { row._storeKey = storeKey; return row; });
+        debug.push(storeKey + ": parsed " + records.length + " JSON records from data array");
       } else if (Array.isArray(jsonData)) {
-        // Maybe it's just an array directly
-        records = jsonData.map(function(row) {
-          row._storeKey = storeKey;
-          return row;
-        });
-        console.log("[Cron] Parsed " + records.length + " JSON array records for " + storeKey);
+        records = jsonData.map(function(row) { row._storeKey = storeKey; return row; });
+        debug.push(storeKey + ": parsed " + records.length + " JSON array records");
       } else {
-        console.log("[Cron] Unexpected JSON structure for " + storeKey + ": " + Object.keys(jsonData).join(","));
+        debug.push(storeKey + ": unexpected JSON structure, keys=" + Object.keys(jsonData).join(","));
       }
     } catch (parseErr) {
-      // Fallback: try CSV parsing if JSON fails
-      console.log("[Cron] JSON parse failed, trying CSV for " + storeKey);
+      debug.push(storeKey + ": JSON parse failed (" + parseErr.message + "), trying CSV...");
       var lines = dlText.split("\n");
+      debug.push(storeKey + ": CSV lines=" + lines.length + ", first line=" + (lines[0] || "").substring(0, 100));
       var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
       for (var i = 1; i < lines.length; i++) {
         if (!lines[i].trim()) continue;
@@ -132,12 +150,12 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
         row._storeKey = storeKey;
         records.push(row);
       }
-      console.log("[Cron] Parsed " + records.length + " CSV records for " + storeKey);
+      debug.push(storeKey + ": parsed " + records.length + " CSV records");
     }
 
     return records;
   } catch (err) {
-    console.error("[Cron] Error fetching " + storeKey + ":", err.message);
+    debug.push(storeKey + ": EXCEPTION: " + err.message);
     return [];
   }
 }
@@ -189,7 +207,6 @@ async function scoreCall(call) {
       transcript_preview: ft.substring(0, 500),
     };
   } catch (err) {
-    console.error("[Cron] Score error:", err.message);
     return null;
   }
 }
@@ -201,52 +218,45 @@ export async function GET(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  var debug = [];
+  debug.push("STORES keys: " + Object.keys(STORES).join(", "));
+  debug.push("API_KEY present: " + (API_KEY ? "yes" : "NO"));
+  debug.push("Start time: " + new Date().toISOString());
+
   var results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
   var storeKeys = Object.keys(STORES);
 
-  for (var si = 0; si < storeKeys.length; si++) {
-    var storeKey = storeKeys[si];
-    try {
-      console.log("[Cron] === Processing " + storeKey + " ===");
-      var allCalls = await fetchStoreCallData(storeKey, 0, 7);
+  // Only process first store for debugging (to keep it fast)
+  var storeKey = storeKeys[0];
+  try {
+    debug.push("=== Processing " + storeKey + " ===");
+    var allCalls = await fetchStoreCallData(storeKey, 0, 7, debug);
 
-      if (allCalls.length > 0) {
-        var saveResult = await saveCallRecords(allCalls);
-        results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
-        results.totalCallsSaved += saveResult.saved;
-        await updateCallSyncState(storeKey, saveResult.saved);
-      } else {
-        results.callSync[storeKey] = { fetched: 0, saved: 0 };
-      }
-
-      var recorded = allCalls.filter(function(r) {
-        return r.target_type === "department" && r.was_recorded === "true" && r.direction === "inbound" && r.categories && r.categories.includes("answered");
-      });
-
-      var newAudits = 0;
-      for (var ci = 0; ci < recorded.length; ci++) {
-        var call = recorded[ci];
-        if (!call.call_id) continue;
-        var alreadyDone = await isCallAudited(call.call_id);
-        if (alreadyDone) continue;
-        console.log("[Cron] Scoring " + call.call_id + "...");
-        var audit = await scoreCall(call);
-        if (audit) {
-          await saveAuditResult(audit);
-          newAudits++;
-          results.totalNewAudits++;
-        }
-        await new Promise(function(r) { setTimeout(r, 2000); });
-      }
-
-      await updateSyncState(storeKey, (recorded[0] && recorded[0].call_id) || "", newAudits);
-      results.auditSync[storeKey] = { recorded: recorded.length, newAudits: newAudits };
-    } catch (err) {
-      console.error("[Cron] Error for " + storeKey + ":", err.message);
-      results.errors.push({ store: storeKey, error: err.message });
+    if (allCalls.length > 0) {
+      var saveResult = await saveCallRecords(allCalls);
+      results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
+      results.totalCallsSaved += saveResult.saved;
+      await updateCallSyncState(storeKey, saveResult.saved);
+      debug.push(storeKey + ": saved " + saveResult.saved + " call records");
+    } else {
+      results.callSync[storeKey] = { fetched: 0, saved: 0 };
+      debug.push(storeKey + ": no calls to save");
     }
+
+    // Skip auditing for debug run
+    results.auditSync[storeKey] = { recorded: 0, newAudits: 0, skipped: "debug mode" };
+
+  } catch (err) {
+    debug.push(storeKey + ": TOP-LEVEL ERROR: " + err.message);
+    results.errors.push({ store: storeKey, error: err.message });
   }
 
-  console.log("[Cron] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
-  return NextResponse.json({ success: true, callSync: results.callSync, auditSync: results.auditSync, totalCallsSaved: results.totalCallsSaved, totalNewAudits: results.totalNewAudits, errors: results.errors, timestamp: new Date().toISOString() });
+  debug.push("End time: " + new Date().toISOString());
+
+  return NextResponse.json({
+    success: true,
+    ...results,
+    debug: debug,
+    timestamp: new Date().toISOString()
+  });
 }
