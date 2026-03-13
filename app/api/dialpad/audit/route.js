@@ -96,6 +96,50 @@ export async function POST(request) {
       return NextResponse.json({ success: ok });
     }
 
+    // ── Full re-audit: clear all + trigger cron ──
+    if (body.action === "trigger_reaudit") {
+      if (body.confirm !== "REAUDIT_ALL") {
+        return NextResponse.json({ success: false, error: "Must send confirm: 'REAUDIT_ALL'" });
+      }
+      // Step 1: Clear all audits
+      const cleared = await clearAllAudits();
+      if (!cleared) return NextResponse.json({ success: false, error: "Failed to clear audits" });
+
+      // Step 2: Trigger cron via internal fetch (fire-and-forget)
+      const baseUrl = new URL(request.url).origin;
+      const cronSecret = process.env.CRON_SECRET || "";
+      const cronUrl = baseUrl + "/api/dialpad/cron?secret=" + cronSecret;
+      console.log("[ReAudit] Cleared all audits, triggering cron...");
+
+      // We don't await — cron runs in background (up to 300s on Vercel)
+      fetch(cronUrl).then(function(r) {
+        console.log("[ReAudit] Cron responded: " + r.status);
+      }).catch(function(e) {
+        console.error("[ReAudit] Cron trigger error:", e.message);
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: "All audits cleared. Re-audit cron triggered — this takes several minutes. Refresh the page periodically to see new results.",
+        cleared: true,
+        cronTriggered: true,
+      });
+    }
+
+    // ── Trigger cron only (no clear) ──
+    if (body.action === "trigger_cron") {
+      const baseUrl = new URL(request.url).origin;
+      const cronSecret = process.env.CRON_SECRET || "";
+      const cronUrl = baseUrl + "/api/dialpad/cron?secret=" + cronSecret;
+      try {
+        const cronRes = await fetch(cronUrl);
+        const cronJson = await cronRes.json();
+        return NextResponse.json({ success: true, cron: cronJson });
+      } catch(e) {
+        return NextResponse.json({ success: false, error: "Cron trigger failed: " + e.message });
+      }
+    }
+
     // ── Score a single call ──
     const { callId, callInfo, forceReaudit } = body;
     if (!callId) return NextResponse.json({ success: false, error: "callId required" });
