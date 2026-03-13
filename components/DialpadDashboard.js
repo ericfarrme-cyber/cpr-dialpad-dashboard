@@ -278,6 +278,7 @@ function AuditTab({ rawCallData, storeFilter }) {
   var [actionMsg, setActionMsg] = useState(null);
   var [reviewAudits, setReviewAudits] = useState([]);
   var [reviewLoading, setReviewLoading] = useState(false);
+  var [reauditRunning, setReauditRunning] = useState(false);
 
   useEffect(function() {
     async function load() {
@@ -527,6 +528,42 @@ function AuditTab({ rawCallData, storeFilter }) {
     } catch(e) { setActionMsg({ type: "error", text: e.message }); }
     setAuditingId(null);
   };
+
+  var triggerFullReaudit = async function() {
+    // Triple confirmation
+    if (!confirm("⚠️ RE-AUDIT ALL CALLS\n\nThis will DELETE all existing audit scores and re-score every call with the updated prompt.\n\nAre you sure?")) return;
+    if (!confirm("SECOND CONFIRMATION\n\nAll current employee scores will be wiped. New scores will appear over the next 5-10 minutes as the system re-processes each call.\n\nProceed?")) return;
+    var typed = prompt("FINAL CONFIRMATION\n\nType REAUDIT to confirm:");
+    if (typed !== "REAUDIT") {
+      setActionMsg({ type: "error", text: "Re-audit cancelled — you must type REAUDIT exactly" });
+      setTimeout(function(){ setActionMsg(null); }, 4000);
+      return;
+    }
+
+    setReauditRunning(true);
+    setActionMsg({ type: "success", text: "Clearing all audits..." });
+    try {
+      var res = await fetch("/api/dialpad/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "trigger_reaudit", confirm: "REAUDIT_ALL" })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setAudits([]);
+        setEmployees([]);
+        setActionMsg({ type: "success", text: "✅ All audits cleared. Re-audit cron triggered — new scores will appear over the next 5-10 minutes. Refresh the page periodically." });
+      } else {
+        setActionMsg({ type: "error", text: json.error || "Re-audit failed" });
+        setReauditRunning(false);
+      }
+    } catch(e) {
+      setActionMsg({ type: "error", text: "Error: " + e.message });
+      setReauditRunning(false);
+    }
+    // Don't clear reauditRunning — keep the indicator until user refreshes
+  };
+
   var avgScore = total>0?(filteredAudits.reduce(function(s,a){return s+parseFloat(a.score||0);},0)/total).toFixed(2):"--";
   var oppCount = audits.filter(function(a){return a.call_type==="opportunity";}).length;
   var currCount = audits.filter(function(a){return a.call_type==="current_customer";}).length;
@@ -582,6 +619,13 @@ function AuditTab({ rawCallData, storeFilter }) {
         )}
       </div>
 
+      {/* Global action message */}
+      {actionMsg && auditView !== "review" && auditView !== "history" && (
+        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+          {actionMsg.text}
+        </div>
+      )}
+
       {/* OVERVIEW */}
       {auditView==="overview" && (
         <div>
@@ -614,6 +658,26 @@ function AuditTab({ rawCallData, storeFilter }) {
               })}
             </div>
           )}
+
+          {/* Re-Audit Panel */}
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginTop:20,border:"1px solid #F8717122" }}>
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+              <div>
+                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Re-Audit All Calls</div>
+                <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>Clear all existing scores and re-audit every call with the latest prompt. Takes 5-10 minutes.</div>
+              </div>
+              {reauditRunning ? (
+                <div style={{ padding:"8px 20px",borderRadius:6,background:"#FBBF2422",color:"#FBBF24",fontSize:12,fontWeight:700 }}>
+                  Re-audit in progress... refresh to see results
+                </div>
+              ) : (
+                <button onClick={triggerFullReaudit}
+                  style={{ padding:"8px 20px",borderRadius:6,border:"1px solid #F87171",background:"#F8717122",color:"#F87171",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>
+                  Re-Audit All
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       )}
 
