@@ -42,11 +42,15 @@ export default function SalesTab() {
   var [uploading, setUploading] = useState(false);
   var [editingRate, setEditingRate] = useState(null);
   var [editValue, setEditValue] = useState("");
+  var [importPeriod, setImportPeriod] = useState("");
 
   var currentPeriod = useMemo(function() {
     var now = new Date();
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
   }, []);
+
+  // Initialize importPeriod to current month
+  useEffect(function() { if (!importPeriod) setImportPeriod(currentPeriod); }, [currentPeriod]);
 
   var loadData = async function(p) {
     setLoading(true);
@@ -117,12 +121,12 @@ export default function SalesTab() {
       var fd = new FormData();
       fd.append("file", file);
       fd.append("type", type);
-      fd.append("period", currentPeriod);
+      fd.append("period", importPeriod || currentPeriod);
       var res = await fetch("/api/dialpad/sales", { method: "POST", body: fd });
       var json = await res.json();
       if (json.success) {
         setUploadMsg({ type: "success", text: "Uploaded " + json.saved + " rows for " + type.replace("_", " ") + " (" + json.period + ")" });
-        await loadData(currentPeriod);
+        await loadData(importPeriod || currentPeriod);
       } else {
         setUploadMsg({ type: "error", text: json.error || "Upload failed" });
       }
@@ -320,7 +324,15 @@ export default function SalesTab() {
       {/* ═══ UPLOAD ═══ */}
       {view === "upload" && (
         <div>
-          <SectionHeader title="Import RepairQ Data" subtitle={"Importing for " + currentPeriod} icon="📤" />
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
+            <SectionHeader title="Import RepairQ Data" subtitle="" icon="📤" />
+            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+              <span style={{ color:"#8B8F98",fontSize:12 }}>Importing for:</span>
+              <input type="month" value={importPeriod}
+                onChange={function(e) { setImportPeriod(e.target.value); }}
+                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,fontWeight:700,cursor:"pointer" }} />
+            </div>
+          </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
             {[
               { type: "phone_repairs", label: "Phone Repairs", desc: "phone_repairs.csv — Employee, Repair Tkts, Repair Total, Average Repair", icon: "📱", color: "#7C8AFF" },
