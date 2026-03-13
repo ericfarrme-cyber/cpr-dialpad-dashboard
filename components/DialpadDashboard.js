@@ -286,7 +286,7 @@ function AuditTab({ rawCallData, storeFilter }) {
       setLoading(true);
       try {
         var sp = storeFilter !== "all" ? "&store="+storeFilter : "";
-        var aR = await fetch("/api/dialpad/audit?limit=200&days=30"+sp).then(function(r){return r.json();});
+        var aR = await fetch("/api/dialpad/audit?limit=1000&days=30"+sp).then(function(r){return r.json();});
         var sR = await fetch("/api/dialpad/audit?action=stores").then(function(r){return r.json();});
         if (aR.success) setAudits(aR.audits || []);
         if (sR.success) setStorePerf(sR.stores || []);
