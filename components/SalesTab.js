@@ -65,7 +65,11 @@ export default function SalesTab() {
         setCleanings(json.cleanings || []);
         setRates(json.rates || {});
         setPeriod(json.period);
-        if (json.available_periods && json.available_periods.length > 0) setPeriods(json.available_periods);
+        var ap = json.available_periods || [];
+        // Always include current month in dropdown
+        if (ap.indexOf(currentPeriod) < 0) ap = [currentPeriod].concat(ap);
+        ap.sort().reverse();
+        setPeriods(ap);
       }
     } catch(e) { console.error(e); }
 
@@ -78,7 +82,7 @@ export default function SalesTab() {
     setLoading(false);
   };
 
-  useEffect(function() { loadData(null); }, []);
+  useEffect(function() { loadData(currentPeriod); }, []);
 
   // Build unified employee performance
   var employees = useMemo(function() {
@@ -130,7 +134,10 @@ export default function SalesTab() {
       var json = await res.json();
       if (json.success) {
         setUploadMsg({ type: "success", text: "Uploaded " + json.saved + " rows for " + type.replace("_", " ") + " (" + json.period + ")" });
-        await loadData(importPeriod || currentPeriod);
+        // Sync leaderboard period to what was just uploaded
+        var uploadedPeriod = importPeriod || currentPeriod;
+        setPeriod(uploadedPeriod);
+        await loadData(uploadedPeriod);
       } else {
         setUploadMsg({ type: "error", text: json.error || "Upload failed" });
       }
