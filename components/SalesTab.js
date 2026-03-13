@@ -149,6 +149,28 @@ export default function SalesTab() {
     } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
   };
 
+  var deletePeriod = async function(p) {
+    var label = new Date(p + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    if (!confirm("⚠️ DELETE ALL DATA FOR " + label.toUpperCase() + "\n\nThis will permanently delete all phone repairs, other repairs, accessory sales, and cleaning data for this period.\n\nAre you sure?")) return;
+    if (!confirm("SECOND CONFIRMATION\n\nAll " + label + " sales and commission data will be erased. This cannot be undone.\n\nProceed?")) return;
+    try {
+      var res = await fetch("/api/dialpad/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_period", period: p })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setUploadMsg({ type: "success", text: "Deleted all data for " + label });
+        setPhones([]); setOthers([]); setAccessories([]); setCleanings([]);
+        setPeriods(function(prev) { return prev.filter(function(pp) { return pp !== p; }); });
+        setTimeout(function() { setUploadMsg(null); }, 5000);
+      } else {
+        setUploadMsg({ type: "error", text: json.error || "Delete failed" });
+      }
+    } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
+  };
+
   var SUBTABS = [
     { id: "leaderboard", label: "Leaderboard", icon: "🏆" },
     { id: "upload", label: "Import Data", icon: "📤" },
@@ -169,13 +191,19 @@ export default function SalesTab() {
           })}
         </div>
         {periods.length > 0 && (
-          <select value={period} onChange={function(e) { setPeriod(e.target.value); loadData(e.target.value); }}
-            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12 }}>
-            {periods.map(function(p) {
-              var label = new Date(p + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" });
-              return <option key={p} value={p}>{label}</option>;
-            })}
-          </select>
+          <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+            <select value={period} onChange={function(e) { setPeriod(e.target.value); loadData(e.target.value); }}
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12 }}>
+              {periods.map(function(p) {
+                var label = new Date(p + "-01").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+                return <option key={p} value={p}>{label}</option>;
+              })}
+            </select>
+            <button onClick={function(){ deletePeriod(period); }}
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+              Delete Period
+            </button>
+          </div>
         )}
       </div>
 
