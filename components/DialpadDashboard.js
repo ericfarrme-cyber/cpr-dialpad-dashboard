@@ -77,9 +77,9 @@ function StoreToggle({ selected, onChange }) {
 }
 
 function DataBanner({ isLive, isLoading, isStored, lastSync, onRefresh, onLiveRefresh }) {
-  var bgColor = isStored ? "#7C8AFF12" : isLive ? "#4ADE8012" : "#FBBF2412";
-  var borderColor = isStored ? "#7C8AFF33" : isLive ? "#4ADE8033" : "#FBBF2433";
-  var dotColor = isStored ? "#7C8AFF" : isLive ? "#4ADE80" : "#FBBF24";
+  var bgColor = isStored ? "#7B2FFF12" : isLive ? "#4ADE8012" : "#FBBF2412";
+  var borderColor = isStored ? "#7B2FFF33" : isLive ? "#4ADE8033" : "#FBBF2433";
+  var dotColor = isStored ? "#7B2FFF" : isLive ? "#4ADE80" : "#FBBF24";
   var statusText = isLoading ? "Fetching live data..." : isStored ? ("Stored data - Synced " + (lastSync ? new Date(lastSync).toLocaleString() : "unknown")) : isLive ? "Live data from Dialpad API" : "Sample data";
   return (
     <div style={{ margin:"0 0 20px",padding:"10px 16px",borderRadius:8,background:bgColor,border:"1px solid "+borderColor,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8 }}>
@@ -91,7 +91,7 @@ function DataBanner({ isLive, isLoading, isStored, lastSync, onRefresh, onLiveRe
         {!isLoading && (
           <>
             <button onClick={onRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Reload</button>
-            <button onClick={onLiveRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #7C8AFF44",background:"#7C8AFF18",color:"#7C8AFF",fontSize:11,cursor:"pointer" }}>Live Refresh</button>
+            <button onClick={onLiveRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#7B2FFF18",color:"#7B2FFF",fontSize:11,cursor:"pointer" }}>Live Refresh</button>
           </>
         )}
       </div>
@@ -113,7 +113,7 @@ function AISummary({ type, dashboardData }) {
     setLoading(false);
   };
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #C084FC33" }}>
+    <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #00D4FF33" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:summary?16:0 }}>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
           <span style={{ fontSize:20 }}>{"🤖"}</span>
@@ -122,7 +122,7 @@ function AISummary({ type, dashboardData }) {
             <div style={{ color:"#6B6F78",fontSize:11 }}>Powered by Claude</div>
           </div>
         </div>
-        <button onClick={generate} disabled={loading} style={{ padding:"8px 18px",borderRadius:8,border:"none",cursor:loading?"default":"pointer",background:loading?"#C084FC22":"linear-gradient(135deg,#7C8AFF,#C084FC)",color:loading?"#C084FC":"#FFF",fontSize:12,fontWeight:700,animation:loading?"pulse 1.5s infinite":"none" }}>{loading?"Generating...":summary?"Refresh":"Generate Insights"}</button>
+        <button onClick={generate} disabled={loading} style={{ padding:"8px 18px",borderRadius:8,border:"none",cursor:loading?"default":"pointer",background:loading?"#00D4FF22":"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:loading?"#00D4FF":"#FFF",fontSize:12,fontWeight:700,animation:loading?"pulse 1.5s infinite":"none" }}>{loading?"Generating...":summary?"Refresh":"Generate Insights"}</button>
       </div>
       {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"#F87171",fontSize:12,marginTop:12 }}>{error}</div>}
       {summary && <div style={{ color:"#C8CAD0",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginTop:8 }}>{summary}</div>}
@@ -135,10 +135,10 @@ function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
     <div>
       <AISummary type="overview" dashboardData={{ overviewStats:overviewStats }} />
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-        <StatCard label="Total Calls (30d)" value={(overviewStats.totals.answered+overviewStats.totals.missed).toLocaleString()} accent="#7C8AFF" />
+        <StatCard label="Total Calls (30d)" value={(overviewStats.totals.answered+overviewStats.totals.missed).toLocaleString()} accent="#7B2FFF" />
         <StatCard label="Answer Rate" value={((overviewStats.totals.answered+overviewStats.totals.missed)>0?((overviewStats.totals.answered/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1):"0")+"%"} accent="#4ADE80" sub={overviewStats.totals.answered.toLocaleString()+" answered"} />
         <StatCard label="Missed Calls" value={overviewStats.totals.missed.toLocaleString()} accent="#F87171" />
-        <StatCard label="Avg Calls / Day" value={Math.round((overviewStats.totals.answered+overviewStats.totals.missed)/30)} accent="#C084FC" sub="across all stores" />
+        <StatCard label="Avg Calls / Day" value={Math.round((overviewStats.totals.answered+overviewStats.totals.missed)/30)} accent="#00D4FF" sub="across all stores" />
       </div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
         {Object.entries(STORES).map(function([key,store]) {
@@ -185,11 +185,11 @@ function KeywordsTab({ keywords }) {
   var [cat, setCat] = useState("All");
   var categories = ["All"].concat([...new Set(keywords.map(function(k){return k.category;}))]);
   var filtered = useMemo(function() { var kw = keywords; if(cat!=="All") kw=kw.filter(function(k){return k.category===cat;}); return [...kw].sort(function(a,b){return STORE_KEYS.reduce(function(s,k){return s+(b[k]||0);},0)-STORE_KEYS.reduce(function(s,k){return s+(a[k]||0);},0);}); }, [cat, keywords]);
-  var catColors = { Service:"#7C8AFF",Sales:"#4ADE80",Support:"#FBBF24",Operations:"#C084FC",Problem:"#F87171" };
+  var catColors = { Service:"#7B2FFF",Sales:"#4ADE80",Support:"#FBBF24",Operations:"#00D4FF",Problem:"#F87171" };
   return (
     <div>
       <div style={{ display:"flex",gap:6,marginBottom:20,flexWrap:"wrap" }}>
-        {categories.map(function(c){ return <button key={c} onClick={function(){setCat(c);}} style={{ padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",background:cat===c?"#7C8AFF22":"#1A1D23",color:cat===c?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{c}</button>; })}
+        {categories.map(function(c){ return <button key={c} onClick={function(){setCat(c);}} style={{ padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",background:cat===c?"#7B2FFF22":"#1A1D23",color:cat===c?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{c}</button>; })}
       </div>
       <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
         <SectionHeader title="Keyword Frequency" icon="🏷️" />
@@ -246,7 +246,7 @@ function ProblemsTab({ overviewStats, problemCalls }) {
       <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28 }}>
         <StatCard label="Problem Calls" value={tp} accent="#F87171" />
         <StatCard label="% of All Calls" value={(overviewStats.totals.answered+overviewStats.totals.missed)>0?((tp/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1)+"%":"0%"} accent="#FB923C" />
-        <StatCard label="Top Issue" value={problemCalls[0]?problemCalls[0].type:"N/A"} accent="#C084FC" />
+        <StatCard label="Top Issue" value={problemCalls[0]?problemCalls[0].type:"N/A"} accent="#00D4FF" />
       </div>
       <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
         <SectionHeader title="Problem Call Types" icon="🔥" />
@@ -612,7 +612,7 @@ function AuditTab({ rawCallData, storeFilter }) {
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
           {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setAuditView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:auditView===v.id?"#7C8AFF22":"#1A1D23",color:auditView===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+            return <button key={v.id} onClick={function(){setAuditView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:auditView===v.id?"#7B2FFF22":"#1A1D23",color:auditView===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
           })}
         </div>
         {(auditView==="overview"||auditView==="history") && (
@@ -634,9 +634,9 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <AISummary type="audit" />
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Calls Audited" value={total} accent="#7C8AFF" sub={oppCount+" opportunity, "+currCount+" current"} />
+            <StatCard label="Calls Audited" value={total} accent="#7B2FFF" sub={oppCount+" opportunity, "+currCount+" current"} />
             <StatCard label="Avg Score" value={avgScore+" / 4"} accent={parseFloat(avgScore)>=3?"#4ADE80":parseFloat(avgScore)>=2?"#FBBF24":"#F87171"} />
-            <StatCard label="Unaudited" value={recordedCalls.length} accent="#C084FC" sub="recorded calls available" />
+            <StatCard label="Unaudited" value={recordedCalls.length} accent="#00D4FF" sub="recorded calls available" />
             <StatCard label="Employees" value={employees.length} accent="#FB923C" />
           </div>
           {consolidatedStores.length > 0 && (
@@ -719,13 +719,13 @@ function AuditTab({ rawCallData, storeFilter }) {
                           <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.stores||[emp.store]).map(function(s){var st=STORES[s];return st?<span key={s} style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:10,color:st.color }}><span style={{width:6,height:6,borderRadius:"50%",background:st.color}} />{st.name.replace("CPR ","")}</span>:null;})}</div>
                         </div>
                         <div style={{ textAlign:"center",minWidth:40 }}><div style={{ color:"#8B8F98",fontSize:9 }}>CALLS</div><div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div></div>
-                        <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"#8B8F98",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"#7C8AFF" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div></div>
+                        <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"#8B8F98",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"#7B2FFF" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div></div>
                       </div>
                       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                         {isStray && (
                           <div style={{ display:"flex",gap:4 }}>
                             <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinkingThis?null:empKey);}}
-                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinkingThis?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinkingThis?"#7B2FFF22":"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
                               {isLinkingThis ? "Cancel" : "Link"}
                             </button>
                             <button onClick={function(e){e.stopPropagation(); deleteAudits(emp.employee, emp.store);}}
@@ -742,7 +742,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                     {/* Link dropdown */}
                     {isLinkingThis && (
                       <div style={{ padding:"12px 12px 12px 56px" }}>
-                        <div style={{ padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7C8AFF22" }}>
+                        <div style={{ padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7B2FFF22" }}>
                           <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{emp.employee}" as an alias of:</div>
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                             {roster.map(function(r) {
@@ -764,15 +764,15 @@ function AuditTab({ rawCallData, storeFilter }) {
                     {isExpanded && (
                       <div style={{ padding:"0 12px 20px 56px" }}>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:8 }}>
-                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #7C8AFF22" }}>
-                            <div style={{ color:"#7C8AFF",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Opportunity Calls ("+empOpp.length+")"}</div>
+                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #7B2FFF22" }}>
+                            <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Opportunity Calls ("+empOpp.length+")"}</div>
                             {empOpp.length>0 ? (
                               <div>
                                 {[{l:"Appt Offered",r:emp.appt_rate,pts:1.25},{l:"Discount",r:emp.discount_rate,pts:0.92},{l:"Warranty",r:emp.warranty_rate,pts:0.92},{l:"Fast Turn.",r:emp.turnaround_rate,pts:0.92}].map(function(item,j){
                                   var earned = (parseFloat(item.r||0)/100*item.pts).toFixed(2);
                                   return <div key={j} style={{ marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3 }}><span style={{ color:"#C8CAD0",fontSize:11 }}>{item.l}<span style={{ color:"#6B6F78",fontSize:9,marginLeft:4 }}>{item.pts} pts</span></span><span style={{ display:"flex",alignItems:"baseline",gap:6 }}><span style={{ color:"#8B8F98",fontSize:10 }}>{earned+" / "+item.pts}</span><span style={{ color:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",fontSize:12,fontWeight:700 }}>{parseFloat(item.r||0).toFixed(0)}%</span></span></div><div style={{ background:"#1A1D23",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:(item.r||0)+"%",height:"100%",background:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",borderRadius:3 }} /></div></div>;
                                 })}
-                                <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"#7C8AFF0A",border:"1px solid #7C8AFF18",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                                <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"#7B2FFF0A",border:"1px solid #7B2FFF18",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                                   <span style={{ color:"#8B8F98",fontSize:11 }}>Weighted Avg</span>
                                   <span style={{ color:((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=3?"#4ADE80":((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=2?"#FBBF24":"#F87171",fontSize:14,fontWeight:800 }}>
                                     {((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92)).toFixed(2)+" / 4.01"}
@@ -887,19 +887,19 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"#F87171",fontSize:12,marginBottom:12 }}>{error}</div>}
           {batchRunning && (
-            <div style={{ background:"#1A1D23",borderRadius:8,padding:"12px 16px",marginBottom:16,border:"1px solid #7C8AFF33" }}>
+            <div style={{ background:"#1A1D23",borderRadius:8,padding:"12px 16px",marginBottom:16,border:"1px solid #7B2FFF33" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
                 <span style={{ color:"#C8CAD0",fontSize:13,fontWeight:600 }}>{"Batch: "+batchProgress.done+" / "+batchProgress.total}</span>
                 <button onClick={function(){batchAbort.current=true;}} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #F8717144",background:"#F8717118",color:"#F87171",fontSize:11,cursor:"pointer" }}>Stop</button>
               </div>
-              <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}><div style={{ width:(batchProgress.total>0?(batchProgress.done/batchProgress.total*100):0)+"%",height:"100%",background:"#7C8AFF",borderRadius:4 }} /></div>
+              <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}><div style={{ width:(batchProgress.total>0?(batchProgress.done/batchProgress.total*100):0)+"%",height:"100%",background:"#7B2FFF",borderRadius:4 }} /></div>
             </div>
           )}
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
               <SectionHeader title="Recorded Calls" subtitle={recordedCalls.length+" unaudited"} icon="🎙️" />
               {recordedCalls.length>0 && !batchRunning && (
-                <button onClick={runBatch} style={{ padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#7C8AFF,#C084FC)",color:"#FFF",fontSize:13,fontWeight:700 }}>{"Audit All ("+recordedCalls.length+")"}</button>
+                <button onClick={runBatch} style={{ padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:13,fontWeight:700 }}>{"Audit All ("+recordedCalls.length+")"}</button>
               )}
             </div>
             <div style={{ maxHeight:600,overflowY:"auto" }}>
@@ -913,7 +913,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ width:8,height:8,borderRadius:"50%",background:store?store.color:"#8B8F98" }} /><span style={{ color:"#E8E9EC",fontSize:13,fontWeight:600 }}>{call.external_number}</span><span style={{ color:"#6B6F78",fontSize:11 }}>{"-> "+call.name}</span></div>
                       <div style={{ color:"#6B6F78",fontSize:11,marginTop:2 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{call.talk_duration?" | "+parseFloat(call.talk_duration).toFixed(1)+" min":""}</div>
                     </div>
-                    <button onClick={function(){if(!isA&&!batchRunning) runAudit(call);}} disabled={isA||batchRunning} style={{ padding:"6px 14px",borderRadius:6,border:"none",cursor:isA||batchRunning?"default":"pointer",background:isA?"#7C8AFF22":"#7C8AFF",color:isA?"#7C8AFF":"#FFF",fontSize:12,fontWeight:600,animation:isA?"pulse 1.5s infinite":"none" }}>{isA?"Scoring...":"Audit"}</button>
+                    <button onClick={function(){if(!isA&&!batchRunning) runAudit(call);}} disabled={isA||batchRunning} style={{ padding:"6px 14px",borderRadius:6,border:"none",cursor:isA||batchRunning?"default":"pointer",background:isA?"#7B2FFF22":"#7B2FFF",color:isA?"#7B2FFF":"#FFF",fontSize:12,fontWeight:600,animation:isA?"pulse 1.5s infinite":"none" }}>{isA?"Scoring...":"Audit"}</button>
                   </div>
                 );
               })}
@@ -935,7 +935,7 @@ function AuditTab({ rawCallData, storeFilter }) {
           {!reviewLoading && reviewAudits.length===0 && (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:30,textAlign:"center" }}>
               <div style={{ color:"#6B6F78",fontSize:13,marginBottom:12 }}>No low-confidence audits loaded yet.</div>
-              <button onClick={loadReviewAudits} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7C8AFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Load Audits Needing Review</button>
+              <button onClick={loadReviewAudits} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Load Audits Needing Review</button>
             </div>
           )}
           {reviewLoading && <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading...</div>}
@@ -952,7 +952,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                 var d = new Date(audit.date_started||audit.date);
                 var conf = audit.confidence || 0;
                 var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
-                var typeBg = audit.call_type==="opportunity"?"#7C8AFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+                var typeBg = audit.call_type==="opportunity"?"#7B2FFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
                 return (
                   <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
@@ -983,7 +983,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                         Mark Non-Scorable
                       </button>
                       <button onClick={function(){overrideCall(audit.call_id,"opportunity","Manager review: reclassified as opportunity");}}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7C8AFF33",background:"transparent",color:"#7C8AFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                         → Opportunity
                       </button>
                       <button onClick={function(){overrideCall(audit.call_id,"current_customer","Manager review: reclassified as current customer");}}
@@ -992,7 +992,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                       </button>
                       <button onClick={function(){reauditCall(audit.call_id, { direction:audit.direction, external_number:audit.phone, date_started:audit.date_started, name:audit.store_name, _storeKey:audit.store, talk_duration:audit.talk_duration });}}
                         disabled={auditingId===audit.call_id}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #C084FC33",background:"transparent",color:auditingId===audit.call_id?"#6B6F78":"#C084FC",fontSize:11,cursor:auditingId===audit.call_id?"wait":"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #00D4FF33",background:"transparent",color:auditingId===audit.call_id?"#6B6F78":"#00D4FF",fontSize:11,cursor:auditingId===audit.call_id?"wait":"pointer",fontWeight:600 }}>
                         {auditingId===audit.call_id?"Re-auditing...":"Re-Audit"}
                       </button>
                     </div>
@@ -1019,7 +1019,7 @@ function AuditTab({ rawCallData, storeFilter }) {
               var sc = score>=3?"#4ADE80":score>=2?"#FBBF24":"#F87171";
               var store = STORES[audit.store];
               var d = new Date(audit.date_started||audit.date);
-              var typeBg = audit.call_type==="opportunity"?"#7C8AFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+              var typeBg = audit.call_type==="opportunity"?"#7B2FFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
               var conf = audit.confidence || 0;
               var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
               var isExcluded = audit.excluded;
@@ -1032,7 +1032,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                         <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current Customer":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
                         {conf > 0 && <span style={{ padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:confColor+"18",color:confColor }}>{conf+"%"}</span>}
                         {isExcluded && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#F8717118",color:"#F87171" }}>EXCLUDED</span>}
-                        {audit.manager_override && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#C084FC18",color:"#C084FC" }}>OVERRIDE</span>}
+                        {audit.manager_override && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#00D4FF18",color:"#00D4FF" }}>OVERRIDE</span>}
                       </div>
                       <div style={{ color:"#6B6F78",fontSize:11 }}>
                         {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
@@ -1142,14 +1142,28 @@ export default function DialpadDashboard() {
       <style>{"@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }"}</style>
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12 }}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <div style={{ width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#7C8AFF,#C084FC)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>{"📞"}</div>
+          <svg width="38" height="38" viewBox="46 56 148 148" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="hg1" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#00D4FF"/><stop offset="100%" stopColor="#7B2FFF"/></linearGradient>
+              <linearGradient id="hg2" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stopColor="#7B2FFF"/><stop offset="100%" stopColor="#FF2D95"/></linearGradient>
+              <linearGradient id="hg3" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stopColor="#00D4FF"/><stop offset="50%" stopColor="#7B2FFF"/><stop offset="100%" stopColor="#FF2D95"/></linearGradient>
+            </defs>
+            <circle cx="120" cy="130" r="62" fill="none" stroke="url(#hg1)" strokeWidth="2.5" opacity="0.7"/>
+            <circle cx="120" cy="130" r="44" fill="none" stroke="url(#hg3)" strokeWidth="2" opacity="0.85"/>
+            <circle cx="120" cy="130" r="26" fill="none" stroke="url(#hg2)" strokeWidth="2" opacity="0.95"/>
+            <circle cx="120" cy="130" r="7" fill="url(#hg3)"/><circle cx="120" cy="130" r="3.5" fill="#FFF" opacity="0.95"/>
+            <line x1="120" y1="56" x2="120" y2="90" stroke="url(#hg1)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
+            <line x1="120" y1="170" x2="120" y2="204" stroke="url(#hg2)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
+            <line x1="46" y1="130" x2="80" y2="130" stroke="url(#hg1)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
+            <line x1="160" y1="130" x2="194" y2="130" stroke="url(#hg2)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
+          </svg>
           <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
       </div>
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
         {TABS.map(function(tab) {
-          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7C8AFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
+          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
       </div>
       <div style={{ padding:28 }}>
