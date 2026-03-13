@@ -114,6 +114,20 @@ export async function POST(request) {
       return NextResponse.json({ success: true, config: data?.[0] });
     }
 
+    if (body.action === "delete_period") {
+      var dp = body.period;
+      if (!dp) return NextResponse.json({ success: false, error: "period required" });
+      var deleted = {};
+      var tables = ["repair_phone", "repair_other", "sales_accessory", "repair_cleaning"];
+      for (var ti = 0; ti < tables.length; ti++) {
+        var tbl = tables[ti];
+        var { data: delData, error: delErr } = await supabase.from(tbl).delete().eq("import_period", dp).select();
+        if (delErr) { deleted[tbl] = "error: " + delErr.message; }
+        else { deleted[tbl] = delData ? delData.length : 0; }
+      }
+      return NextResponse.json({ success: true, deleted: deleted, period: dp });
+    }
+
     return NextResponse.json({ success: false, error: "Invalid action" });
   }
 
