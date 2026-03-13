@@ -14,39 +14,35 @@ function dialpadHeaders() {
 
 const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
 
-STEP 1 — CLASSIFY THE CALL (this is critical — read carefully):
+STEP 1 — CLASSIFY THE CALL:
+- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer. Examples: "How much to fix my iPhone screen?", "Do you repair Samsung tablets?", "I cracked my phone, can you fix it today?"
+- "current_customer": An existing customer checking on repair status, picking up a device, rescheduling or canceling an existing appointment, following up on a back-ordered part, or any call where a prior visit or existing repair is referenced. Examples: "Is my phone ready?", "I dropped off my iPad yesterday", "I need to reschedule my appointment", "Any update on that part you ordered?"
+- "non_scorable": Wrong number, disconnected/dropped call, vendor/sales call to the store, automated recording, or call too short to evaluate. Score = 0.
 
-"opportunity" — The caller is asking about a NEW repair they haven't started yet. They want a price quote, availability, or to schedule a new repair. KEY SIGNAL: the customer does NOT currently have a device at the shop.
+STEP 2 — SCORE BASED ON CALL TYPE:
 
-"current_customer" — The caller ALREADY has a device at the shop, OR is calling about an existing repair/order. This includes ALL of the following:
-  - Checking on repair status
-  - Asking for an update on a device left for repair
-  - Picking up a repaired device
-  - Rescheduling or canceling an existing appointment
-  - Following up on a back-ordered part
-  - Calling about a warranty issue on a PREVIOUS repair
-  - Any call where a repair ticket or prior visit is referenced
+IF call_type = "opportunity", score these 4 criteria:
+1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?
+2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?
+3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?
+4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?
 
-"non_scorable" — Wrong number, spam, call disconnected immediately, vendor call, transcript too short/corrupted.
+IF call_type = "current_customer", score these 4 criteria:
+1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?
+2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?
+3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?
+4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?
 
-STEP 2 — SCORE:
+IF call_type = "non_scorable", set score to 0 and max_score to 0.
 
-IF "opportunity" (max 4.01 pts):
-1. Appointment Offered (1.25 pts) 2. Discount for Scheduling (0.92 pts) 3. Lifetime Warranty Mentioned (0.92 pts) 4. Faster Turnaround (0.92 pts)
-
-IF "current_customer" (max 4.00 pts):
-1. Clear Status Update (1.00 pts) 2. ETA/Timeline (1.00 pts) 3. Professional Tone (1.00 pts) 4. Next Steps Explained (1.00 pts)
-
-IF "non_scorable": score=0, max_score=0
-
-STEP 3 — EXTRACT: Employee Name, Customer Name, Device Type, Inquiry, Outcome.
+STEP 3 — EXTRACT: Employee Name, Customer Name (or "Unknown"), Device Type (or "Not mentioned"), Caller Inquiry, Outcome.
 
 Respond ONLY with valid JSON:
 {
   "call_type": "opportunity" or "current_customer" or "non_scorable",
   "employee": "Name", "customer_name": "Name or Unknown", "device_type": "Device or Not mentioned",
   "inquiry": "Brief description", "outcome": "Brief outcome",
-  "criteria": { each: {"pass": true/false, "notes": "explanation"} },
+  "criteria": { ... },
   "score": 0.00, "max_score": 4.00
 }`;
 
@@ -60,7 +56,7 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
       headers: dialpadHeaders(),
       body: JSON.stringify({
         days_ago_start: daysAgoStart || 0,
-        days_ago_end: daysAgoEnd || 0,
+        days_ago_end: daysAgoEnd || 7,
         stat_type: "calls",
         target_id: parseInt(store.dialpadId),
         target_type: "department",
@@ -73,10 +69,12 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
     }
     var initData = await initRes.json();
     var requestId = initData.request_id;
-    console.log("[Cron] Got request_id " + requestId + " for " + storeKey + ", waiting...");
+    console.log("[Cron] Got request_id " + requestId + " for " + storeKey + ", waiting 30s...");
 
+    // Wait 30 seconds before first poll
     await new Promise(function(r) { setTimeout(r, 30000); });
 
+    // Poll up to 6 times with 10s gaps
     var pollData = null;
     for (var attempt = 0; attempt < 6; attempt++) {
       var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
@@ -85,7 +83,7 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
         return [];
       }
       pollData = await pollRes.json();
-      console.log("[Cron] Poll attempt " + (attempt+1) + " for " + storeKey + ": " + pollData.status);
+      console.log("[Cron] Poll attempt " + (attempt + 1) + " for " + storeKey + ": " + pollData.status);
       if (pollData.status === "complete" && pollData.download_url) break;
       pollData = null;
       await new Promise(function(r) { setTimeout(r, 10000); });
@@ -95,20 +93,48 @@ async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
       return [];
     }
 
-    var csvRes = await fetch(pollData.download_url);
-    var csvText = await csvRes.text();
-    var lines = csvText.split("\n");
-    var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
+    // *** KEY FIX: Download URL returns JSON, not CSV ***
+    var dlRes = await fetch(pollData.download_url);
+    var dlText = await dlRes.text();
+    console.log("[Cron] Download response length for " + storeKey + ": " + dlText.length + " chars");
+
     var records = [];
-    for (var i = 1; i < lines.length; i++) {
-      if (!lines[i].trim()) continue;
-      var values = (lines[i].match(/("([^"]*)"|[^,]*)/g) || []).map(function(v) { return v.replace(/^"|"$/g, "").trim(); });
-      var row = {};
-      headers.forEach(function(h, j) { row[h] = values[j] || ""; });
-      row._storeKey = storeKey;
-      records.push(row);
+    try {
+      // Try JSON first (this is what Dialpad actually returns)
+      var jsonData = JSON.parse(dlText);
+      if (jsonData.data && Array.isArray(jsonData.data)) {
+        // Response format: { success: true, state: "completed", data: [...], recordCount: N }
+        records = jsonData.data.map(function(row) {
+          row._storeKey = storeKey;
+          return row;
+        });
+        console.log("[Cron] Parsed " + records.length + " JSON records for " + storeKey);
+      } else if (Array.isArray(jsonData)) {
+        // Maybe it's just an array directly
+        records = jsonData.map(function(row) {
+          row._storeKey = storeKey;
+          return row;
+        });
+        console.log("[Cron] Parsed " + records.length + " JSON array records for " + storeKey);
+      } else {
+        console.log("[Cron] Unexpected JSON structure for " + storeKey + ": " + Object.keys(jsonData).join(","));
+      }
+    } catch (parseErr) {
+      // Fallback: try CSV parsing if JSON fails
+      console.log("[Cron] JSON parse failed, trying CSV for " + storeKey);
+      var lines = dlText.split("\n");
+      var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
+      for (var i = 1; i < lines.length; i++) {
+        if (!lines[i].trim()) continue;
+        var values = (lines[i].match(/("([^"]*)"|[^,]*)/g) || []).map(function(v) { return v.replace(/^"|"$/g, "").trim(); });
+        var row = {};
+        headers.forEach(function(h, j) { row[h] = values[j] || ""; });
+        row._storeKey = storeKey;
+        records.push(row);
+      }
+      console.log("[Cron] Parsed " + records.length + " CSV records for " + storeKey);
     }
-    console.log("[Cron] Got " + records.length + " records for " + storeKey);
+
     return records;
   } catch (err) {
     console.error("[Cron] Error fetching " + storeKey + ":", err.message);
