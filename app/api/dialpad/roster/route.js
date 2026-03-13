@@ -73,6 +73,7 @@ export async function GET(request) {
     const { data: roster } = await supabase.from("employee_roster").select("*").eq("active", true);
     let auditQuery = supabase.from("audit_results").select("*")
       .not("employee", "is", null).neq("employee", "Unknown")
+      .eq("excluded", false).neq("call_type", "non_scorable")
       .gte("date_started", new Date(Date.now() - 30 * 86400000).toISOString());
     if (store && store !== "all") auditQuery = auditQuery.eq("store", store);
     const { data: audits } = await auditQuery;
