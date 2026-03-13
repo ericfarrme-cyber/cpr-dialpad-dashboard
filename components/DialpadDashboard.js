@@ -6,10 +6,11 @@ import {
   CartesianGrid, AreaChart, Area, Legend, RadarChart, Radar, PolarGrid,
   PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
-import { STORES, TABS } from "@/lib/constants";
+import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
 import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
 import VoicemailTab from "@/components/VoicemailTab";
+import SalesTab from "@/components/SalesTab";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1142,7 +1143,7 @@ export default function DialpadDashboard() {
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12 }}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <div style={{ width:38,height:38,borderRadius:10,background:"linear-gradient(135deg,#7C8AFF,#C084FC)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18 }}>{"📞"}</div>
-          <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>Dialpad Analytics</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>CPR Store Call Intelligence</p></div>
+          <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
       </div>
@@ -1159,12 +1160,13 @@ export default function DialpadDashboard() {
         {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
+        {activeTab==="sales" && <SalesTab />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
         {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
       </div>
       <div style={{ padding:"16px 28px",borderTop:"1px solid #1E2028",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
-        {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | Focused Technologies LLC
+        {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | {APP_NAME || "Focused Technologies"}
       </div>
     </div>
   );
