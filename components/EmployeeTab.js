@@ -36,49 +36,51 @@ export default function EmployeeTab({ storeFilter }) {
   var [expandedEmp, setExpandedEmp] = useState(null);
   var [view, setView] = useState("profiles");
   var [rosterForm, setRosterForm] = useState({ name: "", store: "fishers", aliases: "", role: "Technician" });
+  var [linkingName, setLinkingName] = useState(null);
+  var [actionMsg, setActionMsg] = useState(null);
 
-  useEffect(function() {
-    async function load() {
-      setLoading(true);
+  var loadData = async function() {
+    setLoading(true);
+    try {
+      var sp = storeFilter !== "all" ? "&store=" + storeFilter : "";
+
+      // Load employee profiles
       try {
-        var sp = storeFilter !== "all" ? "&store=" + storeFilter : "";
-
-        // Load employee profiles from consolidated API
+        var empRes = await fetch("/api/employees?action=profiles" + sp);
+        var empJson = await empRes.json();
+        if (empJson.success) setEmployees(empJson.employees || []);
+      } catch(e) {
         try {
-          var empRes = await fetch("/api/employees?action=profiles" + sp);
-          var empJson = await empRes.json();
-          if (empJson.success) setEmployees(empJson.employees || []);
-        } catch(e) {
-          // Fallback: try roster + audit separately
-          try {
-            var cR = await fetch("/api/dialpad/roster?action=consolidated" + sp).then(function(r){return r.json();});
-            if (cR.success && cR.employees) setEmployees(cR.employees.map(function(e) {
-              return { name: e.employee, store: e.store, role: e.role || "—", total_audits: e.total_calls || 0, avg_score: e.avg_score || 0,
-                opportunity_calls: e.opportunity_calls || 0, current_calls: e.current_calls || 0,
-                week_hours_scheduled: null, recent_audits: e.recent_audits || [] };
-            }));
-          } catch(e2) { /* ok */ }
-        }
+          var cR = await fetch("/api/dialpad/roster?action=consolidated" + sp).then(function(r){return r.json();});
+          if (cR.success && cR.employees) setEmployees(cR.employees.map(function(e) {
+            return { name: e.employee, store: e.store, role: e.role || "—", total_audits: e.total_calls || 0, avg_score: e.avg_score || 0,
+              opportunity_calls: e.opportunity_calls || 0, current_calls: e.current_calls || 0,
+              onRoster: false, week_hours_scheduled: null, recent_audits: e.recent_audits || [] };
+          }));
+        } catch(e2) { /* ok */ }
+      }
 
-        // Load roster
-        try {
-          var rR = await fetch("/api/dialpad/roster?action=list").then(function(r){return r.json();});
-          if (rR.success) setRoster(rR.employees || []);
-        } catch(e) { /* ok */ }
+      // Load roster
+      try {
+        var rR = await fetch("/api/dialpad/roster?action=list").then(function(r){return r.json();});
+        if (rR.success) setRoster(rR.employees || []);
+      } catch(e) { /* ok */ }
 
-        // Load unmatched names
-        try {
-          var uR = await fetch("/api/dialpad/roster?action=unmatched").then(function(r){return r.json();});
-          if (uR.success) setUnmatched(uR.unmatched || []);
-        } catch(e) { /* ok */ }
-      } catch(e) { console.error("Employee load error:", e); }
-      setLoading(false);
-    }
-    load();
-  }, [storeFilter]);
+      // Load unmatched names
+      try {
+        var uR = await fetch("/api/dialpad/roster?action=unmatched").then(function(r){return r.json();});
+        if (uR.success) setUnmatched(uR.unmatched || []);
+      } catch(e) { /* ok */ }
+    } catch(e) { console.error("Employee load error:", e); }
+    setLoading(false);
+  };
+
+  useEffect(function() { loadData(); }, [storeFilter]);
 
   var totalEmployees = employees.length;
-  var avgScore = totalEmployees > 0 ? (employees.reduce(function(s,e){ return s + (e.avg_score || 0); }, 0) / totalEmployees).toFixed(2) : "--";
+  var rosterEmployees = employees.filter(function(e){ return e.onRoster; });
+  var strayEmployees = employees.filter(function(e){ return !e.onRoster && (e.total_audits || 0) > 0; });
+  var avgScore = totalEmployees > 0 ? (employees.filter(function(e){return (e.total_audits||0)>0;}).reduce(function(s,e){ return s + (e.avg_score || 0); }, 0) / (employees.filter(function(e){return (e.total_audits||0)>0;}).length || 1)).toFixed(2) : "--";
   var totalAudits = employees.reduce(function(s,e){ return s + (e.total_audits || 0); }, 0);
   var scheduleConnected = employees.some(function(e){ return e.week_hours_scheduled !== null; });
 
@@ -87,6 +89,45 @@ export default function EmployeeTab({ storeFilter }) {
       return { name: e.name || e.employee, score: e.avg_score || 0, calls: e.total_audits || e.total_calls || 0 };
     });
   }, [employees]);
+
+  // Link a stray name to an existing roster employee as an alias
+  var linkToEmployee = async function(strayName, strayStore, rosterEmpId, rosterEmp) {
+    try {
+      var newAliases = (rosterEmp.aliases || []).concat([strayName]);
+      var res = await fetch("/api/dialpad/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update", id: rosterEmpId, aliases: newAliases })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: '"' + strayName + '" linked to ' + rosterEmp.name });
+        setLinkingName(null);
+        await loadData();
+        setTimeout(function(){ setActionMsg(null); }, 3000);
+      }
+    } catch(e) { setActionMsg({ type: "error", text: "Failed: " + e.message }); }
+  };
+
+  // Delete all audits for a specific employee name + store
+  var deleteAudits = async function(empName, empStore) {
+    if (!confirm('Delete all audits for "' + empName + '" at ' + (STORES[empStore] ? STORES[empStore].name : empStore) + '? This cannot be undone.')) return;
+    try {
+      var res = await fetch("/api/dialpad/audit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_by_employee", employee: empName, store: empStore })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setActionMsg({ type: "success", text: 'Deleted ' + (json.deleted || 0) + ' audits for "' + empName + '"' });
+        await loadData();
+        setTimeout(function(){ setActionMsg(null); }, 3000);
+      } else {
+        setActionMsg({ type: "error", text: json.error || "Delete failed" });
+      }
+    } catch(e) { setActionMsg({ type: "error", text: "Failed: " + e.message }); }
+  };
 
   var addEmployee = async function() {
     if (!rosterForm.name) return;
@@ -102,6 +143,7 @@ export default function EmployeeTab({ storeFilter }) {
           return prev.filter(function(r) { return !(r.name === rosterForm.name && r.store === rosterForm.store); }).concat([json.employee]);
         });
         setRosterForm({ name: "", store: rosterForm.store, aliases: "", role: "Technician" });
+        await loadData();
       }
     } catch(e) { console.error(e); }
   };
@@ -114,6 +156,7 @@ export default function EmployeeTab({ storeFilter }) {
         body: JSON.stringify({ action: "delete", id: id })
       });
       setRoster(function(prev) { return prev.filter(function(r) { return r.id !== id; }); });
+      await loadData();
     } catch(e) { console.error(e); }
   };
 
@@ -133,11 +176,18 @@ export default function EmployeeTab({ storeFilter }) {
         })}
       </div>
 
+      {/* Action message */}
+      {actionMsg && (
+        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+          {actionMsg.text}
+        </div>
+      )}
+
       {/* ═══ TEAM OVERVIEW ═══ */}
       {view === "profiles" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Team Size" value={totalEmployees} accent="#7C8AFF" sub={roster.length + " on roster"} />
+            <StatCard label="On Roster" value={roster.length} accent="#7C8AFF" sub={strayEmployees.length + " unmatched names"} />
             <StatCard label="Avg Score" value={avgScore + " / 4"} accent={parseFloat(avgScore)>=3?"#4ADE80":parseFloat(avgScore)>=2?"#FBBF24":"#F87171"} />
             <StatCard label="Total Audits" value={totalAudits} accent="#C084FC" sub="last 30 days" />
             <StatCard label="Schedule" value={scheduleConnected ? "Connected" : "Not Connected"} accent={scheduleConnected?"#4ADE80":"#FBBF24"} sub={scheduleConnected?"WhenIWork linked":"Set up in Schedule tab"} />
@@ -160,9 +210,87 @@ export default function EmployeeTab({ storeFilter }) {
             </div>
           )}
 
-          <SectionHeader title="Employee Profiles" subtitle={totalEmployees + " team members"} icon={"\ud83d\udc64"} />
+          {/* ─── STRAY NAMES ─── */}
+          {strayEmployees.length > 0 && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
+              <SectionHeader title={"Unmatched Names (" + strayEmployees.length + ")"} subtitle="These appear in audits but aren't linked to a roster employee" icon={"\u26a0\ufe0f"} />
+              <div style={{ maxHeight:400,overflowY:"auto" }}>
+                {strayEmployees.map(function(emp) {
+                  var empName = emp.name || emp.employee;
+                  var store = STORES[emp.store];
+                  var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
+                  var isLinking = linkingName === empName + "__" + emp.store;
+                  var sameStoreRoster = roster.filter(function(r){ return r.store === emp.store; });
+
+                  return (
+                    <div key={empName+"__"+emp.store} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                          <div style={{ width:32,height:32,borderRadius:8,background:"#FBBF2422",display:"flex",alignItems:"center",justifyContent:"center",color:"#FBBF24",fontWeight:800,fontSize:13 }}>?</div>
+                          <div>
+                            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>"{empName}"</div>
+                            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                              <span style={{ width:6,height:6,borderRadius:"50%",background:store?store.color:"#8B8F98" }}></span>
+                              <span style={{ color:"#6B6F78",fontSize:11 }}>{store?store.name.replace("CPR ",""):emp.store}</span>
+                              <span style={{ color:"#8B8F98",fontSize:11 }}>{(emp.total_audits||0) + " audits"}</span>
+                              <span style={{ color:sc,fontSize:11,fontWeight:700 }}>{(emp.avg_score||0).toFixed(2) + " avg"}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display:"flex",gap:6 }}>
+                          <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinking ? null : empName+"__"+emp.store);}}
+                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #7C8AFF33",background:isLinking?"#7C8AFF22":"transparent",color:"#7C8AFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                            {isLinking ? "Cancel" : "Link to Employee"}
+                          </button>
+                          <button onClick={function(e){e.stopPropagation(); deleteAudits(empName, emp.store);}}
+                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                            Delete Audits
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Link dropdown */}
+                      {isLinking && (
+                        <div style={{ marginTop:10,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7C8AFF22" }}>
+                          <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{empName}" as an alias of:</div>
+                          {sameStoreRoster.length > 0 ? (
+                            <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
+                              {sameStoreRoster.map(function(r) {
+                                return (
+                                  <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
+                                    style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                    <span style={{ fontWeight:700 }}>{r.name}</span>
+                                    <span style={{ color:"#6B6F78",fontSize:10 }}>{r.role}</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees at this store. Add one in Manage Roster first.</div>
+                          )}
+                          <div style={{ marginTop:8,borderTop:"1px solid #2A2D35",paddingTop:8 }}>
+                            <button onClick={function(e){
+                              e.stopPropagation();
+                              setView("roster");
+                              setRosterForm(function(p){ return Object.assign({}, p, { name: empName, store: emp.store, aliases: "" }); });
+                              setLinkingName(null);
+                            }} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:11,cursor:"pointer" }}>
+                              + Create new roster entry for "{empName}"
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* ─── EMPLOYEE CARDS ─── */}
+          <SectionHeader title="Employee Profiles" subtitle={rosterEmployees.length + " roster employees"} icon={"\ud83d\udc64"} />
           <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(340px,1fr))",gap:16 }}>
-            {employees.map(function(emp) {
+            {rosterEmployees.map(function(emp) {
               var empName = emp.name || emp.employee;
               var store = STORES[emp.store];
               var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
@@ -180,8 +308,13 @@ export default function EmployeeTab({ storeFilter }) {
                       <div>
                         <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{empName}</div>
                         <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:2 }}>
-                          <span style={{ width:7,height:7,borderRadius:"50%",background:store?store.color:"#8B8F98" }}></span>
-                          <span style={{ color:store?store.color:"#8B8F98",fontSize:11 }}>{store?store.name.replace("CPR ",""):emp.store}</span>
+                          {(emp.stores || [emp.store]).map(function(s,si) {
+                            var st = STORES[s];
+                            return <span key={si} style={{ display:"inline-flex",alignItems:"center",gap:4 }}>
+                              <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                              <span style={{ color:st?st.color:"#8B8F98",fontSize:11 }}>{st?st.name.replace("CPR ",""):s}</span>
+                            </span>;
+                          })}
                           <span style={{ color:"#6B6F78",fontSize:11 }}>{emp.role || "—"}</span>
                         </div>
                       </div>
@@ -252,11 +385,11 @@ export default function EmployeeTab({ storeFilter }) {
             })}
           </div>
 
-          {employees.length === 0 && (
+          {rosterEmployees.length === 0 && strayEmployees.length === 0 && (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
               <div style={{ fontSize:32,marginBottom:12 }}>{"\ud83d\udc65"}</div>
               <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>No employees found</div>
-              <div style={{ color:"#6B6F78",fontSize:13 }}>Switch to the Manage Roster tab to add your team, then run audits to see scores here.</div>
+              <div style={{ color:"#6B6F78",fontSize:13 }}>Switch to Manage Roster to add your team, then run audits to see scores here.</div>
             </div>
           )}
         </div>
@@ -267,7 +400,6 @@ export default function EmployeeTab({ storeFilter }) {
         <div>
           <SectionHeader title="Employee Roster" subtitle="Add your real employee names so transcript aliases get consolidated" icon={"\ud83d\udcdd"} />
 
-          {/* Add employee form */}
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
             <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Add Employee</div>
             <div style={{ display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end" }}>
@@ -299,7 +431,6 @@ export default function EmployeeTab({ storeFilter }) {
             </div>
           </div>
 
-          {/* Unmatched names */}
           {unmatched.length > 0 && (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
               <div style={{ color:"#FBBF24",fontSize:14,fontWeight:700,marginBottom:8 }}>Unmatched Names ({unmatched.length})</div>
@@ -316,7 +447,6 @@ export default function EmployeeTab({ storeFilter }) {
             </div>
           )}
 
-          {/* Current roster table */}
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
             <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Current Roster ({roster.length} employees)</div>
             {roster.length > 0 ? (
@@ -349,7 +479,7 @@ export default function EmployeeTab({ storeFilter }) {
                           </div>
                         </td>
                         <td style={{ padding:"12px" }}>
-                          <button onClick={function(e){e.stopPropagation();deleteEmployee(emp.id);}}
+                          <button onClick={function(){deleteEmployee(emp.id);}}
                             style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button>
                         </td>
                       </tr>
