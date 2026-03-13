@@ -175,7 +175,7 @@ export async function GET(request) {
     var storeKey = storeKeys[si];
     try {
       console.log("[Cron] === Processing " + storeKey + " ===");
-      var allCalls = await fetchStoreCallData(storeKey, 7, 0);
+      var allCalls = await fetchStoreCallData(storeKey, 0, 7);
 
       if (allCalls.length > 0) {
         var saveResult = await saveCallRecords(allCalls);
