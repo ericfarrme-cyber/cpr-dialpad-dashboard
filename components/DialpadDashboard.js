@@ -133,22 +133,23 @@ function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
     <div>
       <AISummary type="overview" dashboardData={{ overviewStats:overviewStats }} />
       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-        <StatCard label="Total Calls (30d)" value={overviewStats.totals.total.toLocaleString()} accent="#7C8AFF" />
-        <StatCard label="Answer Rate" value={((overviewStats.totals.answered/overviewStats.totals.total)*100||0).toFixed(1)+"%"} accent="#4ADE80" sub={overviewStats.totals.answered.toLocaleString()+" answered"} />
+        <StatCard label="Total Calls (30d)" value={(overviewStats.totals.answered+overviewStats.totals.missed).toLocaleString()} accent="#7C8AFF" />
+        <StatCard label="Answer Rate" value={((overviewStats.totals.answered+overviewStats.totals.missed)>0?((overviewStats.totals.answered/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1):"0")+"%"} accent="#4ADE80" sub={overviewStats.totals.answered.toLocaleString()+" answered"} />
         <StatCard label="Missed Calls" value={overviewStats.totals.missed.toLocaleString()} accent="#F87171" />
-        <StatCard label="Avg Calls / Day" value={Math.round(overviewStats.totals.total/30)} accent="#C084FC" sub="across all stores" />
+        <StatCard label="Avg Calls / Day" value={Math.round((overviewStats.totals.answered+overviewStats.totals.missed)/30)} accent="#C084FC" sub="across all stores" />
       </div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
         {Object.entries(STORES).map(function([key,store]) {
           var s = overviewStats.storeStats[key];
-          var rate = ((s.answered/s.total)*100||0).toFixed(1);
+          var realTotal = s.answered + s.missed;
+          var rate = realTotal > 0 ? ((s.answered/realTotal)*100).toFixed(1) : "0.0";
           return (
             <div key={key} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
               <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:14 }}>
                 <div style={{ width:36,height:36,borderRadius:10,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800,fontSize:16 }}>{store.icon}</div>
                 <div>
                   <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{store.name}</div>
-                  <div style={{ color:"#6B6F78",fontSize:11 }}>{s.total} total calls</div>
+                  <div style={{ color:"#6B6F78",fontSize:11 }}>{realTotal} total calls</div>
                 </div>
               </div>
               <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10 }}>
@@ -203,7 +204,7 @@ function MissedTab({ storeFilter, overviewStats, hourlyMissed, dowData }) {
   return (
     <div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
-        {Object.entries(STORES).map(function([key,store]){ var s=overviewStats.storeStats[key]; return <StatCard key={key} label={store.name+" Missed"} value={s.missed} accent={store.color} sub={s.total?((s.missed/s.total)*100).toFixed(1)+"% miss rate":""} />; })}
+        {Object.entries(STORES).map(function([key,store]){ var s=overviewStats.storeStats[key]; var rt=s.answered+s.missed; return <StatCard key={key} label={store.name+" Missed"} value={s.missed} accent={store.color} sub={rt?((s.missed/rt)*100).toFixed(1)+"% miss rate":""} />; })}
       </div>
       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20 }}>
         <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
@@ -242,7 +243,7 @@ function ProblemsTab({ overviewStats, problemCalls }) {
     <div>
       <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28 }}>
         <StatCard label="Problem Calls" value={tp} accent="#F87171" />
-        <StatCard label="% of All Calls" value={overviewStats.totals.total>0?((tp/overviewStats.totals.total)*100).toFixed(1)+"%":"0%"} accent="#FB923C" />
+        <StatCard label="% of All Calls" value={(overviewStats.totals.answered+overviewStats.totals.missed)>0?((tp/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1)+"%":"0%"} accent="#FB923C" />
         <StatCard label="Top Issue" value={problemCalls[0]?problemCalls[0].type:"N/A"} accent="#C084FC" />
       </div>
       <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
