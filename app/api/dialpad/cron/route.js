@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
 
+export const maxDuration = 300;
+
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
 const API_KEY = process.env.DIALPAD_API_KEY;
 const CRON_SECRET = process.env.CRON_SECRET;
@@ -41,96 +43,170 @@ Respond ONLY with valid JSON:
   "score": 0.00, "max_score": 4.00
 }`;
 
-async function fetchStoreCallData(storeKey, daysAgoStart = 0, daysAgoEnd = 0) {
-  const store = STORES[storeKey]; if (!store) return [];
-  const initRes = await fetch(`${DIALPAD_BASE}/stats`, { method: "POST", headers: dialpadHeaders(),
-    body: JSON.stringify({ days_ago_start: daysAgoStart, days_ago_end: daysAgoEnd, stat_type: "calls", target_id: parseInt(store.dialpadId), target_type: "department", timezone: "America/Indiana/Indianapolis" }) });
-  if (!initRes.ok) return [];
-  const { request_id } = await initRes.json();
-  await new Promise(r => setTimeout(r, 35000));
-  const pollRes = await fetch(`${DIALPAD_BASE}/stats/${request_id}`, { method: "GET", headers: dialpadHeaders() });
-  if (!pollRes.ok) return [];
-  const pollData = await pollRes.json();
-  if (pollData.status !== "complete" || !pollData.download_url) return [];
-  const csvRes = await fetch(pollData.download_url);
-  const csvText = await csvRes.text();
-  const lines = csvText.split("\n");
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
-  const records = [];
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const values = lines[i].match(/("([^"]*)"|[^,]*)/g)?.map(v => v.replace(/^"|"$/g, "").trim()) || [];
-    const row = {}; headers.forEach((h, j) => { row[h] = values[j] || ""; }); row._storeKey = storeKey; records.push(row);
+async function fetchStoreCallData(storeKey, daysAgoStart, daysAgoEnd) {
+  var store = STORES[storeKey];
+  if (!store) return [];
+  try {
+    console.log("[Cron] Initiating stats for " + storeKey + "...");
+    var initRes = await fetch(DIALPAD_BASE + "/stats", {
+      method: "POST",
+      headers: dialpadHeaders(),
+      body: JSON.stringify({
+        days_ago_start: daysAgoStart || 0,
+        days_ago_end: daysAgoEnd || 0,
+        stat_type: "calls",
+        target_id: parseInt(store.dialpadId),
+        target_type: "department",
+        timezone: "America/Indiana/Indianapolis",
+      }),
+    });
+    if (!initRes.ok) {
+      console.log("[Cron] Initiate failed for " + storeKey + ": " + initRes.status);
+      return [];
+    }
+    var initData = await initRes.json();
+    var requestId = initData.request_id;
+    console.log("[Cron] Got request_id " + requestId + " for " + storeKey + ", waiting...");
+
+    await new Promise(function(r) { setTimeout(r, 35000); });
+
+    var pollRes = await fetch(DIALPAD_BASE + "/stats/" + requestId, { method: "GET", headers: dialpadHeaders() });
+    if (!pollRes.ok) {
+      console.log("[Cron] Poll failed for " + storeKey + ": " + pollRes.status);
+      return [];
+    }
+    var pollData = await pollRes.json();
+    if (pollData.status !== "complete" || !pollData.download_url) {
+      console.log("[Cron] Not complete for " + storeKey + ": " + pollData.status);
+      return [];
+    }
+
+    var csvRes = await fetch(pollData.download_url);
+    var csvText = await csvRes.text();
+    var lines = csvText.split("\n");
+    var headers = lines[0].split(",").map(function(h) { return h.trim().replace(/^"|"$/g, ""); });
+    var records = [];
+    for (var i = 1; i < lines.length; i++) {
+      if (!lines[i].trim()) continue;
+      var values = (lines[i].match(/("([^"]*)"|[^,]*)/g) || []).map(function(v) { return v.replace(/^"|"$/g, "").trim(); });
+      var row = {};
+      headers.forEach(function(h, j) { row[h] = values[j] || ""; });
+      row._storeKey = storeKey;
+      records.push(row);
+    }
+    console.log("[Cron] Got " + records.length + " records for " + storeKey);
+    return records;
+  } catch (err) {
+    console.error("[Cron] Error fetching " + storeKey + ":", err.message);
+    return [];
   }
-  return records;
 }
 
 async function scoreCall(call) {
-  const tRes = await fetch(`${DIALPAD_BASE}/transcripts/${call.call_id}`, { method: "GET", headers: dialpadHeaders() });
-  if (!tRes.ok) return null;
-  const tData = await tRes.json();
-  let ft = "";
-  if (tData.lines) ft = tData.lines.map(l => `${l.speaker||l.name||"Unknown"}: ${l.text||l.content||""}`).join("\n");
-  else if (tData.transcript) ft = typeof tData.transcript === "string" ? tData.transcript : JSON.stringify(tData.transcript);
-  else ft = JSON.stringify(tData);
-  if (!ft || ft.length < 20) return null;
-
-  const ctx = `\nCall Info: ${call.direction} call, ${call.external_number||"unknown"}, ${call.date_started}, Store: ${call.name||call._storeKey}\n`;
-  const cRes = await fetch("https://api.anthropic.com/v1/messages", { method: "POST",
-    headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
-    body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, messages: [{ role: "user", content: `${AUDIT_PROMPT}\n${ctx}\n--- TRANSCRIPT ---\n${ft}\n--- END TRANSCRIPT ---` }] })
-  });
-  if (!cRes.ok) return null;
-  const cData = await cRes.json();
-  const text = cData.content?.[0]?.text || "";
   try {
-    const m = text.match(/\{[\s\S]*\}/);
-    const r = m ? JSON.parse(m[0]) : null; if (!r) return null;
+    var tRes = await fetch(DIALPAD_BASE + "/transcripts/" + call.call_id, { method: "GET", headers: dialpadHeaders() });
+    if (!tRes.ok) return null;
+    var tData = await tRes.json();
+    var ft = "";
+    if (tData.lines) {
+      ft = tData.lines.map(function(l) { return (l.speaker || l.name || "Unknown") + ": " + (l.text || l.content || ""); }).join("\n");
+    } else if (tData.transcript) {
+      ft = typeof tData.transcript === "string" ? tData.transcript : JSON.stringify(tData.transcript);
+    } else {
+      ft = JSON.stringify(tData);
+    }
+    if (!ft || ft.length < 20) return null;
+
+    var ctx = "\nCall Info: " + call.direction + " call, " + (call.external_number || "unknown") + ", " + call.date_started + ", Store: " + (call.name || call._storeKey) + "\n";
+    var cRes = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY || "", "anthropic-version": "2023-06-01" },
+      body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1200, messages: [{ role: "user", content: AUDIT_PROMPT + "\n" + ctx + "\n--- TRANSCRIPT ---\n" + ft + "\n--- END TRANSCRIPT ---" }] }),
+    });
+    if (!cRes.ok) return null;
+    var cData = await cRes.json();
+    var text = (cData.content && cData.content[0] && cData.content[0].text) || "";
+    var m = text.match(/\{[\s\S]*\}/);
+    var r = m ? JSON.parse(m[0]) : null;
+    if (!r) return null;
     return {
-      call_id: call.call_id, date: call.date_started, store: call._storeKey, store_name: call.name || call._storeKey,
-      call_type: r.call_type || "opportunity", employee: r.employee || "Unknown",
-      customer_name: r.customer_name || "Unknown", device_type: r.device_type || "Not mentioned",
-      phone: call.external_number || "", direction: call.direction || "inbound",
+      call_id: call.call_id,
+      date: call.date_started,
+      store: call._storeKey,
+      store_name: call.name || call._storeKey,
+      call_type: r.call_type || "opportunity",
+      employee: r.employee || "Unknown",
+      customer_name: r.customer_name || "Unknown",
+      device_type: r.device_type || "Not mentioned",
+      phone: call.external_number || "",
+      direction: call.direction || "inbound",
       talk_duration: call.talk_duration ? parseFloat(call.talk_duration) : null,
-      inquiry: r.inquiry || "", outcome: r.outcome || "",
-      score: r.score || 0, max_score: r.max_score || 4.0,
-      criteria: r.criteria, transcript_preview: ft.substring(0, 500),
+      inquiry: r.inquiry || "",
+      outcome: r.outcome || "",
+      score: r.score || 0,
+      max_score: r.max_score || 4.0,
+      criteria: r.criteria,
+      transcript_preview: ft.substring(0, 500),
     };
-  } catch { return null; }
+  } catch (err) {
+    console.error("[Cron] Score error:", err.message);
+    return null;
+  }
 }
 
 export async function GET(request) {
-  const { searchParams } = new URL(request.url);
-  const secret = searchParams.get("secret") || request.headers.get("authorization")?.replace("Bearer ", "");
-  if (CRON_SECRET && secret !== CRON_SECRET) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
-
-  for (const storeKey of Object.keys(STORES)) {
-    try {
-      console.log(`[Cron] Processing ${storeKey}...`);
-      const allCalls = await fetchStoreCallData(storeKey, 0, 0);
-      if (allCalls.length > 0) {
-        const { saved } = await saveCallRecords(allCalls);
-        results.callSync[storeKey] = { fetched: allCalls.length, saved };
-        results.totalCallsSaved += saved;
-        await updateCallSyncState(storeKey, saved);
-      } else { results.callSync[storeKey] = { fetched: 0, saved: 0 }; }
-
-      const recorded = allCalls.filter(r => r.target_type === "department" && r.was_recorded === "true" && r.direction === "inbound" && r.categories?.includes("answered"));
-      let newAudits = 0;
-      for (const call of recorded) {
-        if (!call.call_id) continue;
-        if (await isCallAudited(call.call_id)) continue;
-        console.log(`[Cron] Scoring ${call.call_id}...`);
-        const audit = await scoreCall(call);
-        if (audit) { await saveAuditResult(audit); newAudits++; results.totalNewAudits++; }
-        await new Promise(r => setTimeout(r, 2000));
-      }
-      await updateSyncState(storeKey, recorded[0]?.call_id || "", newAudits);
-      results.auditSync[storeKey] = { recorded: recorded.length, newAudits };
-    } catch (err) { results.errors.push({ store: storeKey, error: err.message }); }
+  var url = new URL(request.url);
+  var secret = url.searchParams.get("secret") || (request.headers.get("authorization") || "").replace("Bearer ", "");
+  if (CRON_SECRET && secret !== CRON_SECRET) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  return NextResponse.json({ success: true, ...results, timestamp: new Date().toISOString() });
+  var results = { callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, errors: [] };
+  var storeKeys = Object.keys(STORES);
+
+  for (var si = 0; si < storeKeys.length; si++) {
+    var storeKey = storeKeys[si];
+    try {
+      console.log("[Cron] === Processing " + storeKey + " ===");
+      var allCalls = await fetchStoreCallData(storeKey, 0, 0);
+
+      if (allCalls.length > 0) {
+        var saveResult = await saveCallRecords(allCalls);
+        results.callSync[storeKey] = { fetched: allCalls.length, saved: saveResult.saved };
+        results.totalCallsSaved += saveResult.saved;
+        await updateCallSyncState(storeKey, saveResult.saved);
+      } else {
+        results.callSync[storeKey] = { fetched: 0, saved: 0 };
+      }
+
+      var recorded = allCalls.filter(function(r) {
+        return r.target_type === "department" && r.was_recorded === "true" && r.direction === "inbound" && r.categories && r.categories.includes("answered");
+      });
+
+      var newAudits = 0;
+      for (var ci = 0; ci < recorded.length; ci++) {
+        var call = recorded[ci];
+        if (!call.call_id) continue;
+        var alreadyDone = await isCallAudited(call.call_id);
+        if (alreadyDone) continue;
+        console.log("[Cron] Scoring " + call.call_id + "...");
+        var audit = await scoreCall(call);
+        if (audit) {
+          await saveAuditResult(audit);
+          newAudits++;
+          results.totalNewAudits++;
+        }
+        await new Promise(function(r) { setTimeout(r, 2000); });
+      }
+
+      await updateSyncState(storeKey, (recorded[0] && recorded[0].call_id) || "", newAudits);
+      results.auditSync[storeKey] = { recorded: recorded.length, newAudits: newAudits };
+    } catch (err) {
+      console.error("[Cron] Error for " + storeKey + ":", err.message);
+      results.errors.push({ store: storeKey, error: err.message });
+    }
+  }
+
+  console.log("[Cron] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
+  return NextResponse.json({ success: true, callSync: results.callSync, auditSync: results.auditSync, totalCallsSaved: results.totalCallsSaved, totalNewAudits: results.totalNewAudits, errors: results.errors, timestamp: new Date().toISOString() });
 }
