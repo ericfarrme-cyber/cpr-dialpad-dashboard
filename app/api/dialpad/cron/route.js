@@ -14,32 +14,39 @@ function dialpadHeaders() {
 
 const AUDIT_PROMPT = `You are a phone call quality auditor for CPR Cell Phone Repair stores.
 
-STEP 1 — CLASSIFY THE CALL:
-- "opportunity": A prospective customer calling about a NEW repair, price inquiry, or the store calling out to a potential customer.
-- "current_customer": An existing customer checking on repair status, picking up a device, or following up.
+STEP 1 — CLASSIFY THE CALL (this is critical — read carefully):
 
-STEP 2 — SCORE BASED ON CALL TYPE:
+"opportunity" — The caller is asking about a NEW repair they haven't started yet. They want a price quote, availability, or to schedule a new repair. KEY SIGNAL: the customer does NOT currently have a device at the shop.
 
-IF call_type = "opportunity", score these 4 criteria:
-1. Appointment Offered (1.25 pts): Did the employee offer to schedule an appointment?
-2. Discount for Scheduling (0.92 pts): Did the employee mention any discount for booking?
-3. Lifetime Warranty Mentioned (0.92 pts): Did the employee mention CPR's lifetime warranty?
-4. Appointment = Faster Turnaround (0.92 pts): Did the employee explain scheduling means faster service?
+"current_customer" — The caller ALREADY has a device at the shop, OR is calling about an existing repair/order. This includes ALL of the following:
+  - Checking on repair status
+  - Asking for an update on a device left for repair
+  - Picking up a repaired device
+  - Rescheduling or canceling an existing appointment
+  - Following up on a back-ordered part
+  - Calling about a warranty issue on a PREVIOUS repair
+  - Any call where a repair ticket or prior visit is referenced
 
-IF call_type = "current_customer", score these 4 criteria:
-1. Clear Status Update (1.00 pts): Did the employee give a clear update on the repair status?
-2. ETA / Timeline Communicated (1.00 pts): Did the employee provide an estimated completion time?
-3. Professional & Empathetic Tone (1.00 pts): Was the employee courteous and patient?
-4. Next Steps Clearly Explained (1.00 pts): Did the employee clearly explain what happens next?
+"non_scorable" — Wrong number, spam, call disconnected immediately, vendor call, transcript too short/corrupted.
 
-STEP 3 — EXTRACT: Employee Name, Customer Name (or "Unknown"), Device Type (or "Not mentioned"), Caller Inquiry, Outcome.
+STEP 2 — SCORE:
+
+IF "opportunity" (max 4.01 pts):
+1. Appointment Offered (1.25 pts) 2. Discount for Scheduling (0.92 pts) 3. Lifetime Warranty Mentioned (0.92 pts) 4. Faster Turnaround (0.92 pts)
+
+IF "current_customer" (max 4.00 pts):
+1. Clear Status Update (1.00 pts) 2. ETA/Timeline (1.00 pts) 3. Professional Tone (1.00 pts) 4. Next Steps Explained (1.00 pts)
+
+IF "non_scorable": score=0, max_score=0
+
+STEP 3 — EXTRACT: Employee Name, Customer Name, Device Type, Inquiry, Outcome.
 
 Respond ONLY with valid JSON:
 {
-  "call_type": "opportunity" or "current_customer",
+  "call_type": "opportunity" or "current_customer" or "non_scorable",
   "employee": "Name", "customer_name": "Name or Unknown", "device_type": "Device or Not mentioned",
   "inquiry": "Brief description", "outcome": "Brief outcome",
-  "criteria": { ... },
+  "criteria": { each: {"pass": true/false, "notes": "explanation"} },
   "score": 0.00, "max_score": 4.00
 }`;
 
