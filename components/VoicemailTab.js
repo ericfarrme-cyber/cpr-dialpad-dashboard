@@ -105,7 +105,7 @@ export default function VoicemailTab({ storeFilter }) {
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:4 }}>
           {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7C8AFF22":"#1A1D23",color:view===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
           })}
         </div>
         <div style={{ display:"flex",gap:4 }}>
@@ -119,10 +119,10 @@ export default function VoicemailTab({ storeFilter }) {
       {view === "dashboard" && summary && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Total Voicemails" value={summary.total} accent="#7C8AFF" sub="last 30 days" />
+            <StatCard label="Total Voicemails" value={summary.total} accent="#7B2FFF" sub="last 30 days" />
             <StatCard label="Return Rate" value={returnRate+"%"} accent={parseFloat(returnRate)>=80?"#4ADE80":parseFloat(returnRate)>=60?"#FBBF24":"#F87171"} sub={summary.returned+" of "+summary.total+" returned"} />
             <StatCard label="Unreturned" value={summary.unreturned} accent="#F87171" sub={summary.urgent+" urgent (1hr+)"} />
-            <StatCard label="Avg Callback" value={summary.avg_callback_min > 0 ? callbackTime(summary.avg_callback_min) : "—"} accent="#C084FC" sub="time to return" />
+            <StatCard label="Avg Callback" value={summary.avg_callback_min > 0 ? callbackTime(summary.avg_callback_min) : "—"} accent="#00D4FF" sub="time to return" />
             <StatCard label="Urgent" value={summary.urgent} accent={summary.urgent>0?"#F87171":"#4ADE80"} sub="unreturned > 1 hour" />
           </div>
 
