@@ -390,14 +390,38 @@ function AuditTab({ rawCallData, storeFilter }) {
     setRepeatLoading(false);
   };
 
-  var getEmpAudits = function(name, store) { return audits.filter(function(a){return a.employee===name && a.store===store;}); };
+  var getEmpAudits = function(name) {
+    // Find all aliases for this employee from the roster
+    var aliases = [name.toLowerCase()];
+    roster.forEach(function(r) {
+      if (r.name.toLowerCase() === name.toLowerCase()) {
+        (r.aliases || []).forEach(function(a) { aliases.push(a.toLowerCase()); });
+      }
+    });
+    return audits.filter(function(a) {
+      if (!a.employee) return false;
+      var empLower = a.employee.toLowerCase();
+      // Direct match on name or any alias
+      if (aliases.indexOf(empLower) >= 0) return true;
+      // Prefix match: transcript "Ma" matches roster "Mahmoud"
+      for (var i = 0; i < aliases.length; i++) {
+        if (aliases[i].startsWith(empLower) && empLower.length >= 2) return true;
+        if (empLower.startsWith(aliases[i]) && aliases[i].length >= 2) return true;
+      }
+      return false;
+    });
+  };
 
   var total = filteredAudits.length;
   var avgScore = total>0?(filteredAudits.reduce(function(s,a){return s+parseFloat(a.score||0);},0)/total).toFixed(2):"--";
   var oppCount = audits.filter(function(a){return a.call_type==="opportunity";}).length;
   var currCount = audits.filter(function(a){return a.call_type==="current_customer";}).length;
+  var nsCount = audits.filter(function(a){return a.call_type==="non_scorable";}).length;
 
   function CriteriaGrid({ audit }) {
+    if (audit.call_type === "non_scorable") {
+      return <div style={{ padding:"8px 12px",borderRadius:6,background:"#6B6F7812",color:"#6B6F78",fontSize:12 }}>Non-scorable call (wrong number, disconnected, or insufficient transcript)</div>;
+    }
     var isOpp = audit.call_type !== "current_customer";
     var items = isOpp
       ? [{k:"appt_offered",l:"Appt",n:"appt_notes"},{k:"discount_mentioned",l:"Discount",n:"discount_notes"},{k:"warranty_mentioned",l:"Warranty",n:"warranty_notes"},{k:"faster_turnaround",l:"Fast Turn.",n:"turnaround_notes"}]
@@ -491,7 +515,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                 var medal = i===0?"\uD83E\uDD47":i===1?"\uD83E\uDD48":i===2?"\uD83E\uDD49":"#"+(i+1);
                 var empKey = emp.employee+"__"+emp.store;
                 var isExpanded = expandedEmp === empKey;
-                var empAudits = isExpanded ? getEmpAudits(emp.employee, emp.store) : [];
+                var empAudits = isExpanded ? getEmpAudits(emp.employee) : [];
                 var empOpp = empAudits.filter(function(a){return a.call_type==="opportunity";});
                 var empCurr = empAudits.filter(function(a){return a.call_type==="current_customer";});
                 return (
@@ -501,7 +525,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                         <span style={{ fontSize:18,width:28,textAlign:"center" }}>{medal}</span>
                         <div style={{ minWidth:120 }}>
                           <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</div>
-                          <div style={{ color:store?store.color:"#8B8F98",fontSize:11 }}>{store?store.name.replace("CPR ",""):emp.store}</div>
+                          <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.stores||[emp.store]).map(function(s){var st=STORES[s];return st?<span key={s} style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:10,color:st.color }}><span style={{width:6,height:6,borderRadius:"50%",background:st.color}} />{st.name.replace("CPR ","")}</span>:null;})}</div>
                         </div>
                         <div style={{ textAlign:"center",minWidth:40 }}><div style={{ color:"#8B8F98",fontSize:9 }}>CALLS</div><div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div></div>
                         <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"#8B8F98",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"#7C8AFF" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div></div>
@@ -725,14 +749,14 @@ function AuditTab({ rawCallData, storeFilter }) {
               var sc = score>=3?"#4ADE80":score>=2?"#FBBF24":"#F87171";
               var store = STORES[audit.store];
               var d = new Date(audit.date_started||audit.date);
-              var typeBg = audit.call_type==="opportunity"?"#7C8AFF":"#FBBF24";
+              var typeBg = audit.call_type==="opportunity"?"#7C8AFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
               return (
                 <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
                     <div>
                       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
                         <span style={{ color:"#E8E9EC",fontSize:13,fontWeight:700 }}>{audit.employee||"Unknown"}{" - "+audit.phone}</span>
-                        <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current Customer":"Opportunity"}</span>
+                        <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current Customer":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
                       </div>
                       <div style={{ color:"#6B6F78",fontSize:11 }}>
                         {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
