@@ -10,7 +10,7 @@ function corsHeaders() {
 }
 
 function jsonResponse(data, status) {
-  return jsonResponse(data, { status: status || 200, headers: corsHeaders() });
+  return NextResponse.json(data, { status: status || 200, headers: corsHeaders() });
 }
 
 export async function OPTIONS() {
