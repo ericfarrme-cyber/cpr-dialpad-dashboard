@@ -22,7 +22,7 @@ export async function GET(request) {
 
   try {
     // Parallel fetch all data
-    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes] = await Promise.all([
+    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes, ticketRes] = await Promise.all([
       supabase.from("call_records").select("store, direction, is_answered, is_missed, is_voicemail, talk_duration, ringing_duration, date_started, external_number")
         .eq("target_type", "department").gte("date_started", since),
       supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, discount_mentioned, faster_turnaround, confidence")
@@ -37,6 +37,7 @@ export async function GET(request) {
         .eq("direction", "outbound").gte("date_started", since),
       supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
       supabase.from("commission_config").select("config_key, config_value"),
+      supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted"),
     ]);
 
     var calls = callRes.data || [];
@@ -48,6 +49,7 @@ export async function GET(request) {
     var vms = vmRes.data || [];
     var outbound = outboundRes.data || [];
     var roster = rosterRes.data || [];
+    var ticketGrades = ticketRes.data || [];
 
     // Build config map
     var configMap = {};
@@ -55,10 +57,11 @@ export async function GET(request) {
 
     // Store weights (from config or defaults)
     var WEIGHTS = {
-      revenue: cfg(configMap, "store_weight_repairs", 0.35),
-      audit: cfg(configMap, "store_weight_audit", 0.30),
-      calls: cfg(configMap, "store_weight_calls", 0.20),
-      experience: cfg(configMap, "store_weight_cx", 0.15),
+      revenue: cfg(configMap, "store_weight_repairs", 0.25),
+      audit: cfg(configMap, "store_weight_audit", 0.20),
+      calls: cfg(configMap, "store_weight_calls", 0.15),
+      experience: cfg(configMap, "store_weight_cx", 0.10),
+      compliance: cfg(configMap, "store_weight_compliance", 0.20),
     };
 
     // Build outbound lookup for VM matching
@@ -68,6 +71,47 @@ export async function GET(request) {
       if (!ph) return;
       if (!obByPhone[ph]) obByPhone[ph] = [];
       obByPhone[ph].push(o);
+    });
+
+    // Build roster name resolver (handles "Ziegler", "Tomey, Samuel", "Matthew Slade" etc.)
+    var rosterLookup = {};
+    roster.forEach(function(r) {
+      var name = r.name.toLowerCase();
+      rosterLookup[name] = r.name;
+      // Also index by last name, first name, and aliases
+      var parts = r.name.split(/\s+/);
+      parts.forEach(function(p) { if (p.length >= 3) rosterLookup[p.toLowerCase()] = r.name; });
+      (r.aliases || []).forEach(function(a) { rosterLookup[a.toLowerCase()] = r.name; });
+    });
+    function resolveTicketName(raw) {
+      if (!raw) return raw;
+      var lower = raw.toLowerCase().trim();
+      // Remove "Last, First" format
+      if (lower.includes(",")) {
+        var commaParts = lower.split(",").map(function(s){return s.trim();});
+        lower = commaParts[1] ? commaParts[1] + " " + commaParts[0] : commaParts[0];
+      }
+      if (rosterLookup[lower]) return rosterLookup[lower];
+      // Try each word
+      var words = lower.split(/\s+/);
+      for (var w = 0; w < words.length; w++) {
+        if (rosterLookup[words[w]]) return rosterLookup[words[w]];
+      }
+      // Prefix match
+      for (var key in rosterLookup) {
+        if (key.startsWith(lower) || lower.startsWith(key)) return rosterLookup[key];
+      }
+      return raw;
+    }
+
+    // Resolve ticket grade employee names and group by store
+    ticketGrades.forEach(function(t) {
+      t.employee_resolved = resolveTicketName(t.employee_repaired || t.employee_added);
+      // Resolve store from roster if ticket store is empty
+      if (!t.store && t.employee_resolved) {
+        var rEntry = roster.find(function(r) { return r.name === t.employee_resolved; });
+        if (rEntry) t.store = rEntry.store;
+      }
     });
 
     var scores = {};
@@ -165,8 +209,15 @@ export async function GET(request) {
 
       var expScore = clamp((missScore * 0.4) + (ringScore * 0.3) + ((100 - urgentPenalty) * 0.3));
 
+      // ═══ TICKET COMPLIANCE ═══
+      var storeTickets = ticketGrades.filter(function(t) { return t.store === sk; });
+      var complianceScore = 0;
+      if (storeTickets.length > 0) {
+        complianceScore = Math.round(storeTickets.reduce(function(s, t) { return s + (t.overall_score || 0); }, 0) / storeTickets.length);
+      }
+
       // ═══ OVERALL ═══
-      var overall = (revenueScore * WEIGHTS.revenue) + (auditScore * WEIGHTS.audit) + (callScore * WEIGHTS.calls) + (expScore * WEIGHTS.experience);
+      var overall = (revenueScore * WEIGHTS.revenue) + (auditScore * WEIGHTS.audit) + (callScore * WEIGHTS.calls) + (expScore * WEIGHTS.experience) + (complianceScore * (WEIGHTS.compliance || 0));
 
       scores[sk] = {
         store: sk,
@@ -189,6 +240,11 @@ export async function GET(request) {
           experience: { score: Math.round(expScore), weight: WEIGHTS.experience, details: {
             miss_rate: Math.round(missRate), urgent_vms: urgentVMs,
             total_calls: storeCalls.length,
+          }},
+          compliance: { score: Math.round(complianceScore), weight: WEIGHTS.compliance || 0, details: {
+            tickets_graded: storeTickets.length,
+            avg_diagnostics: storeTickets.length > 0 ? Math.round(storeTickets.reduce(function(s,t){return s+(t.diagnostics_score||0);},0)/storeTickets.length) : 0,
+            avg_notes: storeTickets.length > 0 ? Math.round(storeTickets.reduce(function(s,t){return s+(t.notes_score||0);},0)/storeTickets.length) : 0,
           }},
         },
       };
@@ -236,6 +292,8 @@ export async function GET(request) {
           phone_tickets: 0, other_tickets: 0, accy_count: 0, accy_gp: 0, clean_count: 0,
           // Audit
           audit_scores: [], opp_audits: 0, appt_offered: 0, warranty_mentioned: 0,
+          // Compliance
+          compliance_scores: [],
         };
       }
       return empMap[resolved];
@@ -260,13 +318,21 @@ export async function GET(request) {
       }
     });
 
+    // Fill compliance data (resolved ticket names)
+    ticketGrades.forEach(function(t) {
+      if (!t.employee_resolved) return;
+      var e = ensureEmp(t.employee_resolved);
+      if (e) e.compliance_scores.push(t.overall_score || 0);
+    });
+
     // Compute employee scores
     // Per-employee targets and weights (from config or defaults)
     var empRepairTarget = cfg(configMap, "emp_target_repairs", 20);
     var empAccyGPTarget = cfg(configMap, "emp_target_accy_gp", 200);
     var empCleanTarget = cfg(configMap, "emp_target_cleans", 4);
-    var empWeightRepairs = cfg(configMap, "emp_weight_repairs", 0.50);
-    var empWeightAudit = cfg(configMap, "emp_weight_audit", 0.50);
+    var empWeightRepairs = cfg(configMap, "emp_weight_repairs", 0.35);
+    var empWeightAudit = cfg(configMap, "emp_weight_audit", 0.35);
+    var empWeightCompliance = cfg(configMap, "emp_weight_compliance", 0.30);
     var empRepTicketW = cfg(configMap, "emp_repair_sub_qty", 0.25);
     var empRepAccyW = cfg(configMap, "emp_repair_sub_accy", 0.50);
     var empRepCleanW = cfg(configMap, "emp_repair_sub_clean", 0.25);
@@ -277,7 +343,7 @@ export async function GET(request) {
     var employeeScores = Object.values(empMap).map(function(e) {
       var totalRepairs = e.phone_tickets + e.other_tickets;
 
-      // Repairs & Production score (50% of total)
+      // Repairs & Production score
       var repairPct = clamp((Math.min(totalRepairs / empRepairTarget, 1.2) / 1.2) * 100);
       var accyPct = clamp(empAccyGPTarget > 0 ? (Math.min(e.accy_gp / empAccyGPTarget, 1.2) / 1.2) * 100 : 0);
       var cleanPct = clamp(empCleanTarget > 0 ? (Math.min(e.clean_count / empCleanTarget, 1.2) / 1.2) * 100 : 0);
@@ -300,8 +366,13 @@ export async function GET(request) {
         ? (avgAuditPct * empAuditAvgW) + (apptRate * empAuditApptW) + (warrantyRate * empAuditWarrW)
         : 0;
 
-      var overall = clamp((repairScore * empWeightRepairs) + (auditScore * empWeightAudit));
-      var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0;
+      // Compliance score
+      var complianceAvg = e.compliance_scores.length > 0
+        ? e.compliance_scores.reduce(function(s, v) { return s + v; }, 0) / e.compliance_scores.length
+        : 0;
+
+      var overall = clamp((repairScore * empWeightRepairs) + (auditScore * empWeightAudit) + (complianceAvg * empWeightCompliance));
+      var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0 || e.compliance_scores.length > 0;
 
       return {
         name: e.name,
@@ -327,6 +398,10 @@ export async function GET(request) {
           total_audits: e.audit_scores.length,
           opp_audits: e.opp_audits,
         },
+        compliance: {
+          score: Math.round(complianceAvg),
+          tickets_graded: e.compliance_scores.length,
+        },
       };
     }).filter(function(e) { return e.hasData; }).sort(function(a, b) { return b.overall - a.overall; });
 
@@ -336,7 +411,7 @@ export async function GET(request) {
       ranked: ranked,
       employeeScores: employeeScores,
       weights: WEIGHTS,
-      empWeights: { repairs: empWeightRepairs, audit: empWeightAudit },
+      empWeights: { repairs: empWeightRepairs, audit: empWeightAudit, compliance: empWeightCompliance },
       configMap: configMap,
       period: period,
       daysBack: daysBack,
