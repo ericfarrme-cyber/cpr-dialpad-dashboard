@@ -218,6 +218,8 @@ export async function POST(request) {
         employee_added: ticket.employee_added || "",
         employee_repaired: ticket.employee_repaired || "",
         customer_name: ticket.customer_name || "",
+        customer_phone: ticket.customer_phone ? ticket.customer_phone.replace(/\D/g, "").slice(-10) : "",
+        customer_phones_all: ticket.customer_phones_all || [],
         device: ticket.device || "",
         date_closed: parseSafeDate(ticket.date_closed),
         gross_sales: parseFloat(ticket.gross_sales || 0),
