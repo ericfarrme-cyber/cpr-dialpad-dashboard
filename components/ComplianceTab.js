@@ -70,12 +70,11 @@ export default function ComplianceTab({ storeFilter }) {
         <div>
           {stats && stats.total > 0 ? (
             <div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24 }}>
                 <StatCard label="Tickets Graded" value={stats.total} accent="#7B2FFF" />
                 <StatCard label="Avg Score" value={stats.avgOverall + "/100"} accent={scoreColor(stats.avgOverall)} />
                 <StatCard label="Diagnostics" value={stats.avgDiag + "%"} accent={scoreColor(stats.avgDiag)} />
                 <StatCard label="Notes Quality" value={stats.avgNotes + "%"} accent={scoreColor(stats.avgNotes)} />
-                <StatCard label="Payment" value={stats.avgPay + "%"} accent={scoreColor(stats.avgPay)} />
               </div>
 
               {/* Store comparison */}
@@ -162,7 +161,6 @@ export default function ComplianceTab({ storeFilter }) {
                           { label:"Diag", score:t.diagnostics_score },
                           { label:"Notes", score:t.notes_score },
                           { label:"Pay", score:t.payment_score },
-                          { label:"Cat", score:t.categorization_score },
                         ].map(function(cat) {
                           return (
                             <div key={cat.label} style={{ textAlign:"center" }}>
@@ -180,8 +178,7 @@ export default function ComplianceTab({ storeFilter }) {
                           {[
                             { label:"Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"#7B2FFF" },
                             { label:"Ticket Notes",score:t.notes_score,notes:t.notes_detail,color:"#00D4FF" },
-                            { label:"Payment/Down Payment",score:t.payment_score,notes:t.payment_notes,color:"#FBBF24" },
-                            { label:"Categorization",score:t.categorization_score,notes:t.categorization_notes,color:"#4ADE80" },
+                            { label:"Payment/Down Payment",score:t.payment_score,notes:t.payment_notes + (t.categorization_notes ? " — " + t.categorization_notes : ""),color:"#FBBF24" },
                           ].map(function(cat) {
                             return (
                               <div key={cat.label} style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid "+cat.color+"22" }}>
