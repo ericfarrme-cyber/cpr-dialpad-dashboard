@@ -94,6 +94,7 @@ export default function ScorecardTab({ storeFilter }) {
     { category: "Audit", fullMark: 100 },
     { category: "Calls", fullMark: 100 },
     { category: "Experience", fullMark: 100 },
+    { category: "Compliance", fullMark: 100 },
   ];
   STORE_KEYS.forEach(function(sk) {
     var s = storeScores[sk];
@@ -102,6 +103,7 @@ export default function ScorecardTab({ storeFilter }) {
       radarData[1][sk] = s.categories.audit.score;
       radarData[2][sk] = s.categories.calls.score;
       radarData[3][sk] = s.categories.experience.score;
+      radarData[4][sk] = s.categories.compliance ? s.categories.compliance.score : 0;
     }
   });
 
@@ -135,6 +137,7 @@ export default function ScorecardTab({ storeFilter }) {
             { title: "Employee Weights", subtitle: "Main category weights (should sum to 100%)", items: [
               { key: "emp_weight_repairs", label: "Repairs & Production", pct: true },
               { key: "emp_weight_audit", label: "Phone Audit Quality", pct: true },
+              { key: "emp_weight_compliance", label: "Ticket Compliance", pct: true },
             ]},
             { title: "Repair Sub-Weights", subtitle: "Within Repairs category (should sum to 100%)", items: [
               { key: "emp_repair_sub_qty", label: "Repair Ticket Qty", pct: true },
@@ -156,6 +159,7 @@ export default function ScorecardTab({ storeFilter }) {
               { key: "store_weight_audit", label: "Phone Audit Quality", pct: true },
               { key: "store_weight_calls", label: "Call Handling", pct: true },
               { key: "store_weight_cx", label: "Customer Experience", pct: true },
+              { key: "store_weight_compliance", label: "Ticket Compliance", pct: true },
             ]},
             { title: "Store Targets", subtitle: "Monthly targets per store", items: [
               { key: "store_target_repairs", label: "Repairs / Month" },
@@ -230,7 +234,7 @@ export default function ScorecardTab({ storeFilter }) {
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
         <div>
           <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Employee Scorecard</h2>
-          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Scored on Repairs & Production (50%) + Phone Audit Quality (50%)</p>
+          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Scored on Repairs (35%) + Phone Audit (35%) + Ticket Compliance (30%)</p>
         </div>
       </div>
 
@@ -268,6 +272,10 @@ export default function ScorecardTab({ storeFilter }) {
                       <div style={{ color: "#8B8F98", fontSize: 9, textTransform: "uppercase" }}>Audit</div>
                       <div style={{ color: scoreColor(emp.audit.score), fontSize: 14, fontWeight: 700 }}>{emp.audit.score}</div>
                     </div>
+                    <div style={{ textAlign: "center" }}>
+                      <div style={{ color: "#8B8F98", fontSize: 9, textTransform: "uppercase" }}>Compliance</div>
+                      <div style={{ color: emp.compliance && emp.compliance.tickets_graded > 0 ? scoreColor(emp.compliance.score) : "#6B6F78", fontSize: 14, fontWeight: 700 }}>{emp.compliance && emp.compliance.tickets_graded > 0 ? emp.compliance.score : "—"}</div>
+                    </div>
                     <div style={{ padding: "6px 14px", borderRadius: 8, background: sc + "22", color: sc, fontSize: 18, fontWeight: 800 }}>
                       {emp.overall}
                     </div>
@@ -276,7 +284,7 @@ export default function ScorecardTab({ storeFilter }) {
 
                 {isExpanded && (
                   <div style={{ padding: "0 12px 20px 56px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginTop: 8 }}>
                       <div style={{ background: "#0F1117", borderRadius: 10, padding: 16, border: "1px solid #7B2FFF22" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                           <div style={{ color: "#7B2FFF", fontSize: 12, fontWeight: 700 }}>{"\uD83D\uDD27 Repairs & Production"}</div>
@@ -340,6 +348,29 @@ export default function ScorecardTab({ storeFilter }) {
                           <div style={{ color: "#6B6F78", fontSize: 11, padding: 12, textAlign: "center" }}>No audits yet</div>
                         )}
                       </div>
+
+                      {/* Compliance */}
+                      <div style={{ background: "#0F1117", borderRadius: 10, padding: 16, border: "1px solid #FF2D9522" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                          <div style={{ color: "#FF2D95", fontSize: 12, fontWeight: 700 }}>{"\uD83D\uDCCB Ticket Compliance"}</div>
+                          <div style={{ color: emp.compliance && emp.compliance.tickets_graded > 0 ? scoreColor(emp.compliance.score) : "#6B6F78", fontSize: 16, fontWeight: 800 }}>{emp.compliance && emp.compliance.tickets_graded > 0 ? emp.compliance.score + "/100" : "—"}</div>
+                        </div>
+                        {emp.compliance && emp.compliance.tickets_graded > 0 ? (
+                          <div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                              <span style={{ color: "#C8CAD0", fontSize: 11 }}>Tickets Graded</span>
+                              <span style={{ color: "#F0F1F3", fontSize: 13, fontWeight: 700 }}>{emp.compliance.tickets_graded}</span>
+                            </div>
+                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                              <span style={{ color: "#C8CAD0", fontSize: 11 }}>Avg Score</span>
+                              <span style={{ color: scoreColor(emp.compliance.score), fontSize: 13, fontWeight: 700 }}>{emp.compliance.score + "%"}</span>
+                            </div>
+                            <MiniBar value={emp.compliance.score} max={100} />
+                          </div>
+                        ) : (
+                          <div style={{ color: "#6B6F78", fontSize: 11, padding: 12, textAlign: "center" }}>No tickets graded yet</div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -373,12 +404,13 @@ export default function ScorecardTab({ storeFilter }) {
                 <ScoreRing score={s.overall} size={80} strokeWidth={5} />
               </div>
               <div style={{ color: store.color, fontSize: 15, fontWeight: 800, marginBottom: 8 }}>{store.name}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 4 }}>
                 {[
                   { label: "Repairs", score: s.categories.revenue.score },
                   { label: "Audit", score: s.categories.audit.score },
                   { label: "Calls", score: s.categories.calls.score },
                   { label: "CX", score: s.categories.experience.score },
+                  { label: "Comply", score: s.categories.compliance ? s.categories.compliance.score : 0 },
                 ].map(function(cat) {
                   return (
                     <div key={cat.label} style={{ background: "#12141A", borderRadius: 6, padding: "6px 2px" }}>
@@ -425,8 +457,8 @@ export default function ScorecardTab({ storeFilter }) {
 
       <div style={{ background: "#1A1D23", borderRadius: 12, padding: 16 }}>
         <div style={{ color: "#6B6F78", fontSize: 11 }}>
-          <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs & Production ({Math.round((configMap.emp_weight_repairs||0.5)*100)}%) + Phone Audit Quality ({Math.round((configMap.emp_weight_audit||0.5)*100)}%).
-          <strong style={{ color: "#8B8F98", marginLeft: 8 }}>Store scoring:</strong> Repairs ({Math.round((configMap.store_weight_repairs||0.35)*100)}%) + Audit ({Math.round((configMap.store_weight_audit||0.30)*100)}%) + Calls ({Math.round((configMap.store_weight_calls||0.20)*100)}%) + CX ({Math.round((configMap.store_weight_cx||0.15)*100)}%).
+          <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs ({Math.round((configMap.emp_weight_repairs||0.35)*100)}%) + Phone Audit ({Math.round((configMap.emp_weight_audit||0.35)*100)}%) + Ticket Compliance ({Math.round((configMap.emp_weight_compliance||0.30)*100)}%).
+          <strong style={{ color: "#8B8F98", marginLeft: 8 }}>Store scoring:</strong> Repairs ({Math.round((configMap.store_weight_repairs||0.25)*100)}%) + Audit ({Math.round((configMap.store_weight_audit||0.20)*100)}%) + Calls ({Math.round((configMap.store_weight_calls||0.15)*100)}%) + CX ({Math.round((configMap.store_weight_cx||0.10)*100)}%) + Compliance ({Math.round((configMap.store_weight_compliance||0.20)*100)}%).
           <button onClick={function(){setView("config");}} style={{ marginLeft:8,color:"#7B2FFF",background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline" }}>Edit weights</button>
         </div>
       </div>
