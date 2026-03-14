@@ -35,56 +35,71 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-var GRADING_PROMPT = `You are grading a CPR Cell Phone Repair ticket for process compliance. Score each category 0-100 and explain why.
+var GRADING_PROMPT = `You are grading a CPR Cell Phone Repair ticket for process compliance. Score each applicable category 0-100 and explain why.
 
 COMPLIANCE CRITERIA:
 
-1. INTAKE DIAGNOSTICS (0-100): Did the tech properly document initial diagnostics?
-- 90-100: Detailed description of device condition, issue reported, tests performed, liquid damage check, pretestable status noted
-- 60-89: Basic diagnostics present but missing some detail
-- 30-59: Minimal diagnostics, vague or incomplete
-- 0-29: No diagnostics or essentially empty
-
-2. PAYMENT/DOWN PAYMENT (0-100): If parts were ordered, was a down payment collected?
-- 100: Part ordered AND down payment collected, OR no parts needed to order (repair done same-day with in-stock parts)
-- 70: Part ordered with partial payment
-- 30: Part ordered but no down payment collected
-- N/A: Mark as 100 if no parts were ordered (same-day repair with stock parts)
-
-3. TICKET NOTES (0-100): The notes section at the bottom of the ticket must document TWO things:
-   A) REPAIR OUTCOME: Was the repair successful? What was the result? (e.g. "fully repaired, working as intended RFP!" or "unable to repair, board level damage")
-   B) CUSTOMER CONTACT: Did they attempt to contact the customer to let them know the status? (e.g. "Customer VM inbox not setup, unable to contact. Auto email sent." or "Called customer, left voicemail about pickup" or "Texted customer repair is complete")
+1. INTAKE DIAGNOSTICS (0-100): The initial diagnostics section must document THREE things:
+   A) ISSUE: What is wrong with the device? What did the customer report?
+   B) PRICE: Was the customer quoted a price or was pricing documented?
+   C) TURNAROUND TIME: Was the customer given an estimated turnaround/completion time?
 
 Scoring:
-- 90-100: BOTH repair outcome AND customer contact attempt are clearly documented in notes
+- 90-100: All three (issue, price, turnaround time) are clearly documented
+- 70-89: Two of the three are documented
+- 40-69: Only one is documented
+- 0-39: None or essentially empty diagnostics
+
+2. TICKET NOTES (0-100): The notes section at the bottom of the ticket must document TWO things:
+   A) REPAIR OUTCOME: Was the repair successful? What was the result? What was encountered during repair? (e.g. "fully repaired, working as intended RFP!" or "unable to repair, board level damage" or "replaced screen, tested all functions")
+   B) CUSTOMER NOTIFIED OF COMPLETION: From the customer's perspective — would they know their repair is done and ready for pickup? Look for notes indicating the customer was contacted AFTER the repair was completed to let them know. (e.g. "Called customer, phone is ready for pickup" or "Texted customer repair complete" or "Left voicemail, repair finished" or "Customer VM not setup, auto email sent about completion")
+   
+   EXCEPTION: If the notes indicate the customer is already aware and returning (e.g. "customer is returning soon", "customer waiting in store", "customer is on their way", "customer will be back shortly", "customer picking up today"), this counts as FULL CREDIT for customer notification — no contact attempt needed because the customer already knows.
+   
+   Simply documenting the repair outcome is NOT enough — the employee must have also attempted to notify the customer OR documented that the customer is already aware/returning.
+
+Scoring:
+- 90-100: BOTH repair outcome AND customer notification of completion are clearly documented
 - 70-89: One of the two is documented well, the other is vague or implied
 - 40-69: Only one is documented, the other is missing entirely
-- 10-39: Notes exist but neither outcome nor contact is clearly stated
+- 10-39: Notes exist but neither outcome nor completion notification is clearly stated
 - 0-9: No notes at all or completely irrelevant notes
 
-4. CATEGORIZATION (0-100): Is the ticket properly categorized?
-- 100: Correct ticket type (Repair/Claim/Sale), correct catalog items, proper device info
-- 70: Mostly correct but minor issues
-- 30: Significant categorization errors
-- 0: Wrong type or uncategorized
+3. PAYMENT/DOWN PAYMENT: This criteria ONLY applies if parts needed to be ordered. If no parts were ordered, mark "payment_not_applicable": true, score 100, and EXCLUDE this category entirely from the overall score.
+
+   Look at the ticket items, notes, and transactions for ANY indication that a part was ordered, back-ordered, or needed to be special-ordered.
+   
+   TIMING IS CRITICAL: The down payment is our collateral for ordering the part. It must be collected at or very near the time of ticket intake — within about 2 hours. Compare the transaction/payment dates against the ticket creation date.
+   
+   Scoring if parts were ordered:
+   - 100: Down payment or full payment collected within ~2 hours of ticket creation
+   - 50: Payment was collected but more than 2 hours after intake
+   - 0: Part ordered with NO down payment, or payment only collected days later / after part arrived
+
+   If NO parts were ordered:
+   - Mark as "payment_not_applicable": true and score as 100
 
 Respond ONLY with this exact JSON format, no other text:
 {
-  "diagnostics_score": <number>,
-  "diagnostics_notes": "<brief explanation>",
-  "payment_score": <number>,
-  "payment_notes": "<brief explanation>",
-  "notes_score": <number>,
+  "diagnostics_score": <number 0-100>,
+  "diagnostics_notes": "<brief explanation — mention which of issue/price/turnaround were found or missing>",
+  "diagnostics_issue_found": <true/false>,
+  "diagnostics_price_found": <true/false>,
+  "diagnostics_turnaround_found": <true/false>,
+  "notes_score": <number 0-100>,
   "notes_detail": "<brief explanation>",
   "notes_outcome_documented": <true/false>,
   "notes_customer_contacted": <true/false>,
-  "categorization_score": <number>,
-  "categorization_notes": "<brief explanation>",
-  "overall_score": <number>,
+  "payment_score": <number 0-100>,
+  "payment_notes": "<brief explanation>",
+  "payment_not_applicable": <true/false>,
+  "overall_score": <number 0-100>,
   "confidence": <number 0-100>
 }
 
-The overall_score should be the weighted average: Diagnostics 30%, Notes 30%, Payment 20%, Categorization 20%.`;
+The overall_score should be calculated as:
+- If payment applies: Diagnostics 35% + Notes 40% + Payment 25%
+- If payment is not applicable: Diagnostics 45% + Notes 55%`;
 
 export async function GET(request) {
   if (!supabase) return jsonResponse({ success: false, error: "Supabase not configured" });
@@ -104,7 +119,7 @@ export async function GET(request) {
   }
 
   if (action === "stats") {
-    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score");
+    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score");
     if (store) query = query.eq("store", store);
     var { data, error } = await query;
     if (error) return jsonResponse({ success: false, error: error.message });
@@ -117,7 +132,6 @@ export async function GET(request) {
     var avgDiag = Math.round(tickets.reduce(function(s, t) { return s + (t.diagnostics_score || 0); }, 0) / total);
     var avgPay = Math.round(tickets.reduce(function(s, t) { return s + (t.payment_score || 0); }, 0) / total);
     var avgNotes = Math.round(tickets.reduce(function(s, t) { return s + (t.notes_score || 0); }, 0) / total);
-    var avgCat = Math.round(tickets.reduce(function(s, t) { return s + (t.categorization_score || 0); }, 0) / total);
 
     // Per-employee stats
     var empMap = {};
@@ -147,7 +161,7 @@ export async function GET(request) {
 
     return jsonResponse({
       success: true,
-      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, avgCat: avgCat, empStats: empStats, storeStats: storeStats }
+      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, empStats: empStats, storeStats: storeStats }
     });
   }
 
@@ -218,8 +232,8 @@ export async function POST(request) {
         notes_detail: grade.notes_detail || "",
         notes_outcome_documented: !!grade.notes_outcome_documented,
         notes_customer_contacted: !!grade.notes_customer_contacted,
-        categorization_score: grade.categorization_score || 0,
-        categorization_notes: grade.categorization_notes || "",
+        categorization_score: 0,
+        categorization_notes: grade.payment_not_applicable ? "Payment N/A — no parts ordered" : "",
         raw_diagnostics: ticket.raw_diagnostics || "",
         raw_notes: ticket.raw_notes || "",
         raw_items: ticket.raw_items || "",
