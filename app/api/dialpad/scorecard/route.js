@@ -26,10 +26,10 @@ export async function GET(request) {
 
   try {
     // Parallel fetch all data
-    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes] = await Promise.all([
+    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes] = await Promise.all([
       supabase.from("call_records").select("store, direction, is_answered, is_missed, is_voicemail, talk_duration, ringing_duration, date_started, external_number")
         .eq("target_type", "department").gte("date_started", since),
-      supabase.from("audit_results").select("store, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, confidence")
+      supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, discount_mentioned, faster_turnaround, confidence")
         .eq("excluded", false).neq("call_type", "non_scorable").gte("date_started", since),
       supabase.from("repair_phone").select("*").eq("import_period", period),
       supabase.from("repair_other").select("*").eq("import_period", period),
@@ -39,6 +39,7 @@ export async function GET(request) {
         .eq("target_type", "department").eq("direction", "inbound").eq("is_voicemail", true).gte("date_started", since),
       supabase.from("call_records").select("store, date_started, external_number")
         .eq("direction", "outbound").gte("date_started", since),
+      supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
     ]);
 
     var calls = callRes.data || [];
@@ -49,6 +50,7 @@ export async function GET(request) {
     var cleans = cleanRes.data || [];
     var vms = vmRes.data || [];
     var outbound = outboundRes.data || [];
+    var roster = rosterRes.data || [];
 
     // Build outbound lookup for VM matching
     var obByPhone = {};
@@ -182,7 +184,141 @@ export async function GET(request) {
     // Rank stores
     var ranked = STORE_KEYS.map(function(sk) { return scores[sk]; }).sort(function(a, b) { return b.overall - a.overall; });
 
-    return NextResponse.json({ success: true, scores: scores, ranked: ranked, weights: WEIGHTS, period: period, daysBack: daysBack });
+    // ═══════════════════════════════════════════
+    // EMPLOYEE SCORING (Repairs 50% + Audit 50%)
+    // ═══════════════════════════════════════════
+
+    // Build roster alias lookup
+    var aliasToName = {};
+    roster.forEach(function(r) {
+      aliasToName[r.name.toLowerCase()] = r.name;
+      (r.aliases || []).forEach(function(a) { aliasToName[a.toLowerCase()] = r.name; });
+    });
+    function resolveEmp(name) {
+      if (!name) return null;
+      var lower = name.toLowerCase().trim();
+      if (aliasToName[lower]) return aliasToName[lower];
+      // Prefix match
+      for (var key in aliasToName) {
+        if (key.startsWith(lower) && lower.length >= 2) return aliasToName[key];
+        if (lower.startsWith(key) && key.length >= 2) return aliasToName[key];
+      }
+      return name;
+    }
+
+    // Gather all employee names from all sources
+    var empMap = {};
+    function ensureEmp(name) {
+      if (!name || name === "Unknown") return null;
+      var resolved = resolveEmp(name);
+      if (!resolved) return null;
+      if (!empMap[resolved]) {
+        var rEntry = roster.find(function(r) { return r.name === resolved; });
+        empMap[resolved] = {
+          name: resolved,
+          store: rEntry ? rEntry.store : "",
+          role: rEntry ? rEntry.role : "",
+          onRoster: !!rEntry,
+          // Repairs
+          phone_tickets: 0, other_tickets: 0, accy_count: 0, accy_gp: 0, clean_count: 0,
+          // Audit
+          audit_scores: [], opp_audits: 0, appt_offered: 0, warranty_mentioned: 0,
+        };
+      }
+      return empMap[resolved];
+    }
+
+    // Fill repair data
+    phones.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.phone_tickets = r.repair_tickets || 0; } });
+    others.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.other_tickets = r.repair_count || 0; } });
+    accys.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.accy_count = r.accy_count || 0; e.accy_gp = parseFloat(r.accy_gp || 0); } });
+    cleans.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.clean_count = r.clean_count || 0; } });
+
+    // Fill audit data
+    audits.forEach(function(a) {
+      if (!a.employee || a.employee === "Unknown") return;
+      var e = ensureEmp(a.employee);
+      if (!e) return;
+      e.audit_scores.push({ score: parseFloat(a.score || 0), max: parseFloat(a.max_score || 4) });
+      if (a.call_type === "opportunity") {
+        e.opp_audits++;
+        if (a.appt_offered) e.appt_offered++;
+        if (a.warranty_mentioned) e.warranty_mentioned++;
+      }
+    });
+
+    // Compute employee scores
+    // Per-employee targets (individual, not store-level)
+    var empRepairTarget = 20;   // repairs per employee per month
+    var empAccyGPTarget = 200;  // accessory GP per employee per month
+    var empCleanTarget = 4;     // cleans per employee per month
+
+    var employeeScores = Object.values(empMap).map(function(e) {
+      var totalRepairs = e.phone_tickets + e.other_tickets;
+
+      // Repairs & Production score (50% of total)
+      var repairPct = clamp((Math.min(totalRepairs / empRepairTarget, 1.2) / 1.2) * 100);
+      var accyPct = clamp(empAccyGPTarget > 0 ? (Math.min(e.accy_gp / empAccyGPTarget, 1.2) / 1.2) * 100 : 0);
+      var cleanPct = clamp(empCleanTarget > 0 ? (Math.min(e.clean_count / empCleanTarget, 1.2) / 1.2) * 100 : 0);
+      var repairScore = (repairPct * 0.25) + (accyPct * 0.50) + (cleanPct * 0.25);
+
+      // Audit score (50% of total)
+      var avgAuditPct = 0;
+      var apptRate = 0;
+      var warrantyRate = 0;
+      if (e.audit_scores.length > 0) {
+        var totalS = e.audit_scores.reduce(function(s, a) { return s + a.score; }, 0);
+        var totalM = e.audit_scores.reduce(function(s, a) { return s + a.max; }, 0);
+        avgAuditPct = totalM > 0 ? (totalS / totalM) * 100 : 0;
+      }
+      if (e.opp_audits > 0) {
+        apptRate = (e.appt_offered / e.opp_audits) * 100;
+        warrantyRate = (e.warranty_mentioned / e.opp_audits) * 100;
+      }
+      var auditScore = e.audit_scores.length > 0
+        ? (avgAuditPct * 0.50) + (apptRate * 0.25) + (warrantyRate * 0.25)
+        : 0;
+
+      var overall = clamp((repairScore * 0.50) + (auditScore * 0.50));
+      var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0;
+
+      return {
+        name: e.name,
+        store: e.store,
+        role: e.role,
+        onRoster: e.onRoster,
+        overall: Math.round(overall),
+        hasData: hasData,
+        repairs: {
+          score: Math.round(repairScore),
+          phone_tickets: e.phone_tickets,
+          other_tickets: e.other_tickets,
+          total_repairs: totalRepairs,
+          accy_count: e.accy_count,
+          accy_gp: e.accy_gp,
+          clean_count: e.clean_count,
+        },
+        audit: {
+          score: Math.round(auditScore),
+          avg_pct: Math.round(avgAuditPct),
+          appt_rate: Math.round(apptRate),
+          warranty_rate: Math.round(warrantyRate),
+          total_audits: e.audit_scores.length,
+          opp_audits: e.opp_audits,
+        },
+      };
+    }).filter(function(e) { return e.hasData; }).sort(function(a, b) { return b.overall - a.overall; });
+
+    return NextResponse.json({
+      success: true,
+      scores: scores,
+      ranked: ranked,
+      employeeScores: employeeScores,
+      weights: WEIGHTS,
+      empWeights: { repairs: 0.50, audit: 0.50 },
+      period: period,
+      daysBack: daysBack,
+    });
   } catch (err) {
     console.error("Scorecard error:", err);
     return NextResponse.json({ success: false, error: err.message });
