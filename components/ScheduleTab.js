@@ -1,436 +1,339 @@
 'use client';
 
-import { useState, useEffect } from "react";
-import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip } from "recharts";
+import { useState, useEffect, useMemo } from "react";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
+var DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-function scoreColor(s) { return s >= 80 ? "#4ADE80" : s >= 60 ? "#FBBF24" : s >= 40 ? "#FB923C" : "#F87171"; }
-function scoreGrade(s) { return s >= 93 ? "A+" : s >= 90 ? "A" : s >= 87 ? "A-" : s >= 83 ? "B+" : s >= 80 ? "B" : s >= 77 ? "B-" : s >= 73 ? "C+" : s >= 70 ? "C" : s >= 67 ? "C-" : s >= 60 ? "D" : "F"; }
-function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
-
-function ScoreRing({ score, size, strokeWidth, color }) {
-  var r = (size - strokeWidth) / 2;
-  var circ = 2 * Math.PI * r;
-  var offset = circ - (score / 100) * circ;
-  var sc = color || scoreColor(score);
+function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ position: "relative", width: size, height: size, display: "inline-block" }}>
-      <svg width={size} height={size} style={{ transform: "rotate(-90deg)" }}>
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#1E2028" strokeWidth={strokeWidth} />
-        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={sc} strokeWidth={strokeWidth}
-          strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
-          style={{ transition: "stroke-dashoffset 1s ease" }} />
-      </svg>
-      <div style={{ position: "absolute", top: 0, left: 0, width: size, height: size, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: sc, fontSize: size > 100 ? 32 : size > 60 ? 18 : 14, fontWeight: 800, lineHeight: 1 }}>{score}</div>
-        <div style={{ color: "#8B8F98", fontSize: size > 100 ? 11 : 8, marginTop: 2 }}>{scoreGrade(score)}</div>
+    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
+      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function SectionHeader({ title, subtitle, icon }) {
+  return (
+    <div style={{ marginBottom:16,display:"flex",alignItems:"center",gap:10 }}>
+      <span style={{ fontSize:20 }}>{icon}</span>
+      <div>
+        <h2 style={{ color:"#F0F1F3",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
+        {subtitle && <p style={{ color:"#6B6F78",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
       </div>
     </div>
   );
 }
 
-function MiniBar({ value, max, color }) {
-  var pct = max > 0 ? Math.min((value / max) * 100, 100) : 0;
-  return (
-    <div style={{ background: "#12141A", borderRadius: 3, height: 4, overflow: "hidden", marginTop: 3 }}>
-      <div style={{ width: pct + "%", height: "100%", background: color || scoreColor(pct), borderRadius: 3 }} />
-    </div>
-  );
+function formatTime(dateStr) {
+  if (!dateStr) return "--";
+  var d = new Date(dateStr);
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ScorecardTab({ storeFilter }) {
-  var [data, setData] = useState(null);
+function getWeekDates() {
+  var now = new Date();
+  var day = now.getDay();
+  var monday = new Date(now);
+  monday.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
+  var dates = [];
+  for (var i = 0; i < 7; i++) {
+    var d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    dates.push(d);
+  }
+  return dates;
+}
+
+export default function ScheduleTab({ storeFilter }) {
+  var [wiwStatus, setWiwStatus] = useState(null);
+  var [todayShifts, setTodayShifts] = useState([]);
+  var [weekShifts, setWeekShifts] = useState({ shifts: [], users: {}, locations: {}, positions: {} });
   var [loading, setLoading] = useState(true);
-  var [expandedEmp, setExpandedEmp] = useState(null);
-  var [view, setView] = useState("scores");
-  var [editingKey, setEditingKey] = useState(null);
-  var [editVal, setEditVal] = useState("");
-  var [configMsg, setConfigMsg] = useState(null);
+  var [view, setView] = useState("today");
+  var [weekOffset, setWeekOffset] = useState(0);
 
-  var loadScorecard = async function() {
-    setLoading(true);
-    try {
-      var res = await fetch("/api/dialpad/scorecard?days=30");
-      var json = await res.json();
-      if (json.success) setData(json);
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  };
+  useEffect(function() {
+    async function load() {
+      setLoading(true);
+      try {
+        // Check WhenIWork status
+        var statusRes = await fetch("/api/wheniwork?action=status");
+        var statusJson = await statusRes.json();
+        setWiwStatus(statusJson);
 
-  useEffect(function() { loadScorecard(); }, []);
+        if (statusJson.success && statusJson.authenticated) {
+          // Load today's shifts
+          var todayRes = await fetch("/api/wheniwork?action=today");
+          var todayJson = await todayRes.json();
+          if (todayJson.success) setTodayShifts(todayJson.shifts || []);
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Calculating scores...</div>;
-  if (!data) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>No scorecard data available.</div>;
-
-  var empScores = data.employeeScores || [];
-  var ranked = data.ranked || [];
-  var storeScores = data.scores || {};
-  var configMap = data.configMap || {};
-
-  var updateConfig = async function(key, value) {
-    try {
-      var res = await fetch("/api/dialpad/sales", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "update_commission", key: key, value: value })
-      });
-      var json = await res.json();
-      if (json.success) {
-        setEditingKey(null);
-        setConfigMsg({ type: "success", text: "Updated — reload scores to see changes" });
-        setTimeout(function() { setConfigMsg(null); }, 4000);
-      }
-    } catch(e) { setConfigMsg({ type: "error", text: e.message }); }
-  };
-
-  var filteredEmps = storeFilter && storeFilter !== "all"
-    ? empScores.filter(function(e) { return e.store === storeFilter; })
-    : empScores;
-
-  var radarData = [
-    { category: "Repairs", fullMark: 100 },
-    { category: "Audit", fullMark: 100 },
-    { category: "Calls", fullMark: 100 },
-    { category: "Experience", fullMark: 100 },
-  ];
-  STORE_KEYS.forEach(function(sk) {
-    var s = storeScores[sk];
-    if (s) {
-      radarData[0][sk] = s.categories.revenue.score;
-      radarData[1][sk] = s.categories.audit.score;
-      radarData[2][sk] = s.categories.calls.score;
-      radarData[3][sk] = s.categories.experience.score;
+          // Load week shifts
+          var weekDates = getWeekDates();
+          var start = weekDates[0].toISOString().split("T")[0];
+          var end = weekDates[6].toISOString().split("T")[0];
+          var weekRes = await fetch("/api/wheniwork?action=shifts&start=" + start + "&end=" + end);
+          var weekJson = await weekRes.json();
+          if (weekJson.success) setWeekShifts(weekJson);
+        }
+      } catch(e) { console.error("Schedule load error:", e); }
+      setLoading(false);
     }
-  });
+    load();
+  }, [weekOffset]);
 
+  // Group today's shifts by store
+  var todayByStore = useMemo(function() {
+    var groups = {};
+    STORE_KEYS.forEach(function(k) { groups[k] = []; });
+    todayShifts.forEach(function(s) {
+      var matched = STORE_KEYS.find(function(k) {
+        return s.location && s.location.toLowerCase().includes(STORES[k].name.replace("CPR ","").toLowerCase());
+      });
+      if (matched) groups[matched].push(s);
+      else if (groups[STORE_KEYS[0]]) groups[STORE_KEYS[0]].push(s);
+    });
+    return groups;
+  }, [todayShifts]);
+
+  // Build weekly grid data
+  var weekGrid = useMemo(function() {
+    if (!weekShifts.shifts || weekShifts.shifts.length === 0) return [];
+    var weekDates = getWeekDates();
+    var byUser = {};
+    weekShifts.shifts.forEach(function(s) {
+      if (s.is_open) return;
+      var user = weekShifts.users[s.user_id];
+      var name = user ? (user.first_name + " " + user.last_name).trim() : "Unknown";
+      if (!byUser[name]) byUser[name] = { name: name, days: [null,null,null,null,null,null,null], totalHours: 0 };
+      var shiftDate = new Date(s.start_time);
+      var dayIdx = weekDates.findIndex(function(d) {
+        return d.toDateString() === shiftDate.toDateString();
+      });
+      if (dayIdx >= 0) {
+        var hours = (new Date(s.end_time) - new Date(s.start_time)) / 3600000;
+        byUser[name].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours };
+        byUser[name].totalHours += hours;
+      }
+    });
+    return Object.values(byUser).sort(function(a,b){ return b.totalHours - a.totalHours; });
+  }, [weekShifts]);
+
+  var totalWeekHours = weekGrid.reduce(function(s,e){ return s + e.totalHours; }, 0);
+
+  var SUBTABS = [
+    { id: "today", label: "Today", icon: "\u2600\ufe0f" },
+    { id: "week", label: "Weekly View", icon: "\ud83d\udcc5" },
+    { id: "hours", label: "Hours Tracking", icon: "\u23f0" },
+  ];
+
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading schedule...</div>;
+
+  // Not connected state
+  if (!wiwStatus || !wiwStatus.success || !wiwStatus.authenticated) {
+    return (
+      <div>
+        <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",border:"1px solid #FBBF2433" }}>
+          <div style={{ fontSize:48,marginBottom:16 }}>{"\ud83d\udcc5"}</div>
+          <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:700,marginBottom:8 }}>Connect WhenIWork</div>
+          <div style={{ color:"#6B6F78",fontSize:14,marginBottom:24,maxWidth:500,margin:"0 auto 24px" }}>
+            The Schedule tab needs WhenIWork API access to display shifts, weekly schedules, and hours tracking across your stores.
+          </div>
+
+          <div style={{ background:"#12141A",borderRadius:12,padding:24,maxWidth:480,margin:"0 auto",textAlign:"left" }}>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>Setup Steps:</div>
+            {[
+              { n: "1", t: "Get WhenIWork API Key", d: "Log in as admin, go to Settings > Integrations or email WhenIWork support requesting a developer key." },
+              { n: "2", t: "Add Vercel Environment Variables", d: "WHENIWORK_KEY, WHENIWORK_EMAIL, WHENIWORK_PASSWORD" },
+              { n: "3", t: "Deploy & Refresh", d: "After adding env vars, redeploy on Vercel and refresh this page." },
+            ].map(function(step) {
+              return (
+                <div key={step.n} style={{ display:"flex",gap:12,marginBottom:16 }}>
+                  <div style={{ width:28,height:28,borderRadius:8,background:"#7C8AFF22",color:"#7C8AFF",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,flexShrink:0 }}>{step.n}</div>
+                  <div>
+                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{step.t}</div>
+                    <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{step.d}</div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {wiwStatus && wiwStatus.error && (
+            <div style={{ marginTop:16,padding:"8px 16px",borderRadius:8,background:"#F8717112",border:"1px solid #F8717133",color:"#F87171",fontSize:12,maxWidth:480,margin:"16px auto 0" }}>
+              {wiwStatus.error}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Connected state
   return (
     <div>
       {/* Sub-nav */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-        {[{id:"scores",label:"Scores",icon:"\uD83C\uDFC6"},{id:"config",label:"Scoring Config",icon:"\u2699\uFE0F"}].map(function(v) {
-          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
-        })}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
+        <div style={{ display:"flex",gap:4 }}>
+          {SUBTABS.map(function(v) {
+            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7C8AFF22":"#1A1D23",color:view===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          })}
+        </div>
+        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+          <span style={{ width:8,height:8,borderRadius:"50%",background:"#4ADE80" }}></span>
+          <span style={{ color:"#4ADE80",fontSize:11 }}>WhenIWork Connected</span>
+        </div>
       </div>
 
-      {/* ═══ CONFIG VIEW ═══ */}
-      {view === "config" && (
+      {/* TODAY */}
+      {view === "today" && (
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-            <span style={{ fontSize: 20 }}>{"\u2699\uFE0F"}</span>
-            <div>
-              <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Scoring Configuration</h2>
-              <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Adjust weights and targets. Weights within each group should sum to 100%.</p>
-            </div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
+            {STORE_KEYS.map(function(key) {
+              var store = STORES[key];
+              var shifts = todayByStore[key] || [];
+              return (
+                <StatCard key={key} label={store.name.replace("CPR ","")} value={shifts.length} accent={store.color} sub={shifts.length === 1 ? "employee today" : "employees today"} />
+              );
+            })}
           </div>
 
-          {configMsg && (
-            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:configMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(configMsg.type==="success"?"#4ADE8033":"#F8717133"),color:configMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
-              {configMsg.text}
-            </div>
-          )}
+          <SectionHeader title={"Today's Schedule"} subtitle={new Date().toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"})} icon={"\u2600\ufe0f"} />
 
-          {[
-            { title: "Employee Weights", subtitle: "Main category weights (should sum to 100%)", items: [
-              { key: "emp_weight_repairs", label: "Repairs & Production", pct: true },
-              { key: "emp_weight_audit", label: "Phone Audit Quality", pct: true },
-            ]},
-            { title: "Repair Sub-Weights", subtitle: "Within Repairs category (should sum to 100%)", items: [
-              { key: "emp_repair_sub_qty", label: "Repair Ticket Qty", pct: true },
-              { key: "emp_repair_sub_accy", label: "Accessory GP", pct: true },
-              { key: "emp_repair_sub_clean", label: "Cleanings", pct: true },
-            ]},
-            { title: "Audit Sub-Weights", subtitle: "Within Audit category (should sum to 100%)", items: [
-              { key: "emp_audit_sub_score", label: "Avg Audit Score", pct: true },
-              { key: "emp_audit_sub_appt", label: "Appt Offered Rate", pct: true },
-              { key: "emp_audit_sub_warranty", label: "Warranty Mentioned", pct: true },
-            ]},
-            { title: "Employee Targets", subtitle: "Monthly targets per employee", items: [
-              { key: "emp_target_repairs", label: "Repairs / Month" },
-              { key: "emp_target_accy_gp", label: "Accessory GP / Month", dollar: true },
-              { key: "emp_target_cleans", label: "Cleanings / Month" },
-            ]},
-            { title: "Store Weights", subtitle: "Store-level category weights (should sum to 100%)", items: [
-              { key: "store_weight_repairs", label: "Repairs & Production", pct: true },
-              { key: "store_weight_audit", label: "Phone Audit Quality", pct: true },
-              { key: "store_weight_calls", label: "Call Handling", pct: true },
-              { key: "store_weight_cx", label: "Customer Experience", pct: true },
-            ]},
-            { title: "Store Targets", subtitle: "Monthly targets per store", items: [
-              { key: "store_target_repairs", label: "Repairs / Month" },
-              { key: "store_target_accy_gp", label: "Accessory GP / Month", dollar: true },
-              { key: "store_target_cleans", label: "Cleanings / Month" },
-            ]},
-          ].map(function(group) {
-            var groupSum = group.items.filter(function(i){return i.pct;}).reduce(function(s, i) {
-              return s + (configMap[i.key] !== undefined ? configMap[i.key] : 0);
-            }, 0);
-            var sumPct = Math.round(groupSum * 100);
-            var hasPctItems = group.items.some(function(i){return i.pct;});
-            return (
-              <div key={group.title} style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 16 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                  <div>
-                    <div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{group.title}</div>
-                    <div style={{ color: "#6B6F78", fontSize: 11 }}>{group.subtitle}</div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:16 }}>
+            {STORE_KEYS.map(function(key) {
+              var store = STORES[key];
+              var shifts = todayByStore[key] || [];
+              return (
+                <div key={key} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:16 }}>
+                    <div style={{ width:32,height:32,borderRadius:8,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800 }}>{store.icon}</div>
+                    <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{store.name}</div>
                   </div>
-                  {hasPctItems && (
-                    <div style={{ padding: "3px 10px", borderRadius: 6, background: sumPct === 100 ? "#4ADE8022" : "#F8717122", color: sumPct === 100 ? "#4ADE80" : "#F87171", fontSize: 12, fontWeight: 700 }}>
-                      {sumPct + "%"}
-                    </div>
+                  {shifts.length > 0 ? shifts.map(function(s, i) {
+                    return (
+                      <div key={i} style={{ padding:"10px 0",borderBottom:i<shifts.length-1?"1px solid #2A2D35":"none" }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                          <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{s.employee}</div>
+                          <div style={{ color:"#8B8F98",fontSize:11 }}>{s.position}</div>
+                        </div>
+                        <div style={{ color:store.color,fontSize:12,marginTop:4 }}>
+                          {formatTime(s.start_time) + " - " + formatTime(s.end_time)}
+                        </div>
+                        {s.notes && <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>{s.notes}</div>}
+                      </div>
+                    );
+                  }) : (
+                    <div style={{ color:"#6B6F78",fontSize:12,textAlign:"center",padding:20 }}>No shifts today</div>
                   )}
                 </div>
-                {group.items.map(function(item) {
-                  var val = configMap[item.key];
-                  var isEditing = editingKey === item.key;
-                  var displayVal = item.pct ? Math.round((val || 0) * 100) + "%" : item.dollar ? "$" + parseFloat(val || 0).toFixed(0) : parseFloat(val || 0).toFixed(0);
-                  return (
-                    <div key={item.key} style={{ padding: "10px 0", borderBottom: "1px solid #2A2D35", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ color: "#C8CAD0", fontSize: 13 }}>{item.label}</span>
-                      {isEditing ? (
-                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                          <input value={editVal} onChange={function(e){setEditVal(e.target.value);}}
-                            style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #7B2FFF44", background: "#12141A", color: "#F0F1F3", fontSize: 14, fontWeight: 700, textAlign: "right" }}
-                            autoFocus />
-                          <button onClick={function(){
-                            var v = parseFloat(editVal);
-                            if (item.pct) v = v / 100;
-                            updateConfig(item.key, v);
-                            configMap[item.key] = v;
-                          }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#4ADE80", color: "#000", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Save</button>
-                          <button onClick={function(){setEditingKey(null);}} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #2A2D35", background: "transparent", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>Cancel</button>
-                        </div>
-                      ) : (
-                        <button onClick={function(){
-                          setEditingKey(item.key);
-                          setEditVal(item.pct ? Math.round((val || 0) * 100).toString() : parseFloat(val || 0).toFixed(0));
-                        }} style={{ padding: "5px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#12141A", color: "#FBBF24", fontSize: 15, fontWeight: 800, cursor: "pointer", minWidth: 70, textAlign: "center" }}>
-                          {displayVal}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            );
-          })}
-
-          <button onClick={function(){ loadScorecard(); setView("scores"); }}
-            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #00D4FF, #7B2FFF)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            Recalculate Scores
-          </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* ═══ SCORES VIEW ═══ */}
-      {view === "scores" && (<div>
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
+      {/* WEEKLY VIEW */}
+      {view === "week" && (
         <div>
-          <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Employee Scorecard</h2>
-          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Scored on Repairs & Production (50%) + Phone Audit Quality (50%)</p>
-        </div>
-      </div>
+          <SectionHeader title="Weekly Schedule" subtitle={"Week of " + getWeekDates()[0].toLocaleDateString([],{month:"short",day:"numeric"}) + " - " + getWeekDates()[6].toLocaleDateString([],{month:"short",day:"numeric"})} icon={"\ud83d\udcc5"} />
 
-      {filteredEmps.length > 0 ? (
-        <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 28 }}>
-          {filteredEmps.map(function(emp, i) {
-            var sc = scoreColor(emp.overall);
-            var medal = i === 0 ? "\uD83E\uDD47" : i === 1 ? "\uD83E\uDD48" : i === 2 ? "\uD83E\uDD49" : "#" + (i + 1);
-            var store = STORES[emp.store];
-            var isExpanded = expandedEmp === emp.name;
-            return (
-              <div key={emp.name} style={{ borderBottom: "1px solid #1E2028" }}>
-                <div onClick={function() { setExpandedEmp(isExpanded ? null : emp.name); }}
-                  style={{ padding: "14px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer", background: isExpanded ? "#12141A" : "transparent" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-                    <span style={{ fontSize: 18, width: 28, textAlign: "center" }}>{medal}</span>
-                    <ScoreRing score={emp.overall} size={48} strokeWidth={4} />
-                    <div style={{ minWidth: 120 }}>
-                      <div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{emp.name}</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        {store && <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, color: store.color }}>
-                          <span style={{ width: 6, height: 6, borderRadius: "50%", background: store.color }} />
-                          {store.name.replace("CPR ", "")}
-                        </span>}
-                        {emp.role && <span style={{ color: "#6B6F78", fontSize: 10 }}>{emp.role}</span>}
-                      </div>
-                    </div>
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,overflowX:"auto" }}>
+            <table style={{ width:"100%",borderCollapse:"collapse",minWidth:700 }}>
+              <thead>
+                <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                  <th style={{ textAlign:"left",padding:"10px 12px",color:"#8B8F98",fontSize:10,textTransform:"uppercase",width:120 }}>Employee</th>
+                  {getWeekDates().map(function(d, i) {
+                    var isToday = d.toDateString() === new Date().toDateString();
+                    return <th key={i} style={{ textAlign:"center",padding:"10px 6px",color:isToday?"#7C8AFF":"#6B6F78",fontSize:10,textTransform:"uppercase",background:isToday?"#7C8AFF08":"transparent",borderRadius:isToday?"6px 6px 0 0":"0" }}>
+                      {DAYS[d.getDay()]+" "+d.getDate()}
+                    </th>;
+                  })}
+                  <th style={{ textAlign:"right",padding:"10px 12px",color:"#8B8F98",fontSize:10 }}>TOTAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weekGrid.map(function(emp, i) {
+                  return (
+                    <tr key={i} style={{ borderBottom:"1px solid #1E2028" }}>
+                      <td style={{ padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</td>
+                      {emp.days.map(function(shift, j) {
+                        var isToday = getWeekDates()[j].toDateString() === new Date().toDateString();
+                        if (!shift) return <td key={j} style={{ textAlign:"center",padding:"8px 4px",color:"#2A2D35",fontSize:11,background:isToday?"#7C8AFF04":"transparent" }}>—</td>;
+                        return (
+                          <td key={j} style={{ textAlign:"center",padding:"8px 4px",background:isToday?"#7C8AFF04":"transparent" }}>
+                            <div style={{ padding:"4px 6px",borderRadius:6,background:"#7C8AFF12",border:"1px solid #7C8AFF22" }}>
+                              <div style={{ color:"#C8CAD0",fontSize:10 }}>{formatTime(shift.start)}</div>
+                              <div style={{ color:"#6B6F78",fontSize:9 }}>{shift.hours.toFixed(1)+"h"}</div>
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td style={{ textAlign:"right",padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</td>
+                    </tr>
+                  );
+                })}
+                {weekGrid.length === 0 && (
+                  <tr><td colSpan={9} style={{ textAlign:"center",padding:30,color:"#6B6F78",fontSize:13 }}>No shifts this week</td></tr>
+                )}
+              </tbody>
+              {weekGrid.length > 0 && (
+                <tfoot>
+                  <tr style={{ borderTop:"2px solid #2A2D35" }}>
+                    <td style={{ padding:"10px 12px",color:"#8B8F98",fontSize:12,fontWeight:700 }}>Total</td>
+                    {getWeekDates().map(function(d, j) {
+                      var dayTotal = weekGrid.reduce(function(s,e){ return s + (e.days[j] ? e.days[j].hours : 0); }, 0);
+                      return <td key={j} style={{ textAlign:"center",padding:"10px 4px",color:dayTotal>0?"#C8CAD0":"#2A2D35",fontSize:12,fontWeight:600 }}>{dayTotal > 0 ? dayTotal.toFixed(1)+"h" : "—"}</td>;
+                    })}
+                    <td style={{ textAlign:"right",padding:"10px 12px",color:"#7C8AFF",fontSize:14,fontWeight:800 }}>{totalWeekHours.toFixed(1)}h</td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* HOURS TRACKING */}
+      {view === "hours" && (
+        <div>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28 }}>
+            <StatCard label="Total Week Hours" value={totalWeekHours.toFixed(1)+"h"} accent="#7C8AFF" sub={weekGrid.length+" employees scheduled"} />
+            <StatCard label="Avg Hours/Employee" value={weekGrid.length>0?(totalWeekHours/weekGrid.length).toFixed(1)+"h":"—"} accent="#C084FC" />
+            <StatCard label="Positions Covered" value={weekShifts.positions ? Object.keys(weekShifts.positions).length : 0} accent="#4ADE80" />
+          </div>
+
+          <SectionHeader title="Hours by Employee" subtitle="This week" icon={"\u23f0"} />
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+            {weekGrid.length > 0 ? weekGrid.map(function(emp, i) {
+              var pct = totalWeekHours > 0 ? (emp.totalHours / 40 * 100) : 0;
+              var barColor = emp.totalHours >= 40 ? "#F87171" : emp.totalHours >= 30 ? "#FBBF24" : "#4ADE80";
+              return (
+                <div key={i} style={{ padding:"12px 0",borderBottom:i<weekGrid.length-1?"1px solid #1E2028":"none" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
+                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</div>
+                    <div style={{ color:barColor,fontSize:14,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</div>
                   </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ color: "#8B8F98", fontSize: 9, textTransform: "uppercase" }}>Repairs</div>
-                      <div style={{ color: scoreColor(emp.repairs.score), fontSize: 14, fontWeight: 700 }}>{emp.repairs.score}</div>
+                  <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}>
+                    <div style={{ width:Math.min(pct, 100)+"%",height:"100%",background:barColor,borderRadius:4,transition:"width 0.3s" }}></div>
+                  </div>
+                  <div style={{ display:"flex",justifyContent:"space-between",marginTop:4 }}>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>
+                      {emp.days.filter(function(d){return d!==null;}).length} shifts this week
                     </div>
-                    <div style={{ textAlign: "center" }}>
-                      <div style={{ color: "#8B8F98", fontSize: 9, textTransform: "uppercase" }}>Audit</div>
-                      <div style={{ color: scoreColor(emp.audit.score), fontSize: 14, fontWeight: 700 }}>{emp.audit.score}</div>
-                    </div>
-                    <div style={{ padding: "6px 14px", borderRadius: 8, background: sc + "22", color: sc, fontSize: 18, fontWeight: 800 }}>
-                      {emp.overall}
-                    </div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>of 40h target</div>
                   </div>
                 </div>
-
-                {isExpanded && (
-                  <div style={{ padding: "0 12px 20px 56px" }}>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
-                      <div style={{ background: "#0F1117", borderRadius: 10, padding: 16, border: "1px solid #7B2FFF22" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                          <div style={{ color: "#7B2FFF", fontSize: 12, fontWeight: 700 }}>{"\uD83D\uDD27 Repairs & Production"}</div>
-                          <div style={{ color: scoreColor(emp.repairs.score), fontSize: 16, fontWeight: 800 }}>{emp.repairs.score + "/100"}</div>
-                        </div>
-                        {[
-                          { label: "Phone Repairs", value: emp.repairs.phone_tickets, target: 20, weight: "25%" },
-                          { label: "Other Repairs", value: emp.repairs.other_tickets },
-                          { label: "Accessory GP", value: fmt(emp.repairs.accy_gp), raw: emp.repairs.accy_gp, target: 200, weight: "50%", isMoney: true },
-                          { label: "Cleanings", value: emp.repairs.clean_count, target: 4, weight: "25%" },
-                        ].map(function(item, j) {
-                          var pctOfTarget = item.target ? ((item.isMoney ? item.raw : item.value) / item.target) * 100 : null;
-                          return (
-                            <div key={j} style={{ marginBottom: 8 }}>
-                              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-                                <span style={{ color: "#C8CAD0", fontSize: 11 }}>
-                                  {item.label}
-                                  {item.weight && <span style={{ color: "#6B6F78", fontSize: 9, marginLeft: 4 }}>{item.weight}</span>}
-                                </span>
-                                <span style={{ fontSize: 13, fontWeight: 700, color: pctOfTarget !== null ? (pctOfTarget >= 100 ? "#4ADE80" : pctOfTarget >= 60 ? "#FBBF24" : "#F87171") : "#F0F1F3" }}>
-                                  {item.isMoney ? item.value : item.value}
-                                  {item.target && <span style={{ color: "#6B6F78", fontSize: 10, fontWeight: 400 }}>{" / " + (item.isMoney ? fmt(item.target) : item.target)}</span>}
-                                </span>
-                              </div>
-                              {item.target && <MiniBar value={item.isMoney ? item.raw : item.value} max={item.target} />}
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div style={{ background: "#0F1117", borderRadius: 10, padding: 16, border: "1px solid #00D4FF22" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                          <div style={{ color: "#00D4FF", fontSize: 12, fontWeight: 700 }}>{"\uD83C\uDFAF Phone Audit Quality"}</div>
-                          <div style={{ color: scoreColor(emp.audit.score), fontSize: 16, fontWeight: 800 }}>{emp.audit.score + "/100"}</div>
-                        </div>
-                        {emp.audit.total_audits > 0 ? (
-                          <div>
-                            {[
-                              { label: "Avg Audit Score", value: emp.audit.avg_pct + "%", pct: emp.audit.avg_pct, weight: "50%" },
-                              { label: "Appt Offered Rate", value: emp.audit.appt_rate + "%", pct: emp.audit.appt_rate, weight: "25%" },
-                              { label: "Warranty Mentioned", value: emp.audit.warranty_rate + "%", pct: emp.audit.warranty_rate, weight: "25%" },
-                            ].map(function(item, j) {
-                              return (
-                                <div key={j} style={{ marginBottom: 8 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 2 }}>
-                                    <span style={{ color: "#C8CAD0", fontSize: 11 }}>
-                                      {item.label}
-                                      <span style={{ color: "#6B6F78", fontSize: 9, marginLeft: 4 }}>{item.weight}</span>
-                                    </span>
-                                    <span style={{ color: scoreColor(item.pct), fontSize: 13, fontWeight: 700 }}>{item.value}</span>
-                                  </div>
-                                  <MiniBar value={item.pct} max={100} />
-                                </div>
-                              );
-                            })}
-                            <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 6, background: "#12141A", display: "flex", justifyContent: "space-between" }}>
-                              <span style={{ color: "#8B8F98", fontSize: 10 }}>{emp.audit.total_audits + " audits (" + emp.audit.opp_audits + " opportunity)"}</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div style={{ color: "#6B6F78", fontSize: 11, padding: 12, textAlign: "center" }}>No audits yet</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div style={{ background: "#1A1D23", borderRadius: 12, padding: 40, textAlign: "center", marginBottom: 28 }}>
-          <div style={{ color: "#6B6F78", fontSize: 13 }}>No employee data yet. Import sales data and run audits to see scores.</div>
+              );
+            }) : (
+              <div style={{ color:"#6B6F78",fontSize:13,textAlign:"center",padding:30 }}>No schedule data available</div>
+            )}
+          </div>
         </div>
       )}
-
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <span style={{ fontSize: 20 }}>{"\uD83C\uDFEA"}</span>
-        <div>
-          <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Store Performance</h2>
-          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Overall store grades including call handling and customer experience</p>
-        </div>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.min(ranked.length, 3) + ",1fr)", gap: 16, marginBottom: 20 }}>
-        {ranked.map(function(s, i) {
-          var store = STORES[s.store];
-          if (!store) return null;
-          var medal = i === 0 ? "\uD83E\uDD47" : i === 1 ? "\uD83E\uDD48" : "\uD83E\uDD49";
-          return (
-            <div key={s.store} style={{ background: "#1A1D23", borderRadius: 14, padding: 20, border: i === 0 ? "2px solid " + store.color + "33" : "1px solid #1E2028", textAlign: "center" }}>
-              <div style={{ display: "flex", justifyContent: "center", alignItems: "center", gap: 12, marginBottom: 12 }}>
-                <span style={{ fontSize: 22 }}>{medal}</span>
-                <ScoreRing score={s.overall} size={80} strokeWidth={5} />
-              </div>
-              <div style={{ color: store.color, fontSize: 15, fontWeight: 800, marginBottom: 8 }}>{store.name}</div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 4 }}>
-                {[
-                  { label: "Repairs", score: s.categories.revenue.score },
-                  { label: "Audit", score: s.categories.audit.score },
-                  { label: "Calls", score: s.categories.calls.score },
-                  { label: "CX", score: s.categories.experience.score },
-                ].map(function(cat) {
-                  return (
-                    <div key={cat.label} style={{ background: "#12141A", borderRadius: 6, padding: "6px 2px" }}>
-                      <div style={{ color: scoreColor(cat.score), fontSize: 13, fontWeight: 700 }}>{cat.score}</div>
-                      <div style={{ color: "#6B6F78", fontSize: 8, textTransform: "uppercase" }}>{cat.label}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      <div style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 20 }}>
-        <div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700, marginBottom: 12 }}>Store Comparison</div>
-        <div style={{ height: 280 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="#2A2D35" />
-              <PolarAngleAxis dataKey="category" tick={{ fill: "#8B8F98", fontSize: 12 }} />
-              <PolarRadiusAxis tick={{ fill: "#6B6F78", fontSize: 9 }} domain={[0, 100]} axisLine={false} />
-              {STORE_KEYS.map(function(sk) {
-                var store = STORES[sk];
-                return (storeFilter === "all" || storeFilter === sk) ? (
-                  <Radar key={sk} name={store.name.replace("CPR ", "")} dataKey={sk}
-                    stroke={store.color} fill={store.color} fillOpacity={0.12} strokeWidth={2} />
-                ) : null;
-              })}
-              <Tooltip contentStyle={{ background: "#1E2028", border: "1px solid #2A2D35", borderRadius: 8 }} />
-            </RadarChart>
-          </ResponsiveContainer>
-        </div>
-        <div style={{ display: "flex", justifyContent: "center", gap: 20, marginTop: 8 }}>
-          {STORE_KEYS.map(function(sk) {
-            var store = STORES[sk];
-            return <div key={sk} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ width: 10, height: 10, borderRadius: "50%", background: store.color }} />
-              <span style={{ color: "#8B8F98", fontSize: 11 }}>{store.name.replace("CPR ", "")}</span>
-            </div>;
-          })}
-        </div>
-      </div>
-
-      <div style={{ background: "#1A1D23", borderRadius: 12, padding: 16 }}>
-        <div style={{ color: "#6B6F78", fontSize: 11 }}>
-          <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs & Production ({Math.round((configMap.emp_weight_repairs||0.5)*100)}%) + Phone Audit Quality ({Math.round((configMap.emp_weight_audit||0.5)*100)}%).
-          <strong style={{ color: "#8B8F98", marginLeft: 8 }}>Store scoring:</strong> Repairs ({Math.round((configMap.store_weight_repairs||0.35)*100)}%) + Audit ({Math.round((configMap.store_weight_audit||0.30)*100)}%) + Calls ({Math.round((configMap.store_weight_calls||0.20)*100)}%) + CX ({Math.round((configMap.store_weight_cx||0.15)*100)}%).
-          <button onClick={function(){setView("config");}} style={{ marginLeft:8,color:"#7B2FFF",background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline" }}>Edit weights</button>
-        </div>
-      </div>
-      </div>)}
     </div>
   );
 }
