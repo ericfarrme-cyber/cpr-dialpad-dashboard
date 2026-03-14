@@ -610,10 +610,6 @@ export default function EmployeeTab({ storeFilter }) {
                       </tr>
                     );
                   })}
-                        </td>
-                      </tr>
-                    );
-                  })}
                 </tbody>
               </table>
             ) : (
