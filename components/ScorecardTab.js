@@ -44,19 +44,22 @@ export default function ScorecardTab({ storeFilter }) {
   var [data, setData] = useState(null);
   var [loading, setLoading] = useState(true);
   var [expandedEmp, setExpandedEmp] = useState(null);
+  var [view, setView] = useState("scores");
+  var [editingKey, setEditingKey] = useState(null);
+  var [editVal, setEditVal] = useState("");
+  var [configMsg, setConfigMsg] = useState(null);
 
-  useEffect(function() {
-    async function load() {
-      setLoading(true);
-      try {
-        var res = await fetch("/api/dialpad/scorecard?days=30");
-        var json = await res.json();
-        if (json.success) setData(json);
-      } catch (e) { console.error(e); }
-      setLoading(false);
-    }
-    load();
-  }, []);
+  var loadScorecard = async function() {
+    setLoading(true);
+    try {
+      var res = await fetch("/api/dialpad/scorecard?days=30");
+      var json = await res.json();
+      if (json.success) setData(json);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  useEffect(function() { loadScorecard(); }, []);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Calculating scores...</div>;
   if (!data) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>No scorecard data available.</div>;
@@ -64,6 +67,23 @@ export default function ScorecardTab({ storeFilter }) {
   var empScores = data.employeeScores || [];
   var ranked = data.ranked || [];
   var storeScores = data.scores || {};
+  var configMap = data.configMap || {};
+
+  var updateConfig = async function(key, value) {
+    try {
+      var res = await fetch("/api/dialpad/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update_commission", key: key, value: value })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setEditingKey(null);
+        setConfigMsg({ type: "success", text: "Updated — reload scores to see changes" });
+        setTimeout(function() { setConfigMsg(null); }, 4000);
+      }
+    } catch(e) { setConfigMsg({ type: "error", text: e.message }); }
+  };
 
   var filteredEmps = storeFilter && storeFilter !== "all"
     ? empScores.filter(function(e) { return e.store === storeFilter; })
@@ -87,6 +107,125 @@ export default function ScorecardTab({ storeFilter }) {
 
   return (
     <div>
+      {/* Sub-nav */}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
+        {[{id:"scores",label:"Scores",icon:"\uD83C\uDFC6"},{id:"config",label:"Scoring Config",icon:"\u2699\uFE0F"}].map(function(v) {
+          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+        })}
+      </div>
+
+      {/* ═══ CONFIG VIEW ═══ */}
+      {view === "config" && (
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
+            <span style={{ fontSize: 20 }}>{"\u2699\uFE0F"}</span>
+            <div>
+              <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Scoring Configuration</h2>
+              <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Adjust weights and targets. Weights within each group should sum to 100%.</p>
+            </div>
+          </div>
+
+          {configMsg && (
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:configMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(configMsg.type==="success"?"#4ADE8033":"#F8717133"),color:configMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+              {configMsg.text}
+            </div>
+          )}
+
+          {[
+            { title: "Employee Weights", subtitle: "Main category weights (should sum to 100%)", items: [
+              { key: "emp_weight_repairs", label: "Repairs & Production", pct: true },
+              { key: "emp_weight_audit", label: "Phone Audit Quality", pct: true },
+            ]},
+            { title: "Repair Sub-Weights", subtitle: "Within Repairs category (should sum to 100%)", items: [
+              { key: "emp_repair_sub_qty", label: "Repair Ticket Qty", pct: true },
+              { key: "emp_repair_sub_accy", label: "Accessory GP", pct: true },
+              { key: "emp_repair_sub_clean", label: "Cleanings", pct: true },
+            ]},
+            { title: "Audit Sub-Weights", subtitle: "Within Audit category (should sum to 100%)", items: [
+              { key: "emp_audit_sub_score", label: "Avg Audit Score", pct: true },
+              { key: "emp_audit_sub_appt", label: "Appt Offered Rate", pct: true },
+              { key: "emp_audit_sub_warranty", label: "Warranty Mentioned", pct: true },
+            ]},
+            { title: "Employee Targets", subtitle: "Monthly targets per employee", items: [
+              { key: "emp_target_repairs", label: "Repairs / Month" },
+              { key: "emp_target_accy_gp", label: "Accessory GP / Month", dollar: true },
+              { key: "emp_target_cleans", label: "Cleanings / Month" },
+            ]},
+            { title: "Store Weights", subtitle: "Store-level category weights (should sum to 100%)", items: [
+              { key: "store_weight_repairs", label: "Repairs & Production", pct: true },
+              { key: "store_weight_audit", label: "Phone Audit Quality", pct: true },
+              { key: "store_weight_calls", label: "Call Handling", pct: true },
+              { key: "store_weight_cx", label: "Customer Experience", pct: true },
+            ]},
+            { title: "Store Targets", subtitle: "Monthly targets per store", items: [
+              { key: "store_target_repairs", label: "Repairs / Month" },
+              { key: "store_target_accy_gp", label: "Accessory GP / Month", dollar: true },
+              { key: "store_target_cleans", label: "Cleanings / Month" },
+            ]},
+          ].map(function(group) {
+            var groupSum = group.items.filter(function(i){return i.pct;}).reduce(function(s, i) {
+              return s + (configMap[i.key] !== undefined ? configMap[i.key] : 0);
+            }, 0);
+            var sumPct = Math.round(groupSum * 100);
+            var hasPctItems = group.items.some(function(i){return i.pct;});
+            return (
+              <div key={group.title} style={{ background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <div>
+                    <div style={{ color: "#F0F1F3", fontSize: 14, fontWeight: 700 }}>{group.title}</div>
+                    <div style={{ color: "#6B6F78", fontSize: 11 }}>{group.subtitle}</div>
+                  </div>
+                  {hasPctItems && (
+                    <div style={{ padding: "3px 10px", borderRadius: 6, background: sumPct === 100 ? "#4ADE8022" : "#F8717122", color: sumPct === 100 ? "#4ADE80" : "#F87171", fontSize: 12, fontWeight: 700 }}>
+                      {sumPct + "%"}
+                    </div>
+                  )}
+                </div>
+                {group.items.map(function(item) {
+                  var val = configMap[item.key];
+                  var isEditing = editingKey === item.key;
+                  var displayVal = item.pct ? Math.round((val || 0) * 100) + "%" : item.dollar ? "$" + parseFloat(val || 0).toFixed(0) : parseFloat(val || 0).toFixed(0);
+                  return (
+                    <div key={item.key} style={{ padding: "10px 0", borderBottom: "1px solid #2A2D35", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "#C8CAD0", fontSize: 13 }}>{item.label}</span>
+                      {isEditing ? (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input value={editVal} onChange={function(e){setEditVal(e.target.value);}}
+                            style={{ width: 70, padding: "5px 8px", borderRadius: 6, border: "1px solid #7B2FFF44", background: "#12141A", color: "#F0F1F3", fontSize: 14, fontWeight: 700, textAlign: "right" }}
+                            autoFocus />
+                          <button onClick={function(){
+                            var v = parseFloat(editVal);
+                            if (item.pct) v = v / 100;
+                            updateConfig(item.key, v);
+                            configMap[item.key] = v;
+                          }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#4ADE80", color: "#000", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>Save</button>
+                          <button onClick={function(){setEditingKey(null);}} style={{ padding: "5px 10px", borderRadius: 6, border: "1px solid #2A2D35", background: "transparent", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                        </div>
+                      ) : (
+                        <button onClick={function(){
+                          setEditingKey(item.key);
+                          setEditVal(item.pct ? Math.round((val || 0) * 100).toString() : parseFloat(val || 0).toFixed(0));
+                        }} style={{ padding: "5px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#12141A", color: "#FBBF24", fontSize: 15, fontWeight: 800, cursor: "pointer", minWidth: 70, textAlign: "center" }}>
+                          {displayVal}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          <button onClick={function(){ loadScorecard(); setView("scores"); }}
+            style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #00D4FF, #7B2FFF)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            Recalculate Scores
+          </button>
+        </div>
+      )}
+
+      {/* ═══ SCORES VIEW ═══ */}
+      {view === "scores" && (<div>
+
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
         <div>
@@ -286,10 +425,12 @@ export default function ScorecardTab({ storeFilter }) {
 
       <div style={{ background: "#1A1D23", borderRadius: 12, padding: 16 }}>
         <div style={{ color: "#6B6F78", fontSize: 11 }}>
-          <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs & Production (50% — accessory GP 50%, repair qty 25%, cleanings 25%) + Phone Audit Quality (50% — avg score 50%, appt offered 25%, warranty mentioned 25%).
-          <strong style={{ color: "#8B8F98", marginLeft: 8 }}>Store scoring:</strong> Repairs (35%) + Audit (30%) + Call Handling (20%) + Customer Experience (15%).
+          <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs & Production ({Math.round((configMap.emp_weight_repairs||0.5)*100)}%) + Phone Audit Quality ({Math.round((configMap.emp_weight_audit||0.5)*100)}%).
+          <strong style={{ color: "#8B8F98", marginLeft: 8 }}>Store scoring:</strong> Repairs ({Math.round((configMap.store_weight_repairs||0.35)*100)}%) + Audit ({Math.round((configMap.store_weight_audit||0.30)*100)}%) + Calls ({Math.round((configMap.store_weight_calls||0.20)*100)}%) + CX ({Math.round((configMap.store_weight_cx||0.15)*100)}%).
+          <button onClick={function(){setView("config");}} style={{ marginLeft:8,color:"#7B2FFF",background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline" }}>Edit weights</button>
         </div>
       </div>
+      </div>)}
     </div>
   );
 }
