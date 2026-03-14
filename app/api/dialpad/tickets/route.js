@@ -13,6 +13,24 @@ function jsonResponse(data, status) {
   return NextResponse.json(data, { status: status || 200, headers: corsHeaders() });
 }
 
+function parseSafeDate(val) {
+  if (!val) return null;
+  // Strip leading "Date:" prefix
+  var cleaned = String(val).replace(/^Date:\s*/i, "").trim();
+  if (!cleaned) return null;
+  var d = new Date(cleaned);
+  if (isNaN(d.getTime())) {
+    // Try common formats like "3/14/26 3:47 PM"
+    var m = cleaned.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*(.*)/);
+    if (m) {
+      var year = parseInt(m[3]);
+      if (year < 100) year += 2000;
+      d = new Date(m[1] + "/" + m[2] + "/" + year + " " + (m[4] || ""));
+    }
+  }
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
@@ -187,7 +205,7 @@ export async function POST(request) {
         employee_repaired: ticket.employee_repaired || "",
         customer_name: ticket.customer_name || "",
         device: ticket.device || "",
-        date_closed: ticket.date_closed || null,
+        date_closed: parseSafeDate(ticket.date_closed),
         gross_sales: parseFloat(ticket.gross_sales || 0),
         gross_profit: parseFloat(ticket.gross_profit || 0),
         gpm_pct: parseFloat(ticket.gpm_pct || 0),
