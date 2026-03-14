@@ -4,15 +4,11 @@ import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
 
-// Weights based on Eric's priority ranking
-var WEIGHTS = {
-  revenue: 0.35,    // #1 Revenue & repairs
-  audit: 0.30,      // #2 Phone audit scores
-  calls: 0.20,      // #3 Call handling
-  experience: 0.15, // #4 Customer experience
-};
-
 function clamp(v) { return Math.max(0, Math.min(100, v)); }
+
+function cfg(configMap, key, fallback) {
+  return configMap[key] !== undefined ? parseFloat(configMap[key]) : fallback;
+}
 
 export async function GET(request) {
   if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
@@ -26,7 +22,7 @@ export async function GET(request) {
 
   try {
     // Parallel fetch all data
-    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes] = await Promise.all([
+    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes] = await Promise.all([
       supabase.from("call_records").select("store, direction, is_answered, is_missed, is_voicemail, talk_duration, ringing_duration, date_started, external_number")
         .eq("target_type", "department").gte("date_started", since),
       supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, discount_mentioned, faster_turnaround, confidence")
@@ -40,6 +36,7 @@ export async function GET(request) {
       supabase.from("call_records").select("store, date_started, external_number")
         .eq("direction", "outbound").gte("date_started", since),
       supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
+      supabase.from("commission_config").select("config_key, config_value"),
     ]);
 
     var calls = callRes.data || [];
@@ -51,6 +48,18 @@ export async function GET(request) {
     var vms = vmRes.data || [];
     var outbound = outboundRes.data || [];
     var roster = rosterRes.data || [];
+
+    // Build config map
+    var configMap = {};
+    (configRes.data || []).forEach(function(c) { configMap[c.config_key] = parseFloat(c.config_value); });
+
+    // Store weights (from config or defaults)
+    var WEIGHTS = {
+      revenue: cfg(configMap, "store_weight_repairs", 0.35),
+      audit: cfg(configMap, "store_weight_audit", 0.30),
+      calls: cfg(configMap, "store_weight_calls", 0.20),
+      experience: cfg(configMap, "store_weight_cx", 0.15),
+    };
 
     // Build outbound lookup for VM matching
     var obByPhone = {};
@@ -108,7 +117,7 @@ export async function GET(request) {
           warrantyRate = (oppAudits.filter(function(a) { return a.warranty_mentioned; }).length / oppAudits.length) * 100;
         }
       }
-      var auditScore = clamp(storeAudits.length > 0 ? (avgAuditScore * 0.5) + (apptRate * 0.25) + (warrantyRate * 0.25) : 0);
+      var auditScore = clamp(storeAudits.length > 0 ? (avgAuditScore * cfg(configMap, "emp_audit_sub_score", 0.5)) + (apptRate * cfg(configMap, "emp_audit_sub_appt", 0.25)) + (warrantyRate * cfg(configMap, "emp_audit_sub_warranty", 0.25)) : 0);
 
       // ═══ REPAIRS & PRODUCTION (35%) ═══
       // Qty of repairs is what matters, not revenue. GP matters for accessories.
@@ -126,15 +135,19 @@ export async function GET(request) {
       var storeAccyCount = accyCount / storeCount;
       var storeCleans = cleanCount / storeCount;
 
-      // Targets per store per month
-      var repairTarget = 60;   // phone + other repair tickets
-      var accyGPTarget = 500;  // accessory gross profit dollars
-      var cleanTarget = 10;    // charge port cleans
+      // Targets per store per month (from config or defaults)
+      var repairTarget = cfg(configMap, "store_target_repairs", 60);
+      var accyGPTarget = cfg(configMap, "store_target_accy_gp", 500);
+      var cleanTarget = cfg(configMap, "store_target_cleans", 10);
+
+      var repSubTickets = cfg(configMap, "emp_repair_sub_qty", 0.25);
+      var repSubAccy = cfg(configMap, "emp_repair_sub_accy", 0.50);
+      var repSubCleans = cfg(configMap, "emp_repair_sub_clean", 0.25);
 
       var revenueScore = clamp(
-        ((Math.min(storeRepairs / repairTarget, 1.2) / 1.2) * 100 * 0.25) +
-        ((Math.min(storeAccyGP / accyGPTarget, 1.2) / 1.2) * 100 * 0.50) +
-        ((Math.min(storeCleans / cleanTarget, 1.2) / 1.2) * 100 * 0.25)
+        ((Math.min(storeRepairs / repairTarget, 1.2) / 1.2) * 100 * repSubTickets) +
+        ((Math.min(storeAccyGP / accyGPTarget, 1.2) / 1.2) * 100 * repSubAccy) +
+        ((Math.min(storeCleans / cleanTarget, 1.2) / 1.2) * 100 * repSubCleans)
       );
 
       // ═══ CUSTOMER EXPERIENCE (15%) ═══
@@ -248,10 +261,18 @@ export async function GET(request) {
     });
 
     // Compute employee scores
-    // Per-employee targets (individual, not store-level)
-    var empRepairTarget = 20;   // repairs per employee per month
-    var empAccyGPTarget = 200;  // accessory GP per employee per month
-    var empCleanTarget = 4;     // cleans per employee per month
+    // Per-employee targets and weights (from config or defaults)
+    var empRepairTarget = cfg(configMap, "emp_target_repairs", 20);
+    var empAccyGPTarget = cfg(configMap, "emp_target_accy_gp", 200);
+    var empCleanTarget = cfg(configMap, "emp_target_cleans", 4);
+    var empWeightRepairs = cfg(configMap, "emp_weight_repairs", 0.50);
+    var empWeightAudit = cfg(configMap, "emp_weight_audit", 0.50);
+    var empRepTicketW = cfg(configMap, "emp_repair_sub_qty", 0.25);
+    var empRepAccyW = cfg(configMap, "emp_repair_sub_accy", 0.50);
+    var empRepCleanW = cfg(configMap, "emp_repair_sub_clean", 0.25);
+    var empAuditAvgW = cfg(configMap, "emp_audit_sub_score", 0.50);
+    var empAuditApptW = cfg(configMap, "emp_audit_sub_appt", 0.25);
+    var empAuditWarrW = cfg(configMap, "emp_audit_sub_warranty", 0.25);
 
     var employeeScores = Object.values(empMap).map(function(e) {
       var totalRepairs = e.phone_tickets + e.other_tickets;
@@ -260,9 +281,9 @@ export async function GET(request) {
       var repairPct = clamp((Math.min(totalRepairs / empRepairTarget, 1.2) / 1.2) * 100);
       var accyPct = clamp(empAccyGPTarget > 0 ? (Math.min(e.accy_gp / empAccyGPTarget, 1.2) / 1.2) * 100 : 0);
       var cleanPct = clamp(empCleanTarget > 0 ? (Math.min(e.clean_count / empCleanTarget, 1.2) / 1.2) * 100 : 0);
-      var repairScore = (repairPct * 0.25) + (accyPct * 0.50) + (cleanPct * 0.25);
+      var repairScore = (repairPct * empRepTicketW) + (accyPct * empRepAccyW) + (cleanPct * empRepCleanW);
 
-      // Audit score (50% of total)
+      // Audit score
       var avgAuditPct = 0;
       var apptRate = 0;
       var warrantyRate = 0;
@@ -276,10 +297,10 @@ export async function GET(request) {
         warrantyRate = (e.warranty_mentioned / e.opp_audits) * 100;
       }
       var auditScore = e.audit_scores.length > 0
-        ? (avgAuditPct * 0.50) + (apptRate * 0.25) + (warrantyRate * 0.25)
+        ? (avgAuditPct * empAuditAvgW) + (apptRate * empAuditApptW) + (warrantyRate * empAuditWarrW)
         : 0;
 
-      var overall = clamp((repairScore * 0.50) + (auditScore * 0.50));
+      var overall = clamp((repairScore * empWeightRepairs) + (auditScore * empWeightAudit));
       var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0;
 
       return {
@@ -315,7 +336,8 @@ export async function GET(request) {
       ranked: ranked,
       employeeScores: employeeScores,
       weights: WEIGHTS,
-      empWeights: { repairs: 0.50, audit: 0.50 },
+      empWeights: { repairs: empWeightRepairs, audit: empWeightAudit },
+      configMap: configMap,
       period: period,
       daysBack: daysBack,
     });
