@@ -12,6 +12,7 @@ import EmployeeTab from "@/components/EmployeeTab";
 import VoicemailTab from "@/components/VoicemailTab";
 import SalesTab from "@/components/SalesTab";
 import ScorecardTab from "@/components/ScorecardTab";
+import ComplianceTab from "@/components/ComplianceTab";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1177,6 +1178,7 @@ export default function DialpadDashboard() {
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
         {activeTab==="sales" && <SalesTab />}
+        {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
         {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
