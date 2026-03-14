@@ -38,33 +38,62 @@ export default function EmployeeTab({ storeFilter }) {
   var [rosterForm, setRosterForm] = useState({ name: "", store: "fishers", aliases: "", role: "Technician" });
   var [linkingName, setLinkingName] = useState(null);
   var [actionMsg, setActionMsg] = useState(null);
+  var [editingEmpId, setEditingEmpId] = useState(null);
+  var [editForm, setEditForm] = useState({ name: "", store: "", aliases: "", role: "" });
 
   var loadData = async function() {
     setLoading(true);
     try {
       var sp = storeFilter !== "all" ? "&store=" + storeFilter : "";
 
-      // Load employee profiles
-      try {
-        var empRes = await fetch("/api/employees?action=profiles" + sp);
-        var empJson = await empRes.json();
-        if (empJson.success) setEmployees(empJson.employees || []);
-      } catch(e) {
-        try {
-          var cR = await fetch("/api/dialpad/roster?action=consolidated" + sp).then(function(r){return r.json();});
-          if (cR.success && cR.employees) setEmployees(cR.employees.map(function(e) {
-            return { name: e.employee, store: e.store, role: e.role || "—", total_audits: e.total_calls || 0, avg_score: e.avg_score || 0,
-              opportunity_calls: e.opportunity_calls || 0, current_calls: e.current_calls || 0,
-              onRoster: false, week_hours_scheduled: null, recent_audits: e.recent_audits || [] };
-          }));
-        } catch(e2) { /* ok */ }
-      }
-
-      // Load roster
+      // Load roster FIRST so we can cross-reference
+      var rosterData = [];
       try {
         var rR = await fetch("/api/dialpad/roster?action=list").then(function(r){return r.json();});
-        if (rR.success) setRoster(rR.employees || []);
+        if (rR.success) { rosterData = rR.employees || []; setRoster(rosterData); }
       } catch(e) { /* ok */ }
+
+      // Build roster lookup
+      var rosterNames = {};
+      rosterData.forEach(function(r) {
+        rosterNames[r.name.toLowerCase()] = r;
+        (r.aliases || []).forEach(function(a) { rosterNames[a.toLowerCase()] = r; });
+      });
+
+      // Load employee profiles from consolidated endpoint
+      try {
+        var cR = await fetch("/api/dialpad/roster?action=consolidated" + sp).then(function(r){return r.json();});
+        if (cR.success && cR.employees) {
+          setEmployees(cR.employees.map(function(e) {
+            var rMatch = rosterNames[e.employee.toLowerCase()] || null;
+            return {
+              name: e.employee, store: e.store, stores: e.stores, role: e.role || (rMatch ? rMatch.role : "—"),
+              total_audits: e.total_calls || 0, avg_score: e.avg_score || 0,
+              opportunity_calls: e.opportunity_calls || 0, current_calls: e.current_calls || 0,
+              onRoster: !!rMatch, week_hours_scheduled: null, recent_audits: e.recent_audits || [],
+              appt_rate: e.appt_rate, warranty_rate: e.warranty_rate, discount_rate: e.discount_rate,
+              turnaround_rate: e.turnaround_rate, status_rate: e.status_rate, eta_rate: e.eta_rate,
+              tone_rate: e.tone_rate, next_steps_rate: e.next_steps_rate,
+            };
+          }));
+        }
+      } catch(e) { console.error("Consolidated load error:", e); }
+
+      // Add roster employees who have zero audits so they show in profiles
+      setEmployees(function(prev) {
+        var existingNames = {};
+        prev.forEach(function(e) { existingNames[e.name.toLowerCase()] = true; });
+        var extras = rosterData.filter(function(r) {
+          return !existingNames[r.name.toLowerCase()];
+        }).map(function(r) {
+          return {
+            name: r.name, store: r.store, stores: [r.store], role: r.role || "—",
+            total_audits: 0, avg_score: 0, opportunity_calls: 0, current_calls: 0,
+            onRoster: true, week_hours_scheduled: null, recent_audits: [],
+          };
+        });
+        return prev.concat(extras);
+      });
 
       // Load unmatched names
       try {
@@ -158,6 +187,37 @@ export default function EmployeeTab({ storeFilter }) {
       setRoster(function(prev) { return prev.filter(function(r) { return r.id !== id; }); });
       await loadData();
     } catch(e) { console.error(e); }
+  };
+
+  var startEdit = function(emp) {
+    setEditingEmpId(emp.id);
+    setEditForm({
+      name: emp.name,
+      store: emp.store,
+      aliases: (emp.aliases || []).join(", "),
+      role: emp.role || "Technician",
+    });
+  };
+
+  var updateEmployee = async function() {
+    if (!editingEmpId) return;
+    try {
+      var aliasArr = editForm.aliases.split(",").map(function(a) { return a.trim(); }).filter(Boolean);
+      var res = await fetch("/api/dialpad/roster", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "update", id: editingEmpId, name: editForm.name, aliases: aliasArr, role: editForm.role })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setEditingEmpId(null);
+        setActionMsg({ type: "success", text: "Updated " + editForm.name });
+        await loadData();
+        setTimeout(function(){ setActionMsg(null); }, 3000);
+      } else {
+        setActionMsg({ type: "error", text: json.error || "Update failed" });
+      }
+    } catch(e) { setActionMsg({ type: "error", text: e.message }); }
   };
 
   var SUBTABS = [
@@ -486,6 +546,42 @@ export default function EmployeeTab({ storeFilter }) {
                 <tbody>
                   {roster.map(function(emp) {
                     var store = STORES[emp.store];
+                    var isEditing = editingEmpId === emp.id;
+                    if (isEditing) {
+                      return (
+                        <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028",background:"#12141A" }}>
+                          <td style={{ padding:"8px 12px" }}>
+                            <input value={editForm.name} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{name:e.target.value});});}}
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#0F1117",color:"#F0F1F3",fontSize:13,fontWeight:700,width:"100%",outline:"none" }} />
+                          </td>
+                          <td style={{ padding:"8px 12px" }}>
+                            <select value={editForm.store} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{store:e.target.value});});}}
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,outline:"none" }}>
+                              {STORE_KEYS.map(function(k){return <option key={k} value={k}>{STORES[k].name}</option>;})}
+                            </select>
+                          </td>
+                          <td style={{ padding:"8px 12px" }}>
+                            <select value={editForm.role} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{role:e.target.value});});}}
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,outline:"none" }}>
+                              {["Manager","Lead Tech","Technician","Front Desk"].map(function(r){return <option key={r} value={r}>{r}</option>;})}
+                            </select>
+                          </td>
+                          <td style={{ padding:"8px 12px" }}>
+                            <input value={editForm.aliases} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{aliases:e.target.value});});}}
+                              placeholder="Comma-separated aliases"
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,width:"100%",outline:"none" }} />
+                          </td>
+                          <td style={{ padding:"8px 12px" }}>
+                            <div style={{ display:"flex",gap:4 }}>
+                              <button onClick={updateEmployee}
+                                style={{ padding:"4px 10px",borderRadius:4,border:"none",background:"#4ADE80",color:"#000",fontSize:10,cursor:"pointer",fontWeight:700 }}>Save</button>
+                              <button onClick={function(){setEditingEmpId(null);}}
+                                style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer" }}>Cancel</button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
                     return (
                       <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028" }}>
                         <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
@@ -504,8 +600,16 @@ export default function EmployeeTab({ storeFilter }) {
                           </div>
                         </td>
                         <td style={{ padding:"12px" }}>
-                          <button onClick={function(){deleteEmployee(emp.id);}}
-                            style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button>
+                          <div style={{ display:"flex",gap:4 }}>
+                            <button onClick={function(){startEdit(emp);}}
+                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer" }}>Edit</button>
+                            <button onClick={function(){deleteEmployee(emp.id);}}
+                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                         </td>
                       </tr>
                     );
