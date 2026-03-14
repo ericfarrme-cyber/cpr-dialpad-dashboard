@@ -9,8 +9,12 @@ function corsHeaders() {
   };
 }
 
+function jsonResponse(data, status) {
+  return jsonResponse(data, { status: status || 200, headers: corsHeaders() });
+}
+
 export async function OPTIONS() {
-  return NextResponse.json({}, { headers: corsHeaders() });
+  return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
 var GRADING_PROMPT = `You are grading a CPR Cell Phone Repair ticket for process compliance. Score each category 0-100 and explain why.
@@ -65,7 +69,7 @@ Respond ONLY with this exact JSON format, no other text:
 The overall_score should be the weighted average: Diagnostics 30%, Notes 30%, Payment 20%, Categorization 20%.`;
 
 export async function GET(request) {
-  if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
+  if (!supabase) return jsonResponse({ success: false, error: "Supabase not configured" });
   var { searchParams } = new URL(request.url);
   var action = searchParams.get("action");
   var store = searchParams.get("store");
@@ -77,19 +81,19 @@ export async function GET(request) {
     if (store) query = query.eq("store", store);
     if (employee) query = query.or("employee_added.eq." + employee + ",employee_repaired.eq." + employee);
     var { data, error } = await query;
-    if (error) return NextResponse.json({ success: false, error: error.message });
-    return NextResponse.json({ success: true, tickets: data || [] });
+    if (error) return jsonResponse({ success: false, error: error.message });
+    return jsonResponse({ success: true, tickets: data || [] });
   }
 
   if (action === "stats") {
     var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score");
     if (store) query = query.eq("store", store);
     var { data, error } = await query;
-    if (error) return NextResponse.json({ success: false, error: error.message });
+    if (error) return jsonResponse({ success: false, error: error.message });
 
     var tickets = data || [];
     var total = tickets.length;
-    if (total === 0) return NextResponse.json({ success: true, stats: { total: 0 } });
+    if (total === 0) return jsonResponse({ success: true, stats: { total: 0 } });
 
     var avgOverall = Math.round(tickets.reduce(function(s, t) { return s + (t.overall_score || 0); }, 0) / total);
     var avgDiag = Math.round(tickets.reduce(function(s, t) { return s + (t.diagnostics_score || 0); }, 0) / total);
@@ -123,22 +127,22 @@ export async function GET(request) {
       return s;
     });
 
-    return NextResponse.json({
+    return jsonResponse({
       success: true,
       stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, avgCat: avgCat, empStats: empStats, storeStats: storeStats }
     });
   }
 
-  return NextResponse.json({ success: false, error: "Invalid action" });
+  return jsonResponse({ success: false, error: "Invalid action" });
 }
 
 export async function POST(request) {
-  if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
+  if (!supabase) return jsonResponse({ success: false, error: "Supabase not configured" });
   var body = await request.json();
 
   if (body.action === "grade") {
     var ticket = body.ticket;
-    if (!ticket || !ticket.ticket_number) return NextResponse.json({ success: false, error: "ticket_number required" });
+    if (!ticket || !ticket.ticket_number) return jsonResponse({ success: false, error: "ticket_number required" });
 
     // Build the prompt with ticket data
     var ticketContext = "TICKET #" + ticket.ticket_number + "\n";
@@ -208,22 +212,22 @@ export async function POST(request) {
 
       var { data, error } = await supabase.from("ticket_grades")
         .upsert(record, { onConflict: "ticket_number" }).select();
-      if (error) return NextResponse.json({ success: false, error: error.message });
+      if (error) return jsonResponse({ success: false, error: error.message });
 
-      return NextResponse.json({ success: true, grade: grade, saved: data?.[0] });
+      return jsonResponse({ success: true, grade: grade, saved: data?.[0] });
     } catch (err) {
       console.error("Grading error:", err);
-      return NextResponse.json({ success: false, error: err.message });
+      return jsonResponse({ success: false, error: err.message });
     }
   }
 
   if (body.action === "delete") {
     var { id } = body;
-    if (!id) return NextResponse.json({ success: false, error: "id required" });
+    if (!id) return jsonResponse({ success: false, error: "id required" });
     var { error } = await supabase.from("ticket_grades").delete().eq("id", id);
-    if (error) return NextResponse.json({ success: false, error: error.message });
-    return NextResponse.json({ success: true });
+    if (error) return jsonResponse({ success: false, error: error.message });
+    return jsonResponse({ success: true });
   }
 
-  return NextResponse.json({ success: false, error: "Invalid action" });
+  return jsonResponse({ success: false, error: "Invalid action" });
 }
