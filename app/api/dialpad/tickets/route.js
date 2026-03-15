@@ -176,6 +176,48 @@ export async function POST(request) {
     var ticket = body.ticket;
     if (!ticket || !ticket.ticket_number) return jsonResponse({ success: false, error: "ticket_number required" });
 
+    // Resolve employee names against roster
+    var rosterRes = await supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true);
+    var rosterList = rosterRes.data || [];
+    var rosterLookup = {};
+    rosterList.forEach(function(r) {
+      rosterLookup[r.name.toLowerCase()] = r.name;
+      var parts = r.name.split(/\s+/);
+      parts.forEach(function(p) { if (p.length >= 3) rosterLookup[p.toLowerCase()] = r.name; });
+      (r.aliases || []).forEach(function(a) { rosterLookup[a.toLowerCase()] = r.name; });
+    });
+    function resolveEmpName(raw) {
+      if (!raw) return raw;
+      var lower = raw.toLowerCase().trim();
+      // Handle "Last, First" format -> "First Last"
+      if (lower.includes(",")) {
+        var cp = lower.split(",").map(function(s){return s.trim();});
+        lower = cp[1] ? cp[1] + " " + cp[0] : cp[0];
+      }
+      if (rosterLookup[lower]) return rosterLookup[lower];
+      // Try each word individually (first name or last name match)
+      var words = lower.split(/\s+/);
+      for (var w = 0; w < words.length; w++) {
+        if (words[w].length >= 3 && rosterLookup[words[w]]) return rosterLookup[words[w]];
+      }
+      // Prefix match
+      for (var key in rosterLookup) {
+        if (key.startsWith(lower) || lower.startsWith(key)) return rosterLookup[key];
+      }
+      return raw;
+    }
+    ticket.employee_added = resolveEmpName(ticket.employee_added);
+    ticket.employee_repaired = resolveEmpName(ticket.employee_repaired);
+    // Also resolve store from roster if ticket didn't capture it
+    if (!ticket.store && ticket.employee_repaired) {
+      var rEntry = rosterList.find(function(r) { return r.name === ticket.employee_repaired; });
+      if (rEntry) ticket.store = rEntry.store;
+    }
+    if (!ticket.store && ticket.employee_added) {
+      var rEntry = rosterList.find(function(r) { return r.name === ticket.employee_added; });
+      if (rEntry) ticket.store = rEntry.store;
+    }
+
     // Build the prompt with ticket data
     var ticketContext = "TICKET #" + ticket.ticket_number + "\n";
     ticketContext += "Type: " + (ticket.ticket_type || "Unknown") + "\n";
