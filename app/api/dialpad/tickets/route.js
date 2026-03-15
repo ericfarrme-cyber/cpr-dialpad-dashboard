@@ -180,43 +180,47 @@ export async function POST(request) {
     var rosterRes = await supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true);
     var rosterList = rosterRes.data || [];
     var rosterLookup = {};
+    var lastNameLookup = {};
     rosterList.forEach(function(r) {
-      rosterLookup[r.name.toLowerCase()] = r.name;
+      rosterLookup[r.name.toLowerCase()] = r;
       var parts = r.name.split(/\s+/);
-      parts.forEach(function(p) { if (p.length >= 3) rosterLookup[p.toLowerCase()] = r.name; });
-      (r.aliases || []).forEach(function(a) { rosterLookup[a.toLowerCase()] = r.name; });
+      parts.forEach(function(p) { if (p.length >= 3) rosterLookup[p.toLowerCase()] = r; });
+      (r.aliases || []).forEach(function(a) { if (a) rosterLookup[a.toLowerCase()] = r; });
     });
     function resolveEmpName(raw) {
-      if (!raw) return raw;
+      if (!raw) return { name: raw, store: "" };
       var lower = raw.toLowerCase().trim();
-      // Handle "Last, First" format -> "First Last"
+      // Handle "Last, First" format -> try both orderings
       if (lower.includes(",")) {
         var cp = lower.split(",").map(function(s){return s.trim();});
-        lower = cp[1] ? cp[1] + " " + cp[0] : cp[0];
+        // Try "First Last"
+        var flipped = cp[1] ? cp[1] + " " + cp[0] : cp[0];
+        if (rosterLookup[flipped]) return { name: rosterLookup[flipped].name, store: rosterLookup[flipped].store };
+        // Try each part
+        for (var ci = 0; ci < cp.length; ci++) {
+          if (cp[ci].length >= 3 && rosterLookup[cp[ci]]) return { name: rosterLookup[cp[ci]].name, store: rosterLookup[cp[ci]].store };
+        }
+        lower = flipped; // use flipped for further matching
       }
-      if (rosterLookup[lower]) return rosterLookup[lower];
-      // Try each word individually (first name or last name match)
+      if (rosterLookup[lower]) return { name: rosterLookup[lower].name, store: rosterLookup[lower].store };
+      // Try each word individually
       var words = lower.split(/\s+/);
       for (var w = 0; w < words.length; w++) {
-        if (words[w].length >= 3 && rosterLookup[words[w]]) return rosterLookup[words[w]];
+        if (words[w].length >= 3 && rosterLookup[words[w]]) return { name: rosterLookup[words[w]].name, store: rosterLookup[words[w]].store };
       }
       // Prefix match
       for (var key in rosterLookup) {
-        if (key.startsWith(lower) || lower.startsWith(key)) return rosterLookup[key];
+        if (key.length >= 3 && (key.startsWith(lower) || lower.startsWith(key))) return { name: rosterLookup[key].name, store: rosterLookup[key].store };
       }
-      return raw;
+      return { name: raw, store: "" };
     }
-    ticket.employee_added = resolveEmpName(ticket.employee_added);
-    ticket.employee_repaired = resolveEmpName(ticket.employee_repaired);
-    // Also resolve store from roster if ticket didn't capture it
-    if (!ticket.store && ticket.employee_repaired) {
-      var rEntry = rosterList.find(function(r) { return r.name === ticket.employee_repaired; });
-      if (rEntry) ticket.store = rEntry.store;
-    }
-    if (!ticket.store && ticket.employee_added) {
-      var rEntry = rosterList.find(function(r) { return r.name === ticket.employee_added; });
-      if (rEntry) ticket.store = rEntry.store;
-    }
+    var resolvedAdded = resolveEmpName(ticket.employee_added);
+    var resolvedRepaired = resolveEmpName(ticket.employee_repaired);
+    ticket.employee_added = resolvedAdded.name;
+    ticket.employee_repaired = resolvedRepaired.name;
+    // ALWAYS derive store from roster — the extension's store detection is unreliable
+    var rosterStore = resolvedRepaired.store || resolvedAdded.store;
+    if (rosterStore) ticket.store = rosterStore;
 
     // Build the prompt with ticket data
     var ticketContext = "TICKET #" + ticket.ticket_number + "\n";
