@@ -177,19 +177,25 @@ export async function POST(request) {
     if (!ticket || !ticket.ticket_number) return jsonResponse({ success: false, error: "ticket_number required" });
 
     // Resolve employee names against roster
+    console.log("[tickets] Incoming employee_added:", JSON.stringify(ticket.employee_added), "employee_repaired:", JSON.stringify(ticket.employee_repaired), "store:", JSON.stringify(ticket.store));
     var rosterRes = await supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true);
+    if (rosterRes.error) {
+      console.error("[tickets] Roster query FAILED:", rosterRes.error.message, rosterRes.error.code, rosterRes.error.hint);
+    }
     var rosterList = rosterRes.data || [];
+    console.log("[tickets] Roster returned", rosterList.length, "entries:", rosterList.map(function(r) { return r.name + " (" + r.store + ")"; }));
     var rosterLookup = {};
-    var lastNameLookup = {};
     rosterList.forEach(function(r) {
       rosterLookup[r.name.toLowerCase()] = r;
       var parts = r.name.split(/\s+/);
       parts.forEach(function(p) { if (p.length >= 3) rosterLookup[p.toLowerCase()] = r; });
       (r.aliases || []).forEach(function(a) { if (a) rosterLookup[a.toLowerCase()] = r; });
     });
+    console.log("[tickets] Lookup keys:", Object.keys(rosterLookup).join(", "));
     function resolveEmpName(raw) {
       if (!raw) return { name: raw, store: "" };
       var lower = raw.toLowerCase().trim();
+      console.log("[tickets] resolveEmpName input:", JSON.stringify(raw), "-> lower:", JSON.stringify(lower));
       // Handle "Last, First" format -> try both orderings
       if (lower.includes(",")) {
         var cp = lower.split(",").map(function(s){return s.trim();});
@@ -202,16 +208,17 @@ export async function POST(request) {
         }
         lower = flipped; // use flipped for further matching
       }
-      if (rosterLookup[lower]) return { name: rosterLookup[lower].name, store: rosterLookup[lower].store };
+      if (rosterLookup[lower]) { console.log("[tickets] MATCH exact:", lower); return { name: rosterLookup[lower].name, store: rosterLookup[lower].store }; }
       // Try each word individually
       var words = lower.split(/\s+/);
       for (var w = 0; w < words.length; w++) {
-        if (words[w].length >= 3 && rosterLookup[words[w]]) return { name: rosterLookup[words[w]].name, store: rosterLookup[words[w]].store };
+        if (words[w].length >= 3 && rosterLookup[words[w]]) { console.log("[tickets] MATCH word:", words[w]); return { name: rosterLookup[words[w]].name, store: rosterLookup[words[w]].store }; }
       }
       // Prefix match
       for (var key in rosterLookup) {
-        if (key.length >= 3 && (key.startsWith(lower) || lower.startsWith(key))) return { name: rosterLookup[key].name, store: rosterLookup[key].store };
+        if (key.length >= 3 && (key.startsWith(lower) || lower.startsWith(key))) { console.log("[tickets] MATCH prefix:", key); return { name: rosterLookup[key].name, store: rosterLookup[key].store }; }
       }
+      console.log("[tickets] NO MATCH for:", JSON.stringify(raw));
       return { name: raw, store: "" };
     }
     var resolvedAdded = resolveEmpName(ticket.employee_added);
@@ -221,6 +228,7 @@ export async function POST(request) {
     // ALWAYS derive store from roster — the extension's store detection is unreliable
     var rosterStore = resolvedRepaired.store || resolvedAdded.store;
     if (rosterStore) ticket.store = rosterStore;
+    console.log("[tickets] RESOLVED -> added:", JSON.stringify(ticket.employee_added), "repaired:", JSON.stringify(ticket.employee_repaired), "store:", JSON.stringify(ticket.store));
 
     // Build the prompt with ticket data
     var ticketContext = "TICKET #" + ticket.ticket_number + "\n";
