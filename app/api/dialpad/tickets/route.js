@@ -237,7 +237,8 @@ export async function POST(request) {
     ticketContext += "Employee Added: " + (ticket.employee_added || "Unknown") + "\n";
     ticketContext += "Employee Repaired: " + (ticket.employee_repaired || "Unknown") + "\n";
     ticketContext += "Device: " + (ticket.device || "Unknown") + "\n";
-    ticketContext += "Date: " + (ticket.date_closed || "Unknown") + "\n\n";
+    ticketContext += "Date Created (Intake): " + (ticket.date_created || "Unknown") + "\n";
+    ticketContext += "Date Closed: " + (ticket.date_closed || "Unknown") + "\n\n";
     ticketContext += "INITIAL DIAGNOSTICS:\n" + (ticket.raw_diagnostics || "(none)") + "\n\n";
     ticketContext += "TICKET ITEMS:\n" + (ticket.raw_items || "(none)") + "\n\n";
     ticketContext += "TICKET NOTES:\n" + (ticket.raw_notes || "(none)") + "\n\n";
