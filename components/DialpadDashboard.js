@@ -285,6 +285,7 @@ function AuditTab({ rawCallData, storeFilter }) {
   var [reviewAudits, setReviewAudits] = useState([]);
   var [reviewLoading, setReviewLoading] = useState(false);
   var [reauditRunning, setReauditRunning] = useState(false);
+  var [expandedTranscript, setExpandedTranscript] = useState(null);
 
   useEffect(function() {
     async function load() {
@@ -975,7 +976,20 @@ function AuditTab({ rawCallData, storeFilter }) {
                       <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)}</div>
                     </div>
                     <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}</div>
-                    {audit.transcript_preview && <div style={{ color:"#6B6F78",fontSize:10,marginBottom:10,padding:8,background:"#12141A",borderRadius:6,maxHeight:80,overflowY:"auto",fontFamily:"monospace",whiteSpace:"pre-wrap" }}>{audit.transcript_preview}</div>}
+                    {audit.transcript_preview && (
+                      <div style={{ marginBottom:10 }}>
+                        <button onClick={function(){setExpandedTranscript(expandedTranscript===audit.call_id?null:audit.call_id);}}
+                          style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                          <span style={{ transform:expandedTranscript===audit.call_id?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block" }}>▶</span>
+                          {expandedTranscript===audit.call_id?"Hide Transcript":"View Transcript"}
+                        </button>
+                        {expandedTranscript===audit.call_id && (
+                          <div style={{ marginTop:6,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #2A2D35",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                            {audit.transcript_preview}
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                       <button onClick={function(){excludeCall(audit.call_id,"Low confidence — excluded by manager");}}
                         style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600 }}>
@@ -1054,6 +1068,20 @@ function AuditTab({ rawCallData, storeFilter }) {
                   </div>
                   <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}<br /><strong>Outcome:</strong> {audit.outcome||"-"}</div>
                   <CriteriaGrid audit={audit} />
+                  {audit.transcript_preview && (
+                    <div style={{ marginTop:8 }}>
+                      <button onClick={function(){setExpandedTranscript(expandedTranscript===audit.call_id?null:audit.call_id);}}
+                        style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                        <span style={{ transform:expandedTranscript===audit.call_id?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block" }}>▶</span>
+                        {expandedTranscript===audit.call_id?"Hide Transcript":"View Transcript"}
+                      </button>
+                      {expandedTranscript===audit.call_id && (
+                        <div style={{ marginTop:6,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #2A2D35",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                          {audit.transcript_preview}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   {audit.exclude_reason && <div style={{ color:"#F87171",fontSize:10,marginTop:6,fontStyle:"italic" }}>Excluded: {audit.exclude_reason}</div>}
                 </div>
               );
