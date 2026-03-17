@@ -120,8 +120,10 @@ export default function ScheduleTab({ storeFilter }) {
         setWiwStatus(statusJson);
 
         if (statusJson.success && statusJson.authenticated) {
-          // Load today's shifts
-          var todayRes = await fetch("/api/wheniwork?action=today");
+          // Load today's shifts — send local date to avoid timezone issues
+          var localToday = new Date();
+          var todayStr = localToday.getFullYear() + "-" + String(localToday.getMonth()+1).padStart(2,"0") + "-" + String(localToday.getDate()).padStart(2,"0");
+          var todayRes = await fetch("/api/wheniwork?action=today&date=" + todayStr);
           var todayJson = await todayRes.json();
           if (todayJson.success) setTodayShifts(todayJson.shifts || []);
 
