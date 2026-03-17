@@ -39,6 +39,7 @@ async function getToken() {
   if (!key || !email || !password) return null;
 
   try {
+    console.log("[wheniwork] Attempting login with key:", key.substring(0, 8) + "...", "email:", email);
     var res = await fetch(WIW_LOGIN, {
       method: "POST",
       headers: {
@@ -47,11 +48,19 @@ async function getToken() {
       },
       body: JSON.stringify({ email: email, password: password }),
     });
+    console.log("[wheniwork] Login response status:", res.status);
     var json = await res.json();
+    console.log("[wheniwork] Login response keys:", Object.keys(json));
     if (json.login && json.login.token) {
+      console.log("[wheniwork] Login successful, got token");
       return json.login.token;
     }
-    console.error("[wheniwork] Login failed:", JSON.stringify(json));
+    // Some WIW responses have token at top level
+    if (json.token) {
+      console.log("[wheniwork] Got token at top level");
+      return json.token;
+    }
+    console.error("[wheniwork] Login failed:", JSON.stringify(json).substring(0, 500));
     return null;
   } catch (e) {
     console.error("[wheniwork] Login error:", e.message);
@@ -97,16 +106,30 @@ export async function GET(request) {
 
   // ─── STATUS CHECK ───
   if (action === "status") {
-    var token = await getToken();
-    if (!token) {
+    var key = process.env.WHENIWORK_KEY;
+    var email = process.env.WHENIWORK_EMAIL;
+    var password = process.env.WHENIWORK_PASSWORD;
+    var directToken = process.env.WHENIWORK_TOKEN;
+
+    if (!directToken && (!key || !email || !password)) {
       return jsonResponse({
         success: false,
         authenticated: false,
         message: "WhenIWork not configured. Set WHENIWORK_TOKEN or WHENIWORK_KEY + WHENIWORK_EMAIL + WHENIWORK_PASSWORD in Vercel env vars.",
       });
     }
-    // Verify token works by fetching locations
+
+    // Try to get token and show detailed error if it fails
     try {
+      var token = await getToken();
+      if (!token) {
+        return jsonResponse({
+          success: false,
+          authenticated: false,
+          message: "Login failed — credentials may be incorrect. Check WHENIWORK_KEY, WHENIWORK_EMAIL, and WHENIWORK_PASSWORD.",
+        });
+      }
+      // Verify token works by fetching locations
       var locData = await wiwFetch("/locations", token);
       return jsonResponse({
         success: true,
@@ -117,7 +140,7 @@ export async function GET(request) {
       return jsonResponse({
         success: false,
         authenticated: false,
-        message: "Token invalid or expired: " + e.message,
+        message: "Auth error: " + e.message,
       });
     }
   }
