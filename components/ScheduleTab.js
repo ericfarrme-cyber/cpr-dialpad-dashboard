@@ -6,6 +6,16 @@ import { STORES } from "@/lib/constants";
 var STORE_KEYS = Object.keys(STORES);
 var DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
+// Map WhenIWork location names to store keys
+var WIW_LOCATION_MAP = {
+  "cpr fishers": "fishers",
+  "cpr bloomington": "bloomington",
+  "cpr downtown": "indianapolis",
+  "cpr indianapolis": "indianapolis",
+  "cpr indy": "indianapolis",
+  "cpr zionsville": "zionsville",
+};
+
 function StatCard({ label, value, sub, accent }) {
   return (
     <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
@@ -55,11 +65,55 @@ export default function ScheduleTab({ storeFilter }) {
   var [loading, setLoading] = useState(true);
   var [view, setView] = useState("today");
   var [weekOffset, setWeekOffset] = useState(0);
+  var [scheduleStoreFilter, setScheduleStoreFilter] = useState("all");
+  var [roster, setRoster] = useState([]);
+
+  // Resolve WIW location name to store key
+  function locationToStore(locName) {
+    if (!locName) return null;
+    var lower = locName.toLowerCase().trim();
+    // Direct map first
+    if (WIW_LOCATION_MAP[lower]) return WIW_LOCATION_MAP[lower];
+    // Fuzzy match against store names
+    for (var i = 0; i < STORE_KEYS.length; i++) {
+      var storeName = STORES[STORE_KEYS[i]].name.replace("CPR ", "").toLowerCase();
+      if (lower.includes(storeName) || storeName.includes(lower.replace("cpr ", ""))) return STORE_KEYS[i];
+    }
+    return null;
+  }
+
+  // Resolve WIW employee name against roster
+  function resolveEmployee(firstName, lastName) {
+    var full = ((firstName || "") + " " + (lastName || "")).trim();
+    if (!full || roster.length === 0) return full;
+    var lower = full.toLowerCase();
+    // Exact match
+    var match = roster.find(function(r) { return r.name.toLowerCase() === lower; });
+    if (match) return match.name;
+    // Last name match
+    var last = (lastName || "").toLowerCase();
+    if (last.length >= 3) {
+      match = roster.find(function(r) { return r.name.toLowerCase().includes(last); });
+      if (match) return match.name;
+    }
+    // First name match
+    var first = (firstName || "").toLowerCase();
+    if (first.length >= 3) {
+      match = roster.find(function(r) { return r.name.toLowerCase().includes(first); });
+      if (match) return match.name;
+    }
+    return full;
+  }
 
   useEffect(function() {
     async function load() {
       setLoading(true);
       try {
+        // Load roster for name matching
+        var rosterRes = await fetch("/api/dialpad/roster");
+        var rosterJson = await rosterRes.json();
+        if (rosterJson.success) setRoster(rosterJson.roster || []);
+
         // Check WhenIWork status
         var statusRes = await fetch("/api/wheniwork?action=status");
         var statusJson = await statusRes.json();
@@ -90,14 +144,17 @@ export default function ScheduleTab({ storeFilter }) {
     var groups = {};
     STORE_KEYS.forEach(function(k) { groups[k] = []; });
     todayShifts.forEach(function(s) {
-      var matched = STORE_KEYS.find(function(k) {
-        return s.location && s.location.toLowerCase().includes(STORES[k].name.replace("CPR ","").toLowerCase());
-      });
-      if (matched) groups[matched].push(s);
-      else if (groups[STORE_KEYS[0]]) groups[STORE_KEYS[0]].push(s);
+      var storeKey = locationToStore(s.location);
+      if (storeKey && groups[storeKey]) {
+        var resolved = Object.assign({}, s, { employee: resolveEmployee(null, null) });
+        // Parse first/last from the employee field if it's "First Last"
+        var parts = (s.employee || "").split(/\s+/);
+        resolved.employee = resolveEmployee(parts[0], parts.slice(1).join(" "));
+        groups[storeKey].push(resolved);
+      }
     });
     return groups;
-  }, [todayShifts]);
+  }, [todayShifts, roster]);
 
   // Build weekly grid data
   var weekGrid = useMemo(function() {
@@ -107,20 +164,28 @@ export default function ScheduleTab({ storeFilter }) {
     weekShifts.shifts.forEach(function(s) {
       if (s.is_open) return;
       var user = weekShifts.users[s.user_id];
-      var name = user ? (user.first_name + " " + user.last_name).trim() : "Unknown";
-      if (!byUser[name]) byUser[name] = { name: name, days: [null,null,null,null,null,null,null], totalHours: 0 };
+      var firstName = user ? user.first_name : "";
+      var lastName = user ? user.last_name : "";
+      var name = resolveEmployee(firstName, lastName) || "Unknown";
+      var storeKey = locationToStore(s.location) || "";
+
+      // Apply store filter
+      if (scheduleStoreFilter !== "all" && storeKey !== scheduleStoreFilter) return;
+
+      var userKey = name + "|" + storeKey;
+      if (!byUser[userKey]) byUser[userKey] = { name: name, store: storeKey, days: [null,null,null,null,null,null,null], totalHours: 0 };
       var shiftDate = new Date(s.start_time);
       var dayIdx = weekDates.findIndex(function(d) {
         return d.toDateString() === shiftDate.toDateString();
       });
       if (dayIdx >= 0) {
         var hours = (new Date(s.end_time) - new Date(s.start_time)) / 3600000;
-        byUser[name].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours };
-        byUser[name].totalHours += hours;
+        byUser[userKey].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours, store: storeKey };
+        byUser[userKey].totalHours += hours;
       }
     });
     return Object.values(byUser).sort(function(a,b){ return b.totalHours - a.totalHours; });
-  }, [weekShifts]);
+  }, [weekShifts, roster, scheduleStoreFilter]);
 
   var totalWeekHours = weekGrid.reduce(function(s,e){ return s + e.totalHours; }, 0);
 
@@ -187,6 +252,25 @@ export default function ScheduleTab({ storeFilter }) {
           <span style={{ color:"#4ADE80",fontSize:11 }}>WhenIWork Connected</span>
         </div>
       </div>
+
+      {/* Store filter for weekly/hours views */}
+      {(view === "week" || view === "hours") && (
+        <div style={{ display:"flex",gap:4,marginBottom:16 }}>
+          <button onClick={function(){setScheduleStoreFilter("all");}}
+            style={{ padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",background:scheduleStoreFilter==="all"?"#7C8AFF22":"#1A1D23",color:scheduleStoreFilter==="all"?"#7C8AFF":"#8B8F98",fontSize:11,fontWeight:600 }}>
+            All Stores
+          </button>
+          {STORE_KEYS.map(function(key) {
+            var store = STORES[key];
+            return (
+              <button key={key} onClick={function(){setScheduleStoreFilter(key);}}
+                style={{ padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",background:scheduleStoreFilter===key?store.color+"22":"#1A1D23",color:scheduleStoreFilter===key?store.color:"#8B8F98",fontSize:11,fontWeight:600 }}>
+                {store.name.replace("CPR ","")}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* TODAY */}
       {view === "today" && (
@@ -257,9 +341,15 @@ export default function ScheduleTab({ storeFilter }) {
               </thead>
               <tbody>
                 {weekGrid.map(function(emp, i) {
+                  var empStore = STORES[emp.store];
                   return (
                     <tr key={i} style={{ borderBottom:"1px solid #1E2028" }}>
-                      <td style={{ padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</td>
+                      <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                          {empStore && <span style={{ width:6,height:6,borderRadius:"50%",background:empStore.color,flexShrink:0 }}></span>}
+                          <span style={{ color:"#F0F1F3" }}>{emp.name}</span>
+                        </div>
+                      </td>
                       {emp.days.map(function(shift, j) {
                         var isToday = getWeekDates()[j].toDateString() === new Date().toDateString();
                         if (!shift) return <td key={j} style={{ textAlign:"center",padding:"8px 4px",color:"#2A2D35",fontSize:11,background:isToday?"#7C8AFF04":"transparent" }}>—</td>;
@@ -311,10 +401,15 @@ export default function ScheduleTab({ storeFilter }) {
             {weekGrid.length > 0 ? weekGrid.map(function(emp, i) {
               var pct = totalWeekHours > 0 ? (emp.totalHours / 40 * 100) : 0;
               var barColor = emp.totalHours >= 40 ? "#F87171" : emp.totalHours >= 30 ? "#FBBF24" : "#4ADE80";
+              var empStore = STORES[emp.store];
               return (
                 <div key={i} style={{ padding:"12px 0",borderBottom:i<weekGrid.length-1?"1px solid #1E2028":"none" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</div>
+                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                      {empStore && <span style={{ width:6,height:6,borderRadius:"50%",background:empStore.color,flexShrink:0 }}></span>}
+                      <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</span>
+                      {empStore && <span style={{ color:empStore.color,fontSize:10,opacity:0.7 }}>{empStore.name.replace("CPR ","")}</span>}
+                    </div>
                     <div style={{ color:barColor,fontSize:14,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</div>
                   </div>
                   <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}>
