@@ -152,8 +152,12 @@ export async function GET(request) {
   try {
     // ─── TODAY'S SHIFTS ───
     if (action === "today") {
-      var today = searchParams.get("date") || fmtDate(new Date());
-      var data = await wiwFetch("/shifts?start=" + today + "&end=" + today + "&include_objects=true", token);
+      // Use Eastern time for "today" since stores are in Indiana
+      var now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
+      var today = searchParams.get("date") || fmtDate(now);
+      var tomorrow = new Date(now);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      var data = await wiwFetch("/shifts?start=" + today + "&end=" + fmtDate(tomorrow) + "&include_objects=true", token);
 
       var users = {};
       (data.users || []).forEach(function(u) { users[u.id] = u; });
