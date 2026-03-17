@@ -152,7 +152,7 @@ export async function GET(request) {
   try {
     // ─── TODAY'S SHIFTS ───
     if (action === "today") {
-      var today = fmtDate(new Date());
+      var today = searchParams.get("date") || fmtDate(new Date());
       var data = await wiwFetch("/shifts?start=" + today + "&end=" + today + "&include_objects=true", token);
 
       var users = {};
