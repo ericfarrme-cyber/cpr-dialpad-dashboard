@@ -86,6 +86,15 @@ export async function GET(request) {
   var { searchParams } = new URL(request.url);
   var action = searchParams.get("action") || "status";
 
+  if (action === "debug") {
+    return jsonResponse({
+      hasKey: !!process.env.WHENIWORK_KEY,
+      hasEmail: !!process.env.WHENIWORK_EMAIL,
+      hasPassword: !!process.env.WHENIWORK_PASSWORD,
+      hasToken: !!process.env.WHENIWORK_TOKEN,
+    });
+  }
+
   // ─── STATUS CHECK ───
   if (action === "status") {
     var token = await getToken();
