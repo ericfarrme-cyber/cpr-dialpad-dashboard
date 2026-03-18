@@ -187,7 +187,7 @@ export async function GET(request) {
   }
 
   if (action === "stats") {
-    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score");
+    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score");
     if (store) query = query.eq("store", store);
     var { data, error } = await query;
     if (error) return jsonResponse({ success: false, error: error.message });
@@ -200,6 +200,7 @@ export async function GET(request) {
     var avgDiag = Math.round(tickets.reduce(function(s, t) { return s + (t.diagnostics_score || 0); }, 0) / total);
     var avgPay = Math.round(tickets.reduce(function(s, t) { return s + (t.payment_score || 0); }, 0) / total);
     var avgNotes = Math.round(tickets.reduce(function(s, t) { return s + (t.notes_score || 0); }, 0) / total);
+    var avgCategorization = Math.round(tickets.reduce(function(s, t) { return s + (t.categorization_score || 0); }, 0) / total);
 
     // Per-employee stats
     var empMap = {};
@@ -229,7 +230,7 @@ export async function GET(request) {
 
     return jsonResponse({
       success: true,
-      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, empStats: empStats, storeStats: storeStats }
+      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, avgCategorization: avgCategorization, empStats: empStats, storeStats: storeStats }
     });
   }
 
