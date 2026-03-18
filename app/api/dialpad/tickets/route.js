@@ -374,6 +374,8 @@ export async function POST(request) {
         raw_items: ticket.raw_items || "",
         raw_transactions: ticket.raw_transactions || "",
         confidence: grade.confidence || 0,
+        contact_score: grade.contact_score || 0,
+        contact_notes: grade.contact_notes || "",
         graded_by: "extension",
       };
 
