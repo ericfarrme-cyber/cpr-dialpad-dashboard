@@ -235,7 +235,13 @@ export default function InsightsTab({ storeFilter }) {
                               <div style={{ flex:1 }}>
                                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                                   <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                                    <span style={{ color:color,fontSize:11,fontWeight:700 }}>{isCall ? "Phone Call" : "Ticket #" + event.ticket_number}</span>
+                                    {isCall ? (
+                                      <span style={{ color:color,fontSize:11,fontWeight:700 }}>Phone Call</span>
+                                    ) : (
+                                      <a href={"https://cpr.repairq.io/ticket/" + event.ticket_number} target="_blank" rel="noopener noreferrer"
+                                        onClick={function(e){e.stopPropagation();}}
+                                        style={{ color:color,fontSize:11,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed " + color }}>{"Ticket #" + event.ticket_number}</a>
+                                    )}
                                     {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
                                     {store && <span style={{ color:store.color,fontSize:9 }}>{store.name.replace("CPR ","")}</span>}
                                   </div>
