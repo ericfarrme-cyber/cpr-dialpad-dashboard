@@ -26,6 +26,7 @@ export default function InsightsTab({ storeFilter }) {
   var [journeyDetail, setJourneyDetail] = useState(null);
   var [detailLoading, setDetailLoading] = useState(false);
   var [journeySort, setJourneySort] = useState("flags");
+  var [expandedEvent, setExpandedEvent] = useState(null);
 
   useEffect(function() {
     async function load() {
@@ -219,47 +220,145 @@ export default function InsightsTab({ storeFilter }) {
 
                       {/* Timeline */}
                       <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",marginBottom:8,letterSpacing:"0.05em" }}>Timeline</div>
-                      <div style={{ maxHeight:400,overflowY:"auto" }}>
+                      <div style={{ maxHeight:500,overflowY:"auto" }}>
                         {journeyDetail.timeline.map(function(event, i) {
                           var isCall = event.type === "call";
                           var color = isCall ? "#00D4FF" : "#7B2FFF";
                           var icon = isCall ? "\uD83D\uDCDE" : "\uD83C\uDFAB";
                           var d = new Date(event.date);
                           var store = STORES[event.store];
+                          var eventKey = (isCall ? "call-" : "ticket-") + i;
+                          var isExpanded = expandedEvent === eventKey;
+                          var ed = event.data || {};
                           return (
-                            <div key={i} style={{ display:"flex",gap:12,padding:"10px 0",borderBottom:"1px solid #1E2028" }}>
-                              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",minWidth:24 }}>
-                                <span style={{ fontSize:14 }}>{icon}</span>
-                                {i < journeyDetail.timeline.length - 1 && <div style={{ width:1,flex:1,background:"#2A2D35",marginTop:4 }} />}
+                            <div key={i} style={{ borderBottom:"1px solid #1E2028" }}>
+                              <div onClick={function(){setExpandedEvent(isExpanded ? null : eventKey);}}
+                                style={{ display:"flex",gap:12,padding:"10px 0",cursor:"pointer" }}>
+                                <div style={{ display:"flex",flexDirection:"column",alignItems:"center",minWidth:24 }}>
+                                  <span style={{ fontSize:14 }}>{icon}</span>
+                                  {i < journeyDetail.timeline.length - 1 && <div style={{ width:1,flex:1,background:"#2A2D35",marginTop:4 }} />}
+                                </div>
+                                <div style={{ flex:1 }}>
+                                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                                      {isCall ? (
+                                        <span style={{ color:color,fontSize:11,fontWeight:700 }}>Phone Call</span>
+                                      ) : (
+                                        <a href={"https://cpr.repairq.io/ticket/" + event.ticket_number} target="_blank" rel="noopener noreferrer"
+                                          onClick={function(e){e.stopPropagation();}}
+                                          style={{ color:color,fontSize:11,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed " + color }}>{"Ticket #" + event.ticket_number}</a>
+                                      )}
+                                      {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
+                                      {store && <span style={{ color:store.color,fontSize:9 }}>{store.name.replace("CPR ","")}</span>}
+                                      <span style={{ color:"#6B6F78",fontSize:9,transform:isExpanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s" }}>{"\u25B6"}</span>
+                                    </div>
+                                    <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                                      {isCall ? (
+                                        <span style={{ color:scoreColor(event.score/4*100),fontSize:13,fontWeight:800 }}>{event.score.toFixed(1)}/4</span>
+                                      ) : (
+                                        <span style={{ color:scoreColor(event.score),fontSize:13,fontWeight:800 }}>{event.score}/100</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>
+                                    {d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
+                                    {event.employee && <span style={{ marginLeft:8 }}>{event.employee}</span>}
+                                    {isCall && ed.talk_duration ? <span style={{ marginLeft:8 }}>{parseFloat(ed.talk_duration).toFixed(1) + " min"}</span> : null}
+                                  </div>
+                                  {event.detail && <div style={{ color:"#8B8F98",fontSize:11,marginTop:4 }}>{isCall ? "Inquiry: " : "Device: "}{event.detail}</div>}
+                                  {isCall && event.outcome && <div style={{ color:"#8B8F98",fontSize:11 }}>Outcome: {event.outcome}</div>}
+                                </div>
                               </div>
-                              <div style={{ flex:1 }}>
-                                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                                    {isCall ? (
-                                      <span style={{ color:color,fontSize:11,fontWeight:700 }}>Phone Call</span>
-                                    ) : (
+
+                              {/* EXPANDED DETAIL */}
+                              {isExpanded && (
+                                <div style={{ marginLeft:36,padding:"8px 12px 14px",background:"#12141A",borderRadius:8,marginBottom:8 }}>
+                                  {isCall ? (
+                                    <div>
+                                      {/* Call audit details */}
+                                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10 }}>
+                                        <div style={{ textAlign:"center" }}>
+                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Score</div>
+                                          <div style={{ color:scoreColor(event.score/4*100),fontSize:18,fontWeight:800 }}>{event.score.toFixed(2)}/4</div>
+                                        </div>
+                                        <div style={{ textAlign:"center" }}>
+                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Confidence</div>
+                                          <div style={{ color:ed.confidence >= 70 ? "#4ADE80" : "#FBBF24",fontSize:18,fontWeight:800 }}>{ed.confidence || "—"}%</div>
+                                        </div>
+                                        <div style={{ textAlign:"center" }}>
+                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Duration</div>
+                                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:800 }}>{ed.talk_duration ? parseFloat(ed.talk_duration).toFixed(1) + "m" : "—"}</div>
+                                        </div>
+                                      </div>
+                                      {/* Criteria */}
+                                      <div style={{ display:"flex",gap:6,flexWrap:"wrap",marginBottom:10 }}>
+                                        {(event.call_type !== "current_customer" ? [
+                                          {k:"appt_offered",l:"Appt Offered"},
+                                          {k:"discount_mentioned",l:"Discount"},
+                                          {k:"warranty_mentioned",l:"Warranty"},
+                                        ] : [
+                                          {k:"status_update_given",l:"Status Update"},
+                                          {k:"eta_communicated",l:"ETA Given"},
+                                          {k:"professional_tone",l:"Tone"},
+                                        ]).map(function(item) {
+                                          var pass = ed[item.k];
+                                          return <span key={item.k} style={{ padding:"2px 8px",borderRadius:4,background:pass?"#4ADE8015":"#F8717115",border:"1px solid "+(pass?"#4ADE8033":"#F8717133"),fontSize:10 }}>{(pass?"\u2705":"\u274C")+" "+item.l}</span>;
+                                        })}
+                                      </div>
+                                      {/* Transcript */}
+                                      {ed.transcript_preview && (
+                                        <div>
+                                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Transcript</div>
+                                          <div style={{ padding:10,background:"#0F1117",borderRadius:6,maxHeight:200,overflowY:"auto",fontFamily:"monospace",fontSize:10,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                                            {ed.transcript_preview}
+                                          </div>
+                                        </div>
+                                      )}
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      {/* Ticket details */}
+                                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:6,marginBottom:10 }}>
+                                        {[
+                                          {l:"Intake",s:ed.diagnostics_score},
+                                          {l:"Repair",s:ed.notes_score},
+                                          {l:"Pickup",s:ed.categorization_score},
+                                          {l:"Payment",s:ed.payment_score},
+                                          {l:"Overall",s:ed.overall_score},
+                                        ].map(function(cat) {
+                                          return (
+                                            <div key={cat.l} style={{ textAlign:"center",padding:"6px 4px",background:"#0F1117",borderRadius:6 }}>
+                                              <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>{cat.l}</div>
+                                              <div style={{ color:scoreColor(cat.s || 0),fontSize:16,fontWeight:800 }}>{cat.s || 0}</div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                      {/* Detail notes */}
+                                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                                        {[
+                                          {l:"Intake Notes",v:ed.diagnostics_notes,c:"#7B2FFF"},
+                                          {l:"Repair Notes",v:ed.notes_detail,c:"#00D4FF"},
+                                          {l:"Pickup Notes",v:ed.categorization_notes,c:"#FF2D95"},
+                                          {l:"Payment Notes",v:ed.payment_notes,c:"#FBBF24"},
+                                        ].filter(function(n){return n.v;}).map(function(note) {
+                                          return (
+                                            <div key={note.l} style={{ padding:8,background:"#0F1117",borderRadius:6,borderLeft:"2px solid "+note.c }}>
+                                              <div style={{ color:note.c,fontSize:9,fontWeight:700,marginBottom:3 }}>{note.l}</div>
+                                              <div style={{ color:"#8B8F98",fontSize:10,lineHeight:1.4 }}>{note.v}</div>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                      {ed.device && <div style={{ color:"#6B6F78",fontSize:10,marginTop:8 }}>Device: {ed.device}</div>}
                                       <a href={"https://cpr.repairq.io/ticket/" + event.ticket_number} target="_blank" rel="noopener noreferrer"
-                                        onClick={function(e){e.stopPropagation();}}
-                                        style={{ color:color,fontSize:11,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed " + color }}>{"Ticket #" + event.ticket_number}</a>
-                                    )}
-                                    {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
-                                    {store && <span style={{ color:store.color,fontSize:9 }}>{store.name.replace("CPR ","")}</span>}
-                                  </div>
-                                  <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                                    {isCall ? (
-                                      <span style={{ color:scoreColor(event.score/4*100),fontSize:13,fontWeight:800 }}>{event.score.toFixed(1)}/4</span>
-                                    ) : (
-                                      <span style={{ color:scoreColor(event.score),fontSize:13,fontWeight:800 }}>{event.score}/100</span>
-                                    )}
-                                  </div>
+                                        style={{ display:"inline-block",marginTop:8,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"#7B2FFF",fontSize:10,fontWeight:600,textDecoration:"none" }}>
+                                        View in RepairQ →
+                                      </a>
+                                    </div>
+                                  )}
                                 </div>
-                                <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>
-                                  {d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
-                                  {event.employee && <span style={{ marginLeft:8 }}>{event.employee}</span>}
-                                </div>
-                                {event.detail && <div style={{ color:"#8B8F98",fontSize:11,marginTop:4 }}>{isCall ? "Inquiry: " : "Device: "}{event.detail}</div>}
-                                {isCall && event.outcome && <div style={{ color:"#8B8F98",fontSize:11 }}>Outcome: {event.outcome}</div>}
-                              </div>
+                              )}
                             </div>
                           );
                         })}
