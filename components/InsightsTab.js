@@ -20,6 +20,12 @@ export default function InsightsTab({ storeFilter }) {
   var [data, setData] = useState(null);
   var [loading, setLoading] = useState(true);
   var [view, setView] = useState("overview");
+  var [journeyData, setJourneyData] = useState(null);
+  var [journeyLoading, setJourneyLoading] = useState(false);
+  var [selectedJourney, setSelectedJourney] = useState(null);
+  var [journeyDetail, setJourneyDetail] = useState(null);
+  var [detailLoading, setDetailLoading] = useState(false);
+  var [journeySort, setJourneySort] = useState("flags");
 
   useEffect(function() {
     async function load() {
@@ -34,8 +40,32 @@ export default function InsightsTab({ storeFilter }) {
     load();
   }, []);
 
+  var loadJourneys = async function() {
+    if (journeyData) return;
+    setJourneyLoading(true);
+    try {
+      var sp = storeFilter && storeFilter !== "all" ? "&store=" + storeFilter : "";
+      var res = await fetch("/api/dialpad/customer-journey?action=journeys&days=30" + sp);
+      var json = await res.json();
+      if (json.success) setJourneyData(json);
+    } catch(e) { console.error(e); }
+    setJourneyLoading(false);
+  };
+
+  var loadJourneyDetail = async function(phone) {
+    setSelectedJourney(phone);
+    setDetailLoading(true);
+    try {
+      var res = await fetch("/api/dialpad/customer-journey?action=lookup&phone=" + phone);
+      var json = await res.json();
+      if (json.success) setJourneyDetail(json);
+    } catch(e) { console.error(e); }
+    setDetailLoading(false);
+  };
+
   var SUBTABS = [
     { id: "overview", label: "Overview", icon: "\uD83D\uDCA1" },
+    { id: "journey", label: "Customer Journey", icon: "\uD83D\uDCCD" },
     { id: "devices", label: "Device Patterns", icon: "\uD83D\uDCF1" },
     { id: "employees", label: "Employee Correlation", icon: "\uD83D\uDC64" },
     { id: "callbacks", label: "Post-Repair Callbacks", icon: "\u260E\uFE0F" },
@@ -62,7 +92,7 @@ export default function InsightsTab({ storeFilter }) {
     <div>
       <div style={{ display:"flex",gap:4,marginBottom:20 }}>
         {SUBTABS.map(function(v) {
-          return (<button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>);
+          return (<button key={v.id} onClick={function(){setView(v.id); if(v.id==="journey") loadJourneys();}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>);
         })}
       </div>
 
@@ -128,6 +158,179 @@ export default function InsightsTab({ storeFilter }) {
                 );
               })}
             </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══ CUSTOMER JOURNEY ═══ */}
+      {view === "journey" && (
+        <div>
+          {journeyLoading ? (
+            <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Cross-referencing calls and tickets by phone number...</div>
+          ) : journeyData ? (
+            <div>
+              {/* Stats row */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
+                <StatCard label="Customers Matched" value={journeyData.stats.total_customers_cross_referenced} accent="#7B2FFF" sub={"calls \u2194 tickets linked"} />
+                <StatCard label="Avg CX Score" value={journeyData.stats.avg_cx_score !== null ? journeyData.stats.avg_cx_score + "/100" : "\u2014"} accent={scoreColor(journeyData.stats.avg_cx_score || 0)} />
+                <StatCard label="Flagged Customers" value={journeyData.stats.total_flagged} accent={journeyData.stats.total_flagged > 0 ? "#F87171" : "#4ADE80"} sub="need attention" />
+                <StatCard label="Data Points" value={journeyData.stats.total_calls_analyzed + journeyData.stats.total_tickets_analyzed} accent="#00D4FF" sub={journeyData.stats.total_calls_analyzed + " calls + " + journeyData.stats.total_tickets_analyzed + " tickets"} />
+              </div>
+
+              {/* Detail panel */}
+              {selectedJourney && (
+                <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #7B2FFF33" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                    <div>
+                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{journeyDetail ? journeyDetail.customer_name || "Unknown Customer" : "Loading..."}</div>
+                      <div style={{ color:"#8B8F98",fontSize:12 }}>{selectedJourney.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</div>
+                    </div>
+                    <button onClick={function(){ setSelectedJourney(null); setJourneyDetail(null); }}
+                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Close</button>
+                  </div>
+
+                  {detailLoading ? (
+                    <div style={{ padding:20,textAlign:"center",color:"#6B6F78" }}>Loading timeline...</div>
+                  ) : journeyDetail ? (
+                    <div>
+                      {/* CX Summary */}
+                      <div style={{ display:"flex",gap:16,marginBottom:16,padding:12,background:"#12141A",borderRadius:8 }}>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>CX Score</div>
+                          <div style={{ color:scoreColor(journeyDetail.cx_score || 0),fontSize:24,fontWeight:800 }}>{journeyDetail.cx_score !== null ? journeyDetail.cx_score : "\u2014"}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Calls</div>
+                          <div style={{ color:"#F0F1F3",fontSize:24,fontWeight:800 }}>{journeyDetail.total_calls}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Tickets</div>
+                          <div style={{ color:"#F0F1F3",fontSize:24,fontWeight:800 }}>{journeyDetail.total_tickets}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Avg Call</div>
+                          <div style={{ color:journeyDetail.avg_call_score !== null ? scoreColor(journeyDetail.avg_call_score / 4 * 100) : "#6B6F78",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_call_score !== null ? journeyDetail.avg_call_score.toFixed(1) + "/4" : "\u2014"}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Avg Ticket</div>
+                          <div style={{ color:journeyDetail.avg_ticket_score !== null ? scoreColor(journeyDetail.avg_ticket_score) : "#6B6F78",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_ticket_score !== null ? journeyDetail.avg_ticket_score : "\u2014"}</div>
+                        </div>
+                      </div>
+
+                      {/* Timeline */}
+                      <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",marginBottom:8,letterSpacing:"0.05em" }}>Timeline</div>
+                      <div style={{ maxHeight:400,overflowY:"auto" }}>
+                        {journeyDetail.timeline.map(function(event, i) {
+                          var isCall = event.type === "call";
+                          var color = isCall ? "#00D4FF" : "#7B2FFF";
+                          var icon = isCall ? "\uD83D\uDCDE" : "\uD83C\uDFAB";
+                          var d = new Date(event.date);
+                          var store = STORES[event.store];
+                          return (
+                            <div key={i} style={{ display:"flex",gap:12,padding:"10px 0",borderBottom:"1px solid #1E2028" }}>
+                              <div style={{ display:"flex",flexDirection:"column",alignItems:"center",minWidth:24 }}>
+                                <span style={{ fontSize:14 }}>{icon}</span>
+                                {i < journeyDetail.timeline.length - 1 && <div style={{ width:1,flex:1,background:"#2A2D35",marginTop:4 }} />}
+                              </div>
+                              <div style={{ flex:1 }}>
+                                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                                    <span style={{ color:color,fontSize:11,fontWeight:700 }}>{isCall ? "Phone Call" : "Ticket #" + event.ticket_number}</span>
+                                    {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
+                                    {store && <span style={{ color:store.color,fontSize:9 }}>{store.name.replace("CPR ","")}</span>}
+                                  </div>
+                                  <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                                    {isCall ? (
+                                      <span style={{ color:scoreColor(event.score/4*100),fontSize:13,fontWeight:800 }}>{event.score.toFixed(1)}/4</span>
+                                    ) : (
+                                      <span style={{ color:scoreColor(event.score),fontSize:13,fontWeight:800 }}>{event.score}/100</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>
+                                  {d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
+                                  {event.employee && <span style={{ marginLeft:8 }}>{event.employee}</span>}
+                                </div>
+                                {event.detail && <div style={{ color:"#8B8F98",fontSize:11,marginTop:4 }}>{isCall ? "Inquiry: " : "Device: "}{event.detail}</div>}
+                                {isCall && event.outcome && <div style={{ color:"#8B8F98",fontSize:11 }}>Outcome: {event.outcome}</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {journeyDetail.timeline.length === 0 && <div style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:12 }}>No events found</div>}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              )}
+
+              {/* Sort controls */}
+              <div style={{ display:"flex",gap:4,marginBottom:12 }}>
+                {[
+                  { id:"flags",label:"Flagged First" },
+                  { id:"cx",label:"Lowest CX" },
+                  { id:"recent",label:"Most Recent" },
+                  { id:"calls",label:"Most Calls" },
+                ].map(function(s) {
+                  return <button key={s.id} onClick={function(){setJourneySort(s.id);}} style={{ padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",background:journeySort===s.id?"#7B2FFF22":"#1A1D23",color:journeySort===s.id?"#7B2FFF":"#8B8F98",fontSize:10,fontWeight:600 }}>{s.label}</button>;
+                })}
+              </div>
+
+              {/* Customer list */}
+              <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+                {(function() {
+                  var sorted = (journeyData.journeys || []).slice();
+                  if (journeySort === "cx") sorted.sort(function(a,b){ return (a.cx_score||999) - (b.cx_score||999); });
+                  else if (journeySort === "recent") sorted.sort(function(a,b){ return new Date(b.latest_date) - new Date(a.latest_date); });
+                  else if (journeySort === "calls") sorted.sort(function(a,b){ return b.total_calls - a.total_calls; });
+                  return sorted;
+                })().map(function(j) {
+                  var cxColor = scoreColor(j.cx_score || 0);
+                  var isSelected = selectedJourney === j.phone;
+                  return (
+                    <div key={j.phone} onClick={function(){ loadJourneyDetail(j.phone); }}
+                      style={{ padding:"14px 20px",borderBottom:"1px solid #1E2028",cursor:"pointer",background:isSelected?"#7B2FFF08":"transparent",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      <div>
+                        <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
+                          <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{j.customer_name || "Unknown"}</span>
+                          <span style={{ color:"#6B6F78",fontSize:11 }}>{j.phone.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</span>
+                          {j.stores.map(function(sk) {
+                            var st = STORES[sk];
+                            return st ? <span key={sk} style={{ width:6,height:6,borderRadius:"50%",background:st.color }} /> : null;
+                          })}
+                        </div>
+                        {j.flags.length > 0 && (
+                          <div style={{ display:"flex",gap:4,marginTop:4,flexWrap:"wrap" }}>
+                            {j.flags.map(function(f, fi) {
+                              return <span key={fi} style={{ padding:"2px 6px",borderRadius:4,background:"#F8717118",border:"1px solid #F8717133",color:"#F87171",fontSize:9,fontWeight:600 }}>{"\u26A0\uFE0F " + f}</span>;
+                            })}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display:"flex",gap:14,alignItems:"center" }}>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>CX</div>
+                          <div style={{ color:cxColor,fontSize:16,fontWeight:800 }}>{j.cx_score !== null ? j.cx_score : "\u2014"}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Calls</div>
+                          <div style={{ color:"#00D4FF",fontSize:14,fontWeight:700 }}>{j.total_calls}</div>
+                        </div>
+                        <div style={{ textAlign:"center" }}>
+                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Tickets</div>
+                          <div style={{ color:"#7B2FFF",fontSize:14,fontWeight:700 }}>{j.total_tickets}</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(journeyData.journeys || []).length === 0 && (
+                  <div style={{ padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No cross-referenced customers found yet. Grade more tickets and audit more calls to enable journey tracking.</div>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Failed to load journey data.</div>
           )}
         </div>
       )}
