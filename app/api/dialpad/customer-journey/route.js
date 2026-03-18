@@ -36,6 +36,43 @@ export async function GET(request) {
   cutoff.setDate(cutoff.getDate() - days);
   var cutoffISO = cutoff.toISOString();
 
+  // ─── DEBUG ───
+  if (action === "debug") {
+    // Get a sample of audits to check column names and data format
+    var { data: sampleAudits, error: sErr } = await supabase
+      .from("audit_results")
+      .select("call_id, external_number, employee, store, score, call_type, date_started")
+      .limit(5);
+    
+    var { data: countAll, error: cErr } = await supabase
+      .from("audit_results")
+      .select("call_id", { count: "exact" });
+
+    var { data: countWithPhone, error: cpErr } = await supabase
+      .from("audit_results")
+      .select("call_id", { count: "exact" })
+      .not("external_number", "is", null)
+      .neq("external_number", "");
+
+    return jsonResponse({
+      success: true,
+      total_audits: countAll ? countAll.length : 0,
+      audits_with_phone: countWithPhone ? countWithPhone.length : 0,
+      sample: (sampleAudits || []).map(function(a) {
+        return {
+          call_id: a.call_id,
+          external_number: a.external_number,
+          normalized: normPhone(a.external_number),
+          employee: a.employee,
+          store: a.store,
+          date_started: a.date_started,
+        };
+      }),
+      cutoff_used: cutoffISO,
+      error: sErr ? sErr.message : null,
+    });
+  }
+
   // ─── SINGLE CUSTOMER JOURNEY ───
   if (action === "lookup" && phone) {
     var normalized = normPhone(phone);
@@ -121,15 +158,16 @@ export async function GET(request) {
 
   // ─── ALL CUSTOMER JOURNEYS (aggregated) ───
   if (action === "journeys") {
-    // Get recent audits
+    // Get recent audits — no date filter since we want to match all calls to tickets
     var auditQuery = supabase
       .from("audit_results")
       .select("call_id, external_number, employee, store, score, call_type, inquiry, outcome, date_started, talk_duration, confidence")
-      .gte("date_started", cutoffISO)
-      .not("external_number", "is", null);
+      .not("external_number", "is", null)
+      .neq("external_number", "");
     if (store && store !== "all") auditQuery = auditQuery.eq("store", store);
-    var { data: allAudits, error: aErr2 } = await auditQuery;
+    var { data: allAudits, error: aErr2 } = await auditQuery.limit(2000);
     if (aErr2) console.error("[journey] Audits query error:", aErr2.message);
+    console.log("[journey] Audits returned:", (allAudits || []).length);
 
     // Get recent tickets
     var ticketQuery = supabase
