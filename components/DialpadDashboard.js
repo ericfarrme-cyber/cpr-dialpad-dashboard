@@ -7,6 +7,7 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
 import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
+import { useAuth } from "@/components/AuthProvider";
 import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
 import VoicemailTab from "@/components/VoicemailTab";
@@ -1098,6 +1099,7 @@ function AuditTab({ rawCallData, storeFilter }) {
 // MAIN
 // ══════════════════════════════════════════
 export default function DialpadDashboard() {
+  var auth = useAuth();
   var [activeTab, setActiveTab] = useState("scorecard");
   var [storeFilter, setStoreFilter] = useState("all");
   var [isLive, setIsLive] = useState(false);
@@ -1191,6 +1193,18 @@ export default function DialpadDashboard() {
           <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
+        {auth && (
+          <div style={{ display:"flex",alignItems:"center",gap:10,marginLeft:12 }}>
+            <div style={{ textAlign:"right" }}>
+              <div style={{ color:"#F0F1F3",fontSize:11,fontWeight:600 }}>{auth.userInfo ? auth.userInfo.name || auth.user.email : ""}</div>
+              <div style={{ color:"#6B6F78",fontSize:9,textTransform:"capitalize" }}>{auth.role || ""}</div>
+            </div>
+            <button onClick={auth.signOut}
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
+              Sign Out
+            </button>
+          </div>
+        )}
       </div>
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
         {TABS.map(function(tab) {
