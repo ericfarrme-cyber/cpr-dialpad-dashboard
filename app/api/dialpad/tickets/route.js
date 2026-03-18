@@ -35,71 +35,139 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: corsHeaders() });
 }
 
-var GRADING_PROMPT = `You are grading a CPR Cell Phone Repair ticket for process compliance. Score each applicable category 0-100 and explain why.
+var GRADING_PROMPT = `You are grading a CPR Cell Phone Repair ticket for process compliance. Score each section 0-100 and explain why. Be thorough but fair — partial credit for partial documentation.
 
-COMPLIANCE CRITERIA:
+═══ SECTION 1: INTAKE / DIAGNOSTIC NOTES (0-100) ═══
+The initial diagnostics section should address these questions. Not every item applies to every repair — score based on what's RELEVANT to this specific ticket:
 
-1. INTAKE DIAGNOSTICS (0-100): The initial diagnostics section must document THREE things:
-   A) ISSUE: What is wrong with the device? What did the customer report?
-   B) PRICE: Was the customer quoted a price or was pricing documented?
-   C) TURNAROUND TIME: Was the customer given an estimated turnaround/completion time?
-
-Scoring:
-- 90-100: All three (issue, price, turnaround time) are clearly documented
-- 70-89: Two of the three are documented
-- 40-69: Only one is documented
-- 0-39: None or essentially empty diagnostics
-
-2. TICKET NOTES (0-100): The notes section at the bottom of the ticket must document TWO things:
-   A) REPAIR OUTCOME: Was the repair successful? What was the result? What was encountered during repair? (e.g. "fully repaired, working as intended RFP!" or "unable to repair, board level damage" or "replaced screen, tested all functions")
-   B) CUSTOMER NOTIFIED OF COMPLETION: From the customer's perspective — would they know their repair is done and ready for pickup? Look for notes indicating the customer was contacted AFTER the repair was completed to let them know. (e.g. "Called customer, phone is ready for pickup" or "Texted customer repair complete" or "Left voicemail, repair finished" or "Customer VM not setup, auto email sent about completion")
-   
-   EXCEPTION: If the notes indicate the customer is already aware and returning (e.g. "customer is returning soon", "customer waiting in store", "customer is on their way", "customer will be back shortly", "customer picking up today"), this counts as FULL CREDIT for customer notification — no contact attempt needed because the customer already knows.
-   
-   Simply documenting the repair outcome is NOT enough — the employee must have also attempted to notify the customer OR documented that the customer is already aware/returning.
+A) PRIMARY ISSUE: What is the main problem? What did the customer report?
+B) SECONDARY ISSUES: Any additional issues noted? (Only penalize if there are obvious secondary issues visible but not documented)
+C) SERVICE PLANNED: What service/repair will be provided?
+D) REPAIR HISTORY: Any previous repairs mentioned? (e.g. "no previous repairs" or "was repaired elsewhere before")
+E) LIQUID/SPILL CHECK: Any mention of spills, submersion, or liquid damage? (e.g. "no known liquid damage" or "customer reports water exposure")
+F) WARRANTY OFFERED: Was a warranty mentioned or offered?
+G) PRICING: What is the total before tax? Any discounts and reasons?
+H) TURNAROUND/PROMISED BY: When is the customer expecting completion or an update? (e.g. "12-24hrs", "1-2 days for part + 1-2hrs once arrived", "ready by 3pm")
 
 Scoring:
-- 90-100: BOTH repair outcome AND customer notification of completion are clearly documented
-- 70-89: One of the two is documented well, the other is vague or implied
-- 40-69: Only one is documented, the other is missing entirely
-- 10-39: Notes exist but neither outcome nor completion notification is clearly stated
-- 0-9: No notes at all or completely irrelevant notes
+- 90-100: 6+ of the applicable items are clearly documented
+- 75-89: 4-5 items documented
+- 50-74: 2-3 items documented
+- 25-49: Only 1 item documented
+- 0-24: Empty or essentially no diagnostic information
 
-3. PAYMENT/DOWN PAYMENT: This criteria ONLY applies if parts needed to be ordered. If no parts were ordered, mark "payment_not_applicable": true, score 100, and EXCLUDE this category entirely from the overall score.
+═══ SECTION 2: REPAIR NOTES (0-100) ═══
+The repair notes should read as if someone is taking over the repair. They should document:
 
-   Look at the ticket items, notes, and transactions for ANY indication that a part was ordered, back-ordered, or needed to be special-ordered.
-   
-   TIMING IS CRITICAL: The down payment is our collateral for ordering the part. It must be collected at or very near the time of ticket intake — within about 2 hours. Compare the transaction/payment dates against the ticket creation date.
-   
-   Scoring if parts were ordered:
-   - 100: Down payment or full payment collected within ~2 hours of ticket creation
-   - 50: Payment was collected but more than 2 hours after intake
-   - 0: Part ordered with NO down payment, or payment only collected days later / after part arrived
+A) PRETEST: What was pretested before starting? (if device was functional enough to pretest)
+B) SERVICE PROVIDED: What repair/service was actually performed?
+C) NEW FINDINGS: Any new details discovered during the repair? (e.g. "found water damage indicators tripped", "battery was swollen")
+D) CUSTOMER COMMUNICATION: What has the customer been told along the way? Any updates given during the repair process?
+E) POST-TEST: What was post-tested after the repair? (e.g. "tested all functions", "screen, touch, Face ID all working")
 
-   If NO parts were ordered:
-   - Mark as "payment_not_applicable": true and score as 100
+Scoring:
+- 90-100: Service provided + post-test + at least 1-2 other items documented
+- 70-89: Service provided clearly documented, plus post-test OR new findings
+- 50-69: Service provided is documented but minimal detail, missing post-test
+- 25-49: Notes exist but vague — unclear what was actually done
+- 0-24: No repair notes or completely irrelevant
 
+═══ SECTION 3: PICKUP NOTES (0-100) ═══
+The pickup/completion notes should confirm the customer knows their device is ready:
+
+A) CUSTOMER CONTACTED: Is the customer aware the device is ready? Look for:
+   - "Called customer, ready for pickup"
+   - "Texted customer repair complete"
+   - "Left voicemail, device is ready"
+   - "Customer VM not setup, auto email sent"
+   EXCEPTION: If customer is waiting in store, returning soon, or was told a specific time and it's within that window, this counts as FULL CREDIT.
+
+B) CUSTOMER INFORMED OF WORK: Does the customer know what was done and what they're paying for?
+
+C) PICKUP TIMING: Any indication of when the customer is picking up? (e.g. "customer picking up today", "will return tomorrow")
+
+Scoring:
+- 90-100: Customer contacted + informed of what was done + pickup timing noted
+- 70-89: Customer contacted and at least partially informed
+- 50-69: Customer contacted but no detail on what was communicated
+- 25-49: Some indication but unclear if customer actually knows device is ready
+- 0-24: No evidence customer was notified at all
+
+═══ SECTION 4: PAYMENT / DOWN PAYMENT (0-100) ═══
+This ONLY applies if parts needed to be ordered. If no parts were ordered, mark "payment_not_applicable": true, score 100, and EXCLUDE from overall score.
+
+Look at ticket items, notes, and transactions for ANY indication a part was ordered, back-ordered, or special-ordered.
+
+INSURANCE CLAIM EXCEPTION: If the ticket appears to be an insurance claim (look for mentions of "insurance", "claim", "deductible", "Asurion", "warranty claim", carrier names like "Verizon claim", etc. in the notes, items, or ticket type), payment is typically invoiced/paid at a later date. In this case, mark "payment_not_applicable": true, score 100, and note "Insurance claim — payment invoiced separately."
+
+TIMING IS CRITICAL: The down payment is our collateral. It must be collected at or very near ticket intake — within about 2 hours. Compare transaction/payment dates against the ticket creation date.
+
+Scoring if parts were ordered (non-insurance):
+- 100: Down payment or full payment collected within ~2 hours of ticket creation
+- 50: Payment collected but more than 2 hours after intake
+- 0: Part ordered with NO down payment, or payment only collected days later
+
+If NO parts were ordered:
+- Mark "payment_not_applicable": true and score 100
+
+═══ SECTION 5: CONTACT INFORMATION (0-100) ═══
+Check the customer information on the ticket for completeness:
+
+A) FULL NAME: Does the customer have a first AND last name on file? (Not just a first name or a company name with no contact person)
+B) PHONE NUMBER: Is there a main phone number? If the customer is leaving their device, is there an ALTERNATE contact number too?
+C) EMAIL ADDRESS: Is there an email address on file? (Important — ensures they get automated Ready for Pickup emails if we can't reach them by phone)
+D) OTHER FIELDS: Are other required fields filled in (address, etc.)? Not as critical but still matters.
+
+Scoring:
+- 90-100: Full name + phone + email all present. Alternate phone if leaving device.
+- 70-89: Name + phone present, email missing
+- 50-69: Name present, phone present, but no email and no alternate when device is left
+- 25-49: Minimal info — only a name or only a phone number
+- 0-24: Customer info is essentially empty or placeholder
+
+═══ RESPONSE FORMAT ═══
 Respond ONLY with this exact JSON format, no other text:
 {
   "diagnostics_score": <number 0-100>,
-  "diagnostics_notes": "<brief explanation — mention which of issue/price/turnaround were found or missing>",
+  "diagnostics_notes": "<brief explanation — mention which items were found or missing>",
   "diagnostics_issue_found": <true/false>,
   "diagnostics_price_found": <true/false>,
   "diagnostics_turnaround_found": <true/false>,
-  "notes_score": <number 0-100>,
-  "notes_detail": "<brief explanation>",
-  "notes_outcome_documented": <true/false>,
-  "notes_customer_contacted": <true/false>,
+  "diagnostics_history_noted": <true/false>,
+  "diagnostics_liquid_check": <true/false>,
+  "diagnostics_warranty_offered": <true/false>,
+  "diagnostics_service_planned": <true/false>,
+  "repair_notes_score": <number 0-100>,
+  "repair_notes_detail": "<brief explanation>",
+  "repair_pretest_documented": <true/false>,
+  "repair_service_documented": <true/false>,
+  "repair_findings_documented": <true/false>,
+  "repair_communication_documented": <true/false>,
+  "repair_posttest_documented": <true/false>,
+  "pickup_score": <number 0-100>,
+  "pickup_notes": "<brief explanation>",
+  "pickup_customer_contacted": <true/false>,
+  "pickup_customer_informed": <true/false>,
+  "pickup_timing_noted": <true/false>,
   "payment_score": <number 0-100>,
   "payment_notes": "<brief explanation>",
   "payment_not_applicable": <true/false>,
+  "contact_score": <number 0-100>,
+  "contact_notes": "<brief explanation>",
+  "contact_name_present": <true/false>,
+  "contact_phone_present": <true/false>,
+  "contact_email_present": <true/false>,
+  "contact_alternate_phone": <true/false>,
   "overall_score": <number 0-100>,
   "confidence": <number 0-100>
 }
 
 The overall_score should be calculated as:
-- If payment applies: Diagnostics 35% + Notes 40% + Payment 25%
-- If payment is not applicable: Diagnostics 45% + Notes 55%`;
+- If payment applies: Intake 25% + Repair Notes 25% + Pickup 20% + Payment 20% + Contact 5% (= 95%, round remaining 5% into Intake making it 30%)
+- If payment is not applicable: Intake 30% + Repair Notes 35% + Pickup 25% + Contact 5% (= 95%, round remaining 5% into Repair making it 40%)
+Simplified:
+- If payment applies: Intake 30% + Repair Notes 25% + Pickup 20% + Payment 20% + Contact 5%
+- If payment is not applicable: Intake 30% + Repair Notes 40% + Pickup 25% + Contact 5%`;
 
 export async function GET(request) {
   if (!supabase) return jsonResponse({ success: false, error: "Supabase not configured" });
@@ -239,6 +307,11 @@ export async function POST(request) {
     ticketContext += "Device: " + (ticket.device || "Unknown") + "\n";
     ticketContext += "Date Created (Intake): " + (ticket.date_created || "Unknown") + "\n";
     ticketContext += "Date Closed: " + (ticket.date_closed || "Unknown") + "\n\n";
+    ticketContext += "CUSTOMER CONTACT INFO:\n";
+    ticketContext += "Name: " + (ticket.customer_name || "(not found)") + "\n";
+    ticketContext += "Phone: " + (ticket.customer_phone || "(not found)") + "\n";
+    ticketContext += "All Phones: " + (ticket.customer_phones_all && ticket.customer_phones_all.length > 0 ? ticket.customer_phones_all.join(", ") : "(none)") + "\n";
+    ticketContext += "Email: " + (ticket.customer_email || "(not found)") + "\n\n";
     ticketContext += "INITIAL DIAGNOSTICS:\n" + (ticket.raw_diagnostics || "(none)") + "\n\n";
     ticketContext += "TICKET ITEMS:\n" + (ticket.raw_items || "(none)") + "\n\n";
     ticketContext += "TICKET NOTES:\n" + (ticket.raw_notes || "(none)") + "\n\n";
@@ -254,7 +327,7 @@ export async function POST(request) {
         },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
-          max_tokens: 800,
+          max_tokens: 1500,
           messages: [
             { role: "user", content: GRADING_PROMPT + "\n\n" + ticketContext }
           ]
@@ -265,7 +338,7 @@ export async function POST(request) {
       var cleaned = text.replace(/```json|```/g, "").trim();
       var grade = JSON.parse(cleaned);
 
-      // Save to Supabase
+      // Save to Supabase — map new grading structure to existing columns
       var record = {
         ticket_number: ticket.ticket_number,
         ticket_type: ticket.ticket_type || "",
@@ -281,16 +354,20 @@ export async function POST(request) {
         gross_profit: parseFloat(ticket.gross_profit || 0),
         gpm_pct: parseFloat(ticket.gpm_pct || 0),
         overall_score: grade.overall_score || 0,
+        // Section 1: Intake/Diagnostics
         diagnostics_score: grade.diagnostics_score || 0,
         diagnostics_notes: grade.diagnostics_notes || "",
+        // Section 2: Repair Notes → stored in notes_score/notes_detail
+        notes_score: grade.repair_notes_score || 0,
+        notes_detail: grade.repair_notes_detail || "",
+        notes_outcome_documented: !!grade.repair_service_documented,
+        notes_customer_contacted: !!grade.pickup_customer_contacted,
+        // Section 3: Pickup → stored in categorization_score/categorization_notes
+        categorization_score: grade.pickup_score || 0,
+        categorization_notes: grade.pickup_notes || "",
+        // Section 4: Payment
         payment_score: grade.payment_score || 0,
-        payment_notes: grade.payment_notes || "",
-        notes_score: grade.notes_score || 0,
-        notes_detail: grade.notes_detail || "",
-        notes_outcome_documented: !!grade.notes_outcome_documented,
-        notes_customer_contacted: !!grade.notes_customer_contacted,
-        categorization_score: 0,
-        categorization_notes: grade.payment_not_applicable ? "Payment N/A — no parts ordered" : "",
+        payment_notes: grade.payment_notes || (grade.payment_not_applicable ? "Payment N/A — no parts ordered" : ""),
         raw_diagnostics: ticket.raw_diagnostics || "",
         raw_notes: ticket.raw_notes || "",
         raw_items: ticket.raw_items || "",
