@@ -149,7 +149,9 @@ export default function ComplianceTab({ storeFilter }) {
                       <div style={{ display:"flex",alignItems:"center",gap:14 }}>
                         <div style={{ padding:"4px 10px",borderRadius:6,background:sc+"22",color:sc,fontSize:16,fontWeight:800,minWidth:50,textAlign:"center" }}>{t.overall_score}</div>
                         <div>
-                          <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{"#" + t.ticket_number}</div>
+                          <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener noreferrer"
+                            onClick={function(e){e.stopPropagation();}}
+                            style={{ color:"#F0F1F3",fontSize:13,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed #6B6F78" }}>{"#" + t.ticket_number}</a>
                           <div style={{ color:"#6B6F78",fontSize:11 }}>
                             {t.ticket_type || "—"}
                             {store && <span style={{ marginLeft:8,color:store.color }}>{store.name.replace("CPR ","")}</span>}
@@ -218,6 +220,10 @@ export default function ComplianceTab({ storeFilter }) {
                           {t.device && <div style={{ color:"#6B6F78",fontSize:11 }}>Device: {t.device}</div>}
                           {t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
                           {t.date_closed && <div style={{ color:"#6B6F78",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
+                          <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener noreferrer"
+                            style={{ display:"inline-block",marginTop:6,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"#7B2FFF",fontSize:10,fontWeight:600,textDecoration:"none" }}>
+                            View in RepairQ →
+                          </a>
                         </div>
                       </div>
                     )}
