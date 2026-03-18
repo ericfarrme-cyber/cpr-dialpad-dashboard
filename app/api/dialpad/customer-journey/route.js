@@ -41,7 +41,7 @@ export async function GET(request) {
     // Get a sample of audits to check column names and data format
     var { data: sampleAudits, error: sErr } = await supabase
       .from("audit_results")
-      .select("call_id, external_number, employee, store, score, call_type, date_started")
+      .select("call_id, phone, employee, store, score, call_type, date_started")
       .limit(5);
     
     var { data: countAll, error: cErr } = await supabase
@@ -51,8 +51,8 @@ export async function GET(request) {
     var { data: countWithPhone, error: cpErr } = await supabase
       .from("audit_results")
       .select("call_id", { count: "exact" })
-      .not("external_number", "is", null)
-      .neq("external_number", "");
+      .not("phone", "is", null)
+      .neq("phone", "");
 
     return jsonResponse({
       success: true,
@@ -61,8 +61,8 @@ export async function GET(request) {
       sample: (sampleAudits || []).map(function(a) {
         return {
           call_id: a.call_id,
-          external_number: a.external_number,
-          normalized: normPhone(a.external_number),
+          phone: a.phone,
+          normalized: normPhone(a.phone),
           employee: a.employee,
           store: a.store,
           date_started: a.date_started,
@@ -82,7 +82,7 @@ export async function GET(request) {
     var { data: audits, error: aErr } = await supabase
       .from("audit_results")
       .select("call_id, employee, store, score, call_type, inquiry, outcome, date_started, talk_duration, confidence, transcript_preview, appt_offered, discount_mentioned, warranty_mentioned")
-      .or("external_number.ilike.%" + normalized + ",external_number.ilike.%+" + normalized)
+      .or("phone.ilike.%" + normalized + ",phone.ilike.%+" + normalized)
       .order("date_started", { ascending: false })
       .limit(50);
     if (aErr) console.error("[journey] Audit query error:", aErr.message);
@@ -161,9 +161,9 @@ export async function GET(request) {
     // Get recent audits — no date filter since we want to match all calls to tickets
     var auditQuery = supabase
       .from("audit_results")
-      .select("call_id, external_number, employee, store, score, call_type, inquiry, outcome, date_started, talk_duration, confidence")
-      .not("external_number", "is", null)
-      .neq("external_number", "");
+      .select("call_id, phone, employee, store, score, call_type, inquiry, outcome, date_started, talk_duration, confidence")
+      .not("phone", "is", null)
+      .neq("phone", "");
     if (store && store !== "all") auditQuery = auditQuery.eq("store", store);
     var { data: allAudits, error: aErr2 } = await auditQuery.limit(2000);
     if (aErr2) console.error("[journey] Audits query error:", aErr2.message);
@@ -180,7 +180,7 @@ export async function GET(request) {
     // Index audits by normalized phone
     var auditsByPhone = {};
     (allAudits || []).forEach(function(a) {
-      var ph = normPhone(a.external_number);
+      var ph = normPhone(a.phone);
       if (ph.length !== 10) return;
       if (!auditsByPhone[ph]) auditsByPhone[ph] = [];
       auditsByPhone[ph].push(a);
