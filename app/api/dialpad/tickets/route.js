@@ -114,15 +114,26 @@ If NO parts were ordered:
 Check the customer information on the ticket for completeness:
 
 A) FULL NAME: Does the customer have a first AND last name on file? (Not just a first name or a company name with no contact person)
-B) PHONE NUMBER: Is there a main phone number? If the customer is leaving their device, is there an ALTERNATE contact number too?
-C) EMAIL ADDRESS: Is there an email address on file? (Important — ensures they get automated Ready for Pickup emails if we can't reach them by phone)
-D) OTHER FIELDS: Are other required fields filled in (address, etc.)? Not as critical but still matters.
+B) PHONE NUMBER: Is there a main phone number?
+C) ALTERNATE PHONE: Is there a second/alternate phone number? This is BONUS credit — employees who take the time to collect an alternate number are going above and beyond. Look at the "All Phones" field — if there are 2+ phone numbers listed, the alternate was collected.
+D) EMAIL ADDRESS: Is there a REAL email address on file? 
+
+   FAKE EMAIL DETECTION: Employees sometimes enter fake/placeholder emails to bypass required fields. The following are NOT real emails and should be scored as NO email:
+   - none@gmail.com, none@yahoo.com, none@anything
+   - declined@gmail.com, declined@anything
+   - no@gmail.com, na@gmail.com, noemail@gmail.com
+   - test@test.com, fake@fake.com, asdf@gmail.com
+   - Any email starting with "none", "declined", "noemail", "na@", "no@", "test@test"
+   - Any email containing "decline" or "noneemail"
+   
+   A REAL email ensures customers get automated Ready for Pickup notifications if we can't reach them by phone. This is important.
 
 Scoring:
-- 90-100: Full name + phone + email all present. Alternate phone if leaving device.
-- 70-89: Name + phone present, email missing
-- 50-69: Name present, phone present, but no email and no alternate when device is left
-- 25-49: Minimal info — only a name or only a phone number
+- 95-100: Full name + phone + REAL email + alternate phone (above and beyond)
+- 85-94: Full name + phone + REAL email (no alternate, but solid)
+- 70-84: Name + phone present, real email missing but alternate phone collected
+- 55-69: Name + phone present, no real email, no alternate phone
+- 25-54: Minimal info — only a name or only a phone number
 - 0-24: Customer info is essentially empty or placeholder
 
 ═══ RESPONSE FORMAT ═══
