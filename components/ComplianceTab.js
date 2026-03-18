@@ -70,11 +70,12 @@ export default function ComplianceTab({ storeFilter }) {
         <div>
           {stats && stats.total > 0 ? (
             <div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24 }}>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
                 <StatCard label="Tickets Graded" value={stats.total} accent="#7B2FFF" />
                 <StatCard label="Avg Score" value={stats.avgOverall + "/100"} accent={scoreColor(stats.avgOverall)} />
-                <StatCard label="Diagnostics" value={stats.avgDiag + "%"} accent={scoreColor(stats.avgDiag)} />
-                <StatCard label="Notes Quality" value={stats.avgNotes + "%"} accent={scoreColor(stats.avgNotes)} />
+                <StatCard label="Intake" value={stats.avgDiag + "%"} accent={scoreColor(stats.avgDiag)} />
+                <StatCard label="Repair Notes" value={stats.avgNotes + "%"} accent={scoreColor(stats.avgNotes)} />
+                <StatCard label="Pickup" value={(stats.avgCategorization || 0) + "%"} accent={scoreColor(stats.avgCategorization || 0)} />
               </div>
 
               {/* Store comparison */}
@@ -156,11 +157,13 @@ export default function ComplianceTab({ storeFilter }) {
                           </div>
                         </div>
                       </div>
-                      <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+                      <div style={{ display:"flex",gap:10,alignItems:"center" }}>
                         {[
-                          { label:"Diag", score:t.diagnostics_score },
-                          { label:"Notes", score:t.notes_score },
+                          { label:"Intake", score:t.diagnostics_score },
+                          { label:"Repair", score:t.notes_score },
+                          { label:"Pickup", score:t.categorization_score },
                           { label:"Pay", score:t.payment_score },
+                          { label:"Contact", score:t.contact_score || 0 },
                         ].map(function(cat) {
                           return (
                             <div key={cat.label} style={{ textAlign:"center" }}>
@@ -174,11 +177,11 @@ export default function ComplianceTab({ storeFilter }) {
 
                     {isExpanded && (
                       <div style={{ padding:"0 20px 20px",background:"#12141A" }}>
-                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:12 }}>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
                           {[
-                            { label:"Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"#7B2FFF" },
-                            { label:"Ticket Notes",score:t.notes_score,notes:t.notes_detail,color:"#00D4FF" },
-                            { label:"Payment/Down Payment",score:t.payment_score,notes:t.payment_notes + (t.categorization_notes ? " — " + t.categorization_notes : ""),color:"#FBBF24" },
+                            { label:"Intake / Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"#7B2FFF" },
+                            { label:"Repair Notes",score:t.notes_score,notes:t.notes_detail,color:"#00D4FF" },
+                            { label:"Pickup / Completion",score:t.categorization_score,notes:t.categorization_notes,color:"#FF2D95" },
                           ].map(function(cat) {
                             return (
                               <div key={cat.label} style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid "+cat.color+"22" }}>
@@ -191,13 +194,31 @@ export default function ComplianceTab({ storeFilter }) {
                             );
                           })}
                         </div>
-                        <div style={{ display:"flex",gap:12,marginBottom:8 }}>
-                          <span style={{ fontSize:12 }}>{t.notes_outcome_documented ? "\u2705" : "\u274C"} Repair outcome documented</span>
-                          <span style={{ fontSize:12 }}>{t.notes_customer_contacted ? "\u2705" : "\u274C"} Customer contacted</span>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
+                          <div style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid #FBBF2422" }}>
+                            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+                              <span style={{ color:"#FBBF24",fontSize:11,fontWeight:700 }}>Payment</span>
+                              <span style={{ color:scoreColor(t.payment_score),fontSize:14,fontWeight:800 }}>{t.payment_score}</span>
+                            </div>
+                            <div style={{ color:"#8B8F98",fontSize:11,lineHeight:1.4 }}>{t.payment_notes || "—"}</div>
+                          </div>
+                          <div style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid #4ADE8022" }}>
+                            <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
+                              <span style={{ color:"#4ADE80",fontSize:11,fontWeight:700 }}>Contact Info</span>
+                              <span style={{ color:scoreColor(t.contact_score || 0),fontSize:14,fontWeight:800 }}>{t.contact_score || 0}</span>
+                            </div>
+                            <div style={{ color:"#8B8F98",fontSize:11,lineHeight:1.4 }}>{t.contact_notes || "—"}</div>
+                          </div>
                         </div>
-                        {t.device && <div style={{ color:"#6B6F78",fontSize:11 }}>Device: {t.device}</div>}
-                        {t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
-                        {t.date_closed && <div style={{ color:"#6B6F78",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
+                        <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
+                          <span style={{ fontSize:11 }}>{t.notes_outcome_documented ? "\u2705" : "\u274C"} Repair service documented</span>
+                          <span style={{ fontSize:11 }}>{t.notes_customer_contacted ? "\u2705" : "\u274C"} Customer contacted for pickup</span>
+                        </div>
+                        <div style={{ display:"flex",gap:16,flexWrap:"wrap" }}>
+                          {t.device && <div style={{ color:"#6B6F78",fontSize:11 }}>Device: {t.device}</div>}
+                          {t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
+                          {t.date_closed && <div style={{ color:"#6B6F78",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
+                        </div>
                       </div>
                     )}
                   </div>
