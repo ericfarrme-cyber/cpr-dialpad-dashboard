@@ -18,7 +18,7 @@ export async function GET(request) {
   try {
     var [ticketRes, callRes, auditRes, rosterRes] = await Promise.all([
       supabase.from("ticket_grades").select("*"),
-      supabase.from("call_records").select("store, direction, external_number, date_started, is_answered, is_missed, employee, talk_duration")
+      supabase.from("call_records").select("store, direction, phone, date_started, is_answered, is_missed, employee, talk_duration")
         .eq("target_type", "department").gte("date_started", since),
       supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned")
         .eq("excluded", false).neq("call_type", "non_scorable").gte("date_started", since),
@@ -55,7 +55,7 @@ export async function GET(request) {
     var callsByPhone = {};
     calls.forEach(function(c) {
       if (c.direction !== "inbound") return;
-      var ph = (c.external_number || "").replace(/\D/g, "").slice(-10);
+      var ph = (c.phone || "").replace(/\D/g, "").slice(-10);
       if (!ph || ph.length < 10) return;
       if (!callsByPhone[ph]) callsByPhone[ph] = [];
       callsByPhone[ph].push(c);
