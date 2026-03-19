@@ -40,7 +40,8 @@ function MiniBar({ value, max, color }) {
   );
 }
 
-export default function ScorecardTab({ storeFilter }) {
+export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
+  var isEmployeeView = viewAs === "employee" && viewEmployee;
   var [data, setData] = useState(null);
   var [loading, setLoading] = useState(true);
   var [expandedEmp, setExpandedEmp] = useState(null);
@@ -89,6 +90,17 @@ export default function ScorecardTab({ storeFilter }) {
     ? empScores.filter(function(e) { return e.store === storeFilter; })
     : empScores;
 
+  // Employee view: only show their own data
+  if (isEmployeeView) {
+    filteredEmps = empScores.filter(function(e) {
+      return e.name.toLowerCase() === viewEmployee.toLowerCase();
+    });
+  }
+
+  var scorecardSubtabs = isEmployeeView
+    ? [{id:"scores",label:"My Scores",icon:"\uD83C\uDFC6"}]
+    : [{id:"scores",label:"Scores",icon:"\uD83C\uDFC6"},{id:"config",label:"Scoring Config",icon:"\u2699\uFE0F"}];
+
   var radarData = [
     { category: "Repairs", fullMark: 100 },
     { category: "Audit", fullMark: 100 },
@@ -111,7 +123,7 @@ export default function ScorecardTab({ storeFilter }) {
     <div>
       {/* Sub-nav */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-        {[{id:"scores",label:"Scores",icon:"\uD83C\uDFC6"},{id:"config",label:"Scoring Config",icon:"\u2699\uFE0F"}].map(function(v) {
+        {scorecardSubtabs.map(function(v) {
           return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
         })}
       </div>
@@ -233,7 +245,7 @@ export default function ScorecardTab({ storeFilter }) {
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
         <div>
-          <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>Employee Scorecard</h2>
+          <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>{isEmployeeView ? "My Scorecard" : "Employee Scorecard"}</h2>
           <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Scored on Repairs (35%) + Phone Audit (35%) + Ticket Compliance (30%)</p>
         </div>
       </div>
@@ -384,6 +396,7 @@ export default function ScorecardTab({ storeFilter }) {
         </div>
       )}
 
+      {!isEmployeeView && (<div>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFEA"}</span>
         <div>
@@ -454,7 +467,9 @@ export default function ScorecardTab({ storeFilter }) {
           })}
         </div>
       </div>
+      </div>)}
 
+      {!isEmployeeView && (
       <div style={{ background: "#1A1D23", borderRadius: 12, padding: 16 }}>
         <div style={{ color: "#6B6F78", fontSize: 11 }}>
           <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs ({Math.round((configMap.emp_weight_repairs||0.35)*100)}%) + Phone Audit ({Math.round((configMap.emp_weight_audit||0.35)*100)}%) + Ticket Compliance ({Math.round((configMap.emp_weight_compliance||0.30)*100)}%).
@@ -462,6 +477,7 @@ export default function ScorecardTab({ storeFilter }) {
           <button onClick={function(){setView("config");}} style={{ marginLeft:8,color:"#7B2FFF",background:"none",border:"none",cursor:"pointer",fontSize:11,textDecoration:"underline" }}>Edit weights</button>
         </div>
       </div>
+      )}
       </div>)}
     </div>
   );
