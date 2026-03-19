@@ -15,6 +15,7 @@ import SalesTab from "@/components/SalesTab";
 import ScorecardTab from "@/components/ScorecardTab";
 import ComplianceTab from "@/components/ComplianceTab";
 import InsightsTab from "@/components/InsightsTab";
+import AdminTab from "@/components/AdminTab";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1210,6 +1211,9 @@ export default function DialpadDashboard() {
         {TABS.map(function(tab) {
           return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
+        {auth && auth.role === "admin" && (
+          <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif",marginLeft:"auto" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
+        )}
       </div>
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
@@ -1226,6 +1230,7 @@ export default function DialpadDashboard() {
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
         {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
+        {activeTab==="admin" && <AdminTab />}
       </div>
       <div style={{ padding:"16px 28px",borderTop:"1px solid #1E2028",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
         {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | {APP_NAME || "Focused Technologies"}
