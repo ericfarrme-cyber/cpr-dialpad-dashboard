@@ -27,7 +27,8 @@ function SectionHeader({ title, subtitle, icon }) {
 
 function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
-export default function SalesTab() {
+export default function SalesTab({ viewAs, viewEmployee }) {
+  var isEmployeeView = viewAs === "employee" && viewEmployee;
   var [view, setView] = useState("leaderboard");
   var [loading, setLoading] = useState(true);
   var currentPeriod = useMemo(function() {
@@ -204,11 +205,27 @@ export default function SalesTab() {
     } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
   };
 
-  var SUBTABS = [
-    { id: "leaderboard", label: "Leaderboard", icon: "🏆" },
-    { id: "upload", label: "Import Data", icon: "📤" },
-    { id: "commissions", label: "Commission Config", icon: "⚙️" },
-  ];
+  var SUBTABS = isEmployeeView
+    ? [{ id: "leaderboard", label: "My Performance", icon: "\uD83C\uDFC6" }]
+    : [
+      { id: "leaderboard", label: "Leaderboard", icon: "\uD83C\uDFC6" },
+      { id: "upload", label: "Import Data", icon: "\uD83D\uDCE4" },
+      { id: "commissions", label: "Commission Config", icon: "\u2699\uFE0F" },
+    ];
+
+  // Filter to single employee for employee view
+  var displayEmployees = isEmployeeView
+    ? employees.filter(function(e) { return e.name.toLowerCase() === viewEmployee.toLowerCase(); })
+    : employees;
+
+  var displayTotals = isEmployeeView
+    ? displayEmployees.reduce(function(t, e) {
+        t.revenue += e.total_revenue; t.tickets += e.total_tickets; t.commission += e.total_commission;
+        t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
+        t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count;
+        return t;
+      }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0 })
+    : totals;
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading sales data...</div>;
 
@@ -250,20 +267,21 @@ export default function SalesTab() {
       {view === "leaderboard" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Total Revenue" value={fmt(totals.revenue)} accent="#4ADE80" sub={totals.tickets + " total tickets"} />
-            <StatCard label="Phone Repairs" value={totals.phone_tickets} accent="#7B2FFF" sub={fmt(totals.phone_total) + " revenue"} />
-            <StatCard label="Accessories" value={totals.accy_count} accent="#00D4FF" />
-            <StatCard label="Total Commissions" value={fmt(totals.commission)} accent="#FBBF24" sub={employees.length + " employees"} />
+            <StatCard label={isEmployeeView?"My Revenue":"Total Revenue"} value={fmt(displayTotals.revenue)} accent="#4ADE80" sub={displayTotals.tickets + " total tickets"} />
+            <StatCard label="Phone Repairs" value={displayTotals.phone_tickets} accent="#7B2FFF" sub={fmt(displayTotals.phone_total) + " revenue"} />
+            <StatCard label="Accessories" value={displayTotals.accy_count} accent="#00D4FF" />
+            <StatCard label={isEmployeeView?"My Commission":"Total Commissions"} value={fmt(displayTotals.commission)} accent="#FBBF24" sub={isEmployeeView?periodLabel:displayEmployees.length + " employees"} />
           </div>
 
-          {employees.length > 0 ? (
+          {displayEmployees.length > 0 ? (
             <div>
-              {/* Revenue chart */}
+              {/* Revenue chart — hide for single employee */}
+              {!isEmployeeView && (
               <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-                <SectionHeader title="Revenue by Employee" subtitle={periodLabel} icon="💰" />
-                <div style={{ height:Math.max(200, employees.length * 40) }}>
+                <SectionHeader title="Revenue by Employee" subtitle={periodLabel} icon="\uD83D\uDCB0" />
+                <div style={{ height:Math.max(200, displayEmployees.length * 40) }}>
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={employees} layout="vertical">
+                    <BarChart data={displayEmployees} layout="vertical">
                       <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
                       <XAxis type="number" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} tickFormatter={function(v){return "$"+v.toLocaleString();}} />
                       <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:11}} width={130} tickLine={false} axisLine={false} />
@@ -276,25 +294,26 @@ export default function SalesTab() {
                   </ResponsiveContainer>
                 </div>
               </div>
+              )}
 
               {/* Employee table */}
               <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-                <SectionHeader title="Employee Performance" subtitle={periodLabel + " — MTD"} icon="🏆" />
+                <SectionHeader title={isEmployeeView?"My Performance Breakdown":"Employee Performance"} subtitle={periodLabel + " — MTD"} icon="\uD83C\uDFC6" />
                 <div style={{ overflowX:"auto" }}>
                   <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
                     <thead>
                       <tr style={{ borderBottom:"1px solid #2A2D35" }}>
-                        {["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Total Revenue","Commission"].map(function(h,i) {
-                          return <th key={i} style={{ textAlign:i<=1?"left":"right",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
+                        {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Total Revenue","Commission"]).map(function(h,i) {
+                          return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                         })}
                       </tr>
                     </thead>
                     <tbody>
-                      {employees.map(function(emp, i) {
+                      {displayEmployees.map(function(emp, i) {
                         var medal = i===0?"\uD83E\uDD47":i===1?"\uD83E\uDD48":i===2?"\uD83E\uDD49":"#"+(i+1);
                         return (
                           <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                            <td style={{ padding:"12px",fontSize:16,textAlign:"center",width:40 }}>{medal}</td>
+                            {!isEmployeeView && <td style={{ padding:"12px",fontSize:16,textAlign:"center",width:40 }}>{medal}</td>}
                             <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.phone_tickets}</div>
@@ -324,16 +343,18 @@ export default function SalesTab() {
                           </tr>
                         );
                       })}
-                      {/* Totals row */}
+                      {/* Totals row — hide for employee view */}
+                      {!isEmployeeView && (
                       <tr style={{ borderTop:"2px solid #2A2D35",background:"#12141A" }}>
                         <td colSpan={2} style={{ padding:"12px",color:"#8B8F98",fontSize:12,fontWeight:700 }}>TOTALS</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{totals.phone_tickets}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{totals.other_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{totals.accy_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{totals.clean_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(totals.revenue)}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(totals.commission)}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.phone_tickets}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.other_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.accy_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.clean_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
                       </tr>
+                      )}
                     </tbody>
                   </table>
                 </div>
@@ -341,10 +362,10 @@ export default function SalesTab() {
             </div>
           ) : (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
-              <div style={{ fontSize:32,marginBottom:12 }}>{"💰"}</div>
-              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>No sales data yet</div>
-              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>Import your RepairQ CSV files to see employee performance and commissions.</div>
-              <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>
+              <div style={{ fontSize:32,marginBottom:12 }}>{"\uD83D\uDCB0"}</div>
+              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>{isEmployeeView ? "No sales data for " + viewEmployee : "No sales data yet"}</div>
+              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>{isEmployeeView ? "Sales data hasn't been imported for this period yet." : "Import your RepairQ CSV files to see employee performance and commissions."}</div>
+              {!isEmployeeView && <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>}
             </div>
           )}
         </div>
