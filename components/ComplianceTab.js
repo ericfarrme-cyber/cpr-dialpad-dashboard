@@ -19,7 +19,8 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
-export default function ComplianceTab({ storeFilter }) {
+export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
+  var isEmployeeView = viewAs === "employee" && viewEmployee;
   var [view, setView] = useState("overview");
   var [stats, setStats] = useState(null);
   var [tickets, setTickets] = useState([]);
@@ -30,23 +31,31 @@ export default function ComplianceTab({ storeFilter }) {
     setLoading(true);
     try {
       var sp = storeFilter && storeFilter !== "all" ? "&store=" + storeFilter : "";
+      if (isEmployeeView) sp += "&employee=" + encodeURIComponent(viewEmployee);
       var [statsRes, ticketsRes] = await Promise.all([
         fetch("/api/dialpad/tickets?action=stats" + sp).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tickets?action=list" + sp + "&limit=200").then(function(r) { return r.json(); }),
       ]);
       if (statsRes.success) setStats(statsRes.stats);
-      if (ticketsRes.success) setTickets(ticketsRes.tickets || []);
+      if (ticketsRes.success) {
+        var t = ticketsRes.tickets || [];
+        if (isEmployeeView) {
+          t = t.filter(function(tk) {
+            return (tk.employee_repaired || "").toLowerCase() === viewEmployee.toLowerCase() ||
+                   (tk.employee_added || "").toLowerCase() === viewEmployee.toLowerCase();
+          });
+        }
+        setTickets(t);
+      }
     } catch(e) { console.error(e); }
     setLoading(false);
   };
 
-  useEffect(function() { loadData(); }, [storeFilter]);
+  useEffect(function() { loadData(); }, [storeFilter, viewEmployee]);
 
-  var SUBTABS = [
-    { id: "overview", label: "Overview", icon: "\uD83D\uDCCA" },
-    { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" },
-    { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" },
-  ];
+  var SUBTABS = isEmployeeView
+    ? [{ id: "overview", label: "My Compliance", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "My Tickets", icon: "\uD83C\uDFAB" }]
+    : [{ id: "overview", label: "Overview", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" }, { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" }];
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading compliance data...</div>;
 
@@ -79,7 +88,7 @@ export default function ComplianceTab({ storeFilter }) {
               </div>
 
               {/* Store comparison */}
-              {storeChartData.length > 0 && (
+              {!isEmployeeView && storeChartData.length > 0 && (
                 <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
                   <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Store</div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat("+storeChartData.length+",1fr)",gap:16 }}>
@@ -101,7 +110,7 @@ export default function ComplianceTab({ storeFilter }) {
               )}
 
               {/* Employee chart */}
-              {empChartData.length > 0 && (
+              {!isEmployeeView && empChartData.length > 0 && (
                 <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
                   <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Employee</div>
                   <div style={{ height:Math.max(200, empChartData.length * 36) }}>
@@ -218,7 +227,7 @@ export default function ComplianceTab({ storeFilter }) {
                         </div>
                         <div style={{ display:"flex",gap:16,flexWrap:"wrap" }}>
                           {t.device && <div style={{ color:"#6B6F78",fontSize:11 }}>Device: {t.device}</div>}
-                          {t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
+                          {!isEmployeeView && t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
                           {t.date_closed && <div style={{ color:"#6B6F78",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
                           <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener noreferrer"
                             style={{ display:"inline-block",marginTop:6,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"#7B2FFF",fontSize:10,fontWeight:600,textDecoration:"none" }}>
