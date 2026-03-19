@@ -16,6 +16,7 @@ import ScorecardTab from "@/components/ScorecardTab";
 import ComplianceTab from "@/components/ComplianceTab";
 import InsightsTab from "@/components/InsightsTab";
 import AdminTab from "@/components/AdminTab";
+import AIAssistant from "@/components/AIAssistant";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1115,6 +1116,42 @@ export default function DialpadDashboard() {
   var [keywords, setKeywords] = useState(SAMPLE_KEYWORDS);
   var [problemCalls, setProblemCalls] = useState(SAMPLE_PROBLEM_CALLS);
 
+  // Preview mode — admin can simulate other roles
+  var [previewRole, setPreviewRole] = useState(null); // null = no preview, "manager", "employee"
+  var [previewEmployee, setPreviewEmployee] = useState(""); // employee name for employee preview
+  var [previewStore, setPreviewStore] = useState(""); // store for employee preview
+  var [rosterList, setRosterList] = useState([]);
+  var [aiOpen, setAiOpen] = useState(false);
+
+  // Effective role = preview role if set, otherwise actual role
+  var effectiveRole = previewRole || (auth ? auth.role : "employee");
+  var isAdmin = auth && auth.role === "admin";
+  var isPreviewing = previewRole !== null;
+
+  // Load roster for employee preview picker
+  useEffect(function() {
+    if (isAdmin) {
+      fetch("/api/dialpad/roster").then(function(r){return r.json();}).then(function(json) {
+        if (json.success) setRosterList(json.roster || []);
+      }).catch(function(){});
+    }
+  }, [isAdmin]);
+
+  // Tab visibility by role
+  var ADMIN_TABS = TABS.map(function(t){return t.id;});
+  var MANAGER_TABS = TABS.map(function(t){return t.id;});
+  var EMPLOYEE_TABS = ["scorecard", "schedule", "compliance", "sales"];
+
+  var visibleTabIds = effectiveRole === "employee" ? EMPLOYEE_TABS : effectiveRole === "manager" ? MANAGER_TABS : ADMIN_TABS;
+  var visibleTabs = TABS.filter(function(t) { return visibleTabIds.indexOf(t.id) >= 0; });
+
+  // Reset to first visible tab if current tab is hidden
+  useEffect(function() {
+    if (visibleTabIds.indexOf(activeTab) < 0 && visibleTabs.length > 0) {
+      setActiveTab(visibleTabs[0].id);
+    }
+  }, [effectiveRole]);
+
   var loadStoredData = useCallback(async function() {
     try {
       var res = await fetch("/api/dialpad/stored?days=30");
@@ -1207,34 +1244,88 @@ export default function DialpadDashboard() {
           </div>
         )}
       </div>
+
+      {/* Preview banner — admin only */}
+      {isAdmin && (
+        <div style={{ background:isPreviewing?"#FF2D9515":"#12141A",borderBottom:"1px solid "+(isPreviewing?"#FF2D9533":"#1E2028"),padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap" }}>
+          <span style={{ color:"#8B8F98",fontSize:11,fontWeight:600 }}>View as:</span>
+          {[
+            { id: null, label: "Admin (You)" },
+            { id: "manager", label: "Manager" },
+            { id: "employee", label: "Employee" },
+          ].map(function(p) {
+            var isActive = previewRole === p.id;
+            return <button key={p.id || "admin"} onClick={function(){
+              setPreviewRole(p.id);
+              if (!p.id) { setPreviewEmployee(""); setPreviewStore(""); }
+            }} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid "+(isActive?"#FF2D9555":"#2A2D35"),background:isActive?"#FF2D9518":"transparent",color:isActive?"#FF2D95":"#8B8F98",fontSize:10,fontWeight:600,cursor:"pointer" }}>{p.label}</button>;
+          })}
+          {previewRole === "employee" && (
+            <select value={previewEmployee} onChange={function(e){
+              setPreviewEmployee(e.target.value);
+              var emp = rosterList.find(function(r){return r.name === e.target.value;});
+              if (emp) setPreviewStore(emp.store);
+            }} style={{ padding:"4px 8px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:10 }}>
+              <option value="">Select employee...</option>
+              {rosterList.filter(function(r){return r.active;}).map(function(r) {
+                return <option key={r.name} value={r.name}>{r.name + " (" + (r.store || "all") + ")"}</option>;
+              })}
+            </select>
+          )}
+          {isPreviewing && (
+            <span style={{ color:"#FF2D95",fontSize:10,fontStyle:"italic" }}>
+              {previewRole === "employee" && previewEmployee ? "Viewing as: " + previewEmployee : "Previewing " + previewRole + " view"}
+            </span>
+          )}
+        </div>
+      )}
+
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
-        {TABS.map(function(tab) {
+        {visibleTabs.map(function(tab) {
           return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
-        {auth && auth.role === "admin" && (
+        {isAdmin && !isPreviewing && (
           <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif",marginLeft:"auto" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
         )}
       </div>
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
-        {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} />}
+        {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="overview" && <OverviewTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} />}
         {activeTab==="keywords" && <KeywordsTab keywords={keywords} />}
         {activeTab==="missed" && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} />}
         {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
-        {activeTab==="sales" && <SalesTab />}
-        {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} />}
+        {activeTab==="sales" && <SalesTab viewAs={effectiveRole} viewEmployee={previewEmployee} />}
+        {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="insights" && <InsightsTab storeFilter={storeFilter} />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
         {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
-        {activeTab==="admin" && <AdminTab />}
+        {activeTab==="admin" && <AdminTab onPreview={function(role, name, store){
+          setPreviewRole(role === "admin" ? null : role);
+          setPreviewEmployee(role === "employee" ? name : "");
+          setPreviewStore(store || "");
+          setActiveTab("scorecard");
+        }} />}
       </div>
       <div style={{ padding:"16px 28px",borderTop:"1px solid #1E2028",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
         {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | {APP_NAME || "Focused Technologies"}
       </div>
+
+      {/* AI Assistant floating button */}
+      {!aiOpen && (
+        <button onClick={function(){setAiOpen(true);}}
+          style={{ position:"fixed",bottom:24,right:24,width:56,height:56,borderRadius:16,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:24,cursor:"pointer",boxShadow:"0 4px 20px rgba(123,47,255,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,transition:"transform 0.2s" }}
+          onMouseEnter={function(e){e.target.style.transform="scale(1.1)";}}
+          onMouseLeave={function(e){e.target.style.transform="scale(1)";}}>
+          {"\u2728"}
+        </button>
+      )}
+
+      {/* AI Assistant panel */}
+      <AIAssistant isOpen={aiOpen} onClose={function(){setAiOpen(false);}} />
     </div>
   );
 }
