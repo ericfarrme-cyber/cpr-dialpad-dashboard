@@ -261,13 +261,21 @@ export default function AdminTab() {
               {/* Edit form */}
               {isEditing && (
                 <div style={{ marginTop:12,padding:16,background:"#12141A",borderRadius:8 }}>
-                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10 }}>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10 }}>
                     <div>
                       <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Name</label>
                       <input type="text" defaultValue={u.name}
                         id={"edit-name-"+u.id}
                         style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} />
                     </div>
+                    <div>
+                      <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Email</label>
+                      <input type="email" defaultValue={u.email}
+                        id={"edit-email-"+u.id}
+                        style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} />
+                    </div>
+                  </div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10 }}>
                     <div>
                       <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Role</label>
                       <select defaultValue={u.role} id={"edit-role-"+u.id}
@@ -286,9 +294,10 @@ export default function AdminTab() {
                   </div>
                   <button onClick={function(){
                     var name = document.getElementById("edit-name-"+u.id).value;
+                    var email = document.getElementById("edit-email-"+u.id).value.toLowerCase().trim();
                     var role = document.getElementById("edit-role-"+u.id).value;
                     var store = document.getElementById("edit-store-"+u.id).value;
-                    handleUpdate(u.id, { name: name, role: role, store: store });
+                    handleUpdate(u.id, { name: name, email: email, role: role, store: store });
                   }}
                     style={{ marginTop:10,padding:"7px 18px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>
                     Save Changes
