@@ -21,7 +21,7 @@ function StatCard({ label, value, sub, accent }) {
   );
 }
 
-export default function AdminTab() {
+export default function AdminTab({ onPreview }) {
   var auth = useAuth();
   var [users, setUsers] = useState([]);
   var [loading, setLoading] = useState(true);
@@ -243,6 +243,12 @@ export default function AdminTab() {
                   </div>
                 </div>
                 <div style={{ display:"flex",gap:6 }}>
+                  {onPreview && (
+                    <button onClick={function(){onPreview(u.role, u.name, u.store);}}
+                      style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF22",background:"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer" }}>
+                      Preview
+                    </button>
+                  )}
                   {!isCurrentUser && (
                     <button onClick={function(){setEditingUser(isEditing ? null : u.id);}}
                       style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer" }}>
