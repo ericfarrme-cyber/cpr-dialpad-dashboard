@@ -120,7 +120,8 @@ function AppointmentApp() {
     setShowForm(true);
   };
 
-  var storeEmployees = roster.filter(function(r) { return !store || store === "all" || r.store === store; });
+  var storeEmployees = roster.filter(function(r) { return !store || store === "all" || (r.store || "").toLowerCase() === store.toLowerCase(); });
+  if (storeEmployees.length === 0) storeEmployees = roster;
   var s = stats ? stats.stats : {};
   var followUps = appointments.filter(function(a) { return a.follow_up_needed && !a.follow_up_done; });
 
@@ -403,11 +404,12 @@ function AppointmentApp() {
               </div>
               <div>
                 <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Scheduled By</label>
-                <select value={form.scheduled_by} onChange={function(e){setForm(Object.assign({},form,{scheduled_by:e.target.value}));}}
-                  style={{ width:"100%",padding:"9px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }}>
-                  <option value="">Select...</option>
-                  {storeEmployees.map(function(r){ return <option key={r.name} value={r.name}>{r.name}</option>; })}
-                </select>
+                <input list="emp-list" value={form.scheduled_by} onChange={function(e){setForm(Object.assign({},form,{scheduled_by:e.target.value}));}}
+                  placeholder="Type or select..."
+                  style={{ width:"100%",padding:"9px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }} />
+                <datalist id="emp-list">
+                  {storeEmployees.map(function(r){ return <option key={r.name} value={r.name} />; })}
+                </datalist>
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:12 }}>
