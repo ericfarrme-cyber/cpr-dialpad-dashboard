@@ -177,5 +177,17 @@ export async function POST(request) {
     return json({ success: true, imported: (data || []).length });
   }
 
+  if (action === "clear_store") {
+    var clearStore = body.store;
+    if (!clearStore) return json({ success: false, error: "Store required" });
+    var confirmCode = body.confirm;
+    if (confirmCode !== "DELETE-ALL-" + clearStore.toUpperCase()) {
+      return json({ success: false, error: "Invalid confirmation code. Send confirm: 'DELETE-ALL-" + clearStore.toUpperCase() + "'" });
+    }
+    var { error } = await supabase.from("appointments").delete().eq("store", clearStore);
+    if (error) return json({ success: false, error: error.message });
+    return json({ success: true, message: "All appointments for " + clearStore + " deleted" });
+  }
+
   return json({ success: false, error: "Unknown action" });
 }
