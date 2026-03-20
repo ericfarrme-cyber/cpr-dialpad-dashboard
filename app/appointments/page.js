@@ -407,12 +407,12 @@ function StoreDashboard() {
                           </div>
                         )}
                         {emp.categories && (
-                          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:4,marginTop:8 }}>
-                            {[{k:"repairs",l:"Rep"},{k:"audit",l:"Aud"},{k:"compliance",l:"Cmp"}].map(function(c) {
+                          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:3,marginTop:8 }}>
+                            {[{k:"repairs",l:"Repairs"},{k:"audit",l:"Audit"},{k:"calls",l:"Calls"},{k:"experience",l:"CX"},{k:"compliance",l:"Comply"}].map(function(c) {
                               var v = emp.categories[c.k] ? emp.categories[c.k].score : 0;
-                              return <div key={c.k} style={{ background:"#1A1D23",borderRadius:4,padding:"3px 0" }}>
-                                <div style={{ color:getLevel(v).color,fontSize:11,fontWeight:600 }}>{v}</div>
-                                <div style={{ color:"#6B6F78",fontSize:7 }}>{c.l}</div>
+                              return <div key={c.k} style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
+                                <div style={{ color:getLevel(v).color,fontSize:11,fontWeight:700 }}>{v}</div>
+                                <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase",letterSpacing:"0.03em" }}>{c.l}</div>
                               </div>;
                             })}
                           </div>
@@ -421,14 +421,14 @@ function StoreDashboard() {
                           var sd = salesByEmployee[emp.name];
                           if (!sd) return null;
                           return (
-                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6 }}>
-                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,marginTop:4 }}>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
                                 <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
-                                <div style={{ color:"#6B6F78",fontSize:7 }}>Repairs</div>
+                                <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase" }}>Repair Qty</div>
                               </div>
-                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
                                 <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                                <div style={{ color:"#6B6F78",fontSize:7 }}>Accy GP</div>
+                                <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase" }}>Accy GP</div>
                               </div>
                             </div>
                           );
