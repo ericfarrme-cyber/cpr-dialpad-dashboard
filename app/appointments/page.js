@@ -95,13 +95,14 @@ function StoreDashboard() {
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/tickets?action=stats&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/roster").then(function(r){return r.json();}),
         fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
+        fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -110,7 +111,6 @@ function StoreDashboard() {
       if (rostRes.status === "fulfilled" && rostRes.value.success) setRoster((rostRes.value.roster || []).filter(function(r){return r.active;}));
       if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
       if (goalRes.status === "fulfilled" && goalRes.value.success) setWeeklyGoal(goalRes.value.goal);
-      if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
     } catch(e) { console.error(e); }
     setLoading(false);
   };
