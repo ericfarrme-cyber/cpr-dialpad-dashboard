@@ -120,7 +120,7 @@ export async function POST(request) {
       scheduled_by: body.scheduled_by || "",
       did_arrive: body.did_arrive || "",
       notes: body.notes || "",
-      follow_up_needed: body.did_arrive && body.did_arrive.toLowerCase().includes("no"),
+      follow_up_needed: body.did_arrive ? body.did_arrive.toLowerCase().includes("no") : false,
     };
     var { data, error } = await supabase.from("appointments").insert(record).select();
     if (error) return json({ success: false, error: error.message });
@@ -169,7 +169,7 @@ export async function POST(request) {
         scheduled_by: r.scheduled_by || "",
         did_arrive: r.did_arrive || "",
         notes: r.notes || "",
-        follow_up_needed: r.did_arrive && String(r.did_arrive).toLowerCase().includes("no"),
+        follow_up_needed: r.did_arrive ? String(r.did_arrive).toLowerCase().includes("no") : false,
       };
     });
     var { data, error } = await supabase.from("appointments").insert(records).select();
