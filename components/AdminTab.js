@@ -242,7 +242,17 @@ export default function AdminTab({ onPreview }) {
                     <div style={{ color:"#6B6F78",fontSize:11,marginTop:2 }}>{u.email}</div>
                   </div>
                 </div>
-                <div style={{ display:"flex",gap:6 }}>
+                <div style={{ display:"flex",gap:6,alignItems:"center" }}>
+                  {!isCurrentUser && u.role !== "admin" && (
+                    <button onClick={function(){handleUpdate(u.id, { dashboard_access: !u.dashboard_access });}}
+                      style={{ padding:"5px 12px",borderRadius:6,border:"1px solid "+(u.dashboard_access?"#4ADE8033":"#2A2D35"),background:u.dashboard_access?"#4ADE8012":"transparent",color:u.dashboard_access?"#4ADE80":"#6B6F78",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                      <span style={{ width:8,height:8,borderRadius:"50%",background:u.dashboard_access?"#4ADE80":"#6B6F78" }} />
+                      {u.dashboard_access ? "Full Access" : "Store Only"}
+                    </button>
+                  )}
+                  {u.role === "admin" && (
+                    <span style={{ padding:"5px 12px",fontSize:10,color:"#4ADE80" }}>Full Access</span>
+                  )}
                   {onPreview && (
                     <button onClick={function(){onPreview(u.role, u.name, u.store);}}
                       style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF22",background:"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer" }}>
