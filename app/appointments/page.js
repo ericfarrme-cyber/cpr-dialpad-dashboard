@@ -183,25 +183,32 @@ function AppointmentApp() {
         console.log("[Import] Sheet:", sheetName, "rows:", data.length);
         if (data.length < 2) return;
 
-        // Find header row
+        // Find header row — count how many known keywords match in each row
         var headerIdx = -1;
-        for (var ri = 0; ri < Math.min(data.length, 10); ri++) {
+        var headerKeywords = ["customer", "phone", "date set", "date of", "time", "reason", "quotes", "scheduled", "arrive", "appt"];
+        var bestMatch = 0;
+        for (var ri = 0; ri < Math.min(data.length, 15); ri++) {
           var row = data[ri];
           if (!row) continue;
-          for (var ci = 0; ci < row.length; ci++) {
-            if (String(row[ci] || "").toLowerCase().trim() === "customer name") { headerIdx = ri; break; }
+          var matchCount = 0;
+          for (var ci = 0; ci < Math.min(row.length, 15); ci++) {
+            var cellVal = String(row[ci] || "").toLowerCase().trim();
+            if (!cellVal || cellVal.length > 60) continue; // skip data cells
+            for (var ki = 0; ki < headerKeywords.length; ki++) {
+              if (cellVal.includes(headerKeywords[ki])) { matchCount++; break; }
+            }
           }
-          if (headerIdx >= 0) break;
+          if (matchCount > bestMatch) { bestMatch = matchCount; headerIdx = ri; }
         }
-        console.log("[Import] Header at row:", headerIdx);
-        if (headerIdx < 0) return;
+        console.log("[Import] Header at row:", headerIdx, "with", bestMatch, "keyword matches");
+        if (headerIdx < 0 || bestMatch < 2) return;
 
         // Map columns
         var col = {};
         var headers = data[headerIdx];
         for (var ci = 0; ci < headers.length; ci++) {
           var h = String(headers[ci] || "").toLowerCase().trim();
-          if (h.includes("customer name")) col.name = ci;
+          if (h.includes("customer name") || (ci === 0 && !h)) col.name = ci;
           else if (h.includes("phone")) col.phone = ci;
           else if (h.includes("date set")) col.date_set = ci;
           else if (h.includes("date of")) col.date_appt = ci;
@@ -210,10 +217,19 @@ function AppointmentApp() {
           else if (h.includes("scheduled") || h.includes("your name")) col.scheduled_by = ci;
           else if (h.includes("arrive")) col.arrived = ci;
         }
+        // If first column not mapped and it's blank/spaces, assume it's customer name
+        if (col.name === undefined && headers.length >= 5) col.name = 0;
         // Notes = last column called "notes" that isn't reason
         for (var ci = 0; ci < headers.length; ci++) {
           var h = String(headers[ci] || "").toLowerCase().trim();
           if (h === "notes" && ci !== col.reason) col.notes = ci;
+        }
+        // If we have phone/date but missing scheduled_by/arrived/notes, infer by position
+        // Common 9-column layout: name, phone, date_set, date_appt, time, reason, scheduled_by, arrived, notes
+        if (headers.length >= 9) {
+          if (col.scheduled_by === undefined && col.phone !== undefined) col.scheduled_by = 6;
+          if (col.arrived === undefined && col.phone !== undefined) col.arrived = 7;
+          if (col.notes === undefined && col.phone !== undefined) col.notes = 8;
         }
         console.log("[Import] Columns:", JSON.stringify(col));
 
