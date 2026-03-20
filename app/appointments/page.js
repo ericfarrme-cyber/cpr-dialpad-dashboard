@@ -27,6 +27,8 @@ function AppointmentApp() {
   var [form, setForm] = useState(emptyForm);
   var fileInputRef = useState(null);
   var [importing, setImporting] = useState(false);
+  var [searchQuery, setSearchQuery] = useState("");
+  var [repeatInfo, setRepeatInfo] = useState(null);
 
   var loadData = async function() {
     setLoading(true);
@@ -124,6 +126,74 @@ function AppointmentApp() {
   if (storeEmployees.length === 0) storeEmployees = roster;
   var s = stats ? stats.stats : {};
   var followUps = appointments.filter(function(a) { return a.follow_up_needed && !a.follow_up_done; });
+
+  // Search filtering
+  var filteredAppointments = appointments;
+  if (searchQuery.trim()) {
+    var q = searchQuery.toLowerCase().trim();
+    filteredAppointments = appointments.filter(function(a) {
+      return (a.customer_name || "").toLowerCase().includes(q) ||
+        (a.customer_phone || "").includes(q) ||
+        normPhone(a.customer_phone).includes(normPhone(q)) ||
+        (a.reason || "").toLowerCase().includes(q) ||
+        (a.scheduled_by || "").toLowerCase().includes(q) ||
+        (a.notes || "").toLowerCase().includes(q);
+    });
+  }
+
+  // Revenue lost to no-shows — parse dollar amounts from reason field
+  function extractPrice(text) {
+    if (!text) return 0;
+    var matches = text.match(/\$(\d+)/g);
+    if (matches && matches.length > 0) {
+      // Take the first price found
+      return parseInt(matches[0].replace("$", "")) || 0;
+    }
+    // Try bare numbers after common patterns
+    var m = text.match(/(\d{2,4})\s*(?:w\/|with|for|total|\b)/i);
+    return 0;
+  }
+
+  var revenueLost = useMemo(function() {
+    var noShows = appointments.filter(function(a) {
+      return a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"));
+    });
+    var total = 0;
+    noShows.forEach(function(a) {
+      var price = extractPrice(a.reason) || extractPrice(a.price_quoted);
+      total += price;
+    });
+    return { amount: total, count: noShows.length };
+  }, [appointments]);
+
+  // Repeat customer detection
+  var checkRepeatCustomer = async function(phone) {
+    var n = normPhone(phone);
+    if (n.length !== 10) { setRepeatInfo(null); return; }
+    try {
+      var res = await fetch("/api/dialpad/appointments?action=list&days=365");
+      var json = await res.json();
+      if (json.success) {
+        var matches = (json.appointments || []).filter(function(a) {
+          return normPhone(a.customer_phone) === n;
+        });
+        if (matches.length > 0) {
+          var arrived = matches.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "yes"; }).length;
+          var noShow = matches.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase().includes("no"); }).length;
+          setRepeatInfo({
+            total: matches.length,
+            arrived: arrived,
+            noShow: noShow,
+            lastVisit: matches[0].date_of_appt,
+            lastReason: matches[0].reason,
+            name: matches[0].customer_name,
+          });
+        } else {
+          setRepeatInfo(null);
+        }
+      }
+    } catch(e) { setRepeatInfo(null); }
+  };
 
   var handleImport = async function(e) {
     var file = e.target.files[0];
@@ -348,7 +418,7 @@ function AppointmentApp() {
       <div style={{ padding:28,maxWidth:1200,margin:"0 auto" }}>
         {/* Stats */}
         {stats && (
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
+          <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:24 }}>
             <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
               <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Appts</div>
               <div style={{ color:"#F0F1F3",fontSize:26,fontWeight:700 }}>{s.total || 0}</div>
@@ -363,6 +433,11 @@ function AppointmentApp() {
               <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>No-Shows</div>
               <div style={{ color:"#F87171",fontSize:26,fontWeight:700 }}>{s.noShow || 0}</div>
               <div style={{ color:"#6B6F78",fontSize:10 }}>{s.total > 0 ? Math.round((s.noShow / s.total) * 100) : 0}% no-show rate</div>
+            </div>
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
+              <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Revenue Lost</div>
+              <div style={{ color:"#FF2D95",fontSize:26,fontWeight:700 }}>${revenueLost.amount.toLocaleString()}</div>
+              <div style={{ color:"#6B6F78",fontSize:10 }}>{revenueLost.count} no-shows with quotes</div>
             </div>
             <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
               <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Need Follow-Up</div>
@@ -396,11 +471,21 @@ function AppointmentApp() {
               Clear Store Data
             </button>
             {/* New appointment */}
-            <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);}}
+            <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);setRepeatInfo(null);}}
               style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
               {showForm ? "Cancel" : "+ New Appointment"}
             </button>
           </div>
+        </div>
+
+        {/* Search */}
+        <div style={{ marginBottom:16 }}>
+          <input type="text" value={searchQuery} onChange={function(e){setSearchQuery(e.target.value);}}
+            placeholder={"\uD83D\uDD0D Search by name, phone, reason, employee..."}
+            style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }}
+            onFocus={function(e){e.target.style.borderColor="#7B2FFF";}}
+            onBlur={function(e){e.target.style.borderColor="#2A2D35";}} />
+          {searchQuery && <div style={{ color:"#6B6F78",fontSize:10,marginTop:4 }}>Showing {filteredAppointments.length} of {appointments.length} appointments</div>}
         </div>
 
         {msg && <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
@@ -418,7 +503,7 @@ function AppointmentApp() {
               <div>
                 <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Phone Number</label>
                 <input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}}
-                  onBlur={function(e){checkPhone(e.target.value);}}
+                  onBlur={function(e){checkPhone(e.target.value);checkRepeatCustomer(e.target.value);}}
                   placeholder="(317) 555-1234"
                   style={{ width:"100%",padding:"9px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }} />
               </div>
@@ -492,6 +577,18 @@ function AppointmentApp() {
               </div>
             )}
 
+            {/* Repeat customer alert */}
+            {repeatInfo && (
+              <div style={{ padding:12,borderRadius:8,background:repeatInfo.noShow > 0 ? "#FBBF2408" : "#4ADE8008",border:"1px solid " + (repeatInfo.noShow > 0 ? "#FBBF2433" : "#4ADE8033"),marginBottom:12 }}>
+                <div style={{ color:repeatInfo.noShow > 0 ? "#FBBF24" : "#4ADE80",fontSize:11,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDD01"} Repeat customer detected!</div>
+                <div style={{ color:"#C8CAD0",fontSize:11 }}>
+                  {repeatInfo.name ? <span style={{ fontWeight:600 }}>{repeatInfo.name}</span> : "This number"} has <strong>{repeatInfo.total}</strong> previous appointment{repeatInfo.total !== 1 ? "s" : ""}: <span style={{ color:"#4ADE80" }}>{repeatInfo.arrived} arrived</span>, <span style={{ color:"#F87171" }}>{repeatInfo.noShow} no-show{repeatInfo.noShow !== 1 ? "s" : ""}</span>
+                  {repeatInfo.lastVisit && <span style={{ display:"block",color:"#8B8F98",fontSize:10,marginTop:2 }}>Last: {new Date(repeatInfo.lastVisit + "T12:00:00").toLocaleDateString()} — {repeatInfo.lastReason}</span>}
+                  {repeatInfo.noShow > 0 && <span style={{ display:"block",color:"#FBBF24",fontSize:10,marginTop:4,fontWeight:600 }}>{"\u26A0\uFE0F"} High no-show risk — consider confirming day-of</span>}
+                </div>
+              </div>
+            )}
+
             <button onClick={saveAppointment}
               style={{ padding:"10px 24px",borderRadius:8,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:13,fontWeight:700,cursor:"pointer" }}>
               {editingId ? "Save Changes" : "Add Appointment"}
@@ -504,7 +601,7 @@ function AppointmentApp() {
             {/* Today / List view */}
             {(view === "today" || view === "list") && (
               <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
-                {appointments.length > 0 ? appointments.map(function(a) {
+                {filteredAppointments.length > 0 ? filteredAppointments.map(function(a) {
                   var arrived = a.did_arrive && a.did_arrive.toLowerCase() === "yes";
                   var noShow = a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"));
                   var pending = !a.did_arrive || a.did_arrive === "";
@@ -542,7 +639,7 @@ function AppointmentApp() {
                     </div>
                   );
                 }) : (
-                  <div style={{ padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>{view === "today" ? "No appointments scheduled for today" : "No appointments found"}</div>
+                  <div style={{ padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>{searchQuery ? "No appointments matching \"" + searchQuery + "\"" : view === "today" ? "No appointments scheduled for today" : "No appointments found"}</div>
                 )}
               </div>
             )}
