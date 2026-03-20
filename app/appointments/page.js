@@ -25,6 +25,8 @@ function AppointmentApp() {
 
   var emptyForm = { customer_name: "", customer_phone: "", date_of_appt: new Date().toISOString().split("T")[0], appt_time: "", reason: "", price_quoted: "", scheduled_by: "", did_arrive: "", notes: "" };
   var [form, setForm] = useState(emptyForm);
+  var fileInputRef = useState(null);
+  var [importing, setImporting] = useState(false);
 
   var loadData = async function() {
     setLoading(true);
@@ -122,6 +124,160 @@ function AppointmentApp() {
   var s = stats ? stats.stats : {};
   var followUps = appointments.filter(function(a) { return a.follow_up_needed && !a.follow_up_done; });
 
+  var handleImport = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    setMsg(null);
+    try {
+      // Read the file as array buffer
+      var buffer = await file.arrayBuffer();
+      // Load SheetJS from CDN if not already loaded
+      if (!window.XLSX) {
+        await new Promise(function(resolve, reject) {
+          var script = document.createElement("script");
+          script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      var XLSX = window.XLSX;
+      var wb = XLSX.read(buffer, { type: "array", cellDates: true });
+
+      var allRows = [];
+      // Process each sheet that looks like appointment data
+      wb.SheetNames.forEach(function(sheetName) {
+        var ws = wb.Sheets[sheetName];
+        var data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        if (data.length < 2) return;
+
+        // Find the header row — look for "Customer Name" in the data
+        var headerIdx = -1;
+        var colMap = {};
+        for (var ri = 0; ri < Math.min(data.length, 5); ri++) {
+          var row = data[ri];
+          for (var ci = 0; ci < row.length; ci++) {
+            var cell = String(row[ci]).toLowerCase().trim();
+            if (cell === "customer name") { headerIdx = ri; break; }
+          }
+          if (headerIdx >= 0) break;
+        }
+
+        if (headerIdx < 0) return; // not an appointment sheet
+
+        // Map column positions
+        var headers = data[headerIdx];
+        for (var ci = 0; ci < headers.length; ci++) {
+          var h = String(headers[ci]).toLowerCase().trim();
+          if (h.includes("customer name")) colMap.name = ci;
+          else if (h.includes("phone")) colMap.phone = ci;
+          else if (h.includes("date set") || h.includes("date_set")) colMap.date_set = ci;
+          else if (h.includes("date of") || h.includes("date_of")) colMap.date_appt = ci;
+          else if (h.includes("appt time") || h.includes("time")) colMap.time = ci;
+          else if (h.includes("reason") || h.includes("quotes") || h.includes("notes") && !colMap.reason) colMap.reason = ci;
+          else if (h.includes("scheduled") || h.includes("your name")) colMap.scheduled_by = ci;
+          else if (h.includes("arrive") || h.includes("did they")) colMap.arrived = ci;
+          else if (h === "notes" && colMap.reason !== undefined) colMap.notes = ci;
+        }
+
+        // Parse rows after header
+        for (var ri = headerIdx + 1; ri < data.length; ri++) {
+          var row = data[ri];
+          var name = colMap.name !== undefined ? String(row[colMap.name] || "").trim() : "";
+          if (!name || name === "Customer Name") continue;
+
+          var dateSet = colMap.date_set !== undefined ? row[colMap.date_set] : "";
+          var dateAppt = colMap.date_appt !== undefined ? row[colMap.date_appt] : "";
+
+          // Format dates
+          function fmtDate(d) {
+            if (!d) return "";
+            if (d instanceof Date) return d.toISOString().split("T")[0];
+            var s = String(d);
+            if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.split("T")[0];
+            var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+            if (m) { var y = parseInt(m[3]); if (y < 100) y += 2000; return y + "-" + String(m[1]).padStart(2,"0") + "-" + String(m[2]).padStart(2,"0"); }
+            return "";
+          }
+
+          var timeVal = colMap.time !== undefined ? String(row[colMap.time] || "").trim() : "";
+          // Handle Date objects for time
+          if (timeVal && timeVal instanceof Date) {
+            timeVal = timeVal.toTimeString().slice(0, 5);
+          }
+          // Handle "HH:MM:SS" format
+          if (timeVal.match(/^\d{2}:\d{2}:\d{2}$/)) timeVal = timeVal.slice(0, 5);
+
+          allRows.push({
+            customer_name: name,
+            customer_phone: colMap.phone !== undefined ? String(row[colMap.phone] || "") : "",
+            date_set: fmtDate(dateSet),
+            date_of_appt: fmtDate(dateAppt),
+            appt_time: timeVal,
+            reason: colMap.reason !== undefined ? String(row[colMap.reason] || "") : "",
+            scheduled_by: colMap.scheduled_by !== undefined ? String(row[colMap.scheduled_by] || "") : "",
+            did_arrive: colMap.arrived !== undefined ? String(row[colMap.arrived] || "") : "",
+            notes: colMap.notes !== undefined ? String(row[colMap.notes] || "") : "",
+          });
+        }
+      });
+
+      if (allRows.length === 0) {
+        setMsg({ type: "error", text: "No appointment data found in file. Make sure sheets have 'Customer Name' as a column header." });
+        setImporting(false);
+        return;
+      }
+
+      // Send to API in batches of 100
+      var totalImported = 0;
+      for (var bi = 0; bi < allRows.length; bi += 100) {
+        var batch = allRows.slice(bi, bi + 100);
+        var res = await fetch("/api/dialpad/appointments", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "bulk_import", store: store, rows: batch }),
+        });
+        var json = await res.json();
+        if (json.success) totalImported += json.imported;
+      }
+
+      setMsg({ type: "success", text: "Imported " + totalImported + " appointments from " + file.name });
+      loadData();
+    } catch(err) {
+      console.error("Import error:", err);
+      setMsg({ type: "error", text: "Import failed: " + err.message });
+    }
+    setImporting(false);
+    // Reset file input
+    e.target.value = "";
+  };
+
+  var handleClearStore = async function() {
+    var storeName = STORES[store] ? STORES[store].name : store;
+    if (!confirm("\u26A0\uFE0F WARNING: Delete ALL appointments for " + storeName + "?\n\nThis cannot be undone.")) return;
+    if (!confirm("SECOND CONFIRMATION\n\nAll appointment data for " + storeName + " will be permanently erased.\n\nType the store name to continue...")) return;
+    var confirmInput = prompt("Type DELETE-ALL-" + store.toUpperCase() + " to confirm:");
+    if (confirmInput !== "DELETE-ALL-" + store.toUpperCase()) {
+      setMsg({ type: "error", text: "Confirmation code didn't match. Cancelled." });
+      return;
+    }
+    try {
+      var res = await fetch("/api/dialpad/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear_store", store: store, confirm: confirmInput }),
+      });
+      var json = await res.json();
+      if (json.success) {
+        setMsg({ type: "success", text: "All appointments for " + storeName + " cleared" });
+        loadData();
+      } else {
+        setMsg({ type: "error", text: json.error });
+      }
+    } catch(e) { setMsg({ type: "error", text: e.message }); }
+  };
+
   return (
     <div style={{ background:"#0F1117",minHeight:"100vh",color:"#F0F1F3",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
       {/* Header */}
@@ -185,10 +341,23 @@ function AppointmentApp() {
               return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.label}</button>;
             })}
           </div>
-          <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);}}
-            style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
-            {showForm ? "Cancel" : "+ New Appointment"}
-          </button>
+          <div style={{ display:"flex",gap:8 }}>
+            {/* Import button */}
+            <label style={{ padding:"8px 14px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#8B8F98",fontSize:12,fontWeight:600,cursor:importing?"wait":"pointer",display:"flex",alignItems:"center",gap:4 }}>
+              {importing ? "Importing..." : "\uD83D\uDCE4 Import Excel"}
+              <input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} disabled={importing} style={{ display:"none" }} />
+            </label>
+            {/* Clear button */}
+            <button onClick={handleClearStore}
+              style={{ padding:"8px 14px",borderRadius:8,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:12,fontWeight:600,cursor:"pointer" }}>
+              Clear Store Data
+            </button>
+            {/* New appointment */}
+            <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);}}
+              style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+              {showForm ? "Cancel" : "+ New Appointment"}
+            </button>
+          </div>
         </div>
 
         {msg && <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
