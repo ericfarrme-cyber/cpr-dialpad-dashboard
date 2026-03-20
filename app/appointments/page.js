@@ -185,7 +185,7 @@ function AppointmentApp() {
 
         // Find header row — count how many known keywords match in each row
         var headerIdx = -1;
-        var headerKeywords = ["customer", "phone", "date set", "date of", "time", "reason", "quotes", "scheduled", "arrive", "appt"];
+        var headerKeywords = ["customer", "name", "phone", "date set", "date of", "time", "reason", "quotes", "scheduled", "arrive", "appt"];
         var bestMatch = 0;
         for (var ri = 0; ri < Math.min(data.length, 15); ri++) {
           var row = data[ri];
@@ -208,28 +208,32 @@ function AppointmentApp() {
         var headers = data[headerIdx];
         for (var ci = 0; ci < headers.length; ci++) {
           var h = String(headers[ci] || "").toLowerCase().trim();
-          if (h.includes("customer name") || (ci === 0 && !h)) col.name = ci;
+          if (h.includes("customer name") || h === "name") col.name = ci;
           else if (h.includes("phone")) col.phone = ci;
           else if (h.includes("date set")) col.date_set = ci;
           else if (h.includes("date of")) col.date_appt = ci;
-          else if (h.includes("time") && !h.includes("date")) col.time = ci;
+          else if ((h.includes("appt") && h.includes("time")) || (h === "time")) col.time = ci;
           else if (h.includes("reason") || h.includes("quotes")) col.reason = ci;
           else if (h.includes("scheduled") || h.includes("your name")) col.scheduled_by = ci;
           else if (h.includes("arrive")) col.arrived = ci;
         }
-        // If first column not mapped and it's blank/spaces, assume it's customer name
+        // If first column not mapped, assume it's customer name
         if (col.name === undefined && headers.length >= 5) col.name = 0;
+        // Positional fallbacks for standard 9-column layout
+        if (headers.length >= 9) {
+          if (col.phone === undefined) col.phone = 1;
+          if (col.date_set === undefined) col.date_set = 2;
+          if (col.date_appt === undefined) col.date_appt = 3;
+          if (col.time === undefined) col.time = 4;
+          if (col.reason === undefined) col.reason = 5;
+          if (col.scheduled_by === undefined) col.scheduled_by = 6;
+          if (col.arrived === undefined) col.arrived = 7;
+          if (col.notes === undefined) col.notes = 8;
+        }
         // Notes = last column called "notes" that isn't reason
         for (var ci = 0; ci < headers.length; ci++) {
           var h = String(headers[ci] || "").toLowerCase().trim();
           if (h === "notes" && ci !== col.reason) col.notes = ci;
-        }
-        // If we have phone/date but missing scheduled_by/arrived/notes, infer by position
-        // Common 9-column layout: name, phone, date_set, date_appt, time, reason, scheduled_by, arrived, notes
-        if (headers.length >= 9) {
-          if (col.scheduled_by === undefined && col.phone !== undefined) col.scheduled_by = 6;
-          if (col.arrived === undefined && col.phone !== undefined) col.arrived = 7;
-          if (col.notes === undefined && col.phone !== undefined) col.notes = 8;
         }
         console.log("[Import] Columns:", JSON.stringify(col));
 
