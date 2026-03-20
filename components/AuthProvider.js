@@ -125,6 +125,19 @@ export default function AuthProvider({ children }) {
     );
   }
 
+  // Redirect users without dashboard_access to /appointments
+  if (typeof window !== "undefined" && userInfo && !userInfo.dashboard_access) {
+    var currentPath = window.location.pathname;
+    if (currentPath === "/" || currentPath === "") {
+      window.location.replace("/appointments");
+      return (
+        <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0B0D11" }}>
+          <div style={{ color:"#6B6F78",fontSize:13 }}>Redirecting to store dashboard...</div>
+        </div>
+      );
+    }
+  }
+
   return (
     <AuthContext.Provider value={{ user: user, role: role, userInfo: userInfo, accessToken: accessToken, signOut: signOut, authFetch: authFetch }}>
       {children}
