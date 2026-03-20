@@ -110,16 +110,22 @@ async function generateWeeklyGoal(store, weekStart) {
     var showRate = apptTotal > 0 ? Math.round(apptArrived / apptTotal * 100) : 0;
 
     // Sales data
-    var currentPeriod = new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
-    var { data: phoneSales } = await supabase.from("repair_tickets")
-      .select("employee, repair_total")
-      .eq("period", currentPeriod);
-    var { data: accySales } = await supabase.from("accessory_sales")
-      .select("employee, accy_gp")
-      .eq("period", currentPeriod);
+    var totalRepairs = 0;
+    var totalAccyGP = 0;
+    try {
+      var currentPeriod = new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+      var { data: repData } = await supabase.from("phone_repairs")
+        .select("employee, repair_tickets, repair_total")
+        .eq("period", currentPeriod);
+      if (repData) totalRepairs = repData.reduce(function(s, r) { return s + (r.repair_tickets || 0); }, 0);
 
-    var totalRepairs = phoneSales ? phoneSales.length : 0;
-    var totalAccyGP = accySales ? accySales.reduce(function(s,a){return s + (parseFloat(a.accy_gp)||0);}, 0) : 0;
+      var { data: accData } = await supabase.from("accessory_sales")
+        .select("employee, accy_gp, accy_count")
+        .eq("period", currentPeriod);
+      if (accData) totalAccyGP = accData.reduce(function(s, a) { return s + (parseFloat(a.accy_gp) || 0); }, 0);
+    } catch(salesErr) {
+      console.log("[weekly-goal] Sales query error (non-fatal):", salesErr.message);
+    }
 
     dataSnapshot = {
       audit: { count: auditCount, avgScore: Math.round(avgAuditScore * 100) / 100, apptRate: Math.round(apptRate), discountRate: Math.round(discountRate), warrantyRate: Math.round(warrantyRate) },
