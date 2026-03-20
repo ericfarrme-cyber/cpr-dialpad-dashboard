@@ -142,12 +142,16 @@ function StoreDashboard() {
 
   var storeSalesTotals = useMemo(function() {
     var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
-    storeEmployees.forEach(function(emp) {
-      var s = salesByEmployee[emp.name];
+    // Include ALL employees for this store — from roster AND scorecard
+    var storeNames = {};
+    storeEmployees.forEach(function(emp) { storeNames[emp.name] = true; });
+    roster.filter(function(r) { return (r.store || "").toLowerCase() === store.toLowerCase(); }).forEach(function(r) { storeNames[r.name] = true; });
+    Object.keys(storeNames).forEach(function(name) {
+      var s = salesByEmployee[name];
       if (s) { totals.repairs += s.repairs; totals.accy_gp += s.accy_gp; totals.accy_count += s.accy_count; totals.clean_count += s.clean_count; totals.revenue += s.total_revenue; }
     });
     return totals;
-  }, [salesByEmployee, storeEmployees]);
+  }, [salesByEmployee, storeEmployees, roster, store]);
 
   var revenueLost = useMemo(function() {
     var noShows = appointments.filter(function(a) {
@@ -407,9 +411,9 @@ function StoreDashboard() {
                           </div>
                         )}
                         {emp.categories && (
-                          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr 1fr",gap:3,marginTop:8 }}>
-                            {[{k:"repairs",l:"Repairs"},{k:"audit",l:"Audit"},{k:"calls",l:"Calls"},{k:"experience",l:"CX"},{k:"compliance",l:"Comply"}].map(function(c) {
-                              var v = emp.categories[c.k] ? emp.categories[c.k].score : 0;
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat("+[{k:"repairs"},{k:"audit"},{k:"calls"},{k:"experience"},{k:"compliance"}].filter(function(c){return emp.categories[c.k] && emp.categories[c.k].score !== undefined;}).length+",1fr)",gap:3,marginTop:8 }}>
+                            {[{k:"repairs",l:"Repairs"},{k:"audit",l:"Audit"},{k:"calls",l:"Calls"},{k:"experience",l:"CX"},{k:"compliance",l:"Comply"}].filter(function(c){return emp.categories[c.k] && emp.categories[c.k].score !== undefined;}).map(function(c) {
+                              var v = emp.categories[c.k].score;
                               return <div key={c.k} style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
                                 <div style={{ color:getLevel(v).color,fontSize:11,fontWeight:700 }}>{v}</div>
                                 <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase",letterSpacing:"0.03em" }}>{c.l}</div>
