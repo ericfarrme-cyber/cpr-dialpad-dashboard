@@ -149,30 +149,6 @@ function StoreDashboard() {
     return totals;
   }, [salesByEmployee, storeEmployees]);
 
-
-
-  // Sales data by employee
-  var salesByEmployee = useMemo(function() {
-    if (!salesData) return {};
-    var map = {};
-    function ensure(name) { if (!name) return null; if (!map[name]) map[name] = { repairs: 0, repair_revenue: 0, accy_count: 0, accy_gp: 0, clean_count: 0, total_revenue: 0 }; return map[name]; }
-    (salesData.phones || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_tickets || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
-    (salesData.others || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_count || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
-    (salesData.accessories || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.accy_count += r.accy_count || 0; e.accy_gp += parseFloat(r.accy_gp) || 0; } });
-    (salesData.cleanings || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.clean_count += r.clean_count || 0; } });
-    Object.values(map).forEach(function(e) { e.total_revenue = e.repair_revenue + e.accy_gp; });
-    return map;
-  }, [salesData]);
-
-  var storeSalesTotals = useMemo(function() {
-    var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
-    storeEmployees.forEach(function(emp) {
-      var s = salesByEmployee[emp.name];
-      if (s) { totals.repairs += s.repairs; totals.accy_gp += s.accy_gp; totals.accy_count += s.accy_count; totals.clean_count += s.clean_count; totals.revenue += s.total_revenue; }
-    });
-    return totals;
-  }, [salesByEmployee, storeEmployees]);
-
   var revenueLost = useMemo(function() {
     var noShows = appointments.filter(function(a) {
       return a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"));
@@ -453,22 +429,6 @@ function StoreDashboard() {
                               <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
                                 <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                                 <div style={{ color:"#6B6F78",fontSize:7 }}>Accy GP</div>
-                              </div>
-                            </div>
-                          );
-                        })()}
-                        {(function() {
-                          var sd = salesByEmployee[emp.name];
-                          if (!sd) return null;
-                          return (
-                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6 }}>
-                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
-                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
-                                <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDD27"} Repairs</div>
-                              </div>
-                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
-                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
-                                <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDCB0"} Accy GP</div>
                               </div>
                             </div>
                           );
