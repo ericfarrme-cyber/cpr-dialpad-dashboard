@@ -49,7 +49,7 @@ export async function POST(request) {
   }
 
   if (action === "update") {
-    var { id, role, store, active, name, email } = body;
+    var { id, role, store, active, name, email, dashboard_access } = body;
     if (!id) return json({ success: false, error: "User id required" });
 
     var updates = {};
@@ -58,6 +58,7 @@ export async function POST(request) {
     if (active !== undefined) updates.active = active;
     if (name !== undefined) updates.name = name;
     if (email !== undefined) updates.email = email.toLowerCase().trim();
+    if (dashboard_access !== undefined) updates.dashboard_access = dashboard_access;
     updates.updated_at = new Date().toISOString();
 
     var { data, error } = await adminClient.from("dashboard_users").update(updates).eq("id", id).select();
