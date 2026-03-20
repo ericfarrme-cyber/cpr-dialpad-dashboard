@@ -130,106 +130,128 @@ function AppointmentApp() {
     setImporting(true);
     setMsg(null);
     try {
-      // Read the file as array buffer
       var buffer = await file.arrayBuffer();
-      // Load SheetJS from CDN if not already loaded
+
+      // Load SheetJS — try multiple CDN sources
       if (!window.XLSX) {
-        await new Promise(function(resolve, reject) {
-          var script = document.createElement("script");
-          script.src = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
+        var urls = [
+          "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js",
+          "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js",
+        ];
+        for (var ui = 0; ui < urls.length; ui++) {
+          try {
+            await new Promise(function(resolve, reject) {
+              var s = document.createElement("script");
+              s.src = urls[ui]; s.onload = resolve; s.onerror = reject;
+              document.head.appendChild(s);
+            });
+            if (window.XLSX) break;
+          } catch(le) { console.warn("CDN failed:", urls[ui]); }
+        }
+        if (!window.XLSX) {
+          setMsg({ type: "error", text: "Failed to load Excel parser. Try refreshing." });
+          setImporting(false); e.target.value = ""; return;
+        }
       }
+
       var XLSX = window.XLSX;
-      var wb = XLSX.read(buffer, { type: "array", cellDates: true });
+      var wb = XLSX.read(new Uint8Array(buffer), { type: "array", cellDates: true });
+      console.log("[Import] Sheets:", wb.SheetNames);
+
+      function cleanStr(v) {
+        if (v === null || v === undefined) return "";
+        var s = String(v).trim();
+        if (s === "NaN" || s === "undefined" || s === "null" || s === "nan") return "";
+        return s;
+      }
+      function fmtDate(d) {
+        if (!d) return "";
+        if (d instanceof Date) { try { return d.toISOString().split("T")[0]; } catch(e) { return ""; } }
+        var s = cleanStr(d);
+        if (!s) return "";
+        if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.split("T")[0].split(" ")[0];
+        var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+        if (m) { var y = parseInt(m[3]); if (y < 100) y += 2000; return y + "-" + String(m[1]).padStart(2,"0") + "-" + String(m[2]).padStart(2,"0"); }
+        return "";
+      }
 
       var allRows = [];
-      // Process each sheet that looks like appointment data
       wb.SheetNames.forEach(function(sheetName) {
         var ws = wb.Sheets[sheetName];
-        var data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+        var data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+        console.log("[Import] Sheet:", sheetName, "rows:", data.length);
         if (data.length < 2) return;
 
-        // Find the header row — look for "Customer Name" in the data
+        // Find header row
         var headerIdx = -1;
-        var colMap = {};
-        for (var ri = 0; ri < Math.min(data.length, 5); ri++) {
+        for (var ri = 0; ri < Math.min(data.length, 10); ri++) {
           var row = data[ri];
+          if (!row) continue;
           for (var ci = 0; ci < row.length; ci++) {
-            var cell = String(row[ci]).toLowerCase().trim();
-            if (cell === "customer name") { headerIdx = ri; break; }
+            if (String(row[ci] || "").toLowerCase().trim() === "customer name") { headerIdx = ri; break; }
           }
           if (headerIdx >= 0) break;
         }
+        console.log("[Import] Header at row:", headerIdx);
+        if (headerIdx < 0) return;
 
-        if (headerIdx < 0) return; // not an appointment sheet
-
-        // Map column positions
+        // Map columns
+        var col = {};
         var headers = data[headerIdx];
         for (var ci = 0; ci < headers.length; ci++) {
-          var h = String(headers[ci]).toLowerCase().trim();
-          if (h.includes("customer name")) colMap.name = ci;
-          else if (h.includes("phone")) colMap.phone = ci;
-          else if (h.includes("date set") || h.includes("date_set")) colMap.date_set = ci;
-          else if (h.includes("date of") || h.includes("date_of")) colMap.date_appt = ci;
-          else if (h.includes("appt time") || h.includes("time")) colMap.time = ci;
-          else if (h.includes("reason") || h.includes("quotes") || h.includes("notes") && !colMap.reason) colMap.reason = ci;
-          else if (h.includes("scheduled") || h.includes("your name")) colMap.scheduled_by = ci;
-          else if (h.includes("arrive") || h.includes("did they")) colMap.arrived = ci;
-          else if (h === "notes" && colMap.reason !== undefined) colMap.notes = ci;
+          var h = String(headers[ci] || "").toLowerCase().trim();
+          if (h.includes("customer name")) col.name = ci;
+          else if (h.includes("phone")) col.phone = ci;
+          else if (h.includes("date set")) col.date_set = ci;
+          else if (h.includes("date of")) col.date_appt = ci;
+          else if (h.includes("time") && !h.includes("date")) col.time = ci;
+          else if (h.includes("reason") || h.includes("quotes")) col.reason = ci;
+          else if (h.includes("scheduled") || h.includes("your name")) col.scheduled_by = ci;
+          else if (h.includes("arrive")) col.arrived = ci;
         }
+        // Notes = last column called "notes" that isn't reason
+        for (var ci = 0; ci < headers.length; ci++) {
+          var h = String(headers[ci] || "").toLowerCase().trim();
+          if (h === "notes" && ci !== col.reason) col.notes = ci;
+        }
+        console.log("[Import] Columns:", JSON.stringify(col));
 
-        // Parse rows after header
         for (var ri = headerIdx + 1; ri < data.length; ri++) {
           var row = data[ri];
-          var name = colMap.name !== undefined ? String(row[colMap.name] || "").trim() : "";
-          if (!name || name === "Customer Name") continue;
+          if (!row) continue;
+          var name = col.name !== undefined ? cleanStr(row[col.name]) : "";
+          if (!name || name.toLowerCase() === "customer name") continue;
 
-          var dateSet = colMap.date_set !== undefined ? row[colMap.date_set] : "";
-          var dateAppt = colMap.date_appt !== undefined ? row[colMap.date_appt] : "";
-
-          // Format dates
-          function fmtDate(d) {
-            if (!d) return "";
-            if (d instanceof Date) return d.toISOString().split("T")[0];
-            var s = String(d);
-            if (s.match(/^\d{4}-\d{2}-\d{2}/)) return s.split("T")[0];
-            var m = s.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-            if (m) { var y = parseInt(m[3]); if (y < 100) y += 2000; return y + "-" + String(m[1]).padStart(2,"0") + "-" + String(m[2]).padStart(2,"0"); }
-            return "";
-          }
-
-          var timeVal = colMap.time !== undefined ? String(row[colMap.time] || "").trim() : "";
-          // Handle Date objects for time
-          if (timeVal && timeVal instanceof Date) {
-            timeVal = timeVal.toTimeString().slice(0, 5);
-          }
-          // Handle "HH:MM:SS" format
+          var timeVal = col.time !== undefined ? cleanStr(row[col.time]) : "";
           if (timeVal.match(/^\d{2}:\d{2}:\d{2}$/)) timeVal = timeVal.slice(0, 5);
+          if (timeVal && !isNaN(parseFloat(timeVal)) && parseFloat(timeVal) < 1) {
+            var mins = Math.round(parseFloat(timeVal) * 1440);
+            timeVal = String(Math.floor(mins/60)).padStart(2,"0") + ":" + String(mins%60).padStart(2,"0");
+          }
+
+          var phone = col.phone !== undefined ? cleanStr(row[col.phone]).replace(/\.0$/, "") : "";
 
           allRows.push({
             customer_name: name,
-            customer_phone: colMap.phone !== undefined ? String(row[colMap.phone] || "") : "",
-            date_set: fmtDate(dateSet),
-            date_of_appt: fmtDate(dateAppt),
+            customer_phone: phone,
+            date_set: fmtDate(col.date_set !== undefined ? row[col.date_set] : ""),
+            date_of_appt: fmtDate(col.date_appt !== undefined ? row[col.date_appt] : ""),
             appt_time: timeVal,
-            reason: colMap.reason !== undefined ? String(row[colMap.reason] || "") : "",
-            scheduled_by: colMap.scheduled_by !== undefined ? String(row[colMap.scheduled_by] || "") : "",
-            did_arrive: colMap.arrived !== undefined ? String(row[colMap.arrived] || "") : "",
-            notes: colMap.notes !== undefined ? String(row[colMap.notes] || "") : "",
+            reason: col.reason !== undefined ? cleanStr(row[col.reason]) : "",
+            price_quoted: "",
+            scheduled_by: col.scheduled_by !== undefined ? cleanStr(row[col.scheduled_by]) : "",
+            did_arrive: col.arrived !== undefined ? cleanStr(row[col.arrived]) : "",
+            notes: col.notes !== undefined ? cleanStr(row[col.notes]) : "",
           });
         }
+        console.log("[Import] Total rows parsed:", allRows.length);
       });
 
       if (allRows.length === 0) {
-        setMsg({ type: "error", text: "No appointment data found in file. Make sure sheets have 'Customer Name' as a column header." });
-        setImporting(false);
-        return;
+        setMsg({ type: "error", text: "No appointment rows found. Open browser console (F12) for debug info." });
+        setImporting(false); e.target.value = ""; return;
       }
 
-      // Send to API in batches of 100
       var totalImported = 0;
       for (var bi = 0; bi < allRows.length; bi += 100) {
         var batch = allRows.slice(bi, bi + 100);
@@ -240,16 +262,16 @@ function AppointmentApp() {
         });
         var json = await res.json();
         if (json.success) totalImported += json.imported;
+        else console.error("[Import] Batch error:", json.error);
       }
 
       setMsg({ type: "success", text: "Imported " + totalImported + " appointments from " + file.name });
       loadData();
     } catch(err) {
-      console.error("Import error:", err);
-      setMsg({ type: "error", text: "Import failed: " + err.message });
+      console.error("[Import] Error:", err);
+      setMsg({ type: "error", text: "Import failed: " + err.message + " — check browser console (F12) for details" });
     }
     setImporting(false);
-    // Reset file input
     e.target.value = "";
   };
 
