@@ -19,5 +19,6 @@ export async function GET(request) {
     role: result.role,
     name: result.name,
     store: result.store,
+    dashboard_access: result.dashboard_access,
   });
 }
