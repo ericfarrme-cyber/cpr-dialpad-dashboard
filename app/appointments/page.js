@@ -76,6 +76,8 @@ function StoreDashboard() {
   var [ticketStats, setTicketStats] = useState(null);
   var [roster, setRoster] = useState([]);
   var [salesData, setSalesData] = useState(null);
+  var [weeklyGoal, setWeeklyGoal] = useState(null);
+  var [salesData, setSalesData] = useState(null);
 
   // Appointment form states
   var [showForm, setShowForm] = useState(false);
@@ -107,6 +109,8 @@ function StoreDashboard() {
       if (tixRes.status === "fulfilled" && tixRes.value.success) setTicketStats(tixRes.value.stats);
       if (rostRes.status === "fulfilled" && rostRes.value.success) setRoster((rostRes.value.roster || []).filter(function(r){return r.active;}));
       if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
+      if (goalRes.status === "fulfilled" && goalRes.value.success) setWeeklyGoal(goalRes.value.goal);
+      if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -122,6 +126,30 @@ function StoreDashboard() {
   var storeEmployees = (scorecard ? scorecard.employeeScores || [] : []).filter(function(e) { return e.store === store; });
 
   var as = apptStats ? apptStats.stats : {};
+
+  // Sales data by employee
+  var salesByEmployee = useMemo(function() {
+    if (!salesData) return {};
+    var map = {};
+    function ensure(name) { if (!name) return null; if (!map[name]) map[name] = { repairs: 0, repair_revenue: 0, accy_count: 0, accy_gp: 0, clean_count: 0, total_revenue: 0 }; return map[name]; }
+    (salesData.phones || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_tickets || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
+    (salesData.others || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_count || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
+    (salesData.accessories || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.accy_count += r.accy_count || 0; e.accy_gp += parseFloat(r.accy_gp) || 0; } });
+    (salesData.cleanings || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.clean_count += r.clean_count || 0; } });
+    Object.values(map).forEach(function(e) { e.total_revenue = e.repair_revenue + e.accy_gp; });
+    return map;
+  }, [salesData]);
+
+  var storeSalesTotals = useMemo(function() {
+    var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
+    storeEmployees.forEach(function(emp) {
+      var s = salesByEmployee[emp.name];
+      if (s) { totals.repairs += s.repairs; totals.accy_gp += s.accy_gp; totals.accy_count += s.accy_count; totals.clean_count += s.clean_count; totals.revenue += s.total_revenue; }
+    });
+    return totals;
+  }, [salesByEmployee, storeEmployees]);
+
+
 
   // Sales data by employee
   var salesByEmployee = useMemo(function() {
@@ -312,6 +340,40 @@ function StoreDashboard() {
               </div>
             </div>
 
+            {/* Weekly Goal */}
+            {weeklyGoal && (
+              <div style={{ background:"linear-gradient(135deg,#7B2FFF08,#00D4FF08)",borderRadius:16,padding:28,marginBottom:24,border:"1px solid #7B2FFF22",position:"relative",overflow:"hidden" }}>
+                <div style={{ display:"flex",gap:24,alignItems:"flex-start",position:"relative" }}>
+                  <div style={{ width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                    <span style={{ fontSize:28 }}>{"\uD83C\uDFAF"}</span>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
+                      <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>This Week{"\u2019"}s Goal</div>
+                      <div style={{ color:"#6B6F78",fontSize:9 }}>Week of {weeklyGoal.week_start && new Date(weeklyGoal.week_start + "T12:00:00").toLocaleDateString([], {month:"short", day:"numeric"})}</div>
+                    </div>
+                    <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:800,marginBottom:8 }}>{weeklyGoal.goal_title}</div>
+                    <div style={{ color:"#C8CAD0",fontSize:13,lineHeight:1.6,marginBottom:12 }}>{weeklyGoal.goal_description}</div>
+                    {weeklyGoal.metric_baseline > 0 && weeklyGoal.metric_target > 0 && (
+                      <div style={{ marginBottom:14 }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
+                          <span style={{ color:"#8B8F98",fontSize:11 }}>Current: <strong style={{ color:"#F87171" }}>{weeklyGoal.metric_baseline}</strong></span>
+                          <span style={{ color:"#8B8F98",fontSize:11 }}>Target: <strong style={{ color:"#4ADE80" }}>{weeklyGoal.metric_target}</strong></span>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:6,height:10,overflow:"hidden" }}>
+                          <div style={{ width:Math.min(100, (weeklyGoal.metric_baseline / weeklyGoal.metric_target) * 100) + "%",height:"100%",background:"linear-gradient(90deg,#F87171,#FBBF24,#4ADE80)",borderRadius:6,transition:"width 1s ease" }} />
+                        </div>
+                      </div>
+                    )}
+                    <div style={{ background:"#12141A",borderRadius:10,padding:14 }}>
+                      <div style={{ color:"#FBBF24",fontSize:10,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em" }}>Coaching Tip</div>
+                      <div style={{ color:"#C8CAD0",fontSize:12,lineHeight:1.6 }}>{weeklyGoal.coaching_tip}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Quick stats row */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:24 }}>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
@@ -326,7 +388,7 @@ function StoreDashboard() {
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCB0"} Accessory GP</div>
-                <div style={{ color:"#00D4FF",fontSize:26,fontWeight:700 }}>${storeSalesTotals.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                <div style={{ color:"#00D4FF",fontSize:26,fontWeight:700 }}>{"$" + storeSalesTotals.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                 <div style={{ color:"#6B6F78",fontSize:10 }}>{storeSalesTotals.accy_count} items sold</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
@@ -386,10 +448,26 @@ function StoreDashboard() {
                             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6 }}>
                               <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
                                 <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
+                                <div style={{ color:"#6B6F78",fontSize:7 }}>Repairs</div>
+                              </div>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                                <div style={{ color:"#6B6F78",fontSize:7 }}>Accy GP</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+                        {(function() {
+                          var sd = salesByEmployee[emp.name];
+                          if (!sd) return null;
+                          return (
+                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6 }}>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
                                 <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDD27"} Repairs</div>
                               </div>
                               <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
-                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>${sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                                 <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDCB0"} Accy GP</div>
                               </div>
                             </div>
