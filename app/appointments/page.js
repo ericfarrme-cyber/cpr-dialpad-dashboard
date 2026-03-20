@@ -75,6 +75,7 @@ function StoreDashboard() {
   var [appointments, setAppointments] = useState([]);
   var [ticketStats, setTicketStats] = useState(null);
   var [roster, setRoster] = useState([]);
+  var [salesData, setSalesData] = useState(null);
 
   // Appointment form states
   var [showForm, setShowForm] = useState(false);
@@ -92,18 +93,20 @@ function StoreDashboard() {
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/tickets?action=stats&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/roster").then(function(r){return r.json();}),
+        fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
       if (apptRes.status === "fulfilled" && apptRes.value.success) setAppointments(apptRes.value.appointments || []);
       if (tixRes.status === "fulfilled" && tixRes.value.success) setTicketStats(tixRes.value.stats);
       if (rostRes.status === "fulfilled" && rostRes.value.success) setRoster((rostRes.value.roster || []).filter(function(r){return r.active;}));
+      if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -119,6 +122,28 @@ function StoreDashboard() {
   var storeEmployees = (scorecard ? scorecard.employeeScores || [] : []).filter(function(e) { return e.store === store; });
 
   var as = apptStats ? apptStats.stats : {};
+
+  // Sales data by employee
+  var salesByEmployee = useMemo(function() {
+    if (!salesData) return {};
+    var map = {};
+    function ensure(name) { if (!name) return null; if (!map[name]) map[name] = { repairs: 0, repair_revenue: 0, accy_count: 0, accy_gp: 0, clean_count: 0, total_revenue: 0 }; return map[name]; }
+    (salesData.phones || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_tickets || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
+    (salesData.others || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.repairs += r.repair_count || 0; e.repair_revenue += parseFloat(r.repair_total) || 0; } });
+    (salesData.accessories || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.accy_count += r.accy_count || 0; e.accy_gp += parseFloat(r.accy_gp) || 0; } });
+    (salesData.cleanings || []).forEach(function(r) { var e = ensure(r.employee); if (e) { e.clean_count += r.clean_count || 0; } });
+    Object.values(map).forEach(function(e) { e.total_revenue = e.repair_revenue + e.accy_gp; });
+    return map;
+  }, [salesData]);
+
+  var storeSalesTotals = useMemo(function() {
+    var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
+    storeEmployees.forEach(function(emp) {
+      var s = salesByEmployee[emp.name];
+      if (s) { totals.repairs += s.repairs; totals.accy_gp += s.accy_gp; totals.accy_count += s.accy_count; totals.clean_count += s.clean_count; totals.revenue += s.total_revenue; }
+    });
+    return totals;
+  }, [salesByEmployee, storeEmployees]);
 
   var revenueLost = useMemo(function() {
     var noShows = appointments.filter(function(a) {
@@ -145,8 +170,16 @@ function StoreDashboard() {
         if (e.show_rate >= 75 && e.total >= 5) wins.push({ emoji: "\uD83C\uDFAF", text: e.name + " — " + e.show_rate + "% appointment show rate!", color: "#4ADE80" });
       });
     }
-    return wins.slice(0, 8);
-  }, [storeEmployees, apptStats]);
+    // Production wins
+    storeEmployees.forEach(function(e) {
+      var sd = salesByEmployee[e.name];
+      if (sd) {
+        if (sd.repairs >= 15) wins.push({ emoji: "\uD83D\uDD27", text: e.name + " \u2014 " + sd.repairs + " repairs this month!", color: "#7B2FFF" });
+        if (sd.accy_gp >= 200) wins.push({ emoji: "\uD83D\uDCB0", text: e.name + " \u2014 $" + Math.round(sd.accy_gp) + " in accessory GP!", color: "#00D4FF" });
+      }
+    });
+    return wins.slice(0, 10);
+  }, [storeEmployees, apptStats, salesByEmployee]);
 
   var filteredAppointments = appointments;
   if (searchQuery.trim()) {
@@ -280,26 +313,36 @@ function StoreDashboard() {
             </div>
 
             {/* Quick stats row */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24 }}>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:24 }}>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Show Rate</div>
                 <div style={{ color:as.showRate>=65?"#4ADE80":as.showRate>=50?"#FBBF24":"#F87171",fontSize:26,fontWeight:700 }}>{as.showRate || 0}%</div>
                 <div style={{ color:"#6B6F78",fontSize:10 }}>{as.arrived||0} of {as.total||0} showed up</div>
               </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDD27"} Repairs</div>
+                <div style={{ color:"#7B2FFF",fontSize:26,fontWeight:700 }}>{storeSalesTotals.repairs}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>This month</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCB0"} Accessory GP</div>
+                <div style={{ color:"#00D4FF",fontSize:26,fontWeight:700 }}>${storeSalesTotals.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{storeSalesTotals.accy_count} items sold</div>
+              </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Revenue Lost</div>
                 <div style={{ color:"#FF2D95",fontSize:26,fontWeight:700 }}>${revenueLost.amount.toLocaleString()}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{revenueLost.count} no-shows with quotes</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{revenueLost.count} no-shows</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Follow-Ups Needed</div>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Follow-Ups</div>
                 <div style={{ color:as.needFollowUp>0?"#FBBF24":"#4ADE80",fontSize:26,fontWeight:700 }}>{as.needFollowUp || 0}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>No-shows to call back</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>No-shows to call</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Ticket Compliance</div>
                 <div style={{ color:"#7B2FFF",fontSize:26,fontWeight:700 }}>{ticketStats ? ticketStats.avgOverall || 0 : "—"}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>Avg score / 100</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>Avg ticket score</div>
               </div>
             </div>
 
@@ -336,6 +379,22 @@ function StoreDashboard() {
                             })}
                           </div>
                         )}
+                        {(function() {
+                          var sd = salesByEmployee[emp.name];
+                          if (!sd) return null;
+                          return (
+                            <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:4,marginTop:6 }}>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
+                                <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDD27"} Repairs</div>
+                              </div>
+                              <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0" }}>
+                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>${sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                                <div style={{ color:"#6B6F78",fontSize:7 }}>{"\uD83D\uDCB0"} Accy GP</div>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
                     );
                   })}
