@@ -122,6 +122,7 @@ function StoreDashboard() {
   var [reviewSubTab, setReviewSubTab] = useState("performance");
   var [showGbpForm, setShowGbpForm] = useState(false);
   var [gbpSaving, setGbpSaving] = useState(false);
+  var [gbpImporting, setGbpImporting] = useState(false);
 
   var emptyGbpForm = {
     period_start: "", period_end: "",
@@ -403,6 +404,92 @@ function StoreDashboard() {
       else setMsg({ type: "error", text: json.error });
     } catch(e) { setMsg({ type: "error", text: e.message }); }
     setTimeout(function() { setMsg(null); }, 3000);
+  };
+
+  // ═══ GBP PDF IMPORT ═══
+  var handleGbpImport = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    setGbpImporting(true);
+    setMsg({ type: "success", text: "Reading report PDF..." });
+
+    try {
+      var buffer = await file.arrayBuffer();
+      var bytes = new Uint8Array(buffer);
+      var binary = "";
+      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      var base64 = btoa(binary);
+
+      var mediaType = file.type || "application/pdf";
+      if (file.name.toLowerCase().endsWith(".pdf")) mediaType = "application/pdf";
+      else if (file.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) mediaType = "image/" + file.name.split(".").pop().toLowerCase().replace("jpg", "jpeg");
+
+      setMsg({ type: "success", text: "Extracting data with AI..." });
+
+      var res = await fetch("/api/dialpad/extract-gbp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          pages: [{ data: base64, media_type: mediaType }],
+        }),
+      });
+
+      var json = await res.json();
+      if (!json.success) {
+        setMsg({ type: "error", text: "Extraction failed: " + (json.error || "Unknown error") });
+        setGbpImporting(false);
+        return;
+      }
+
+      var d = json.data;
+
+      // Build keywords array
+      var keywords = (d.keywords || []).map(function(kw) {
+        return {
+          keyword: kw.keyword || "",
+          position: String(kw.position || ""),
+          position_change: String(kw.position_change || "0"),
+        };
+      });
+      if (keywords.length === 0) keywords = [{ keyword: "", position: "", position_change: "" }];
+
+      // Build competitors array
+      var competitors = (d.competitors || []).map(function(c) {
+        return {
+          name: c.name || "",
+          actions: c.actions || "",
+          impact: c.impact || "",
+        };
+      });
+      if (competitors.length === 0) competitors = [{ name: "", actions: "", impact: "" }];
+
+      setGbpForm({
+        period_start: d.period_start || "",
+        period_end: d.period_end || "",
+        customer_calls: String(d.customer_calls || 0),
+        profile_views: String(d.profile_views || 0),
+        website_visits: String(d.website_visits || 0),
+        direction_requests: String(d.direction_requests || 0),
+        competitors_outranked: String(d.competitors_outranked || 0),
+        received_reviews: String(d.received_reviews || 0),
+        posts_published: String(d.posts_published || 0),
+        photos_published: String(d.photos_published || 0),
+        review_responses: String(d.review_responses || 0),
+        offers_published: String(d.offers_published || 0),
+        keywords: keywords,
+        competitors: competitors,
+        notes: d.notes || "",
+      });
+
+      setShowGbpForm(true);
+      setMsg({ type: "success", text: "Report data extracted! Review and save." });
+
+    } catch (err) {
+      setMsg({ type: "error", text: "Import failed: " + err.message });
+    }
+    setGbpImporting(false);
+    setTimeout(function() { setMsg(null); }, 5000);
   };
 
   // Computed: GBP trends from history
@@ -848,9 +935,13 @@ function StoreDashboard() {
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
               <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:800 }}>{"\u2B50"} Google Reviews & SEO — {storeName}</div>
               <div style={{ display:"flex",gap:8 }}>
+                <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:gbpImporting?"#6B6F78":"linear-gradient(135deg,#4ADE80,#00D4FF)",color:gbpImporting?"#FFF":"#000",fontSize:12,fontWeight:700,cursor:gbpImporting?"wait":"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                  {gbpImporting ? "Extracting..." : "\uD83D\uDCE4 Import PDF"}
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
+                </label>
                 <button onClick={function(){ setShowGbpForm(!showGbpForm); if (!showGbpForm) setGbpForm(emptyGbpForm); }}
                   style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
-                  {showGbpForm ? "Cancel" : "+ Add Report"}
+                  {showGbpForm ? "Cancel" : "+ Manual Entry"}
                 </button>
                 {GOOGLE_LINKS[store] && (
                   <a href={GOOGLE_LINKS[store]} target="_blank" rel="noopener noreferrer"
@@ -873,7 +964,10 @@ function StoreDashboard() {
             {/* ═══ GBP REPORT ENTRY FORM ═══ */}
             {showGbpForm && (
               <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20,border:"1px solid #7B2FFF33" }}>
-                <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDCCB"} Enter Weekly GBP Report</div>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+                  <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{"\uD83D\uDCCB"} {gbpForm.period_start ? "Review Extracted Data" : "Enter Weekly GBP Report"}</div>
+                  {gbpForm.period_start && <div style={{ color:"#4ADE80",fontSize:11,fontWeight:600 }}>{"\u2705"} Auto-filled from PDF — verify and save</div>}
+                </div>
 
                 {/* Period */}
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16 }}>
@@ -1005,8 +1099,14 @@ function StoreDashboard() {
                   <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
                     <div style={{ fontSize:32,marginBottom:8 }}>{"\uD83D\uDCCA"}</div>
                     <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:6 }}>No GBP Reports Yet</div>
-                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Click "+ Add Report" to enter your weekly Google Business Profile data</div>
-                    <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Add First Report</button>
+                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Import a PDF report or enter data manually to start tracking</div>
+                    <div style={{ display:"flex",gap:8,justifyContent:"center" }}>
+                      <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                        {"\uD83D\uDCE4"} Import PDF
+                        <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
+                      </label>
+                      <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Manual Entry</button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1114,8 +1214,11 @@ function StoreDashboard() {
                   <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
                     <div style={{ fontSize:32,marginBottom:8 }}>{"\uD83D\uDD0D"}</div>
                     <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:6 }}>No Keyword Data Yet</div>
-                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Add a GBP report with keyword rankings to start tracking SEO positions</div>
-                    <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Add Report</button>
+                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Import a GBP report PDF to start tracking SEO keyword positions</div>
+                    <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",display:"inline-block" }}>
+                      {"\uD83D\uDCE4"} Import PDF
+                      <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
+                    </label>
                   </div>
                 )}
               </div>
@@ -1282,7 +1385,7 @@ function StoreDashboard() {
                   </div>
                 ) : (
                   <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
-                    <div style={{ color:"#6B6F78",fontSize:13 }}>No GBP reports saved yet. Click "+ Add Report" to get started.</div>
+                    <div style={{ color:"#6B6F78",fontSize:13 }}>No GBP reports saved yet. Import a PDF or use manual entry to get started.</div>
                   </div>
                 )}
               </div>
