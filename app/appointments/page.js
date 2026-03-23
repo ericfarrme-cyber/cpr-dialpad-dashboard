@@ -413,10 +413,10 @@ function StoreDashboard() {
                             <div style={{ color:"#6B6F78",fontSize:9 }}>{nl.min - emp.overall} pts to {nl.name}</div>
                           </div>
                         )}
-                        {emp.categories && (
-                          <div style={{ display:"grid",gridTemplateColumns:"repeat("+[{k:"repairs"},{k:"audit"},{k:"calls"},{k:"experience"},{k:"compliance"}].filter(function(c){return emp.categories[c.k] && emp.categories[c.k].score !== undefined;}).length+",1fr)",gap:3,marginTop:8 }}>
-                            {[{k:"repairs",l:"Repairs"},{k:"audit",l:"Audit"},{k:"calls",l:"Calls"},{k:"experience",l:"CX"},{k:"compliance",l:"Comply"}].filter(function(c){return emp.categories[c.k] && emp.categories[c.k].score !== undefined;}).map(function(c) {
-                              var v = emp.categories[c.k].score;
+                        {[{k:"repairs"},{k:"audit"},{k:"compliance"}].some(function(c){return emp[c.k] && emp[c.k].score !== undefined;}) && (
+                          <div style={{ display:"grid",gridTemplateColumns:"repeat("+[{k:"repairs"},{k:"audit"},{k:"calls"},{k:"experience"},{k:"compliance"}].filter(function(c){return emp[c.k] && emp[c.k].score !== undefined;}).length+",1fr)",gap:3,marginTop:8 }}>
+                            {[{k:"repairs",l:"Repairs"},{k:"audit",l:"Audit"},{k:"calls",l:"Calls"},{k:"experience",l:"CX"},{k:"compliance",l:"Comply"}].filter(function(c){return emp[c.k] && emp[c.k].score !== undefined;}).map(function(c) {
+                              var v = emp[c.k].score;
                               return <div key={c.k} style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
                                 <div style={{ color:getLevel(v).color,fontSize:11,fontWeight:700 }}>{v}</div>
                                 <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase",letterSpacing:"0.03em" }}>{c.l}</div>
@@ -465,12 +465,12 @@ function StoreDashboard() {
                       ] },
                     { key: "audit", label: "Phone Audit Quality", icon: "\uD83D\uDCDE", color: "#FBBF24",
                       details: [
-                        { label: "Avg Call Score", value: emp.categories && emp.categories.audit ? (emp.categories.audit.score || 0) + "/100" : "N/A" },
-                        { label: "Calls Audited", value: emp.auditCount || "—" },
+                        { label: "Avg Call Score", value: emp.audit ? (emp.audit.score || 0) + "/100" : "N/A" },
+                        { label: "Calls Audited", value: emp.audit ? emp.audit.total_audits || 0 : 0 },
                       ] },
                     { key: "compliance", label: "Ticket Compliance", icon: "\uD83C\uDFAB", color: "#00D4FF",
                       details: [
-                        { label: "Avg Ticket Score", value: emp.categories && emp.categories.compliance ? (emp.categories.compliance.score || 0) + "/100" : "N/A" },
+                        { label: "Avg Ticket Score", value: emp.compliance ? (emp.compliance.score || 0) + "/100" : "N/A" },
                       ] },
                   ];
 
@@ -497,7 +497,7 @@ function StoreDashboard() {
                       </div>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat("+Math.min(catDetails.length,4)+",1fr)",gap:12 }}>
                         {catDetails.map(function(cat) {
-                          var score = emp.categories && emp.categories[cat.key] ? emp.categories[cat.key].score : null;
+                          var score = emp[cat.key] ? emp[cat.key].score : null;
                           var catLvl = score !== null ? getLevel(score) : null;
                           return (
                             <div key={cat.key} style={{ background:"#1A1D23",borderRadius:10,padding:14,border:"1px solid "+cat.color+"15" }}>
