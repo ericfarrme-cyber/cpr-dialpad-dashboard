@@ -67,6 +67,23 @@ function ScoreRing({ score, size, label }) {
   );
 }
 
+// ═══ MINI SPARKLINE ═══
+function Sparkline({ data, color, width, height }) {
+  var w = width || 80, h = height || 24;
+  if (!data || data.length < 2) return null;
+  var max = Math.max.apply(null, data);
+  var min = Math.min.apply(null, data);
+  var range = max - min || 1;
+  var pts = data.map(function(v, i) {
+    return (i / (data.length - 1)) * w + "," + (h - ((v - min) / range) * (h - 4) - 2);
+  }).join(" ");
+  return (
+    <svg width={w} height={h} style={{ display:"block" }}>
+      <polyline points={pts} fill="none" stroke={color || "#7B2FFF"} strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 // ═══ MAIN APP ═══
 function StoreDashboard() {
   var auth = useAuth();
@@ -95,9 +112,26 @@ function StoreDashboard() {
   var [importing, setImporting] = useState(false);
   var [apptView, setApptView] = useState("today");
   var [expandedEmp, setExpandedEmp] = useState(null);
+
+  // Review + GBP states
   var [reviewData, setReviewData] = useState(null);
   var [reviewForm, setReviewForm] = useState({ total_reviews: "", photo_reviews: "", employee_count: "", notes: "" });
   var [reviewSaving, setReviewSaving] = useState(false);
+  var [gbpReport, setGbpReport] = useState(null);
+  var [gbpHistory, setGbpHistory] = useState([]);
+  var [reviewSubTab, setReviewSubTab] = useState("performance");
+  var [showGbpForm, setShowGbpForm] = useState(false);
+  var [gbpSaving, setGbpSaving] = useState(false);
+
+  var emptyGbpForm = {
+    period_start: "", period_end: "",
+    customer_calls: "", profile_views: "", website_visits: "", direction_requests: "", competitors_outranked: "",
+    received_reviews: "", posts_published: "", photos_published: "", review_responses: "", offers_published: "",
+    keywords: [{ keyword: "", position: "", position_change: "" }],
+    competitors: [{ name: "", actions: "", impact: "" }],
+    notes: "",
+  };
+  var [gbpForm, setGbpForm] = useState(emptyGbpForm);
 
   // ═══ DATA LOADING ═══
   var loadData = async function() {
@@ -124,6 +158,8 @@ function StoreDashboard() {
         setReviewData(revRes.value);
         var rd = revRes.value.current;
         if (rd) setReviewForm({ total_reviews: rd.total_reviews || "", photo_reviews: rd.photo_reviews || "", employee_count: rd.employee_count || "", notes: rd.notes || "" });
+        setGbpReport(revRes.value.latestReport || null);
+        setGbpHistory(revRes.value.reportHistory || []);
       }
     } catch(e) { console.error(e); }
     setLoading(false);
@@ -156,7 +192,6 @@ function StoreDashboard() {
 
   var storeSalesTotals = useMemo(function() {
     var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
-    // Include ALL employees for this store — from roster AND scorecard
     var storeNames = {};
     storeEmployees.forEach(function(emp) { storeNames[emp.name] = true; });
     roster.filter(function(r) { return (r.store || "").toLowerCase() === store.toLowerCase(); }).forEach(function(r) { storeNames[r.name] = true; });
@@ -192,7 +227,6 @@ function StoreDashboard() {
         if (e.show_rate >= 75 && e.total >= 5) wins.push({ emoji: "\uD83C\uDFAF", text: e.name + " — " + e.show_rate + "% appointment show rate!", color: "#4ADE80" });
       });
     }
-    // Production wins
     storeEmployees.forEach(function(e) {
       var sd = salesByEmployee[e.name];
       if (sd) {
@@ -295,6 +329,98 @@ function StoreDashboard() {
     setTimeout(function() { setMsg(null); }, 3000);
   };
 
+  // ═══ GBP REPORT HANDLERS ═══
+  var addGbpKeyword = function() {
+    setGbpForm(Object.assign({}, gbpForm, { keywords: gbpForm.keywords.concat([{ keyword: "", position: "", position_change: "" }]) }));
+  };
+  var removeGbpKeyword = function(idx) {
+    setGbpForm(Object.assign({}, gbpForm, { keywords: gbpForm.keywords.filter(function(_, i) { return i !== idx; }) }));
+  };
+  var updateGbpKeyword = function(idx, field, val) {
+    var kw = gbpForm.keywords.map(function(k, i) { if (i === idx) { var u = Object.assign({}, k); u[field] = val; return u; } return k; });
+    setGbpForm(Object.assign({}, gbpForm, { keywords: kw }));
+  };
+  var addGbpCompetitor = function() {
+    setGbpForm(Object.assign({}, gbpForm, { competitors: gbpForm.competitors.concat([{ name: "", actions: "", impact: "" }]) }));
+  };
+  var removeGbpCompetitor = function(idx) {
+    setGbpForm(Object.assign({}, gbpForm, { competitors: gbpForm.competitors.filter(function(_, i) { return i !== idx; }) }));
+  };
+  var updateGbpCompetitor = function(idx, field, val) {
+    var comps = gbpForm.competitors.map(function(c, i) { if (i === idx) { var u = Object.assign({}, c); u[field] = val; return u; } return c; });
+    setGbpForm(Object.assign({}, gbpForm, { competitors: comps }));
+  };
+
+  var saveGbpReport = async function() {
+    if (!gbpForm.period_start || !gbpForm.period_end) { setMsg({ type: "error", text: "Report dates required" }); return; }
+    setGbpSaving(true);
+    try {
+      var cleanKeywords = gbpForm.keywords.filter(function(k) { return k.keyword.trim(); });
+      var cleanComps = gbpForm.competitors.filter(function(c) { return c.name.trim(); });
+      var res = await fetch("/api/dialpad/google-reviews", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save_report",
+          store: store,
+          period_start: gbpForm.period_start,
+          period_end: gbpForm.period_end,
+          customer_calls: gbpForm.customer_calls,
+          profile_views: gbpForm.profile_views,
+          website_visits: gbpForm.website_visits,
+          direction_requests: gbpForm.direction_requests,
+          competitors_outranked: gbpForm.competitors_outranked,
+          received_reviews: gbpForm.received_reviews,
+          posts_published: gbpForm.posts_published,
+          photos_published: gbpForm.photos_published,
+          review_responses: gbpForm.review_responses,
+          offers_published: gbpForm.offers_published,
+          keywords: cleanKeywords,
+          competitors: cleanComps,
+          notes: gbpForm.notes,
+        }),
+      });
+      var json = await res.json();
+      if (json.success) {
+        setMsg({ type: "success", text: "GBP Report saved" });
+        setShowGbpForm(false);
+        setGbpForm(emptyGbpForm);
+        loadData();
+      } else setMsg({ type: "error", text: json.error });
+    } catch(e) { setMsg({ type: "error", text: e.message }); }
+    setGbpSaving(false);
+    setTimeout(function() { setMsg(null); }, 3000);
+  };
+
+  var deleteGbpReport = async function(id) {
+    if (!confirm("Delete this GBP report?")) return;
+    try {
+      var res = await fetch("/api/dialpad/google-reviews", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_report", id: id }),
+      });
+      var json = await res.json();
+      if (json.success) { setMsg({ type: "success", text: "Report deleted" }); loadData(); }
+      else setMsg({ type: "error", text: json.error });
+    } catch(e) { setMsg({ type: "error", text: e.message }); }
+    setTimeout(function() { setMsg(null); }, 3000);
+  };
+
+  // Computed: GBP trends from history
+  var gbpTrends = useMemo(function() {
+    if (!gbpHistory || gbpHistory.length < 2) return null;
+    var sorted = gbpHistory.slice().sort(function(a, b) { return a.period_start > b.period_start ? 1 : -1; });
+    return {
+      calls: sorted.map(function(r) { return r.customer_calls || 0; }),
+      views: sorted.map(function(r) { return r.profile_views || 0; }),
+      visits: sorted.map(function(r) { return r.website_visits || 0; }),
+      directions: sorted.map(function(r) { return r.direction_requests || 0; }),
+    };
+  }, [gbpHistory]);
+
+  // ═══ SHARED INPUT STYLE ═══
+  var inputStyle = { width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" };
+  var inputStyleCenter = Object.assign({}, inputStyle, { textAlign: "center", fontSize: 14, fontWeight: 700, padding: "10px 12px", borderRadius: 8 });
+
   // ═══ RENDER ═══
   return (
     <div style={{ background:"#0F1117",minHeight:"100vh",color:"#F0F1F3",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
@@ -321,7 +447,7 @@ function StoreDashboard() {
 
         {/* Section nav */}
         <div style={{ display:"flex",gap:4,marginBottom:24 }}>
-          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews"},{id:"analytics",label:"\uD83D\uDCCA Analytics"}].map(function(v) {
+          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews & SEO"},{id:"analytics",label:"\uD83D\uDCCA Analytics"}].map(function(v) {
             return <button key={v.id} onClick={function(){setSection(v.id);}} style={{ padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",background:section===v.id?"#7B2FFF22":"#1A1D23",color:section===v.id?"#7B2FFF":"#8B8F98",fontSize:13,fontWeight:600 }}>{v.label}</button>;
           })}
         </div>
@@ -659,19 +785,19 @@ function StoreDashboard() {
               <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #7B2FFF33" }}>
                 <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700,marginBottom:12 }}>{editingId ? "Edit" : "New Appointment"}</div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Customer Name *</label><input value={form.customer_name} onChange={function(e){setForm(Object.assign({},form,{customer_name:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Phone</label><input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}} onBlur={function(e){checkPhone(e.target.value);checkRepeatCustomer(e.target.value);}} placeholder="(317) 555-1234" style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Scheduled By</label><input list="emp-list" value={form.scheduled_by} onChange={function(e){setForm(Object.assign({},form,{scheduled_by:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /><datalist id="emp-list">{rosterFiltered.map(function(r){return <option key={r.name} value={r.name}/>;})}</datalist></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Customer Name *</label><input value={form.customer_name} onChange={function(e){setForm(Object.assign({},form,{customer_name:e.target.value}));}} style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Phone</label><input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}} onBlur={function(e){checkPhone(e.target.value);checkRepeatCustomer(e.target.value);}} placeholder="(317) 555-1234" style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Scheduled By</label><input list="emp-list" value={form.scheduled_by} onChange={function(e){setForm(Object.assign({},form,{scheduled_by:e.target.value}));}} style={inputStyle} /><datalist id="emp-list">{rosterFiltered.map(function(r){return <option key={r.name} value={r.name}/>;})}</datalist></div>
                 </div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:10 }}>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Date</label><input type="date" value={form.date_of_appt} onChange={function(e){setForm(Object.assign({},form,{date_of_appt:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Time</label><input type="time" value={form.appt_time} onChange={function(e){setForm(Object.assign({},form,{appt_time:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Price</label><input value={form.price_quoted} onChange={function(e){setForm(Object.assign({},form,{price_quoted:e.target.value}));}} placeholder="$150" style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Arrived?</label><select value={form.did_arrive} onChange={function(e){setForm(Object.assign({},form,{did_arrive:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }}><option value="">Pending</option><option value="Yes">Yes</option><option value="No">No</option><option value="No/VM">No/VM</option><option value="Rescheduled">Rescheduled</option></select></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Date</label><input type="date" value={form.date_of_appt} onChange={function(e){setForm(Object.assign({},form,{date_of_appt:e.target.value}));}} style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Time</label><input type="time" value={form.appt_time} onChange={function(e){setForm(Object.assign({},form,{appt_time:e.target.value}));}} style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Price</label><input value={form.price_quoted} onChange={function(e){setForm(Object.assign({},form,{price_quoted:e.target.value}));}} placeholder="$150" style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Arrived?</label><select value={form.did_arrive} onChange={function(e){setForm(Object.assign({},form,{did_arrive:e.target.value}));}} style={inputStyle}><option value="">Pending</option><option value="Yes">Yes</option><option value="No">No</option><option value="No/VM">No/VM</option><option value="Rescheduled">Rescheduled</option></select></div>
                 </div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Reason / Quote</label><input value={form.reason} onChange={function(e){setForm(Object.assign({},form,{reason:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Notes</label><input value={form.notes} onChange={function(e){setForm(Object.assign({},form,{notes:e.target.value}));}} style={{ width:"100%",padding:"8px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box" }} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Reason / Quote</label><input value={form.reason} onChange={function(e){setForm(Object.assign({},form,{reason:e.target.value}));}} style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Notes</label><input value={form.notes} onChange={function(e){setForm(Object.assign({},form,{notes:e.target.value}));}} style={inputStyle} /></div>
                 </div>
                 {matchedCall && <div style={{ padding:10,borderRadius:6,background:"#00D4FF08",border:"1px solid #00D4FF33",marginBottom:8,fontSize:11,color:"#C8CAD0" }}>{"\uD83D\uDCDE"} <strong style={{color:"#00D4FF"}}>Call match:</strong> {matchedCall.employee} scored {parseFloat(matchedCall.score||0).toFixed(1)}/4 | {matchedCall.appt_offered?"\u2705":"\u274C"} Appt | {matchedCall.discount_mentioned?"\u2705":"\u274C"} Discount</div>}
                 {repeatInfo && <div style={{ padding:10,borderRadius:6,background:repeatInfo.noShow>0?"#FBBF2408":"#4ADE8008",border:"1px solid "+(repeatInfo.noShow>0?"#FBBF2433":"#4ADE8033"),marginBottom:8,fontSize:11,color:"#C8CAD0" }}>{"\uD83D\uDD01"} <strong style={{color:repeatInfo.noShow>0?"#FBBF24":"#4ADE80"}}>Repeat customer:</strong> {repeatInfo.total} prev appts, {repeatInfo.arrived} arrived, {repeatInfo.noShow} no-shows{repeatInfo.noShow>0?" — \u26A0\uFE0F confirm day-of":""}</div>}
@@ -715,136 +841,450 @@ function StoreDashboard() {
           </div>
         )}
 
-        {/* ═══ REVIEWS SECTION ═══ */}
+        {/* ═══ REVIEWS & SEO SECTION ═══ */}
         {section === "reviews" && (
           <div>
-            {/* Google listing link */}
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:800 }}>{"\u2B50"} Google Reviews — {storeName}</div>
-              {GOOGLE_LINKS[store] && (
-                <a href={GOOGLE_LINKS[store]} target="_blank" rel="noopener noreferrer"
-                  style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6 }}>
-                  {"\u2B50"} Open Google Listing
-                </a>
-              )}
-            </div>
-
-            {/* Bonus summary cards */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Reviews</div>
-                <div style={{ color:reviewCalc.hitMinimum?"#4ADE80":"#F87171",fontSize:28,fontWeight:700 }}>{reviewCalc.total}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.hitMinimum ? "\u2705 Minimum met" : (10 - reviewCalc.total) + " more to hit minimum"}</div>
-              </div>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Photo Reviews</div>
-                <div style={{ color:"#7B2FFF",fontSize:28,fontWeight:700 }}>{reviewCalc.photos}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>$5 each per employee</div>
-              </div>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Bonus Reviews</div>
-                <div style={{ color:"#00D4FF",fontSize:28,fontWeight:700 }}>{reviewCalc.bonusReviews}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>Reviews above 10 minimum</div>
-              </div>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Per Employee Bonus</div>
-                <div style={{ color:"#4ADE80",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.bonusPerEmployee}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.bonusReviews > 0 ? reviewCalc.bonusReviews + " bonus x $5" : ""}{reviewCalc.bonusReviews > 0 && reviewCalc.photos > 0 ? " + " : ""}{reviewCalc.photos > 0 ? reviewCalc.photos + " photo x $5" : ""}{reviewCalc.bonusPerEmployee === 0 ? "No bonus yet" : ""}</div>
-              </div>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Store Bonus</div>
-                <div style={{ color:"#FF2D95",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.totalBonus}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{"$" + reviewCalc.bonusPerEmployee + " x " + reviewCalc.empCount + " employees"}</div>
+            {/* Header with Google link */}
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+              <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:800 }}>{"\u2B50"} Google Reviews & SEO — {storeName}</div>
+              <div style={{ display:"flex",gap:8 }}>
+                <button onClick={function(){ setShowGbpForm(!showGbpForm); if (!showGbpForm) setGbpForm(emptyGbpForm); }}
+                  style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                  {showGbpForm ? "Cancel" : "+ Add Report"}
+                </button>
+                {GOOGLE_LINKS[store] && (
+                  <a href={GOOGLE_LINKS[store]} target="_blank" rel="noopener noreferrer"
+                    style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6 }}>
+                    {"\u2B50"} Open Google Listing
+                  </a>
+                )}
               </div>
             </div>
 
-            {/* How it works */}
-            <div style={{ background:"#1A1D23",borderRadius:14,padding:20,marginBottom:20,border:"1px solid #FBBF2422" }}>
-              <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDCCB"} How Review Bonuses Work</div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
-                <div>
-                  <div style={{ color:"#C8CAD0",fontSize:12,lineHeight:1.6 }}>
-                    <div style={{ marginBottom:6 }}><strong style={{ color:"#F0F1F3" }}>Minimum:</strong> 10 new reviews per store per month</div>
-                    <div style={{ marginBottom:6 }}><strong style={{ color:"#4ADE80" }}>Quantity Bonus:</strong> After 10 reviews, each additional review = <strong>$5 per employee</strong></div>
-                    <div><strong style={{ color:"#7B2FFF" }}>Photo Bonus:</strong> Every review with a photo = <strong>$5 per employee</strong> (regardless of total count)</div>
-                  </div>
-                </div>
-                <div style={{ background:"#12141A",borderRadius:10,padding:14 }}>
-                  <div style={{ color:"#8B8F98",fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6 }}>Example</div>
-                  <div style={{ color:"#C8CAD0",fontSize:11,lineHeight:1.7 }}>
-                    15 reviews (3 with photos), 4 employees:<br/>
-                    Bonus reviews: 15 - 10 = <strong style={{ color:"#00D4FF" }}>5 x $5 = $25</strong><br/>
-                    Photo reviews: <strong style={{ color:"#7B2FFF" }}>3 x $5 = $15</strong><br/>
-                    Per employee: <strong style={{ color:"#4ADE80" }}>$40</strong><br/>
-                    Total store cost: <strong style={{ color:"#FF2D95" }}>$40 x 4 = $160</strong>
-                  </div>
-                </div>
-              </div>
+            {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
+
+            {/* Sub-tabs */}
+            <div style={{ display:"flex",gap:4,marginBottom:20 }}>
+              {[{id:"performance",label:"\uD83D\uDCCA Performance"},{id:"keywords",label:"\uD83D\uDD0D Keywords"},{id:"commission",label:"\uD83D\uDCB0 Commission"},{id:"reports",label:"\uD83D\uDCC4 Report History"}].map(function(t) {
+                return <button key={t.id} onClick={function(){setReviewSubTab(t.id);}} style={{ padding:"8px 14px",borderRadius:6,border:"none",cursor:"pointer",background:reviewSubTab===t.id?"#FBBF2422":"#1A1D23",color:reviewSubTab===t.id?"#FBBF24":"#8B8F98",fontSize:12,fontWeight:600 }}>{t.label}</button>;
+              })}
             </div>
 
-            {/* Entry form */}
-            <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>Update This Month's Numbers</div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:12 }}>
-                <div>
-                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Total New Reviews *</label>
-                  <input type="number" value={reviewForm.total_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{total_reviews:e.target.value}));}}
-                    placeholder="0" style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+            {/* ═══ GBP REPORT ENTRY FORM ═══ */}
+            {showGbpForm && (
+              <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20,border:"1px solid #7B2FFF33" }}>
+                <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDCCB"} Enter Weekly GBP Report</div>
+
+                {/* Period */}
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:12,marginBottom:16 }}>
+                  <div><label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Report Start Date *</label><input type="date" value={gbpForm.period_start} onChange={function(e){setGbpForm(Object.assign({},gbpForm,{period_start:e.target.value}));}} style={inputStyle} /></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Report End Date *</label><input type="date" value={gbpForm.period_end} onChange={function(e){setGbpForm(Object.assign({},gbpForm,{period_end:e.target.value}));}} style={inputStyle} /></div>
                 </div>
-                <div>
-                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Reviews with Photos *</label>
-                  <input type="number" value={reviewForm.photo_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{photo_reviews:e.target.value}));}}
-                    placeholder="0" style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+
+                {/* Statistics */}
+                <div style={{ color:"#FBBF24",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Statistics</div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16 }}>
+                  {[{k:"customer_calls",l:"Customer Calls"},{k:"profile_views",l:"Profile Views"},{k:"website_visits",l:"Website Visits"},{k:"direction_requests",l:"Direction Requests"},{k:"competitors_outranked",l:"Competitors Outranked"}].map(function(f) {
+                    return <div key={f.k}><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:3 }}>{f.l}</label><input type="number" value={gbpForm[f.k]} onChange={function(e){var u={};u[f.k]=e.target.value;setGbpForm(Object.assign({},gbpForm,u));}} placeholder="0" style={inputStyleCenter} /></div>;
+                  })}
                 </div>
-                <div>
-                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Employees This Month</label>
-                  <input type="number" value={reviewForm.employee_count} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{employee_count:e.target.value}));}}
-                    placeholder={String(storeEmployees.length || 3)} style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+
+                {/* Content Activity */}
+                <div style={{ color:"#00D4FF",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Content Activity</div>
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16 }}>
+                  {[{k:"received_reviews",l:"New Reviews"},{k:"posts_published",l:"Posts Published"},{k:"photos_published",l:"Photos Published"},{k:"review_responses",l:"Review Responses"},{k:"offers_published",l:"Offers Published"}].map(function(f) {
+                    return <div key={f.k}><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:3 }}>{f.l}</label><input type="number" value={gbpForm[f.k]} onChange={function(e){var u={};u[f.k]=e.target.value;setGbpForm(Object.assign({},gbpForm,u));}} placeholder="0" style={inputStyleCenter} /></div>;
+                  })}
                 </div>
-                <div>
+
+                {/* Keywords */}
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
+                  <div style={{ color:"#4ADE80",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Keyword Rankings</div>
+                  <button onClick={addGbpKeyword} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Keyword</button>
+                </div>
+                {gbpForm.keywords.map(function(kw, ki) {
+                  return <div key={ki} style={{ display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginBottom:6 }}>
+                    <input value={kw.keyword} onChange={function(e){updateGbpKeyword(ki,"keyword",e.target.value);}} placeholder="e.g. phone repair bloomington" style={inputStyle} />
+                    <input type="number" value={kw.position} onChange={function(e){updateGbpKeyword(ki,"position",e.target.value);}} placeholder="Position" style={Object.assign({},inputStyle,{textAlign:"center"})} />
+                    <input type="number" value={kw.position_change} onChange={function(e){updateGbpKeyword(ki,"position_change",e.target.value);}} placeholder="+/- Change" style={Object.assign({},inputStyle,{textAlign:"center"})} />
+                    <button onClick={function(){removeGbpKeyword(ki);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
+                  </div>;
+                })}
+
+                {/* Competitors */}
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:16,marginBottom:8 }}>
+                  <div style={{ color:"#FF2D95",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Competitor Activity</div>
+                  <button onClick={addGbpCompetitor} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #FF2D9533",background:"transparent",color:"#FF2D95",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Competitor</button>
+                </div>
+                {gbpForm.competitors.map(function(comp, ci) {
+                  return <div key={ci} style={{ background:"#12141A",borderRadius:8,padding:12,marginBottom:8,border:"1px solid #1E2028" }}>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr auto",gap:8,marginBottom:6 }}>
+                      <input value={comp.name} onChange={function(e){updateGbpCompetitor(ci,"name",e.target.value);}} placeholder="Competitor name" style={inputStyle} />
+                      <button onClick={function(){removeGbpCompetitor(ci);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
+                    </div>
+                    <input value={comp.actions} onChange={function(e){updateGbpCompetitor(ci,"actions",e.target.value);}} placeholder="Actions taken (e.g. Increased reviews from 560 to 565)" style={Object.assign({},inputStyle,{marginBottom:4})} />
+                    <input value={comp.impact} onChange={function(e){updateGbpCompetitor(ci,"impact",e.target.value);}} placeholder="Impact (e.g. Moved from position 3 to 2)" style={inputStyle} />
+                  </div>;
+                })}
+
+                {/* Notes + Save */}
+                <div style={{ marginTop:12 }}>
                   <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Notes</label>
-                  <input type="text" value={reviewForm.notes} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{notes:e.target.value}));}}
-                    placeholder="Optional notes..." style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }} />
+                  <input value={gbpForm.notes} onChange={function(e){setGbpForm(Object.assign({},gbpForm,{notes:e.target.value}));}} placeholder="Optional notes about this report period..." style={Object.assign({},inputStyle,{marginBottom:12})} />
                 </div>
+                <button onClick={saveGbpReport} disabled={gbpSaving}
+                  style={{ padding:"10px 24px",borderRadius:8,border:"none",background:gbpSaving?"#6B6F78":"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:13,fontWeight:700,cursor:gbpSaving?"wait":"pointer" }}>
+                  {gbpSaving ? "Saving..." : "Save GBP Report"}
+                </button>
               </div>
-              <button onClick={saveReview} disabled={reviewSaving}
-                style={{ padding:"10px 24px",borderRadius:8,border:"none",background:reviewSaving?"#6B6F78":"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:13,fontWeight:700,cursor:reviewSaving?"wait":"pointer" }}>
-                {reviewSaving ? "Saving..." : "Save Review Data"}
-              </button>
-            </div>
+            )}
 
-            {/* History */}
-            {reviewData && reviewData.history && reviewData.history.length > 0 && (
-              <div style={{ background:"#1A1D23",borderRadius:14,padding:24 }}>
-                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Review History</div>
-                <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom:"1px solid #2A2D35" }}>
-                      {["Month","Reviews","Photos","Bonus Reviews","Per Employee","Total Bonus"].map(function(h,i) {
-                        return <th key={i} style={{ padding:"8px 12px",textAlign:i===0?"left":"right",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
+            {/* ═══ PERFORMANCE SUB-TAB ═══ */}
+            {reviewSubTab === "performance" && (
+              <div>
+                {/* GBP Stats Cards */}
+                {gbpReport ? (
+                  <div>
+                    <div style={{ color:"#8B8F98",fontSize:11,marginBottom:10 }}>
+                      Latest report: {new Date(gbpReport.period_start + "T12:00:00").toLocaleDateString([], {month:"short",day:"numeric"})} — {new Date(gbpReport.period_end + "T12:00:00").toLocaleDateString([], {month:"short",day:"numeric",year:"numeric"})}
+                    </div>
+                    <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
+                      {[
+                        {l:"Customer Calls",v:gbpReport.customer_calls||0,c:"#FBBF24",icon:"\uD83D\uDCDE",trend:gbpTrends?gbpTrends.calls:null},
+                        {l:"Profile Views",v:gbpReport.profile_views||0,c:"#7B2FFF",icon:"\uD83D\uDC41",trend:gbpTrends?gbpTrends.views:null},
+                        {l:"Website Visits",v:gbpReport.website_visits||0,c:"#00D4FF",icon:"\uD83C\uDF10",trend:gbpTrends?gbpTrends.visits:null},
+                        {l:"Direction Requests",v:gbpReport.direction_requests||0,c:"#4ADE80",icon:"\uD83D\uDDFA\uFE0F",trend:gbpTrends?gbpTrends.directions:null},
+                        {l:"New Reviews",v:gbpReport.received_reviews||0,c:"#FF2D95",icon:"\u2B50"},
+                      ].map(function(s,i) {
+                        return <div key={i} style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid "+s.c }}>
+                          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+                            <div>
+                              <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>{s.l}</div>
+                              <div style={{ color:s.c,fontSize:28,fontWeight:700 }}>{s.v.toLocaleString()}</div>
+                            </div>
+                            <span style={{ fontSize:18 }}>{s.icon}</span>
+                          </div>
+                          {s.trend && s.trend.length >= 2 && <div style={{ marginTop:6 }}><Sparkline data={s.trend} color={s.c} width={100} height={20} /></div>}
+                        </div>;
                       })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reviewData.history.map(function(r) {
-                      var bonus = Math.max(0, r.total_reviews - 10);
-                      var perEmp = (bonus * 5) + (r.photo_reviews * 5);
-                      var total = perEmp * (r.employee_count || 1);
-                      var hit = r.total_reviews >= 10;
-                      var label = new Date(parseInt(r.period.split("-")[0]), parseInt(r.period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
-                      return (
-                        <tr key={r.period} style={{ borderBottom:"1px solid #1E2028" }}>
-                          <td style={{ padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{label}</td>
-                          <td style={{ padding:"10px 12px",textAlign:"right",color:hit?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{r.total_reviews}</td>
-                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#7B2FFF",fontSize:13,fontWeight:600 }}>{r.photo_reviews}</td>
-                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{bonus}</td>
-                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#4ADE80",fontSize:13,fontWeight:700 }}>{"$" + perEmp}</td>
-                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#FF2D95",fontSize:14,fontWeight:800 }}>{"$" + total}</td>
+                    </div>
+
+                    {/* Content activity */}
+                    <div style={{ background:"#1A1D23",borderRadius:14,padding:20,marginBottom:20 }}>
+                      <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDCC4"} Content Activity This Week</div>
+                      <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12 }}>
+                        {[
+                          {l:"Posts Published",v:gbpReport.posts_published||0,c:"#7B2FFF"},
+                          {l:"Photos Published",v:gbpReport.photos_published||0,c:"#00D4FF"},
+                          {l:"Review Responses",v:gbpReport.review_responses||0,c:"#4ADE80"},
+                          {l:"Offers Published",v:gbpReport.offers_published||0,c:"#FBBF24"},
+                        ].map(function(s,i) {
+                          return <div key={i} style={{ background:"#12141A",borderRadius:10,padding:14,textAlign:"center" }}>
+                            <div style={{ color:s.v>0?s.c:"#6B6F78",fontSize:24,fontWeight:800 }}>{s.v}</div>
+                            <div style={{ color:"#8B8F98",fontSize:10 }}>{s.l}</div>
+                          </div>;
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Competitors */}
+                    {gbpReport.competitors && gbpReport.competitors.length > 0 && (
+                      <div style={{ background:"#1A1D23",borderRadius:14,padding:20 }}>
+                        <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83C\uDFC1"} Competitor Activity</div>
+                        {gbpReport.competitors.map(function(comp, ci) {
+                          return <div key={ci} style={{ background:"#12141A",borderRadius:10,padding:14,marginBottom:ci<gbpReport.competitors.length-1?10:0,border:"1px solid #FF2D9512" }}>
+                            <div style={{ color:"#FF2D95",fontSize:13,fontWeight:700,marginBottom:4 }}>{comp.name}</div>
+                            {comp.actions && <div style={{ color:"#C8CAD0",fontSize:11,lineHeight:1.5,marginBottom:4 }}>{comp.actions}</div>}
+                            {comp.impact && <div style={{ color:"#8B8F98",fontSize:10,fontStyle:"italic" }}>{comp.impact}</div>}
+                          </div>;
+                        })}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
+                    <div style={{ fontSize:32,marginBottom:8 }}>{"\uD83D\uDCCA"}</div>
+                    <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:6 }}>No GBP Reports Yet</div>
+                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Click "+ Add Report" to enter your weekly Google Business Profile data</div>
+                    <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Add First Report</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ═══ KEYWORDS SUB-TAB ═══ */}
+            {reviewSubTab === "keywords" && (
+              <div>
+                {gbpReport && gbpReport.keywords && gbpReport.keywords.length > 0 ? (
+                  <div>
+                    <div style={{ color:"#8B8F98",fontSize:11,marginBottom:12 }}>
+                      Rankings from {new Date(gbpReport.period_start + "T12:00:00").toLocaleDateString([], {month:"short",day:"numeric"})} — {new Date(gbpReport.period_end + "T12:00:00").toLocaleDateString([], {month:"short",day:"numeric",year:"numeric"})}
+                    </div>
+                    <div style={{ background:"#1A1D23",borderRadius:14,overflow:"hidden",marginBottom:20 }}>
+                      <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                        <thead>
+                          <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                            <th style={{ padding:"12px 18px",textAlign:"left",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>Keyword</th>
+                            <th style={{ padding:"12px 18px",textAlign:"center",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>Position</th>
+                            <th style={{ padding:"12px 18px",textAlign:"center",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>Change</th>
+                            <th style={{ padding:"12px 18px",textAlign:"center",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {gbpReport.keywords.sort(function(a,b){return (parseInt(a.position)||99)-(parseInt(b.position)||99);}).map(function(kw, ki) {
+                            var pos = parseInt(kw.position) || 0;
+                            var change = parseInt(kw.position_change) || 0;
+                            var posColor = pos <= 1 ? "#4ADE80" : pos <= 3 ? "#FBBF24" : pos <= 5 ? "#FB923C" : "#F87171";
+                            var changeColor = change > 0 ? "#4ADE80" : change < 0 ? "#F87171" : "#6B6F78";
+                            var changeText = change > 0 ? "+"+change : change < 0 ? String(change) : "—";
+                            return (
+                              <tr key={ki} style={{ borderBottom:"1px solid #1E2028" }}>
+                                <td style={{ padding:"12px 18px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{kw.keyword}</td>
+                                <td style={{ padding:"12px 18px",textAlign:"center" }}>
+                                  <span style={{ display:"inline-block",background:posColor+"18",color:posColor,padding:"3px 10px",borderRadius:6,fontSize:14,fontWeight:800,minWidth:28 }}>#{pos}</span>
+                                </td>
+                                <td style={{ padding:"12px 18px",textAlign:"center",color:changeColor,fontSize:13,fontWeight:700 }}>{changeText}</td>
+                                <td style={{ padding:"12px 18px",textAlign:"center" }}>
+                                  {pos === 1 && <span style={{ color:"#4ADE80",fontSize:11,fontWeight:700 }}>{"\uD83D\uDC51"} #1</span>}
+                                  {pos > 1 && pos <= 3 && <span style={{ color:"#FBBF24",fontSize:11 }}>Top 3</span>}
+                                  {pos > 3 && pos <= 5 && <span style={{ color:"#FB923C",fontSize:11 }}>Top 5</span>}
+                                  {pos > 5 && <span style={{ color:"#F87171",fontSize:11 }}>Needs work</span>}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    {/* Keyword history comparison across reports */}
+                    {gbpHistory && gbpHistory.length >= 2 && (
+                      <div style={{ background:"#1A1D23",borderRadius:14,padding:20 }}>
+                        <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDCC8"} Keyword Trends Over Time</div>
+                        <div style={{ color:"#8B8F98",fontSize:11,marginBottom:12 }}>Position tracking across report periods (lower is better)</div>
+                        {(function() {
+                          // Collect all unique keywords across history
+                          var allKw = {};
+                          gbpHistory.forEach(function(rpt) {
+                            (rpt.keywords || []).forEach(function(kw) {
+                              if (kw.keyword && !allKw[kw.keyword]) allKw[kw.keyword] = [];
+                            });
+                          });
+                          // Fill in position data per period
+                          var sortedHistory = gbpHistory.slice().sort(function(a,b){return a.period_start > b.period_start ? 1 : -1;});
+                          Object.keys(allKw).forEach(function(kwName) {
+                            sortedHistory.forEach(function(rpt) {
+                              var found = (rpt.keywords || []).find(function(k){return k.keyword === kwName;});
+                              allKw[kwName].push(found ? (parseInt(found.position) || null) : null);
+                            });
+                          });
+                          var kwColors = ["#FBBF24","#7B2FFF","#00D4FF","#4ADE80","#FF2D95","#FB923C","#F87171","#E0B0FF"];
+                          return Object.keys(allKw).map(function(kwName, ki) {
+                            var positions = allKw[kwName];
+                            var color = kwColors[ki % kwColors.length];
+                            var latest = null; var prev = null;
+                            for (var i = positions.length - 1; i >= 0; i--) { if (positions[i] !== null) { if (latest === null) latest = positions[i]; else if (prev === null) prev = positions[i]; } }
+                            var delta = (prev !== null && latest !== null) ? prev - latest : 0; // positive = improved
+                            return (
+                              <div key={kwName} style={{ display:"flex",alignItems:"center",gap:12,padding:"8px 0",borderBottom:ki<Object.keys(allKw).length-1?"1px solid #1E2028":"none" }}>
+                                <div style={{ flex:1,color:"#C8CAD0",fontSize:12 }}>{kwName}</div>
+                                <div style={{ display:"flex",gap:4 }}>
+                                  {positions.map(function(p, pi) {
+                                    return <div key={pi} style={{ width:28,height:28,borderRadius:6,background:p!==null?(p<=3?color+"22":"#12141A"):"#12141A",display:"flex",alignItems:"center",justifyContent:"center",border:"1px solid "+(p!==null?color+"33":"#1E2028") }}>
+                                      <span style={{ color:p!==null?color:"#3A3D45",fontSize:10,fontWeight:700 }}>{p!==null?p:"—"}</span>
+                                    </div>;
+                                  })}
+                                </div>
+                                <div style={{ width:50,textAlign:"right",color:delta>0?"#4ADE80":delta<0?"#F87171":"#6B6F78",fontSize:11,fontWeight:700 }}>
+                                  {delta > 0 ? "\u2191"+delta : delta < 0 ? "\u2193"+Math.abs(delta) : "—"}
+                                </div>
+                              </div>
+                            );
+                          });
+                        })()}
+                        <div style={{ display:"flex",gap:8,marginTop:10,color:"#6B6F78",fontSize:9 }}>
+                          {gbpHistory.slice().sort(function(a,b){return a.period_start > b.period_start ? 1 : -1;}).map(function(rpt, ri) {
+                            return <div key={ri} style={{ flex:0,minWidth:28,textAlign:"center" }}>{new Date(rpt.period_start+"T12:00:00").toLocaleDateString([],{month:"numeric",day:"numeric"})}</div>;
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
+                    <div style={{ fontSize:32,marginBottom:8 }}>{"\uD83D\uDD0D"}</div>
+                    <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:6 }}>No Keyword Data Yet</div>
+                    <div style={{ color:"#8B8F98",fontSize:12,marginBottom:16 }}>Add a GBP report with keyword rankings to start tracking SEO positions</div>
+                    <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Add Report</button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ═══ COMMISSION SUB-TAB ═══ */}
+            {reviewSubTab === "commission" && (
+              <div>
+                {/* Bonus summary cards */}
+                <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
+                  <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Reviews</div>
+                    <div style={{ color:reviewCalc.hitMinimum?"#4ADE80":"#F87171",fontSize:28,fontWeight:700 }}>{reviewCalc.total}</div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.hitMinimum ? "\u2705 Minimum met" : (10 - reviewCalc.total) + " more to hit minimum"}</div>
+                  </div>
+                  <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Photo Reviews</div>
+                    <div style={{ color:"#7B2FFF",fontSize:28,fontWeight:700 }}>{reviewCalc.photos}</div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>$5 each per employee</div>
+                  </div>
+                  <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Bonus Reviews</div>
+                    <div style={{ color:"#00D4FF",fontSize:28,fontWeight:700 }}>{reviewCalc.bonusReviews}</div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>Reviews above 10 minimum</div>
+                  </div>
+                  <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Per Employee Bonus</div>
+                    <div style={{ color:"#4ADE80",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.bonusPerEmployee}</div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.bonusReviews > 0 ? reviewCalc.bonusReviews + " bonus x $5" : ""}{reviewCalc.bonusReviews > 0 && reviewCalc.photos > 0 ? " + " : ""}{reviewCalc.photos > 0 ? reviewCalc.photos + " photo x $5" : ""}{reviewCalc.bonusPerEmployee === 0 ? "No bonus yet" : ""}</div>
+                  </div>
+                  <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Store Bonus</div>
+                    <div style={{ color:"#FF2D95",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.totalBonus}</div>
+                    <div style={{ color:"#6B6F78",fontSize:10 }}>{"$" + reviewCalc.bonusPerEmployee + " x " + reviewCalc.empCount + " employees"}</div>
+                  </div>
+                </div>
+
+                {/* How it works */}
+                <div style={{ background:"#1A1D23",borderRadius:14,padding:20,marginBottom:20,border:"1px solid #FBBF2422" }}>
+                  <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDCCB"} How Review Bonuses Work</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+                    <div>
+                      <div style={{ color:"#C8CAD0",fontSize:12,lineHeight:1.6 }}>
+                        <div style={{ marginBottom:6 }}><strong style={{ color:"#F0F1F3" }}>Minimum:</strong> 10 new reviews per store per month</div>
+                        <div style={{ marginBottom:6 }}><strong style={{ color:"#4ADE80" }}>Quantity Bonus:</strong> After 10 reviews, each additional review = <strong>$5 per employee</strong></div>
+                        <div><strong style={{ color:"#7B2FFF" }}>Photo Bonus:</strong> Every review with a photo = <strong>$5 per employee</strong> (regardless of total count)</div>
+                      </div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:10,padding:14 }}>
+                      <div style={{ color:"#8B8F98",fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6 }}>Example</div>
+                      <div style={{ color:"#C8CAD0",fontSize:11,lineHeight:1.7 }}>
+                        15 reviews (3 with photos), 4 employees:<br/>
+                        Bonus reviews: 15 - 10 = <strong style={{ color:"#00D4FF" }}>5 x $5 = $25</strong><br/>
+                        Photo reviews: <strong style={{ color:"#7B2FFF" }}>3 x $5 = $15</strong><br/>
+                        Per employee: <strong style={{ color:"#4ADE80" }}>$40</strong><br/>
+                        Total store cost: <strong style={{ color:"#FF2D95" }}>$40 x 4 = $160</strong>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Entry form */}
+                <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20 }}>
+                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>Update This Month's Numbers</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:12 }}>
+                    <div>
+                      <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Total New Reviews *</label>
+                      <input type="number" value={reviewForm.total_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{total_reviews:e.target.value}));}}
+                        placeholder="0" style={inputStyleCenter} />
+                    </div>
+                    <div>
+                      <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Reviews with Photos *</label>
+                      <input type="number" value={reviewForm.photo_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{photo_reviews:e.target.value}));}}
+                        placeholder="0" style={inputStyleCenter} />
+                    </div>
+                    <div>
+                      <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Employees This Month</label>
+                      <input type="number" value={reviewForm.employee_count} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{employee_count:e.target.value}));}}
+                        placeholder={String(storeEmployees.length || 3)} style={inputStyleCenter} />
+                    </div>
+                    <div>
+                      <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Notes</label>
+                      <input type="text" value={reviewForm.notes} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{notes:e.target.value}));}}
+                        placeholder="Optional notes..." style={Object.assign({},inputStyle,{padding:"10px 12px"})} />
+                    </div>
+                  </div>
+                  <button onClick={saveReview} disabled={reviewSaving}
+                    style={{ padding:"10px 24px",borderRadius:8,border:"none",background:reviewSaving?"#6B6F78":"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:13,fontWeight:700,cursor:reviewSaving?"wait":"pointer" }}>
+                    {reviewSaving ? "Saving..." : "Save Review Data"}
+                  </button>
+                </div>
+
+                {/* Commission History */}
+                {reviewData && reviewData.history && reviewData.history.length > 0 && (
+                  <div style={{ background:"#1A1D23",borderRadius:14,padding:24 }}>
+                    <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Commission History</div>
+                    <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                          {["Month","Reviews","Photos","Bonus Reviews","Per Employee","Total Bonus"].map(function(h,i) {
+                            return <th key={i} style={{ padding:"8px 12px",textAlign:i===0?"left":"right",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
+                          })}
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                      </thead>
+                      <tbody>
+                        {reviewData.history.map(function(r) {
+                          var bonus = Math.max(0, r.total_reviews - 10);
+                          var perEmp = (bonus * 5) + (r.photo_reviews * 5);
+                          var total = perEmp * (r.employee_count || 1);
+                          var hit = r.total_reviews >= 10;
+                          var label = new Date(parseInt(r.period.split("-")[0]), parseInt(r.period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+                          return (
+                            <tr key={r.period} style={{ borderBottom:"1px solid #1E2028" }}>
+                              <td style={{ padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{label}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:hit?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{r.total_reviews}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#7B2FFF",fontSize:13,fontWeight:600 }}>{r.photo_reviews}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{bonus}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#4ADE80",fontSize:13,fontWeight:700 }}>{"$" + perEmp}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#FF2D95",fontSize:14,fontWeight:800 }}>{"$" + total}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ═══ REPORT HISTORY SUB-TAB ═══ */}
+            {reviewSubTab === "reports" && (
+              <div>
+                {gbpHistory && gbpHistory.length > 0 ? (
+                  <div style={{ background:"#1A1D23",borderRadius:14,overflow:"hidden" }}>
+                    <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                      <thead>
+                        <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                          {["Period","Calls","Views","Visits","Directions","Reviews","Posts","Photos","Actions"].map(function(h,i) {
+                            return <th key={i} style={{ padding:"12px 14px",textAlign:i===0?"left":i===8?"center":"right",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
+                          })}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {gbpHistory.map(function(rpt) {
+                          var dateLabel = new Date(rpt.period_start+"T12:00:00").toLocaleDateString([],{month:"short",day:"numeric"}) + " — " + new Date(rpt.period_end+"T12:00:00").toLocaleDateString([],{month:"short",day:"numeric"});
+                          return (
+                            <tr key={rpt.id} style={{ borderBottom:"1px solid #1E2028" }}>
+                              <td style={{ padding:"10px 14px",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{dateLabel}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#FBBF24",fontSize:13,fontWeight:700 }}>{rpt.customer_calls||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#7B2FFF",fontSize:13 }}>{rpt.profile_views||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{rpt.website_visits||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#4ADE80",fontSize:13 }}>{rpt.direction_requests||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#FF2D95",fontSize:13,fontWeight:700 }}>+{rpt.received_reviews||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:12 }}>{rpt.posts_published||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:12 }}>{rpt.photos_published||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"center" }}>
+                                <button onClick={function(){deleteGbpReport(rpt.id);}} style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>Del</button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div style={{ background:"#1A1D23",borderRadius:14,padding:40,textAlign:"center" }}>
+                    <div style={{ color:"#6B6F78",fontSize:13 }}>No GBP reports saved yet. Click "+ Add Report" to get started.</div>
+                  </div>
+                )}
               </div>
             )}
           </div>
