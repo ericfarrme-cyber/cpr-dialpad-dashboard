@@ -90,6 +90,7 @@ function StoreDashboard() {
   var [searchQuery, setSearchQuery] = useState("");
   var [importing, setImporting] = useState(false);
   var [apptView, setApptView] = useState("today");
+  var [expandedEmp, setExpandedEmp] = useState(null);
 
   // ═══ DATA LOADING ═══
   var loadData = async function() {
@@ -391,13 +392,15 @@ function StoreDashboard() {
             {/* Team Performance */}
             {storeEmployees.length > 0 && (
               <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:24 }}>
-                <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:16 }}>Team Performance</div>
+                <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:16 }}>Team Performance <span style={{ color:"#6B6F78",fontSize:11,fontWeight:400 }}>— tap a name to see details</span></div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat("+Math.min(storeEmployees.length, 4)+",1fr)",gap:14 }}>
                   {storeEmployees.sort(function(a,b){return b.overall-a.overall;}).map(function(emp) {
                     var lvl = getLevel(emp.overall);
                     var nl = getNextLevel(emp.overall);
+                    var isExpanded = expandedEmp === emp.name;
                     return (
-                      <div key={emp.name} style={{ background:"#12141A",borderRadius:12,padding:18,textAlign:"center",border:"1px solid "+lvl.color+"22" }}>
+                      <div key={emp.name} onClick={function(){setExpandedEmp(isExpanded ? null : emp.name);}}
+                        style={{ background:isExpanded?"#1A1D23":"#12141A",borderRadius:12,padding:18,textAlign:"center",border:"1px solid "+(isExpanded?lvl.color+"55":lvl.color+"22"),cursor:"pointer",transition:"border-color 0.2s" }}>
                         <div style={{ fontSize:24,marginBottom:4 }}>{lvl.emoji}</div>
                         <ScoreRing score={emp.overall} size={80} />
                         <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginTop:8 }}>{emp.name}</div>
@@ -437,10 +440,97 @@ function StoreDashboard() {
                             </div>
                           );
                         })()}
+                        <div style={{ color:isExpanded?lvl.color:"#6B6F78",fontSize:9,marginTop:6 }}>{isExpanded ? "\u25B2 Hide Details" : "\u25BC View Details"}</div>
                       </div>
                     );
                   })}
                 </div>
+
+                {/* Expanded detail panel */}
+                {expandedEmp && (function() {
+                  var emp = storeEmployees.find(function(e){return e.name === expandedEmp;});
+                  if (!emp) return null;
+                  var lvl = getLevel(emp.overall);
+                  var sd = salesByEmployee[emp.name] || {};
+                  var empAppt = apptStats && apptStats.empStats ? apptStats.empStats.find(function(e){return e.name === emp.name;}) : null;
+
+                  var catDetails = [
+                    { key: "repairs", label: "Repairs & Production", icon: "\uD83D\uDD27", color: "#7B2FFF",
+                      details: [
+                        { label: "Repair Qty", value: sd.repairs || 0, suffix: " repairs" },
+                        { label: "Repair Revenue", value: "$" + (sd.repair_revenue || 0).toLocaleString(undefined,{maximumFractionDigits:0}) },
+                        { label: "Accessory GP", value: "$" + (sd.accy_gp || 0).toLocaleString(undefined,{maximumFractionDigits:0}) },
+                        { label: "Accessory Items", value: sd.accy_count || 0, suffix: " sold" },
+                        { label: "Cleanings", value: sd.clean_count || 0 },
+                      ] },
+                    { key: "audit", label: "Phone Audit Quality", icon: "\uD83D\uDCDE", color: "#FBBF24",
+                      details: [
+                        { label: "Avg Call Score", value: emp.categories && emp.categories.audit ? (emp.categories.audit.score || 0) + "/100" : "N/A" },
+                        { label: "Calls Audited", value: emp.auditCount || "—" },
+                      ] },
+                    { key: "compliance", label: "Ticket Compliance", icon: "\uD83C\uDFAB", color: "#00D4FF",
+                      details: [
+                        { label: "Avg Ticket Score", value: emp.categories && emp.categories.compliance ? (emp.categories.compliance.score || 0) + "/100" : "N/A" },
+                      ] },
+                  ];
+
+                  if (empAppt) {
+                    catDetails.push({
+                      key: "appointments", label: "Appointments", icon: "\uD83D\uDCC5", color: "#4ADE80",
+                      details: [
+                        { label: "Total Booked", value: empAppt.total },
+                        { label: "Showed Up", value: empAppt.arrived },
+                        { label: "No-Shows", value: empAppt.no_show },
+                        { label: "Show Rate", value: empAppt.show_rate + "%" },
+                      ]
+                    });
+                  }
+
+                  return (
+                    <div style={{ marginTop:16,background:"#12141A",borderRadius:12,padding:20,border:"1px solid "+lvl.color+"22" }}>
+                      <div style={{ display:"flex",alignItems:"center",gap:12,marginBottom:16 }}>
+                        <span style={{ fontSize:22 }}>{lvl.emoji}</span>
+                        <div>
+                          <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:800 }}>{emp.name}</div>
+                          <div style={{ color:lvl.color,fontSize:12,fontWeight:600 }}>{lvl.name} Level — {emp.overall} points</div>
+                        </div>
+                      </div>
+                      <div style={{ display:"grid",gridTemplateColumns:"repeat("+Math.min(catDetails.length,4)+",1fr)",gap:12 }}>
+                        {catDetails.map(function(cat) {
+                          var score = emp.categories && emp.categories[cat.key] ? emp.categories[cat.key].score : null;
+                          var catLvl = score !== null ? getLevel(score) : null;
+                          return (
+                            <div key={cat.key} style={{ background:"#1A1D23",borderRadius:10,padding:14,border:"1px solid "+cat.color+"15" }}>
+                              <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:10 }}>
+                                <span style={{ fontSize:16 }}>{cat.icon}</span>
+                                <div style={{ color:cat.color,fontSize:11,fontWeight:700 }}>{cat.label}</div>
+                              </div>
+                              {score !== null && (
+                                <div style={{ marginBottom:10 }}>
+                                  <div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}>
+                                    <span style={{ color:catLvl.color,fontSize:18,fontWeight:800 }}>{score}</span>
+                                    <span style={{ color:catLvl.color,fontSize:10,fontWeight:600 }}>{catLvl.name}</span>
+                                  </div>
+                                  <div style={{ background:"#12141A",borderRadius:4,height:5,overflow:"hidden" }}>
+                                    <div style={{ width:score+"%",height:"100%",background:catLvl.color,borderRadius:4 }} />
+                                  </div>
+                                </div>
+                              )}
+                              {cat.details.map(function(d, di) {
+                                return (
+                                  <div key={di} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:di < cat.details.length - 1 ? "1px solid #1E2028" : "none" }}>
+                                    <span style={{ color:"#8B8F98",fontSize:10 }}>{d.label}</span>
+                                    <span style={{ color:"#F0F1F3",fontSize:11,fontWeight:600 }}>{d.value}{d.suffix || ""}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
