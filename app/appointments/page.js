@@ -5,6 +5,11 @@ import AuthProvider, { useAuth } from "@/components/AuthProvider";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
+var GOOGLE_LINKS = {
+  fishers: "https://share.google/boLKmW7TWqLQMaUsY",
+  bloomington: "https://share.google/0XO2eEVlRVWHrUpGC",
+  indianapolis: "https://share.google/uNhlR2bdbFSjbF360",
+};
 
 function normPhone(p) { return p ? String(p).replace(/\D/g, "").slice(-10) : ""; }
 function fmtPhone(p) { var n = normPhone(p); return n.length === 10 ? "(" + n.slice(0,3) + ") " + n.slice(3,6) + "-" + n.slice(6) : p; }
@@ -77,7 +82,6 @@ function StoreDashboard() {
   var [roster, setRoster] = useState([]);
   var [salesData, setSalesData] = useState(null);
   var [weeklyGoal, setWeeklyGoal] = useState(null);
-  var [salesData, setSalesData] = useState(null);
 
   // Appointment form states
   var [showForm, setShowForm] = useState(false);
@@ -91,12 +95,15 @@ function StoreDashboard() {
   var [importing, setImporting] = useState(false);
   var [apptView, setApptView] = useState("today");
   var [expandedEmp, setExpandedEmp] = useState(null);
+  var [reviewData, setReviewData] = useState(null);
+  var [reviewForm, setReviewForm] = useState({ total_reviews: "", photo_reviews: "", employee_count: "", notes: "" });
+  var [reviewSaving, setReviewSaving] = useState(false);
 
   // ═══ DATA LOADING ═══
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
@@ -104,6 +111,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/roster").then(function(r){return r.json();}),
         fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
+        fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -112,6 +120,11 @@ function StoreDashboard() {
       if (rostRes.status === "fulfilled" && rostRes.value.success) setRoster((rostRes.value.roster || []).filter(function(r){return r.active;}));
       if (salesRes.status === "fulfilled" && salesRes.value.success) setSalesData(salesRes.value);
       if (goalRes.status === "fulfilled" && goalRes.value.success) setWeeklyGoal(goalRes.value.goal);
+      if (revRes.status === "fulfilled" && revRes.value.success) {
+        setReviewData(revRes.value);
+        var rd = revRes.value.current;
+        if (rd) setReviewForm({ total_reviews: rd.total_reviews || "", photo_reviews: rd.photo_reviews || "", employee_count: rd.employee_count || "", notes: rd.notes || "" });
+      }
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -248,6 +261,40 @@ function StoreDashboard() {
   var storeName = STORES[store] ? STORES[store].name : store;
   var storeColor = STORES[store] ? STORES[store].color : "#7B2FFF";
 
+  // Review bonus calculations
+  var reviewCalc = useMemo(function() {
+    var total = parseInt(reviewForm.total_reviews) || 0;
+    var photos = parseInt(reviewForm.photo_reviews) || 0;
+    var empCount = parseInt(reviewForm.employee_count) || storeEmployees.length || 1;
+    var bonusReviews = Math.max(0, total - 10);
+    var bonusPerEmployee = (bonusReviews * 5) + (photos * 5);
+    var totalBonus = bonusPerEmployee * empCount;
+    var hitMinimum = total >= 10;
+    return { total: total, photos: photos, empCount: empCount, bonusReviews: bonusReviews, bonusPerEmployee: bonusPerEmployee, totalBonus: totalBonus, hitMinimum: hitMinimum };
+  }, [reviewForm, storeEmployees]);
+
+  var saveReview = async function() {
+    setReviewSaving(true);
+    try {
+      var period = new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0");
+      var res = await fetch("/api/dialpad/google-reviews", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "save", store: store, period: period,
+          total_reviews: parseInt(reviewForm.total_reviews) || 0,
+          photo_reviews: parseInt(reviewForm.photo_reviews) || 0,
+          employee_count: parseInt(reviewForm.employee_count) || storeEmployees.length || 1,
+          notes: reviewForm.notes || "",
+        }),
+      });
+      var json = await res.json();
+      if (json.success) { setMsg({ type: "success", text: "Reviews saved" }); loadData(); }
+      else setMsg({ type: "error", text: json.error });
+    } catch(e) { setMsg({ type: "error", text: e.message }); }
+    setReviewSaving(false);
+    setTimeout(function() { setMsg(null); }, 3000);
+  };
+
   // ═══ RENDER ═══
   return (
     <div style={{ background:"#0F1117",minHeight:"100vh",color:"#F0F1F3",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
@@ -274,7 +321,7 @@ function StoreDashboard() {
 
         {/* Section nav */}
         <div style={{ display:"flex",gap:4,marginBottom:24 }}>
-          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"analytics",label:"\uD83D\uDCCA Analytics"}].map(function(v) {
+          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews"},{id:"analytics",label:"\uD83D\uDCCA Analytics"}].map(function(v) {
             return <button key={v.id} onClick={function(){setSection(v.id);}} style={{ padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",background:section===v.id?"#7B2FFF22":"#1A1D23",color:section===v.id?"#7B2FFF":"#8B8F98",fontSize:13,fontWeight:600 }}>{v.label}</button>;
           })}
         </div>
@@ -665,6 +712,141 @@ function StoreDashboard() {
                 }) : <div style={{ padding:30,textAlign:"center",color:"#6B6F78",fontSize:12 }}>{searchQuery?"No results for \""+searchQuery+"\"":apptView==="today"?"No appointments today":"No appointments"}</div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* ═══ REVIEWS SECTION ═══ */}
+        {section === "reviews" && (
+          <div>
+            {/* Google listing link */}
+            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
+              <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:800 }}>{"\u2B50"} Google Reviews — {storeName}</div>
+              {GOOGLE_LINKS[store] && (
+                <a href={GOOGLE_LINKS[store]} target="_blank" rel="noopener noreferrer"
+                  style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6 }}>
+                  {"\u2B50"} Open Google Listing
+                </a>
+              )}
+            </div>
+
+            {/* Bonus summary cards */}
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Reviews</div>
+                <div style={{ color:reviewCalc.hitMinimum?"#4ADE80":"#F87171",fontSize:28,fontWeight:700 }}>{reviewCalc.total}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.hitMinimum ? "\u2705 Minimum met" : (10 - reviewCalc.total) + " more to hit minimum"}</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Photo Reviews</div>
+                <div style={{ color:"#7B2FFF",fontSize:28,fontWeight:700 }}>{reviewCalc.photos}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>$5 each per employee</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Bonus Reviews</div>
+                <div style={{ color:"#00D4FF",fontSize:28,fontWeight:700 }}>{reviewCalc.bonusReviews}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>Reviews above 10 minimum</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Per Employee Bonus</div>
+                <div style={{ color:"#4ADE80",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.bonusPerEmployee}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{reviewCalc.bonusReviews > 0 ? reviewCalc.bonusReviews + " bonus x $5" : ""}{reviewCalc.bonusReviews > 0 && reviewCalc.photos > 0 ? " + " : ""}{reviewCalc.photos > 0 ? reviewCalc.photos + " photo x $5" : ""}{reviewCalc.bonusPerEmployee === 0 ? "No bonus yet" : ""}</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Total Store Bonus</div>
+                <div style={{ color:"#FF2D95",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.totalBonus}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{"$" + reviewCalc.bonusPerEmployee + " x " + reviewCalc.empCount + " employees"}</div>
+              </div>
+            </div>
+
+            {/* How it works */}
+            <div style={{ background:"#1A1D23",borderRadius:14,padding:20,marginBottom:20,border:"1px solid #FBBF2422" }}>
+              <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDCCB"} How Review Bonuses Work</div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
+                <div>
+                  <div style={{ color:"#C8CAD0",fontSize:12,lineHeight:1.6 }}>
+                    <div style={{ marginBottom:6 }}><strong style={{ color:"#F0F1F3" }}>Minimum:</strong> 10 new reviews per store per month</div>
+                    <div style={{ marginBottom:6 }}><strong style={{ color:"#4ADE80" }}>Quantity Bonus:</strong> After 10 reviews, each additional review = <strong>$5 per employee</strong></div>
+                    <div><strong style={{ color:"#7B2FFF" }}>Photo Bonus:</strong> Every review with a photo = <strong>$5 per employee</strong> (regardless of total count)</div>
+                  </div>
+                </div>
+                <div style={{ background:"#12141A",borderRadius:10,padding:14 }}>
+                  <div style={{ color:"#8B8F98",fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6 }}>Example</div>
+                  <div style={{ color:"#C8CAD0",fontSize:11,lineHeight:1.7 }}>
+                    15 reviews (3 with photos), 4 employees:<br/>
+                    Bonus reviews: 15 - 10 = <strong style={{ color:"#00D4FF" }}>5 x $5 = $25</strong><br/>
+                    Photo reviews: <strong style={{ color:"#7B2FFF" }}>3 x $5 = $15</strong><br/>
+                    Per employee: <strong style={{ color:"#4ADE80" }}>$40</strong><br/>
+                    Total store cost: <strong style={{ color:"#FF2D95" }}>$40 x 4 = $160</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Entry form */}
+            <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20 }}>
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>Update This Month's Numbers</div>
+              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:12,marginBottom:12 }}>
+                <div>
+                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Total New Reviews *</label>
+                  <input type="number" value={reviewForm.total_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{total_reviews:e.target.value}));}}
+                    placeholder="0" style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+                </div>
+                <div>
+                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Reviews with Photos *</label>
+                  <input type="number" value={reviewForm.photo_reviews} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{photo_reviews:e.target.value}));}}
+                    placeholder="0" style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+                </div>
+                <div>
+                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Employees This Month</label>
+                  <input type="number" value={reviewForm.employee_count} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{employee_count:e.target.value}));}}
+                    placeholder={String(storeEmployees.length || 3)} style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,outline:"none",boxSizing:"border-box",textAlign:"center" }} />
+                </div>
+                <div>
+                  <label style={{ color:"#8B8F98",fontSize:10,display:"block",marginBottom:3 }}>Notes</label>
+                  <input type="text" value={reviewForm.notes} onChange={function(e){setReviewForm(Object.assign({},reviewForm,{notes:e.target.value}));}}
+                    placeholder="Optional notes..." style={{ width:"100%",padding:"10px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none",boxSizing:"border-box" }} />
+                </div>
+              </div>
+              <button onClick={saveReview} disabled={reviewSaving}
+                style={{ padding:"10px 24px",borderRadius:8,border:"none",background:reviewSaving?"#6B6F78":"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:13,fontWeight:700,cursor:reviewSaving?"wait":"pointer" }}>
+                {reviewSaving ? "Saving..." : "Save Review Data"}
+              </button>
+            </div>
+
+            {/* History */}
+            {reviewData && reviewData.history && reviewData.history.length > 0 && (
+              <div style={{ background:"#1A1D23",borderRadius:14,padding:24 }}>
+                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Review History</div>
+                <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                      {["Month","Reviews","Photos","Bonus Reviews","Per Employee","Total Bonus"].map(function(h,i) {
+                        return <th key={i} style={{ padding:"8px 12px",textAlign:i===0?"left":"right",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reviewData.history.map(function(r) {
+                      var bonus = Math.max(0, r.total_reviews - 10);
+                      var perEmp = (bonus * 5) + (r.photo_reviews * 5);
+                      var total = perEmp * (r.employee_count || 1);
+                      var hit = r.total_reviews >= 10;
+                      var label = new Date(parseInt(r.period.split("-")[0]), parseInt(r.period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "short", year: "numeric" });
+                      return (
+                        <tr key={r.period} style={{ borderBottom:"1px solid #1E2028" }}>
+                          <td style={{ padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{label}</td>
+                          <td style={{ padding:"10px 12px",textAlign:"right",color:hit?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{r.total_reviews}</td>
+                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#7B2FFF",fontSize:13,fontWeight:600 }}>{r.photo_reviews}</td>
+                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{bonus}</td>
+                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#4ADE80",fontSize:13,fontWeight:700 }}>{"$" + perEmp}</td>
+                          <td style={{ padding:"10px 12px",textAlign:"right",color:"#FF2D95",fontSize:14,fontWeight:800 }}>{"$" + total}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
