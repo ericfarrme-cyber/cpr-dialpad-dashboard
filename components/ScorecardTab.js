@@ -97,8 +97,8 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
     });
   }
 
-  var scorecardSubtabs = isEmployeeView
-    ? [{id:"scores",label:"My Scores",icon:"\uD83C\uDFC6"}]
+  var scorecardSubtabs = isEmployeeView || viewAs === "employee"
+    ? [{id:"scores",label:isEmployeeView?"My Scores":"Scores",icon:"\uD83C\uDFC6"}]
     : [{id:"scores",label:"Scores",icon:"\uD83C\uDFC6"},{id:"config",label:"Scoring Config",icon:"\u2699\uFE0F"}];
 
   var radarData = [
@@ -469,7 +469,7 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
       </div>
       </div>)}
 
-      {!isEmployeeView && (
+      {!isEmployeeView && viewAs !== "employee" && (
       <div style={{ background: "#1A1D23", borderRadius: 12, padding: 16 }}>
         <div style={{ color: "#6B6F78", fontSize: 11 }}>
           <strong style={{ color: "#8B8F98" }}>Employee scoring:</strong> Repairs ({Math.round((configMap.emp_weight_repairs||0.35)*100)}%) + Phone Audit ({Math.round((configMap.emp_weight_audit||0.35)*100)}%) + Ticket Compliance ({Math.round((configMap.emp_weight_compliance||0.30)*100)}%).
