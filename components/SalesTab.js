@@ -205,8 +205,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
   };
 
-  var SUBTABS = isEmployeeView
-    ? [{ id: "leaderboard", label: "My Performance", icon: "\uD83C\uDFC6" }]
+  var SUBTABS = isEmployeeView || viewAs === "employee"
+    ? [{ id: "leaderboard", label: isEmployeeView ? "My Performance" : "Leaderboard", icon: "\uD83C\uDFC6" }]
     : [
       { id: "leaderboard", label: "Leaderboard", icon: "\uD83C\uDFC6" },
       { id: "upload", label: "Import Data", icon: "\uD83D\uDCE4" },
