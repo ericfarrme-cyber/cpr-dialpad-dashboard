@@ -96,6 +96,7 @@ function StoreDashboard() {
   var [scorecard, setScorecard] = useState(null);
   var [apptStats, setApptStats] = useState(null);
   var [appointments, setAppointments] = useState([]);
+  var [allAppointments, setAllAppointments] = useState([]);
   var [ticketStats, setTicketStats] = useState(null);
   var [roster, setRoster] = useState([]);
   var [salesData, setSalesData] = useState(null);
@@ -139,7 +140,7 @@ function StoreDashboard() {
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
@@ -148,6 +149,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
+        fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=30").then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -163,6 +165,7 @@ function StoreDashboard() {
         setGbpReport(revRes.value.latestReport || null);
         setGbpHistory(revRes.value.reportHistory || []);
       }
+      if (allApptRes.status === "fulfilled" && allApptRes.value.success) setAllAppointments(allApptRes.value.appointments || []);
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -237,8 +240,8 @@ function StoreDashboard() {
     var thirtyAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     var thirtyAgoStr = thirtyAgo.toISOString().split("T")[0];
 
-    // All appointments in last 30 days
-    var recent = appointments.filter(function(a) { return a.date_of_appt >= thirtyAgoStr; });
+    // Use allAppointments (full 30-day dataset) for KPI calculations
+    var recent = allAppointments.filter(function(a) { return a.date_of_appt >= thirtyAgoStr; });
     var converted = recent.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "converted"; });
     var arrivedTotal = recent.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted"); });
 
@@ -270,7 +273,7 @@ function StoreDashboard() {
       activeDays: activeDays,
       dailyTrend: dailyTrend,
     };
-  }, [appointments]);
+  }, [allAppointments]);
 
   // Generate team wins
   var teamWins = useMemo(function() {
