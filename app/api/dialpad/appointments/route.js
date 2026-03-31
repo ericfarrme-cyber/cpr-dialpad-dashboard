@@ -19,6 +19,12 @@ export async function GET(request) {
     if (store && store !== "all") query = query.eq("store", store);
     var startDate = searchParams.get("start");
     var endDate = searchParams.get("end");
+    var listDays = searchParams.get("days");
+    if (listDays) {
+      var cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - parseInt(listDays));
+      query = query.gte("date_of_appt", cutoffDate.toISOString().split("T")[0]);
+    }
     if (startDate) query = query.gte("date_of_appt", startDate);
     if (endDate) query = query.lte("date_of_appt", endDate);
     var { data, error } = await query;
@@ -36,7 +42,8 @@ export async function GET(request) {
 
     var appts = data || [];
     var total = appts.length;
-    var arrived = appts.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "yes"; }).length;
+    var arrived = appts.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted"); }).length;
+    var converted = appts.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "converted"; }).length;
     var noShow = appts.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no")); }).length;
     var pending = appts.filter(function(a) { return !a.did_arrive || a.did_arrive === ""; }).length;
     var showRate = total > 0 ? Math.round((arrived / total) * 100) : 0;
@@ -46,9 +53,10 @@ export async function GET(request) {
     var empMap = {};
     appts.forEach(function(a) {
       var emp = a.scheduled_by || "Unknown";
-      if (!empMap[emp]) empMap[emp] = { name: emp, total: 0, arrived: 0, no_show: 0 };
+      if (!empMap[emp]) empMap[emp] = { name: emp, total: 0, arrived: 0, converted: 0, no_show: 0 };
       empMap[emp].total++;
-      if (a.did_arrive && a.did_arrive.toLowerCase() === "yes") empMap[emp].arrived++;
+      if (a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted")) empMap[emp].arrived++;
+      if (a.did_arrive && a.did_arrive.toLowerCase() === "converted") empMap[emp].converted++;
       if (a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"))) empMap[emp].no_show++;
     });
     var empStats = Object.values(empMap).map(function(e) {
@@ -60,9 +68,10 @@ export async function GET(request) {
     var storeMap = {};
     appts.forEach(function(a) {
       var sk = a.store || "unknown";
-      if (!storeMap[sk]) storeMap[sk] = { store: sk, total: 0, arrived: 0, no_show: 0 };
+      if (!storeMap[sk]) storeMap[sk] = { store: sk, total: 0, arrived: 0, converted: 0, no_show: 0 };
       storeMap[sk].total++;
-      if (a.did_arrive && a.did_arrive.toLowerCase() === "yes") storeMap[sk].arrived++;
+      if (a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted")) storeMap[sk].arrived++;
+      if (a.did_arrive && a.did_arrive.toLowerCase() === "converted") storeMap[sk].converted++;
       if (a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"))) storeMap[sk].no_show++;
     });
     var storeStats = Object.values(storeMap).map(function(s) {
@@ -72,7 +81,7 @@ export async function GET(request) {
 
     return json({
       success: true,
-      stats: { total: total, arrived: arrived, noShow: noShow, pending: pending, showRate: showRate, needFollowUp: needFollowUp },
+      stats: { total: total, arrived: arrived, converted: converted, noShow: noShow, pending: pending, showRate: showRate, needFollowUp: needFollowUp },
       empStats: empStats,
       storeStats: storeStats,
     });
