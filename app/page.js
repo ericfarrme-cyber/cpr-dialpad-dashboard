@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import AuthProvider, { useAuth } from "@/components/AuthProvider";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -1434,5 +1435,5 @@ function StoreDashboard() {
 }
 
 export default function AppointmentsPage() {
-  return <AuthProvider><StoreDashboard /></AuthProvider>;
+  return <ErrorBoundary><AuthProvider><StoreDashboard /></AuthProvider></ErrorBoundary>;
 }
