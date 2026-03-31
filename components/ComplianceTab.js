@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -26,6 +26,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
   var [tickets, setTickets] = useState([]);
   var [loading, setLoading] = useState(true);
   var [expandedTicket, setExpandedTicket] = useState(null);
+  var [searchQuery, setSearchQuery] = useState("");
 
   var loadData = async function() {
     setLoading(true);
@@ -34,7 +35,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       if (isEmployeeView) sp += "&employee=" + encodeURIComponent(viewEmployee);
       var [statsRes, ticketsRes] = await Promise.all([
         fetch("/api/dialpad/tickets?action=stats" + sp).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/tickets?action=list" + sp + "&limit=200").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/tickets?action=list" + sp + "&limit=2000").then(function(r) { return r.json(); }),
       ]);
       if (statsRes.success) setStats(statsRes.stats);
       if (ticketsRes.success) {
@@ -122,7 +123,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                         <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} formatter={function(v){return v+"/100";}} />
                         <Bar dataKey="avg_score" name="Compliance Score" barSize={16} radius={[0,4,4,0]}>
                           {empChartData.map(function(entry, i) {
-                            return <rect key={i} fill={scoreColor(entry.avg_score)} />;
+                            return <Cell key={i} fill={scoreColor(entry.avg_score)} />;
                           })}
                         </Bar>
                       </BarChart>
@@ -144,10 +145,30 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {/* ═══ ALL TICKETS ═══ */}
       {view === "tickets" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Graded Tickets ({tickets.length})</div>
-          {tickets.length > 0 ? (
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Graded Tickets ({tickets.length})</div>
+          </div>
+          <input type="text" value={searchQuery} onChange={function(e){setSearchQuery(e.target.value);}}
+            placeholder={"\uD83D\uDD0D Search by ticket #, customer name, phone, employee, device..."}
+            style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:12 }} />
+          {(function() {
+            var filtered = tickets;
+            if (searchQuery.trim()) {
+              var q = searchQuery.toLowerCase().trim();
+              filtered = tickets.filter(function(t) {
+                return (t.ticket_number && String(t.ticket_number).includes(q)) ||
+                  (t.customer_name && t.customer_name.toLowerCase().includes(q)) ||
+                  (t.customer_phone && t.customer_phone.replace(/\D/g, "").includes(q.replace(/\D/g, ""))) ||
+                  (t.employee_repaired && t.employee_repaired.toLowerCase().includes(q)) ||
+                  (t.employee_added && t.employee_added.toLowerCase().includes(q)) ||
+                  (t.device && t.device.toLowerCase().includes(q)) ||
+                  (t.store && t.store.toLowerCase().includes(q));
+              });
+            }
+            var displayCount = searchQuery.trim() ? filtered.length + " of " + tickets.length : String(filtered.length);
+            return filtered.length > 0 ? (
             <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
-              {tickets.map(function(t) {
+              {filtered.map(function(t) {
                 var sc = scoreColor(t.overall_score);
                 var isExpanded = expandedTicket === t.id;
                 var store = STORES[t.store];
@@ -241,8 +262,9 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
               })}
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No graded tickets yet.</div>
-          )}
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>{searchQuery.trim() ? "No tickets matching \"" + searchQuery + "\"" : "No graded tickets yet."}</div>
+          );
+          })()}
         </div>
       )}
 
