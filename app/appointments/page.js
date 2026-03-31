@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import AuthProvider, { useAuth } from "@/components/AuthProvider";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -166,7 +167,25 @@ function StoreDashboard() {
     setLoading(false);
   };
 
+  // Auto-verify arrived appointments against ticket data
+  var runVerification = async function() {
+    try {
+      var res = await fetch("/api/dialpad/verify-conversions?store=" + store + "&days=30");
+      var json = await res.json();
+      if (json.success && json.verified > 0) {
+        console.log("Auto-verified " + json.verified + " conversions");
+        // Reload to show updated statuses
+        loadData();
+      }
+    } catch(e) { console.error("Verification error:", e); }
+  };
+
   useEffect(function() { loadData(); }, [store, apptView]);
+  // Run verification after initial load (delayed so it doesn't compete)
+  useEffect(function() {
+    var timer = setTimeout(function() { runVerification(); }, 3000);
+    return function() { clearTimeout(timer); };
+  }, [store]);
 
   // ═══ COMPUTED DATA ═══
   var storeScore = scorecard && scorecard.scores && scorecard.scores[store] ? scorecard.scores[store] : null;
@@ -210,6 +229,47 @@ function StoreDashboard() {
     var total = 0;
     noShows.forEach(function(a) { total += extractPrice(a.reason) || extractPrice(a.price_quoted); });
     return { amount: total, count: noShows.length };
+  }, [appointments]);
+
+  // Converted appointments KPI
+  var convertedStats = useMemo(function() {
+    var now = new Date();
+    var thirtyAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    var thirtyAgoStr = thirtyAgo.toISOString().split("T")[0];
+
+    // All appointments in last 30 days
+    var recent = appointments.filter(function(a) { return a.date_of_appt >= thirtyAgoStr; });
+    var converted = recent.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "converted"; });
+    var arrivedTotal = recent.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted"); });
+
+    // Days with at least one appointment (to avoid dividing by empty days)
+    var daysWithAppts = {};
+    recent.forEach(function(a) { if (a.date_of_appt) daysWithAppts[a.date_of_appt] = true; });
+    var activeDays = Math.max(Object.keys(daysWithAppts).length, 1);
+
+    var perDay = converted.length / activeDays;
+    var conversionRate = arrivedTotal.length > 0 ? (converted.length / arrivedTotal.length) * 100 : 0;
+
+    // Daily trend for chart
+    var dailyMap = {};
+    recent.forEach(function(a) {
+      if (!a.date_of_appt) return;
+      if (!dailyMap[a.date_of_appt]) dailyMap[a.date_of_appt] = { date: a.date_of_appt, converted: 0, arrived: 0, noShow: 0, total: 0 };
+      dailyMap[a.date_of_appt].total++;
+      if (a.did_arrive && a.did_arrive.toLowerCase() === "converted") dailyMap[a.date_of_appt].converted++;
+      else if (a.did_arrive && (a.did_arrive.toLowerCase() === "yes")) dailyMap[a.date_of_appt].arrived++;
+      else if (a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"))) dailyMap[a.date_of_appt].noShow++;
+    });
+    var dailyTrend = Object.values(dailyMap).sort(function(a, b) { return a.date > b.date ? 1 : -1; });
+
+    return {
+      total: converted.length,
+      perDay: perDay,
+      conversionRate: conversionRate,
+      arrivedTotal: arrivedTotal.length,
+      activeDays: activeDays,
+      dailyTrend: dailyTrend,
+    };
   }, [appointments]);
 
   // Generate team wins
@@ -267,7 +327,7 @@ function StoreDashboard() {
   var markFollowUpDone = async function(id, notes) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_done:true,follow_up_notes:notes||"Called back"})}); loadData(); };
   var startEdit = function(appt) { setForm({customer_name:appt.customer_name||"",customer_phone:appt.customer_phone||"",date_of_appt:appt.date_of_appt||"",appt_time:appt.appt_time||"",reason:appt.reason||"",price_quoted:appt.price_quoted||"",scheduled_by:appt.scheduled_by||"",did_arrive:appt.did_arrive||"",notes:appt.notes||""}); setEditingId(appt.id); setShowForm(true); };
   var checkPhone = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setMatchedCall(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=match_call&phone="+n); var j = await r.json(); setMatchedCall(j.success && j.calls && j.calls.length > 0 ? j.calls[0] : null); } catch(e) { setMatchedCall(null); } };
-  var checkRepeatCustomer = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setRepeatInfo(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=list&days=365"); var j = await r.json(); if (j.success) { var m = (j.appointments||[]).filter(function(a){return normPhone(a.customer_phone)===n;}); if (m.length > 0) { var arr = m.filter(function(a){return a.did_arrive&&a.did_arrive.toLowerCase()==="yes";}); var ns = m.filter(function(a){return a.did_arrive&&a.did_arrive.toLowerCase().includes("no");}); setRepeatInfo({total:m.length,arrived:arr.length,noShow:ns.length,lastVisit:m[0].date_of_appt,lastReason:m[0].reason,name:m[0].customer_name}); } else setRepeatInfo(null); } } catch(e) { setRepeatInfo(null); } };
+  var checkRepeatCustomer = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setRepeatInfo(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=list&days=365"); var j = await r.json(); if (j.success) { var m = (j.appointments||[]).filter(function(a){return normPhone(a.customer_phone)===n;}); if (m.length > 0) { var arr = m.filter(function(a){return a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");}); var ns = m.filter(function(a){return a.did_arrive&&a.did_arrive.toLowerCase().includes("no");}); setRepeatInfo({total:m.length,arrived:arr.length,noShow:ns.length,lastVisit:m[0].date_of_appt,lastReason:m[0].reason,name:m[0].customer_name}); } else setRepeatInfo(null); } } catch(e) { setRepeatInfo(null); } };
 
   var handleImport = async function(e) {
     var file = e.target.files[0]; if (!file) return;
@@ -817,7 +877,7 @@ function StoreDashboard() {
               </div>
               {appointments.filter(function(a){var t=new Date().toISOString().split("T")[0];return a.date_of_appt===t;}).length > 0 ? (
                 appointments.filter(function(a){var t=new Date().toISOString().split("T")[0];return a.date_of_appt===t;}).slice(0,5).map(function(a) {
-                  var arrived=a.did_arrive&&a.did_arrive.toLowerCase()==="yes";var noShow=a.did_arrive&&a.did_arrive.toLowerCase().includes("no");var statusColor=arrived?"#4ADE80":noShow?"#F87171":"#FBBF24";var statusText=arrived?"Arrived":noShow?"No-Show":"Pending";
+                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var statusColor=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var statusText=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":"Pending";
                   return <div key={a.id} style={{ padding:"10px 0",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div>
                       <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{a.customer_name}</span>
@@ -837,8 +897,30 @@ function StoreDashboard() {
         {section === "appointments" && (
           <div>
             {/* Stats row */}
-            <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:20 }}>
-              {[{l:"Total",v:as.total||0,c:"#7B2FFF"},{l:"Show Rate",v:(as.showRate||0)+"%",c:as.showRate>=65?"#4ADE80":"#FBBF24"},{l:"No-Shows",v:as.noShow||0,c:"#F87171"},{l:"Revenue Lost",v:"$"+revenueLost.amount.toLocaleString(),c:"#FF2D95"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:14 }}>
+              <div style={{ background:"#1A1D23",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #4ADE80" }}>
+                <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Converted / Day</div>
+                <div style={{ color:"#4ADE80",fontSize:28,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{convertedStats.total} converted in {convertedStats.activeDays} days</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #7B2FFF" }}>
+                <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Conversion Rate</div>
+                <div style={{ color:convertedStats.conversionRate>=60?"#4ADE80":convertedStats.conversionRate>=40?"#FBBF24":"#F87171",fontSize:28,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{convertedStats.total} of {convertedStats.arrivedTotal} who arrived</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #FBBF24" }}>
+                <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Show Rate</div>
+                <div style={{ color:as.showRate>=65?"#4ADE80":as.showRate>=50?"#FBBF24":"#F87171",fontSize:28,fontWeight:800 }}>{as.showRate||0}%</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{as.arrived||0} of {as.total||0} showed</div>
+              </div>
+              <div style={{ background:"#1A1D23",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #F87171" }}>
+                <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>No-Shows</div>
+                <div style={{ color:"#F87171",fontSize:28,fontWeight:800 }}>{as.noShow||0}</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{as.needFollowUp||0} need follow-up</div>
+              </div>
+            </div>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
+              {[{l:"Total Appts",v:as.total||0,c:"#7B2FFF"},{l:"Revenue Lost",v:"$"+revenueLost.amount.toLocaleString(),c:"#FF2D95"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
                 return <div key={i} style={{ background:"#1A1D23",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid "+s.c }}>
                   <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>{s.l}</div>
                   <div style={{ color:s.c,fontSize:22,fontWeight:700 }}>{s.v}</div>
@@ -880,7 +962,7 @@ function StoreDashboard() {
                   <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Date</label><input type="date" value={form.date_of_appt} onChange={function(e){setForm(Object.assign({},form,{date_of_appt:e.target.value}));}} style={inputStyle} /></div>
                   <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Time</label><input type="time" value={form.appt_time} onChange={function(e){setForm(Object.assign({},form,{appt_time:e.target.value}));}} style={inputStyle} /></div>
                   <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Price</label><input value={form.price_quoted} onChange={function(e){setForm(Object.assign({},form,{price_quoted:e.target.value}));}} placeholder="$150" style={inputStyle} /></div>
-                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Arrived?</label><select value={form.did_arrive} onChange={function(e){setForm(Object.assign({},form,{did_arrive:e.target.value}));}} style={inputStyle}><option value="">Pending</option><option value="Yes">Yes</option><option value="No">No</option><option value="No/VM">No/VM</option><option value="Rescheduled">Rescheduled</option></select></div>
+                  <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Arrived?</label><select value={form.did_arrive} onChange={function(e){setForm(Object.assign({},form,{did_arrive:e.target.value}));}} style={inputStyle}><option value="">Pending</option><option value="Converted">Converted (Arrived + Sale)</option><option value="Yes">Arrived (No Sale)</option><option value="No">No-Show</option><option value="No/VM">No/VM</option><option value="Rescheduled">Rescheduled</option></select></div>
                 </div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
                   <div><label style={{ color:"#8B8F98",fontSize:9,display:"block",marginBottom:2 }}>Reason / Quote</label><input value={form.reason} onChange={function(e){setForm(Object.assign({},form,{reason:e.target.value}));}} style={inputStyle} /></div>
@@ -903,7 +985,7 @@ function StoreDashboard() {
                 }) : <div style={{ padding:30,textAlign:"center",color:"#4ADE80",fontSize:12 }}>{"\u2705"} All follow-ups done!</div>
               ) : (
                 filteredAppointments.length > 0 ? filteredAppointments.map(function(a) {
-                  var arrived=a.did_arrive&&a.did_arrive.toLowerCase()==="yes";var noShow=a.did_arrive&&a.did_arrive.toLowerCase().includes("no");var pending=!a.did_arrive||a.did_arrive==="";var sc=arrived?"#4ADE80":noShow?"#F87171":"#FBBF24";var st=arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
+                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var pending=!a.did_arrive||a.did_arrive==="";var sc=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var st=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
                   return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid #1E2028" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                       <div style={{ flex:1 }}>
@@ -1394,9 +1476,58 @@ function StoreDashboard() {
         )}
 
         {/* ═══ ANALYTICS SECTION ═══ */}
-        {section === "analytics" && apptStats && (
+        {section === "analytics" && (
           <div>
-            {apptStats.empStats && apptStats.empStats.length > 0 && (
+            {/* Daily Conversion Trend */}
+            {convertedStats.dailyTrend.length > 0 && (
+              <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20 }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+                  <div>
+                    <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>Daily Converted Appointments</div>
+                    <div style={{ color:"#6B6F78",fontSize:11 }}>Last 30 days — customers who arrived and made a purchase</div>
+                  </div>
+                  <div style={{ display:"flex",gap:12,alignItems:"center" }}>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ color:"#4ADE80",fontSize:22,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
+                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Per Day Avg</div>
+                    </div>
+                    <div style={{ textAlign:"center" }}>
+                      <div style={{ color:"#7B2FFF",fontSize:22,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
+                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Conv Rate</div>
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display:"flex",gap:4,alignItems:"flex-end",height:140 }}>
+                  {convertedStats.dailyTrend.map(function(d, i) {
+                    var maxVal = Math.max.apply(null, convertedStats.dailyTrend.map(function(x){return x.total || 1;}));
+                    var barH = maxVal > 0 ? (d.total / maxVal) * 120 : 0;
+                    var convH = d.total > 0 ? (d.converted / d.total) * barH : 0;
+                    var arrH = d.total > 0 ? (d.arrived / d.total) * barH : 0;
+                    var nsH = barH - convH - arrH;
+                    var dayLabel = new Date(d.date + "T12:00:00").toLocaleDateString([], {month:"numeric",day:"numeric"});
+                    var isWeekend = [0,6].indexOf(new Date(d.date + "T12:00:00").getDay()) >= 0;
+                    return (
+                      <div key={i} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:0 }}>
+                        <div style={{ display:"flex",flexDirection:"column",width:"100%",maxWidth:28,borderRadius:"4px 4px 0 0",overflow:"hidden" }}>
+                          {nsH > 0 && <div style={{ height:Math.max(nsH, 2),background:"#F87171",width:"100%" }} />}
+                          {arrH > 0 && <div style={{ height:Math.max(arrH, 2),background:"#FBBF24",width:"100%" }} />}
+                          {convH > 0 && <div style={{ height:Math.max(convH, 2),background:"#4ADE80",width:"100%" }} />}
+                          {d.total === 0 && <div style={{ height:2,background:"#2A2D35",width:"100%" }} />}
+                        </div>
+                        <div style={{ color:isWeekend?"#3A3D45":"#6B6F78",fontSize:7,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden" }}>{i % 3 === 0 || convertedStats.dailyTrend.length <= 15 ? dayLabel : ""}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display:"flex",gap:16,marginTop:12,justifyContent:"center" }}>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#4ADE80" }} /><span style={{ color:"#8B8F98",fontSize:10 }}>Converted</span></div>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#FBBF24" }} /><span style={{ color:"#8B8F98",fontSize:10 }}>Arrived (No Sale)</span></div>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#F87171" }} /><span style={{ color:"#8B8F98",fontSize:10 }}>No-Show</span></div>
+                </div>
+              </div>
+            )}
+
+            {apptStats && apptStats.empStats && apptStats.empStats.length > 0 && (
               <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:20 }}>
                 <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:14 }}>Show Rate by Employee</div>
                 {apptStats.empStats.map(function(e) {
@@ -1409,7 +1540,7 @@ function StoreDashboard() {
                 })}
               </div>
             )}
-            {apptStats.storeStats && apptStats.storeStats.length > 0 && (
+            {apptStats && apptStats.storeStats && apptStats.storeStats.length > 0 && (
               <div style={{ background:"#1A1D23",borderRadius:14,padding:24 }}>
                 <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:14 }}>Show Rate by Store</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat("+apptStats.storeStats.length+",1fr)",gap:16 }}>
@@ -1434,5 +1565,5 @@ function StoreDashboard() {
 }
 
 export default function AppointmentsPage() {
-  return <AuthProvider><StoreDashboard /></AuthProvider>;
+  return <ErrorBoundary><AuthProvider><StoreDashboard /></AuthProvider></ErrorBoundary>;
 }
