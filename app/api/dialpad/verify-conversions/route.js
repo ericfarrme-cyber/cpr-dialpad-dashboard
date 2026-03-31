@@ -42,7 +42,7 @@ export async function GET(request) {
 
     // Get ticket_grades from the relevant date range
     var { data: tickets, error: ticketErr } = await supabase.from("ticket_grades")
-      .select("customer_phone, customer_phones_all, date_closed, intake_date, created_date")
+      .select("customer_phone, customer_phones_all, date_closed")
       .gte("date_closed", cutoffStr);
 
     if (ticketErr) {
@@ -55,7 +55,7 @@ export async function GET(request) {
     // Build lookup: normalized phone -> array of ticket dates
     var ticketLookup = {};
     tickets.forEach(function(t) {
-      var date = t.date_closed || t.intake_date || t.created_date;
+      var date = t.date_closed;
       if (!date) return;
 
       // Primary phone
