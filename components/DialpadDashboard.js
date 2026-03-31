@@ -1232,6 +1232,7 @@ export default function DialpadDashboard() {
           <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
+        <a href="/appointments" style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
         {auth && (
           <div style={{ display:"flex",alignItems:"center",gap:10,marginLeft:12 }}>
             <div style={{ textAlign:"right" }}>
@@ -1285,7 +1286,6 @@ export default function DialpadDashboard() {
         {visibleTabs.map(function(tab) {
           return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
-        <a href="/appointments" style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:"#4ADE80",fontSize:13,fontWeight:700,borderBottom:"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif",textDecoration:"none",marginLeft:"auto" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
         {isAdmin && !isPreviewing && (<>
           <button onClick={function(){setActiveTab("profitability");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="profitability"?"#4ADE80":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="profitability"?"2px solid #4ADE80":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Profitability</button>
           <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
