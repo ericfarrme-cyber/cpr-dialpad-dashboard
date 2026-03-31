@@ -18,6 +18,7 @@ import InsightsTab from "@/components/InsightsTab";
 import AdminTab from "@/components/AdminTab";
 import AIAssistant from "@/components/AIAssistant";
 import ProfitabilityTab from "@/components/ProfitabilityTab";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
@@ -1210,6 +1211,7 @@ export default function DialpadDashboard() {
   }, [dailyCalls]);
 
   return (
+    <ErrorBoundary>
     <div style={{ background:"#0F1117",minHeight:"100vh",color:"#F0F1F3",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
       <style>{"@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }"}</style>
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12 }}>
@@ -1331,5 +1333,6 @@ export default function DialpadDashboard() {
       {/* AI Assistant panel */}
       <AIAssistant isOpen={aiOpen} onClose={function(){setAiOpen(false);}} />
     </div>
+    </ErrorBoundary>
   );
 }
