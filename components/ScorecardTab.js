@@ -25,7 +25,6 @@ function ScoreRing({ score, size, strokeWidth, color }) {
       </svg>
       <div style={{ position: "absolute", top: 0, left: 0, width: size, height: size, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
         <div style={{ color: sc, fontSize: size > 100 ? 32 : size > 60 ? 18 : 14, fontWeight: 800, lineHeight: 1 }}>{score}</div>
-        <div style={{ color: "#8B8F98", fontSize: size > 100 ? 11 : 8, marginTop: 2 }}>{scoreGrade(score)}</div>
       </div>
     </div>
   );
