@@ -52,7 +52,7 @@ export async function GET(request) {
       .eq("direction", "outbound").gte("date_started", since);
     if (until) obQ = obQ.lt("date_started", until);
 
-    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes, ticketRes] = await Promise.all([
+    var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes, ticketRes, cleanSalesRes] = await Promise.all([
       callQ,
       auditQ,
       supabase.from("repair_phone").select("*").eq("import_period", period),
@@ -64,6 +64,7 @@ export async function GET(request) {
       supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
       supabase.from("commission_config").select("config_key, config_value"),
       supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted"),
+      supabase.from("cleaning_sales").select("*").eq("import_period", period),
     ]);
 
     var calls = callRes.data || [];
@@ -72,6 +73,7 @@ export async function GET(request) {
     var others = otherRes.data || [];
     var accys = accyRes.data || [];
     var cleans = cleanRes.data || [];
+    var cleanSales = cleanSalesRes.data || [];
     var vms = vmRes.data || [];
     var outbound = outboundRes.data || [];
     var roster = rosterRes.data || [];
@@ -196,7 +198,8 @@ export async function GET(request) {
       var totalRepairTickets = phoneTickets + otherTickets;
       var accyGP = accys.reduce(function(s, r) { return s + parseFloat(r.accy_gp || 0); }, 0);
       var accyCount = accys.reduce(function(s, r) { return s + (r.accy_count || 0); }, 0);
-      var cleanCount = cleans.reduce(function(s, r) { return s + (r.clean_count || 0); }, 0);
+      var cleanCount = cleans.reduce(function(s, r) { return s + (r.clean_count || 0); }, 0)
+        + cleanSales.reduce(function(s, r) { return s + (r.ticket_count || 0); }, 0);
 
       // Since sales data isn't per-store yet, divide by store count
       var storeCount = STORE_KEYS.length || 1;
@@ -330,6 +333,7 @@ export async function GET(request) {
     others.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.other_tickets += r.repair_count || 0; } });
     accys.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.accy_count += r.accy_count || 0; e.accy_gp += parseFloat(r.accy_gp || 0); } });
     cleans.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.clean_count += r.clean_count || 0; } });
+    cleanSales.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.clean_count += r.ticket_count || 0; } });
 
     // Fill audit data
     audits.forEach(function(a) {
