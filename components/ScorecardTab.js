@@ -49,17 +49,30 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
   var [editVal, setEditVal] = useState("");
   var [configMsg, setConfigMsg] = useState(null);
 
+  // Period selector — generate last 12 months
+  var now = new Date();
+  var periodOptions = [];
+  for (var mi = 0; mi < 12; mi++) {
+    var d = new Date(now.getFullYear(), now.getMonth() - mi, 1);
+    var pVal = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+    var pLabel = d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    periodOptions.push({ value: pVal, label: pLabel });
+  }
+  var currentPeriod = periodOptions[0].value;
+  var [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+
   var loadScorecard = async function() {
     setLoading(true);
     try {
-      var res = await fetch("/api/dialpad/scorecard?days=30");
+      var url = "/api/dialpad/scorecard?period=" + selectedPeriod;
+      var res = await fetch(url);
       var json = await res.json();
       if (json.success) setData(json);
     } catch (e) { console.error(e); }
     setLoading(false);
   };
 
-  useEffect(function() { loadScorecard(); }, []);
+  useEffect(function() { loadScorecard(); }, [selectedPeriod]);
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Calculating scores...</div>;
   if (!data) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>No scorecard data available.</div>;
@@ -121,10 +134,29 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
   return (
     <div>
       {/* Sub-nav */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20 }}>
-        {scorecardSubtabs.map(function(v) {
-          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
-        })}
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 4 }}>
+          {scorecardSubtabs.map(function(v) {
+            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          })}
+        </div>
+        {view === "scores" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: "#6B6F78", fontSize: 11 }}>{"\uD83D\uDCC5"}</span>
+            <select value={selectedPeriod} onChange={function(e) { setSelectedPeriod(e.target.value); }}
+              style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #2A2D35", background: "#12141A", color: selectedPeriod === currentPeriod ? "#8B8F98" : "#FBBF24", fontSize: 12, fontWeight: 600, cursor: "pointer", outline: "none" }}>
+              {periodOptions.map(function(p) {
+                return <option key={p.value} value={p.value}>{p.label}</option>;
+              })}
+            </select>
+            {selectedPeriod !== currentPeriod && (
+              <button onClick={function() { setSelectedPeriod(currentPeriod); }}
+                style={{ padding: "4px 10px", borderRadius: 5, border: "1px solid #7B2FFF33", background: "#7B2FFF11", color: "#7B2FFF", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>
+                Current
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ═══ CONFIG VIEW ═══ */}
@@ -240,6 +272,21 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
 
       {/* ═══ SCORES VIEW ═══ */}
       {view === "scores" && (<div>
+
+      {selectedPeriod !== currentPeriod && (
+        <div style={{ background: "#FBBF2410", border: "1px solid #FBBF2433", borderRadius: 10, padding: "10px 16px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 14 }}>{"\uD83D\uDCC6"}</span>
+            <span style={{ color: "#FBBF24", fontSize: 12, fontWeight: 600 }}>
+              {"Viewing: " + periodOptions.find(function(p) { return p.value === selectedPeriod; }).label}
+            </span>
+          </div>
+          <button onClick={function() { setSelectedPeriod(currentPeriod); }}
+            style={{ padding: "4px 12px", borderRadius: 5, border: "none", background: "#FBBF24", color: "#000", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>
+            Back to Current
+          </button>
+        </div>
+      )}
 
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
