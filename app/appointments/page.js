@@ -169,7 +169,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
-        fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=30").then(function(r){return r.json();}),
+        fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=365").then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -206,7 +206,7 @@ function StoreDashboard() {
   useEffect(function() { loadData(); }, [store, apptView, selectedPeriod]);
   // Run verification after initial load (delayed so it doesn't compete)
   useEffect(function() {
-    var timer = setTimeout(function() { runVerification(); }, 3000);
+    var timer = setTimeout(function() { runVerification(); verifyFollowUps(); }, 3000);
     return function() { clearTimeout(timer); };
   }, [store]);
 
@@ -257,12 +257,10 @@ function StoreDashboard() {
 
   // Converted appointments KPI
   var convertedStats = useMemo(function() {
-    var now = new Date();
-    var thirtyAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    var thirtyAgoStr = thirtyAgo.toISOString().split("T")[0];
-
-    // Use allAppointments (full 30-day dataset) for KPI calculations
-    var recent = allAppointments.filter(function(a) { return a.date_of_appt >= thirtyAgoStr; });
+    // Filter by selected period
+    var recent = allAppointments.filter(function(a) {
+      return a.date_of_appt && a.date_of_appt.substring(0, 7) === selectedPeriod;
+    });
     var converted = recent.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "converted"; });
     var arrivedTotal = recent.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted"); });
 
@@ -294,7 +292,18 @@ function StoreDashboard() {
       activeDays: activeDays,
       dailyTrend: dailyTrend,
     };
-  }, [allAppointments]);
+  }, [allAppointments, selectedPeriod]);
+
+  // Booking rate: appointments booked vs total inbound calls
+  var bookingRate = useMemo(function() {
+    var totalInbound = storeScore && storeScore.categories && storeScore.categories.calls
+      ? storeScore.categories.calls.details.total_inbound || 0 : 0;
+    var periodApptCount = allAppointments.filter(function(a) {
+      return a.date_of_appt && a.date_of_appt.substring(0, 7) === selectedPeriod;
+    }).length;
+    if (totalInbound === 0) return { rate: 0, appts: periodApptCount, calls: 0 };
+    return { rate: Math.min(Math.round((periodApptCount / totalInbound) * 100), 100), appts: periodApptCount, calls: totalInbound };
+  }, [storeScore, allAppointments, selectedPeriod]);
 
   // Generate team wins
   var teamWins = useMemo(function() {
@@ -345,7 +354,27 @@ function StoreDashboard() {
   };
   var deleteAppt = async function(id) { if (!confirm("Delete?")) return; await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:id})}); loadData(); };
   var updateArrival = async function(id, val) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,did_arrive:val})}); loadData(); };
-  var markFollowUpDone = async function(id, notes) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_done:true,follow_up_notes:notes||"Called back"})}); loadData(); };
+  var markFollowUpDone = async function(id, notes) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_notes:"pending_verification|"+(notes||"Called back")+"|"+new Date().toISOString()})}); loadData(); };
+
+  // Verify follow-ups against Dialpad outbound call data
+  var verifyFollowUps = async function() {
+    var pending = (allAppointments || []).filter(function(a) {
+      return a.follow_up_needed && !a.follow_up_done && (a.follow_up_notes || "").startsWith("pending_verification");
+    });
+    if (pending.length === 0) return;
+    try {
+      var res = await fetch("/api/dialpad/appointments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verify_followups", store: store })
+      });
+      var json = await res.json();
+      if (json.success && json.verified > 0) {
+        console.log("Verified " + json.verified + " follow-ups via Dialpad");
+        loadData();
+      }
+    } catch(e) { console.error("Follow-up verification error:", e); }
+  };
   var startEdit = function(appt) { setForm({customer_name:appt.customer_name||"",customer_phone:appt.customer_phone||"",date_of_appt:appt.date_of_appt||"",appt_time:appt.appt_time||"",reason:appt.reason||"",price_quoted:appt.price_quoted||"",scheduled_by:appt.scheduled_by||"",did_arrive:appt.did_arrive||"",notes:appt.notes||""}); setEditingId(appt.id); setShowForm(true); };
   var checkPhone = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setMatchedCall(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=match_call&phone="+n); var j = await r.json(); setMatchedCall(j.success && j.calls && j.calls.length > 0 ? j.calls[0] : null); } catch(e) { setMatchedCall(null); } };
   var checkRepeatCustomer = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setRepeatInfo(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=list&days=365"); var j = await r.json(); if (j.success) { var m = (j.appointments||[]).filter(function(a){return normPhone(a.customer_phone)===n;}); if (m.length > 0) { var arr = m.filter(function(a){return a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");}); var ns = m.filter(function(a){return a.did_arrive&&a.did_arrive.toLowerCase().includes("no");}); setRepeatInfo({total:m.length,arrived:arr.length,noShow:ns.length,lastVisit:m[0].date_of_appt,lastReason:m[0].reason,name:m[0].customer_name}); } else setRepeatInfo(null); } } catch(e) { setRepeatInfo(null); } };
@@ -741,9 +770,9 @@ function StoreDashboard() {
                 <div style={{ color:"#6B6F78",fontSize:10 }}>{storeSalesTotals.accy_count} items sold</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Revenue Lost</div>
-                <div style={{ color:"#FF2D95",fontSize:26,fontWeight:700 }}>${revenueLost.amount.toLocaleString()}</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{revenueLost.count} no-shows</div>
+                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCDE"} Booking Rate</div>
+                <div style={{ color:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",fontSize:26,fontWeight:700 }}>{bookingRate.rate}%</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{bookingRate.appts} appts / {bookingRate.calls} calls</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Follow-Ups</div>
@@ -999,6 +1028,28 @@ function StoreDashboard() {
         {/* ═══ APPOINTMENTS SECTION ═══ */}
         {section === "appointments" && (
           <div>
+            {/* Period selector */}
+            <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
+              <span style={{ color:"#6B6F78",fontSize:11 }}>{"\uD83D\uDCC5"}</span>
+              <select value={selectedPeriod} onChange={function(e){setSelectedPeriod(e.target.value);}}
+                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:selectedPeriod===currentPeriod?"#8B8F98":"#FBBF24",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
+                {periodOptions.map(function(p){
+                  return <option key={p.value} value={p.value}>{p.label}</option>;
+                })}
+              </select>
+              {selectedPeriod !== currentPeriod && (
+                <button onClick={function(){setSelectedPeriod(currentPeriod);}}
+                  style={{ padding:"4px 10px",borderRadius:5,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"#7B2FFF",fontSize:10,fontWeight:600,cursor:"pointer" }}>
+                  Current
+                </button>
+              )}
+              {selectedPeriod !== currentPeriod && (
+                <span style={{ color:"#FBBF24",fontSize:10,fontWeight:600 }}>
+                  {"\uD83D\uDCC6 Viewing: " + periodOptions.find(function(p){return p.value===selectedPeriod;}).label}
+                </span>
+              )}
+            </div>
+
             {/* Stats row */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:14 }}>
               <div style={{ background:"#1A1D23",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #4ADE80" }}>
@@ -1023,10 +1074,11 @@ function StoreDashboard() {
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
-              {[{l:"Total Appts",v:as.total||0,c:"#7B2FFF"},{l:"Revenue Lost",v:"$"+revenueLost.amount.toLocaleString(),c:"#FF2D95"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
+              {[{l:"Total Appts",v:bookingRate.appts,c:"#7B2FFF"},{l:"Booking Rate",v:bookingRate.rate+"%",c:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",sub:bookingRate.appts+" of "+bookingRate.calls+" calls"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
                 return <div key={i} style={{ background:"#1A1D23",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid "+s.c }}>
                   <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>{s.l}</div>
                   <div style={{ color:s.c,fontSize:22,fontWeight:700 }}>{s.v}</div>
+                  {s.sub && <div style={{ color:"#6B6F78",fontSize:9 }}>{s.sub}</div>}
                 </div>;
               })}
             </div>
@@ -1080,12 +1132,61 @@ function StoreDashboard() {
             {/* Appointment list */}
             <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
               {apptView === "followup" ? (
-                followUps.length > 0 ? followUps.map(function(a) {
-                  return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                    <div><div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{a.customer_name} <span style={{ color:"#6B6F78",fontSize:11 }}>{fmtPhone(a.customer_phone)}</span></div><div style={{ color:"#F87171",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div></div>
-                    <button onClick={function(){var n=prompt("Follow-up notes:");if(n!==null)markFollowUpDone(a.id,n);}} style={{ padding:"5px 12px",borderRadius:4,border:"none",background:"#4ADE80",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer" }}>Called Back</button>
-                  </div>;
-                }) : <div style={{ padding:30,textAlign:"center",color:"#4ADE80",fontSize:12 }}>{"\u2705"} All follow-ups done!</div>
+                followUps.length > 0 ? (
+                  <div>
+                    {/* Pending Verification section */}
+                    {(function() {
+                      var pendingVerify = followUps.filter(function(a) { return (a.follow_up_notes || "").startsWith("pending_verification"); });
+                      var needsCallback = followUps.filter(function(a) { return !(a.follow_up_notes || "").startsWith("pending_verification"); });
+                      return (
+                        <div>
+                          {pendingVerify.length > 0 && (
+                            <div>
+                              <div style={{ padding:"10px 18px",background:"#FBBF2408",borderBottom:"1px solid #FBBF2422" }}>
+                                <span style={{ color:"#FBBF24",fontSize:10,fontWeight:700 }}>{"\u23F3"} PENDING VERIFICATION ({pendingVerify.length})</span>
+                                <span style={{ color:"#6B6F78",fontSize:9,marginLeft:8 }}>Waiting for Dialpad call confirmation</span>
+                              </div>
+                              {pendingVerify.map(function(a) {
+                                var parts = (a.follow_up_notes || "").split("|");
+                                var markedNote = parts[1] || "";
+                                var markedTime = parts[2] ? new Date(parts[2]).toLocaleDateString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}) : "";
+                                return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                                  <div>
+                                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{a.customer_name} <span style={{ color:"#6B6F78",fontSize:11 }}>{fmtPhone(a.customer_phone)}</span></div>
+                                    <div style={{ color:"#FBBF24",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
+                                    {markedTime && <div style={{ color:"#6B6F78",fontSize:9,marginTop:2 }}>Marked: {markedTime}{markedNote ? " — " + markedNote : ""}</div>}
+                                  </div>
+                                  <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                                    <span style={{ padding:"4px 10px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:9,fontWeight:700 }}>{"\u23F3"} Verifying...</span>
+                                    <button onClick={function(){verifyFollowUps();}} style={{ padding:"4px 8px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:8,cursor:"pointer" }}>Recheck</button>
+                                  </div>
+                                </div>;
+                              })}
+                            </div>
+                          )}
+                          {needsCallback.length > 0 && (
+                            <div>
+                              {pendingVerify.length > 0 && (
+                                <div style={{ padding:"10px 18px",background:"#F8717108",borderBottom:"1px solid #F8717122" }}>
+                                  <span style={{ color:"#F87171",fontSize:10,fontWeight:700 }}>{"\uD83D\uDCDE"} NEEDS CALLBACK ({needsCallback.length})</span>
+                                </div>
+                              )}
+                              {needsCallback.map(function(a) {
+                                return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                                  <div>
+                                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{a.customer_name} <span style={{ color:"#6B6F78",fontSize:11 }}>{fmtPhone(a.customer_phone)}</span></div>
+                                    <div style={{ color:"#F87171",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
+                                  </div>
+                                  <button onClick={function(){var n=prompt("Follow-up notes (optional):");if(n!==null)markFollowUpDone(a.id,n);}} style={{ padding:"5px 12px",borderRadius:4,border:"none",background:"#4ADE80",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer" }}>Called Back</button>
+                                </div>;
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : <div style={{ padding:30,textAlign:"center",color:"#4ADE80",fontSize:12 }}>{"\u2705"} All follow-ups done!</div>
               ) : (
                 filteredAppointments.length > 0 ? filteredAppointments.map(function(a) {
                   var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var pending=!a.did_arrive||a.did_arrive==="";var sc=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var st=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
