@@ -292,7 +292,7 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
         <span style={{ fontSize: 20 }}>{"\uD83C\uDFC6"}</span>
         <div>
           <h2 style={{ color: "#F0F1F3", fontSize: 17, fontWeight: 700, margin: 0 }}>{isEmployeeView ? "My Scorecard" : "Employee Scorecard"}</h2>
-          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>Scored on Repairs (35%) + Phone Audit (35%) + Ticket Compliance (30%)</p>
+          <p style={{ color: "#6B6F78", fontSize: 12, margin: "2px 0 0" }}>{"Scored on Repairs (" + Math.round((configMap.emp_weight_repairs || 0.35) * 100) + "%) + Phone Audit (" + Math.round((configMap.emp_weight_audit || 0.35) * 100) + "%) + Ticket Compliance (" + Math.round((configMap.emp_weight_compliance || 0.30) * 100) + "%)"}</p>
         </div>
       </div>
 
@@ -349,10 +349,10 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
                           <div style={{ color: scoreColor(emp.repairs.score), fontSize: 16, fontWeight: 800 }}>{emp.repairs.score + "/100"}</div>
                         </div>
                         {[
-                          { label: "Phone Repairs", value: emp.repairs.phone_tickets, target: 20, weight: "25%" },
+                          { label: "Phone Repairs", value: emp.repairs.phone_tickets, target: configMap.emp_target_repairs || 20, weight: Math.round((configMap.emp_repair_sub_qty || 0.25) * 100) + "%" },
                           { label: "Other Repairs", value: emp.repairs.other_tickets },
-                          { label: "Accessory GP", value: fmt(emp.repairs.accy_gp), raw: emp.repairs.accy_gp, target: 200, weight: "50%", isMoney: true },
-                          { label: "Cleanings", value: emp.repairs.clean_count, target: 4, weight: "25%" },
+                          { label: "Accessory GP", value: fmt(emp.repairs.accy_gp), raw: emp.repairs.accy_gp, target: configMap.emp_target_accy_gp || 200, weight: Math.round((configMap.emp_repair_sub_accy || 0.50) * 100) + "%", isMoney: true },
+                          { label: "Cleanings", value: emp.repairs.clean_count, target: configMap.emp_target_cleans || 4, weight: Math.round((configMap.emp_repair_sub_clean || 0.25) * 100) + "%" },
                         ].map(function(item, j) {
                           var pctOfTarget = item.target ? ((item.isMoney ? item.raw : item.value) / item.target) * 100 : null;
                           return (
@@ -381,9 +381,9 @@ export default function ScorecardTab({ storeFilter, viewAs, viewEmployee }) {
                         {emp.audit.total_audits > 0 ? (
                           <div>
                             {[
-                              { label: "Avg Audit Score", value: emp.audit.avg_pct + "%", pct: emp.audit.avg_pct, weight: "50%" },
-                              { label: "Appt Offered Rate", value: emp.audit.appt_rate + "%", pct: emp.audit.appt_rate, weight: "25%" },
-                              { label: "Warranty Mentioned", value: emp.audit.warranty_rate + "%", pct: emp.audit.warranty_rate, weight: "25%" },
+                              { label: "Avg Audit Score", value: emp.audit.avg_pct + "%", pct: emp.audit.avg_pct, weight: Math.round((configMap.emp_audit_sub_score || 0.50) * 100) + "%" },
+                              { label: "Appt Offered Rate", value: emp.audit.appt_rate + "%", pct: emp.audit.appt_rate, weight: Math.round((configMap.emp_audit_sub_appt || 0.25) * 100) + "%" },
+                              { label: "Warranty Mentioned", value: emp.audit.warranty_rate + "%", pct: emp.audit.warranty_rate, weight: Math.round((configMap.emp_audit_sub_warranty || 0.25) * 100) + "%" },
                             ].map(function(item, j) {
                               return (
                                 <div key={j} style={{ marginBottom: 8 }}>
