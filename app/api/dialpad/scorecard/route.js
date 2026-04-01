@@ -14,27 +14,53 @@ export async function GET(request) {
   if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
   var { searchParams } = new URL(request.url);
   var daysBack = parseInt(searchParams.get("days") || "30");
-  var since = new Date(Date.now() - daysBack * 86400000).toISOString();
+  var periodParam = searchParams.get("period"); // e.g. "2026-03"
 
-  // Get current period for sales
   var now = new Date();
-  var period = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+  var period, since, until;
+
+  if (periodParam && /^\d{4}-\d{2}$/.test(periodParam)) {
+    // Use specific month period
+    period = periodParam;
+    var parts = periodParam.split("-");
+    var year = parseInt(parts[0]);
+    var month = parseInt(parts[1]) - 1; // 0-indexed
+    since = new Date(year, month, 1).toISOString();
+    until = new Date(year, month + 1, 1).toISOString(); // first day of next month
+  } else {
+    // Default: current month
+    period = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    since = new Date(Date.now() - daysBack * 86400000).toISOString();
+    until = null; // no upper bound for rolling window
+  }
 
   try {
-    // Parallel fetch all data
+    // Parallel fetch all data — build queries with optional upper bound
+    var callQ = supabase.from("call_records").select("store, direction, is_answered, is_missed, is_voicemail, talk_duration, ringing_duration, date_started, external_number")
+      .eq("target_type", "department").gte("date_started", since);
+    if (until) callQ = callQ.lt("date_started", until);
+
+    var auditQ = supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, discount_mentioned, faster_turnaround, confidence")
+      .eq("excluded", false).neq("call_type", "non_scorable").gte("date_started", since);
+    if (until) auditQ = auditQ.lt("date_started", until);
+
+    var vmQ = supabase.from("call_records").select("store, date_started, external_number")
+      .eq("target_type", "department").eq("direction", "inbound").eq("is_voicemail", true).gte("date_started", since);
+    if (until) vmQ = vmQ.lt("date_started", until);
+
+    var obQ = supabase.from("call_records").select("store, date_started, external_number")
+      .eq("direction", "outbound").gte("date_started", since);
+    if (until) obQ = obQ.lt("date_started", until);
+
     var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes, ticketRes] = await Promise.all([
-      supabase.from("call_records").select("store, direction, is_answered, is_missed, is_voicemail, talk_duration, ringing_duration, date_started, external_number")
-        .eq("target_type", "department").gte("date_started", since),
-      supabase.from("audit_results").select("store, employee, score, max_score, call_type, excluded, appt_offered, warranty_mentioned, discount_mentioned, faster_turnaround, confidence")
-        .eq("excluded", false).neq("call_type", "non_scorable").gte("date_started", since),
+      callQ,
+      auditQ,
       supabase.from("repair_phone").select("*").eq("import_period", period),
       supabase.from("repair_other").select("*").eq("import_period", period),
       supabase.from("sales_accessory").select("*").eq("import_period", period),
       supabase.from("repair_cleaning").select("*").eq("import_period", period),
-      supabase.from("call_records").select("store, date_started, external_number")
-        .eq("target_type", "department").eq("direction", "inbound").eq("is_voicemail", true).gte("date_started", since),
-      supabase.from("call_records").select("store, date_started, external_number")
-        .eq("direction", "outbound").gte("date_started", since),
+      vmQ,
+      obQ,
       supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
       supabase.from("commission_config").select("config_key, config_value"),
       supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted"),
@@ -414,6 +440,7 @@ export async function GET(request) {
       empWeights: { repairs: empWeightRepairs, audit: empWeightAudit, compliance: empWeightCompliance },
       configMap: configMap,
       period: period,
+      periodParam: periodParam || null,
       daysBack: daysBack,
     });
   } catch (err) {
