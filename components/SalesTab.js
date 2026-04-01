@@ -45,6 +45,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   var [others, setOthers] = useState([]);
   var [accessories, setAccessories] = useState([]);
   var [cleanings, setCleanings] = useState([]);
+  var [cleaningSales, setCleaningSales] = useState([]);
   var [rates, setRates] = useState({});
   var [config, setConfig] = useState([]);
   var [uploadMsg, setUploadMsg] = useState(null);
@@ -67,6 +68,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
         setOthers(json.others || []);
         setAccessories(json.accessories || []);
         setCleanings(json.cleanings || []);
+        setCleaningSales(json.cleaningSales || []);
         setRates(json.rates || {});
         setPeriod(p || json.period);
         var ap = json.available_periods || [];
@@ -94,13 +96,14 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     var map = {};
     function ensure(name) {
       if (!name) return null;
-      if (!map[name]) map[name] = { name: name, phone_tickets: 0, phone_total: 0, phone_avg: 0, other_count: 0, other_total: 0, accy_count: 0, accy_total: 0, accy_gp: 0, clean_count: 0, clean_total: 0 };
+      if (!map[name]) map[name] = { name: name, phone_tickets: 0, phone_total: 0, phone_avg: 0, other_count: 0, other_total: 0, accy_count: 0, accy_total: 0, accy_gp: 0, clean_count: 0, clean_total: 0, cs_tickets: 0, cs_gross: 0, cs_discount: 0, cs_discounted: 0 };
       return map[name];
     }
     phones.forEach(function(r) { var e = ensure(r.employee); if (e) { e.phone_tickets = r.repair_tickets || 0; e.phone_total = parseFloat(r.repair_total) || 0; e.phone_avg = parseFloat(r.avg_repair) || 0; } });
     others.forEach(function(r) { var e = ensure(r.employee); if (e) { e.other_count = r.repair_count || 0; e.other_total = parseFloat(r.repair_total) || 0; } });
     accessories.forEach(function(r) { var e = ensure(r.employee); if (e) { e.accy_count = r.accy_count || 0; e.accy_total = parseFloat(r.accy_total) || 0; e.accy_gp = parseFloat(r.accy_gp) || 0; } });
     cleanings.forEach(function(r) { var e = ensure(r.employee); if (e) { e.clean_count = r.clean_count || 0; e.clean_total = parseFloat(r.clean_total) || 0; } });
+    cleaningSales.forEach(function(r) { var e = ensure(r.employee); if (e) { e.cs_tickets = r.ticket_count || 0; e.cs_gross = parseFloat(r.gross_sales) || 0; e.cs_discount = parseFloat(r.discount) || 0; e.cs_discounted = parseFloat(r.discounted_sales) || 0; } });
 
     return Object.values(map).map(function(e) {
       e.total_revenue = e.phone_total + e.other_total + e.accy_total + e.clean_total;
@@ -114,18 +117,19 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       e.comm_other = isEnabled("other_repair_rate") ? e.other_count * (rates.other_repair_rate || 2.5) : 0;
       e.comm_accy = isEnabled("accessory_gp_rate") ? e.accy_gp * (rates.accessory_gp_rate || 0.15) : 0;
       e.comm_clean = isEnabled("cleaning_rate") ? e.clean_total * (rates.cleaning_rate || 0.10) : 0;
-      e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean;
+      e.comm_cs = isEnabled("cleaning_sales_rate") ? e.cs_discounted * (rates.cleaning_sales_rate || 0.10) : 0;
+      e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean + e.comm_cs;
       return e;
     }).sort(function(a, b) { return b.total_revenue - a.total_revenue; });
-  }, [phones, others, accessories, cleanings, rates, config]);
+  }, [phones, others, accessories, cleanings, cleaningSales, rates, config]);
 
   var totals = useMemo(function() {
     return employees.reduce(function(t, e) {
       t.revenue += e.total_revenue; t.tickets += e.total_tickets; t.commission += e.total_commission;
       t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
-      t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count;
+      t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count; t.cs_discounted += e.cs_discounted;
       return t;
-    }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0 });
+    }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0 });
   }, [employees]);
 
   var uploadCSV = async function(file, type) {
@@ -196,7 +200,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       var json = await res.json();
       if (json.success) {
         setUploadMsg({ type: "success", text: "Deleted all data for " + label });
-        setPhones([]); setOthers([]); setAccessories([]); setCleanings([]);
+        setPhones([]); setOthers([]); setAccessories([]); setCleanings([]); setCleaningSales([]);
         setPeriods(function(prev) { return prev.filter(function(pp) { return pp !== p; }); });
         setTimeout(function() { setUploadMsg(null); }, 5000);
       } else {
@@ -222,9 +226,9 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     ? displayEmployees.reduce(function(t, e) {
         t.revenue += e.total_revenue; t.tickets += e.total_tickets; t.commission += e.total_commission;
         t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
-        t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count;
+        t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count; t.cs_discounted += e.cs_discounted;
         return t;
-      }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0 })
+      }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0 })
     : totals;
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading sales data...</div>;
@@ -303,7 +307,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                   <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
                     <thead>
                       <tr style={{ borderBottom:"1px solid #2A2D35" }}>
-                        {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Total Revenue","Commission"]).map(function(h,i) {
+                        {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]).map(function(h,i) {
                           return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                         })}
                       </tr>
@@ -332,12 +336,16 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                               <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.clean_total)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
+                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.cs_tickets || 0}</div>
+                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.cs_discounted)}</div>
+                            </td>
+                            <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(emp.total_revenue)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
                               <div style={{ color:"#6B6F78",fontSize:9 }}>
-                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln"}
+                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
                               </div>
                             </td>
                           </tr>
@@ -351,6 +359,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.other_count}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.accy_count}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.clean_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{fmt(displayTotals.cs_discounted)}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
                       </tr>
@@ -408,6 +417,84 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                 </div>
               );
             })}
+          </div>
+          {/* Cleaning Sales Summary — Excel import */}
+          <div style={{ marginTop:16 }}>
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid #FF2D9522" }}>
+              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
+                <span style={{ fontSize:20 }}>{"\uD83E\uDDFE"}</span>
+                <div>
+                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Cleaning Sales Summary</div>
+                  <div style={{ color:"#6B6F78",fontSize:10 }}>RepairQ Sales Staff Summary Excel — Discounted Sales for commission</div>
+                </div>
+              </div>
+              <label style={{ display:"block",padding:"12px 16px",borderRadius:8,border:"2px dashed #FF2D9533",background:"#FF2D9508",textAlign:"center",cursor:"pointer" }}>
+                <input type="file" accept=".xlsx,.xls" style={{ display:"none" }}
+                  onChange={function(e) {
+                    var file = e.target.files[0]; if (!file) return; e.target.value = "";
+                    setUploading(true); setUploadMsg(null);
+                    (async function() {
+                      try {
+                        var buffer = await file.arrayBuffer();
+                        if (!window.XLSX) {
+                          await new Promise(function(res,rej){var s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=res;s.onerror=rej;document.head.appendChild(s);});
+                        }
+                        var wb = window.XLSX.read(new Uint8Array(buffer),{type:"array"});
+                        var ws = wb.Sheets[wb.SheetNames[0]];
+                        var data = window.XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:true});
+                        if (data.length < 2) { setUploadMsg({type:"error",text:"No data found"}); setUploading(false); return; }
+                        // Find header row
+                        var hi = -1;
+                        for (var ri = 0; ri < Math.min(data.length, 5); ri++) {
+                          for (var ci = 0; ci < (data[ri]||[]).length; ci++) {
+                            if (String(data[ri][ci]||"").toLowerCase().trim() === "staff") { hi = ri; break; }
+                          }
+                          if (hi >= 0) break;
+                        }
+                        if (hi < 0) { setUploadMsg({type:"error",text:"Could not find 'Staff' header"}); setUploading(false); return; }
+                        var hdr = data[hi];
+                        var col = {};
+                        for (var ci = 0; ci < hdr.length; ci++) {
+                          var h = String(hdr[ci]||"").toLowerCase().trim();
+                          if (h === "staff") col.staff = ci;
+                          else if (h.includes("ticket count")) col.tickets = ci;
+                          else if (h.includes("gross sales")) col.gross = ci;
+                          else if (h === "discount") col.discount = ci;
+                          else if (h.includes("discounted sales")) col.discounted = ci;
+                        }
+                        var rows = [];
+                        for (var ri = hi + 1; ri < data.length; ri++) {
+                          var row = data[ri]; if (!row) continue;
+                          var name = String(row[col.staff]||"").trim();
+                          if (!name || name.toLowerCase().includes("service -") || name.toLowerCase() === "total" || name.toLowerCase() === "staff") continue;
+                          rows.push({
+                            employee: name,
+                            ticket_count: parseInt(row[col.tickets]) || 0,
+                            gross_sales: parseFloat(row[col.gross]) || 0,
+                            discount: parseFloat(row[col.discount]) || 0,
+                            discounted_sales: parseFloat(row[col.discounted]) || 0,
+                          });
+                        }
+                        if (rows.length === 0) { setUploadMsg({type:"error",text:"No employee rows found"}); setUploading(false); return; }
+                        var res = await fetch("/api/dialpad/sales", {
+                          method: "POST", headers: {"Content-Type":"application/json"},
+                          body: JSON.stringify({ action: "import_cleaning_sales", rows: rows, period: importPeriod || currentPeriod })
+                        });
+                        var json = await res.json();
+                        if (json.success) {
+                          setUploadMsg({type:"success",text:"Imported "+json.saved+" employees' cleaning sales"});
+                          var uploadedPeriod = importPeriod || currentPeriod;
+                          setPeriod(uploadedPeriod);
+                          await loadData(uploadedPeriod);
+                        } else setUploadMsg({type:"error",text:json.error});
+                      } catch(err) { setUploadMsg({type:"error",text:"Import failed: "+err.message}); }
+                      setUploading(false);
+                    })();
+                  }}
+                  disabled={uploading} />
+                <span style={{ color:"#FF2D95",fontSize:12,fontWeight:600 }}>{uploading ? "Importing..." : "Choose Excel File (.xlsx)"}</span>
+              </label>
+            </div>
           </div>
         </div>
       )}
