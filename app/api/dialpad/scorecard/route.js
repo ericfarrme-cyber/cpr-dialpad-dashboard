@@ -325,11 +325,11 @@ export async function GET(request) {
       return empMap[resolved];
     }
 
-    // Fill repair data
-    phones.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.phone_tickets = r.repair_tickets || 0; } });
-    others.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.other_tickets = r.repair_count || 0; } });
-    accys.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.accy_count = r.accy_count || 0; e.accy_gp = parseFloat(r.accy_gp || 0); } });
-    cleans.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.clean_count = r.clean_count || 0; } });
+    // Fill repair data (use += to accumulate across multiple import rows)
+    phones.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.phone_tickets += r.repair_tickets || 0; } });
+    others.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.other_tickets += r.repair_count || 0; } });
+    accys.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.accy_count += r.accy_count || 0; e.accy_gp += parseFloat(r.accy_gp || 0); } });
+    cleans.forEach(function(r) { var e = ensureEmp(r.employee); if (e) { e.clean_count += r.clean_count || 0; } });
 
     // Fill audit data
     audits.forEach(function(a) {
