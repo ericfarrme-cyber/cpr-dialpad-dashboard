@@ -12,5 +12,10 @@
       "path": "/api/dialpad/cron?secret=cpr-audit-cron-2026-secret&store=indianapolis",
       "schedule": "20 6,11,15,20 * * *"
     }
-  ]
+  ],
+  "functions": {
+    "app/api/dialpad/cron/route.js": {
+      "maxDuration": 300
+    }
+  }
 }
