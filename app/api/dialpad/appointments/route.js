@@ -15,7 +15,7 @@ export async function GET(request) {
   var days = parseInt(searchParams.get("days") || "30");
 
   if (action === "list") {
-    var query = supabase.from("appointments").select("*").order("date_of_appt", { ascending: false }).order("appt_time", { ascending: true }).limit(500);
+    var query = supabase.from("appointments").select("*").order("date_of_appt", { ascending: false }).order("appt_time", { ascending: true }).limit(2000);
     if (store && store !== "all") query = query.eq("store", store);
     var startDate = searchParams.get("start");
     var endDate = searchParams.get("end");
@@ -163,11 +163,11 @@ export async function POST(request) {
 
   if (action === "bulk_import") {
     var rows = body.rows || [];
-    var store = body.store || "";
+    var importStore = body.store || "";
     if (rows.length === 0) return json({ success: false, error: "No rows to import" });
     var records = rows.map(function(r) {
       return {
-        store: store,
+        store: importStore,
         customer_name: r.customer_name || "",
         customer_phone: normPhone(r.customer_phone),
         date_set: r.date_set || null,
@@ -196,6 +196,62 @@ export async function POST(request) {
     var { error } = await supabase.from("appointments").delete().eq("store", clearStore);
     if (error) return json({ success: false, error: error.message });
     return json({ success: true, message: "All appointments for " + clearStore + " deleted" });
+  }
+
+  // ═══ VERIFY FOLLOWUPS via Dialpad call data ═══
+  if (action === "verify_followups") {
+    var vStore = body.store || "";
+    // Get all pending verification appointments
+    var pendingQ = supabase.from("appointments").select("id, customer_phone, date_of_appt, follow_up_notes, store")
+      .eq("follow_up_done", false).eq("follow_up_needed", true)
+      .like("follow_up_notes", "pending_verification%");
+    if (vStore && vStore !== "all") pendingQ = pendingQ.eq("store", vStore);
+
+    var { data: pendingAppts, error: pErr } = await pendingQ;
+    if (pErr) return json({ success: false, error: pErr.message });
+    if (!pendingAppts || pendingAppts.length === 0) return json({ success: true, verified: 0 });
+
+    // Get outbound calls from last 60 days
+    var obCutoff = new Date();
+    obCutoff.setDate(obCutoff.getDate() - 60);
+    var { data: outboundCalls } = await supabase.from("call_records")
+      .select("external_number, date_started, store")
+      .eq("direction", "outbound")
+      .gte("date_started", obCutoff.toISOString());
+
+    // Index outbound calls by phone
+    var obByPhone = {};
+    (outboundCalls || []).forEach(function(c) {
+      var ph = normPhone(c.external_number);
+      if (!ph) return;
+      if (!obByPhone[ph]) obByPhone[ph] = [];
+      obByPhone[ph].push(c);
+    });
+
+    var verified = 0;
+    for (var i = 0; i < pendingAppts.length; i++) {
+      var appt = pendingAppts[i];
+      var custPhone = normPhone(appt.customer_phone);
+      if (!custPhone || custPhone.length !== 10) continue;
+
+      var calls = obByPhone[custPhone] || [];
+      // Check if any outbound call was made after the no-show date
+      var hasCallback = calls.some(function(c) {
+        return new Date(c.date_started) >= new Date(appt.date_of_appt + "T00:00:00");
+      });
+
+      if (hasCallback) {
+        var parts = (appt.follow_up_notes || "").split("|");
+        var origNote = parts[1] || "Called back";
+        await supabase.from("appointments").update({
+          follow_up_done: true,
+          follow_up_notes: "Verified via Dialpad|" + origNote + "|" + new Date().toISOString(),
+        }).eq("id", appt.id);
+        verified++;
+      }
+    }
+
+    return json({ success: true, verified: verified });
   }
 
   return json({ success: false, error: "Unknown action" });
