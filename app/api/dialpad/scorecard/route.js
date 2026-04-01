@@ -52,6 +52,10 @@ export async function GET(request) {
       .eq("direction", "outbound").gte("date_started", since);
     if (until) obQ = obQ.lt("date_started", until);
 
+    var ticketQ = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted, date_closed")
+      .gte("date_closed", since);
+    if (until) ticketQ = ticketQ.lt("date_closed", until);
+
     var [callRes, auditRes, phoneRes, otherRes, accyRes, cleanRes, vmRes, outboundRes, rosterRes, configRes, ticketRes, cleanSalesRes] = await Promise.all([
       callQ,
       auditQ,
@@ -63,7 +67,7 @@ export async function GET(request) {
       obQ,
       supabase.from("employee_roster").select("name, store, aliases, role").eq("active", true),
       supabase.from("commission_config").select("config_key, config_value"),
-      supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted"),
+      ticketQ,
       supabase.from("cleaning_sales").select("*").eq("import_period", period),
     ]);
 
