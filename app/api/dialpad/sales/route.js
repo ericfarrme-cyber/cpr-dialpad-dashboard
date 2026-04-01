@@ -63,11 +63,12 @@ export async function GET(request) {
       period = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
     }
 
-    var [phones, others, accessories, cleanings, config] = await Promise.all([
+    var [phones, others, accessories, cleanings, cleaningSales, config] = await Promise.all([
       supabase.from("repair_phone").select("*").eq("import_period", period),
       supabase.from("repair_other").select("*").eq("import_period", period),
       supabase.from("sales_accessory").select("*").eq("import_period", period),
       supabase.from("repair_cleaning").select("*").eq("import_period", period),
+      supabase.from("cleaning_sales").select("*").eq("import_period", period),
       supabase.from("commission_config").select("*"),
     ]);
 
@@ -87,6 +88,7 @@ export async function GET(request) {
       others: others.data || [],
       accessories: accessories.data || [],
       cleanings: cleanings.data || [],
+      cleaningSales: cleaningSales.data || [],
       rates: rates,
     });
   }
@@ -124,11 +126,35 @@ export async function POST(request) {
       return NextResponse.json({ success: true, config: data?.[0] });
     }
 
+    if (body.action === "import_cleaning_sales") {
+      var rows = body.rows || [];
+      var csPeriod = body.period;
+      if (!csPeriod) return NextResponse.json({ success: false, error: "period required" });
+      if (rows.length === 0) return NextResponse.json({ success: false, error: "No rows to import" });
+      var saved = 0;
+      var errors = [];
+      for (var i = 0; i < rows.length; i++) {
+        var r = rows[i];
+        if (!r.employee) continue;
+        var { error } = await supabase.from("cleaning_sales").upsert({
+          employee: r.employee,
+          ticket_count: parseInt(r.ticket_count) || 0,
+          gross_sales: parseFloat(r.gross_sales) || 0,
+          discount: parseFloat(r.discount) || 0,
+          discounted_sales: parseFloat(r.discounted_sales) || 0,
+          import_period: csPeriod,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "employee,import_period" });
+        if (error) errors.push(r.employee + ": " + error.message); else saved++;
+      }
+      return NextResponse.json({ success: true, saved: saved, errors: errors, period: csPeriod });
+    }
+
     if (body.action === "delete_period") {
       var dp = body.period;
       if (!dp) return NextResponse.json({ success: false, error: "period required" });
       var deleted = {};
-      var tables = ["repair_phone", "repair_other", "sales_accessory", "repair_cleaning"];
+      var tables = ["repair_phone", "repair_other", "sales_accessory", "repair_cleaning", "cleaning_sales"];
       for (var ti = 0; ti < tables.length; ti++) {
         var tbl = tables[ti];
         var { data: delData, error: delErr } = await supabase.from(tbl).delete().eq("import_period", dp).select();
