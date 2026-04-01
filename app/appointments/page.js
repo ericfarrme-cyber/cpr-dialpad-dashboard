@@ -40,8 +40,16 @@ function getNextLevel(score) {
 
 function extractPrice(text) {
   if (!text) return 0;
-  var matches = text.match(/\$(\d+)/g);
-  if (matches && matches.length > 0) return parseInt(matches[0].replace("$", "")) || 0;
+  var str = String(text).trim();
+  // Try parsing as plain number first (e.g. "150", "149.99")
+  var plain = parseFloat(str.replace(/[$,]/g, ""));
+  if (!isNaN(plain) && plain > 0) return plain;
+  // Try extracting $XX pattern from text
+  var matches = str.match(/\$[\d,]+(?:\.\d{2})?/g);
+  if (matches && matches.length > 0) return parseFloat(matches[0].replace(/[$,]/g, "")) || 0;
+  // Try any number in the string
+  var numMatch = str.match(/(\d+(?:\.\d{2})?)/);
+  if (numMatch) return parseFloat(numMatch[1]) || 0;
   return 0;
 }
 
@@ -227,22 +235,23 @@ function StoreDashboard() {
 
   var storeSalesTotals = useMemo(function() {
     var totals = { repairs: 0, accy_gp: 0, accy_count: 0, clean_count: 0, revenue: 0 };
-    var storeNames = {};
-    storeEmployees.forEach(function(emp) { storeNames[emp.name] = true; });
-    roster.filter(function(r) { return (r.store || "").toLowerCase() === store.toLowerCase(); }).forEach(function(r) { storeNames[r.name] = true; });
-    Object.keys(storeNames).forEach(function(name) {
-      var s = salesByEmployee[name];
-      if (s) { totals.repairs += s.repairs; totals.accy_gp += s.accy_gp; totals.accy_count += s.accy_count; totals.clean_count += s.clean_count; totals.revenue += s.total_revenue; }
+    storeEmployees.forEach(function(emp) {
+      if (emp.repairs) {
+        totals.repairs += (emp.repairs.phone_tickets || 0) + (emp.repairs.other_tickets || 0);
+        totals.accy_gp += emp.repairs.accy_gp || 0;
+        totals.accy_count += emp.repairs.accy_count || 0;
+        totals.clean_count += emp.repairs.clean_count || 0;
+      }
     });
     return totals;
-  }, [salesByEmployee, storeEmployees, roster, store]);
+  }, [storeEmployees]);
 
   var revenueLost = useMemo(function() {
     var noShows = appointments.filter(function(a) {
       return a.did_arrive && (a.did_arrive.toLowerCase() === "no" || a.did_arrive.toLowerCase().includes("no"));
     });
     var total = 0;
-    noShows.forEach(function(a) { total += extractPrice(a.reason) || extractPrice(a.price_quoted); });
+    noShows.forEach(function(a) { total += extractPrice(a.price_quoted) || extractPrice(a.reason); });
     return { amount: total, count: noShows.length };
   }, [appointments]);
 
@@ -293,10 +302,8 @@ function StoreDashboard() {
     storeEmployees.forEach(function(e) {
       var lvl = getLevel(e.overall);
       if (e.overall >= 60) wins.push({ emoji: lvl.emoji, text: e.name + " reached " + lvl.name + " level! (" + e.overall + " pts)", color: lvl.color });
-      if (e.categories) {
-        if (e.categories.audit && e.categories.audit.score >= 70) wins.push({ emoji: "\uD83D\uDCDE", text: e.name + " — strong phone audit score (" + e.categories.audit.score + ")", color: "#7B2FFF" });
-        if (e.categories.compliance && e.categories.compliance.score >= 75) wins.push({ emoji: "\uD83C\uDFAB", text: e.name + " — excellent ticket compliance (" + e.categories.compliance.score + ")", color: "#00D4FF" });
-      }
+      if (e.audit && e.audit.score >= 70) wins.push({ emoji: "\uD83D\uDCDE", text: e.name + " — strong phone audit score (" + e.audit.score + ")", color: "#7B2FFF" });
+      if (e.compliance && e.compliance.score >= 75) wins.push({ emoji: "\uD83C\uDFAB", text: e.name + " — excellent ticket compliance (" + e.compliance.score + ")", color: "#00D4FF" });
     });
     if (apptStats && apptStats.empStats) {
       apptStats.empStats.forEach(function(e) {
@@ -304,14 +311,13 @@ function StoreDashboard() {
       });
     }
     storeEmployees.forEach(function(e) {
-      var sd = salesByEmployee[e.name];
-      if (sd) {
-        if (sd.repairs >= 15) wins.push({ emoji: "\uD83D\uDD27", text: e.name + " \u2014 " + sd.repairs + " repairs this month!", color: "#7B2FFF" });
-        if (sd.accy_gp >= 200) wins.push({ emoji: "\uD83D\uDCB0", text: e.name + " \u2014 $" + Math.round(sd.accy_gp) + " in accessory GP!", color: "#00D4FF" });
-      }
+      var totalRepairs = e.repairs ? (e.repairs.phone_tickets || 0) + (e.repairs.other_tickets || 0) : 0;
+      var accyGP = e.repairs ? e.repairs.accy_gp || 0 : 0;
+      if (totalRepairs >= 15) wins.push({ emoji: "\uD83D\uDD27", text: e.name + " \u2014 " + totalRepairs + " repairs this month!", color: "#7B2FFF" });
+      if (accyGP >= 200) wins.push({ emoji: "\uD83D\uDCB0", text: e.name + " \u2014 $" + Math.round(accyGP) + " in accessory GP!", color: "#00D4FF" });
     });
     return wins.slice(0, 10);
-  }, [storeEmployees, apptStats, salesByEmployee]);
+  }, [storeEmployees, apptStats]);
 
   var filteredAppointments = appointments;
   if (searchQuery.trim()) {
@@ -787,16 +793,17 @@ function StoreDashboard() {
                           </div>
                         )}
                         {(function() {
-                          var sd = salesByEmployee[emp.name];
-                          if (!sd) return null;
+                          var repairTotal = emp.repairs ? (emp.repairs.phone_tickets || 0) + (emp.repairs.other_tickets || 0) : 0;
+                          var accyGP = emp.repairs ? emp.repairs.accy_gp || 0 : 0;
+                          if (repairTotal === 0 && accyGP === 0) return null;
                           return (
                             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,marginTop:4 }}>
                               <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
-                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{sd.repairs}</div>
+                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{repairTotal}</div>
                                 <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase" }}>Repair Qty</div>
                               </div>
                               <div style={{ background:"#1A1D23",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
-                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + sd.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + accyGP.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                                 <div style={{ color:"#6B6F78",fontSize:6,textTransform:"uppercase" }}>Accy GP</div>
                               </div>
                             </div>
@@ -813,27 +820,67 @@ function StoreDashboard() {
                   var emp = storeEmployees.find(function(e){return e.name === expandedEmp;});
                   if (!emp) return null;
                   var lvl = getLevel(emp.overall);
-                  var sd = salesByEmployee[emp.name] || {};
                   var empAppt = apptStats && apptStats.empStats ? apptStats.empStats.find(function(e){return e.name === emp.name;}) : null;
+
+                  // Use scorecard data for repairs (period-aware)
+                  var repairQty = emp.repairs ? (emp.repairs.phone_tickets || 0) + (emp.repairs.other_tickets || 0) : 0;
+                  var accyGP = emp.repairs ? emp.repairs.accy_gp || 0 : 0;
+                  var accyCount = emp.repairs ? emp.repairs.accy_count || 0 : 0;
+                  var cleanCount = emp.repairs ? emp.repairs.clean_count || 0 : 0;
+
+                  // Audit details
+                  var auditScore = emp.audit ? emp.audit.score || 0 : 0;
+                  var avgAuditPct = emp.audit ? emp.audit.avg_pct || 0 : 0;
+                  var apptRate = emp.audit ? emp.audit.appt_rate || 0 : 0;
+                  var warrantyRate = emp.audit ? emp.audit.warranty_rate || 0 : 0;
+                  var totalAudits = emp.audit ? emp.audit.total_audits || 0 : 0;
+                  var oppAudits = emp.audit ? emp.audit.opp_audits || 0 : 0;
+
+                  // Compliance details
+                  var compScore = emp.compliance ? emp.compliance.score || 0 : 0;
+                  var ticketsGraded = emp.compliance ? emp.compliance.tickets_graded || 0 : 0;
+
+                  // Generate coaching tips based on weakest areas
+                  var auditTips = [];
+                  if (totalAudits > 0) {
+                    if (apptRate < 70) auditTips.push({ text: "Offer appointments on " + Math.round(100 - apptRate) + "% more calls — ask every customer", priority: "high" });
+                    if (warrantyRate < 60) auditTips.push({ text: "Mention warranty/protection plans — currently at " + warrantyRate + "% of calls", priority: warrantyRate < 40 ? "high" : "med" });
+                    if (avgAuditPct < 70) auditTips.push({ text: "Focus on greeting, diagnosis, and closing — avg score is " + avgAuditPct + "%", priority: "high" });
+                    if (avgAuditPct >= 80 && apptRate >= 70 && warrantyRate >= 60) auditTips.push({ text: "Strong phone skills! Keep it up.", priority: "good" });
+                  }
+                  var compTips = [];
+                  if (ticketsGraded > 0) {
+                    if (compScore < 60) compTips.push({ text: "Ticket quality needs improvement — ensure diagnostics, notes, and payment are complete", priority: "high" });
+                    else if (compScore < 80) compTips.push({ text: "Good start — double-check notes include repair outcome + customer notification", priority: "med" });
+                    else compTips.push({ text: "Excellent ticket documentation!", priority: "good" });
+                  }
 
                   var catDetails = [
                     { key: "repairs", label: "Repairs & Production", icon: "\uD83D\uDD27", color: "#7B2FFF",
                       details: [
-                        { label: "Repair Qty", value: sd.repairs || 0, suffix: " repairs" },
-                        { label: "Repair Revenue", value: "$" + (sd.repair_revenue || 0).toLocaleString(undefined,{maximumFractionDigits:0}) },
-                        { label: "Accessory GP", value: "$" + (sd.accy_gp || 0).toLocaleString(undefined,{maximumFractionDigits:0}) },
-                        { label: "Accessory Items", value: sd.accy_count || 0, suffix: " sold" },
-                        { label: "Cleanings", value: sd.clean_count || 0 },
+                        { label: "Phone Repairs", value: emp.repairs ? emp.repairs.phone_tickets || 0 : 0 },
+                        { label: "Other Repairs", value: emp.repairs ? emp.repairs.other_tickets || 0 : 0 },
+                        { label: "Total Repairs", value: repairQty, highlight: true },
+                        { label: "Accessory GP", value: "$" + accyGP.toLocaleString(undefined,{maximumFractionDigits:0}) },
+                        { label: "Accessory Items", value: accyCount, suffix: " sold" },
+                        { label: "Cleanings", value: cleanCount },
                       ] },
                     { key: "audit", label: "Phone Audit Quality", icon: "\uD83D\uDCDE", color: "#FBBF24",
                       details: [
-                        { label: "Avg Call Score", value: emp.audit ? (emp.audit.score || 0) + "/100" : "N/A" },
-                        { label: "Calls Audited", value: emp.audit ? emp.audit.total_audits || 0 : 0 },
-                      ] },
+                        { label: "Overall Audit Score", value: auditScore + "/100", highlight: true },
+                        { label: "Avg Call Score", value: avgAuditPct + "%" },
+                        { label: "Appt Offered Rate", value: apptRate + "%", warn: apptRate < 70 },
+                        { label: "Warranty Mentioned", value: warrantyRate + "%", warn: warrantyRate < 60 },
+                        { label: "Calls Audited", value: totalAudits },
+                        { label: "Opportunity Calls", value: oppAudits },
+                      ],
+                      tips: auditTips },
                     { key: "compliance", label: "Ticket Compliance", icon: "\uD83C\uDFAB", color: "#00D4FF",
                       details: [
-                        { label: "Avg Ticket Score", value: emp.compliance ? (emp.compliance.score || 0) + "/100" : "N/A" },
-                      ] },
+                        { label: "Compliance Score", value: compScore + "/100", highlight: true },
+                        { label: "Tickets Graded", value: ticketsGraded },
+                      ],
+                      tips: compTips },
                   ];
 
                   if (empAppt) {
@@ -843,7 +890,7 @@ function StoreDashboard() {
                         { label: "Total Booked", value: empAppt.total },
                         { label: "Showed Up", value: empAppt.arrived },
                         { label: "No-Shows", value: empAppt.no_show },
-                        { label: "Show Rate", value: empAppt.show_rate + "%" },
+                        { label: "Show Rate", value: empAppt.show_rate + "%", highlight: true },
                       ]
                     });
                   }
@@ -882,10 +929,24 @@ function StoreDashboard() {
                                 return (
                                   <div key={di} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:di < cat.details.length - 1 ? "1px solid #1E2028" : "none" }}>
                                     <span style={{ color:"#8B8F98",fontSize:10 }}>{d.label}</span>
-                                    <span style={{ color:"#F0F1F3",fontSize:11,fontWeight:600 }}>{d.value}{d.suffix || ""}</span>
+                                    <span style={{ color:d.warn ? "#F87171" : d.highlight ? "#F0F1F3" : "#C8CAD0",fontSize:d.highlight ? 12 : 11,fontWeight:d.highlight ? 700 : 600 }}>{d.value}{d.suffix || ""}</span>
                                   </div>
                                 );
                               })}
+                              {cat.tips && cat.tips.length > 0 && (
+                                <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"#0F1117",border:"1px solid #2A2D35" }}>
+                                  <div style={{ color:"#FBBF24",fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4 }}>{"\uD83D\uDCA1"} Coaching</div>
+                                  {cat.tips.map(function(tip, ti) {
+                                    var tipColor = tip.priority === "high" ? "#F87171" : tip.priority === "good" ? "#4ADE80" : "#FBBF24";
+                                    return (
+                                      <div key={ti} style={{ display:"flex",alignItems:"flex-start",gap:5,marginBottom:ti < cat.tips.length - 1 ? 4 : 0 }}>
+                                        <span style={{ color:tipColor,fontSize:8,marginTop:2 }}>{tip.priority === "good" ? "\u2713" : "\u25CF"}</span>
+                                        <span style={{ color:"#C8CAD0",fontSize:9,lineHeight:1.4 }}>{tip.text}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
