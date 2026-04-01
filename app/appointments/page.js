@@ -115,6 +115,18 @@ function StoreDashboard() {
   var [apptView, setApptView] = useState("today");
   var [expandedEmp, setExpandedEmp] = useState(null);
 
+  // Period selector for historical scorecard data
+  var periodOptions = [];
+  var nowDate = new Date();
+  for (var mi = 0; mi < 12; mi++) {
+    var pd = new Date(nowDate.getFullYear(), nowDate.getMonth() - mi, 1);
+    var pVal = pd.getFullYear() + "-" + String(pd.getMonth() + 1).padStart(2, "0");
+    var pLabel = pd.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+    periodOptions.push({ value: pVal, label: pLabel });
+  }
+  var currentPeriod = periodOptions[0].value;
+  var [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
+
   // Review + GBP states
   var [reviewData, setReviewData] = useState(null);
   var [reviewForm, setReviewForm] = useState({ total_reviews: "", photo_reviews: "", employee_count: "", notes: "" });
@@ -141,7 +153,7 @@ function StoreDashboard() {
     setLoading(true);
     try {
       var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes] = await Promise.allSettled([
-        fetch("/api/dialpad/scorecard?days=30").then(function(r){return r.json();}),
+        fetch("/api/dialpad/scorecard?period=" + selectedPeriod).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/tickets?action=stats&store=" + store).then(function(r){return r.json();}),
@@ -183,7 +195,7 @@ function StoreDashboard() {
     } catch(e) { console.error("Verification error:", e); }
   };
 
-  useEffect(function() { loadData(); }, [store, apptView]);
+  useEffect(function() { loadData(); }, [store, apptView, selectedPeriod]);
   // Run verification after initial load (delayed so it doesn't compete)
   useEffect(function() {
     var timer = setTimeout(function() { runVerification(); }, 3000);
@@ -605,6 +617,33 @@ function StoreDashboard() {
         {/* ═══ OVERVIEW SECTION ═══ */}
         {section === "overview" && (
           <div>
+            {/* Period selector */}
+            <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16 }}>
+              <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+                <span style={{ color:"#6B6F78",fontSize:13 }}>{"\uD83D\uDCC5"}</span>
+                <select value={selectedPeriod} onChange={function(e){setSelectedPeriod(e.target.value);}}
+                  style={{ padding:"7px 14px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:selectedPeriod===currentPeriod?"#8B8F98":"#FBBF24",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
+                  {periodOptions.map(function(p){
+                    return <option key={p.value} value={p.value}>{p.label}</option>;
+                  })}
+                </select>
+                {selectedPeriod !== currentPeriod && (
+                  <button onClick={function(){setSelectedPeriod(currentPeriod);}}
+                    style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"#7B2FFF",fontSize:10,fontWeight:600,cursor:"pointer" }}>
+                    Current Month
+                  </button>
+                )}
+              </div>
+              {selectedPeriod !== currentPeriod && (
+                <div style={{ background:"#FBBF2410",border:"1px solid #FBBF2433",borderRadius:8,padding:"6px 14px",display:"flex",alignItems:"center",gap:6 }}>
+                  <span style={{ fontSize:12 }}>{"\uD83D\uDCC6"}</span>
+                  <span style={{ color:"#FBBF24",fontSize:11,fontWeight:600 }}>
+                    {"Viewing: " + periodOptions.find(function(p){return p.value===selectedPeriod;}).label}
+                  </span>
+                </div>
+              )}
+            </div>
+
             {/* Store hero card */}
             <div style={{ background:"#1A1D23",borderRadius:16,padding:28,marginBottom:24,border:"1px solid "+storeColor+"22",display:"flex",alignItems:"center",gap:32 }}>
               <ScoreRing score={storeOverall} size={130} label="overall" />
