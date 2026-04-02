@@ -6,7 +6,7 @@ import { useAuth } from "@/components/AuthProvider";
 export default function AIAssistant({ isOpen, onClose }) {
   var auth = useAuth();
   var [messages, setMessages] = useState([
-    { role: "assistant", content: "Hey! I'm your Focused Technologies AI assistant. I have access to all your store data — call audits, ticket grades, employee scores, schedules, and customer journeys.\n\nAsk me anything about your business, like:\n• \"How is Matthew Slade performing this month?\"\n• \"Which employees need coaching on phone skills?\"\n• \"What are the most common repair issues at Bloomington?\"\n• \"Give me talking points for coaching Luke on ticket documentation\"\n• \"Which customers had bad experiences recently?\"" }
+    { role: "assistant", content: "I've loaded your complete business data across all three stores — current month plus 3 months of history. I have employee scores, call records, audit results, ticket compliance, sales, appointments, schedules, reviews, and profitability data.\n\nI cross-reference everything automatically. Ask me anything:\n\n• \"Who is our most effective employee and why?\"\n• \"What's costing us the most revenue right now?\"\n• \"Give me a coaching plan for the Indianapolis team\"\n• \"Compare store performance — who's improving, who's declining?\"\n• \"What patterns do you see in our missed calls?\"\n• \"Build me a 1:1 agenda for my meeting with Luke\"" }
   ]);
   var [input, setInput] = useState("");
   var [loading, setLoading] = useState(false);
@@ -41,6 +41,13 @@ export default function AIAssistant({ isOpen, onClose }) {
       var now = new Date();
       var currentPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
 
+      // Compute previous months for historical context
+      var prevMonths = [];
+      for (var pmi = 1; pmi <= 3; pmi++) {
+        var pmd = new Date(now.getFullYear(), now.getMonth() - pmi, 1);
+        prevMonths.push(pmd.getFullYear() + "-" + String(pmd.getMonth() + 1).padStart(2, "0"));
+      }
+
       var results = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
         fetch("/api/dialpad/tickets?action=stats").then(function(r){return r.json();}),
@@ -63,6 +70,10 @@ export default function AIAssistant({ isOpen, onClose }) {
         fetch("/api/dialpad/voicemails").then(function(r){return r.json();}),
         fetch("/api/wheniwork?action=today").then(function(r){return r.json();}),
         fetch("/api/wheniwork?action=shifts&start=" + new Date(Date.now() - 7*86400000).toISOString().split("T")[0] + "&end=" + new Date(Date.now() + 7*86400000).toISOString().split("T")[0]).then(function(r){return r.json();}),
+        // Historical scorecards (last 3 months)
+        fetch("/api/dialpad/scorecard?period=" + prevMonths[0]).then(function(r){return r.json();}),
+        fetch("/api/dialpad/scorecard?period=" + prevMonths[1]).then(function(r){return r.json();}),
+        fetch("/api/dialpad/scorecard?period=" + prevMonths[2]).then(function(r){return r.json();}),
       ]);
 
       function g(i) { return results[i] && results[i].status === "fulfilled" ? results[i].value : null; }
@@ -96,7 +107,26 @@ export default function AIAssistant({ isOpen, onClose }) {
         context += "\n";
       }
 
-      // ═══ CALL RECORDS & PERFORMANCE ═══
+      // ═══ HISTORICAL SCORECARDS (Previous 3 months) ═══
+      [{ idx: 21, period: prevMonths[0] }, { idx: 22, period: prevMonths[1] }, { idx: 23, period: prevMonths[2] }].forEach(function(item) {
+        var hist = g(item.idx);
+        if (hist && hist.success) {
+          var monthLabel = new Date(item.period + "-15").toLocaleDateString(undefined, { month: "long", year: "numeric" });
+          context += "═══ SCORECARD — " + monthLabel + " ═══\n";
+          (hist.employeeScores || []).forEach(function(e) {
+            context += e.name + " (" + e.store + "): Overall " + e.overall;
+            context += " | Repairs:" + (e.repairs ? e.repairs.score : 0) + " (phones:" + (e.repairs ? e.repairs.phone_tickets : 0) + " other:" + (e.repairs ? e.repairs.other_tickets : 0) + " accyGP:$" + (e.repairs ? Math.round(e.repairs.accy_gp || 0) : 0) + ")";
+            context += " | Audit:" + (e.audit ? e.audit.score : 0) + " | Compliance:" + (e.compliance ? e.compliance.score : 0);
+            context += "\n";
+          });
+          if (hist.ranked && hist.ranked.length > 0) {
+            context += "Store rankings: ";
+            context += hist.ranked.map(function(s, i) { return "#" + (i+1) + " " + (s.store_name || s.store) + " " + s.overall; }).join(", ");
+            context += "\n";
+          }
+          context += "\n";
+        }
+      });
       var stored = g(5);
       if (stored && stored.success && stored.data) {
         var sd = stored.data;
@@ -420,15 +450,45 @@ export default function AIAssistant({ isOpen, onClose }) {
       var apiMessages = [];
 
       // System context as first user message + assistant acknowledgement
-      var systemPrompt = "You are the AI assistant for Focused Technologies, a company operating three CPR Cell Phone Repair stores (Fishers, Bloomington, and Indianapolis in Indiana). You help the owner (Eric) and managers analyze business performance, coach employees, and improve operations.\n\n" +
-        "IMPORTANT GUIDELINES:\n" +
-        "- Be specific and actionable. Reference actual employee names, scores, and data.\n" +
-        "- When coaching, provide specific talking points and examples.\n" +
-        "- When analyzing performance, compare across employees and stores.\n" +
-        "- Be direct and concise — this is an operations dashboard, not a general chat.\n" +
-        "- If asked about something not in the data, say so clearly.\n" +
-        "- Format responses with clear sections when appropriate, but keep them readable.\n\n" +
-        "Here is the current business data:\n\n" + businessContext;
+      var systemPrompt = "You are the chief operations intelligence engine for Focused Technologies — a company running three CPR Cell Phone Repair stores (Fishers, Bloomington, Indianapolis) in Indiana. The owner is Eric Farr. You operate with the analytical rigor of a top-tier management consultant and the operational intuition of someone who has run multi-location service businesses for decades.\n\n" +
+
+        "YOUR OPERATING PRINCIPLES:\n\n" +
+
+        "1. CROSS-REFERENCE EVERYTHING. Never answer from a single data source. When asked about an employee, pull their repair numbers, audit scores, compliance grades, appointment conversion, call handling, AND schedule data together. Identify contradictions (e.g. 'high repair count but zero accessory GP suggests they're not upselling').\n\n" +
+
+        "2. THINK IN SYSTEMS. Every metric connects to revenue. Missed calls = lost appointments = lost repairs = lost revenue. Poor ticket compliance = warranty issues = customer callbacks = reputation damage. Always trace the chain.\n\n" +
+
+        "3. SPOT WHAT OTHERS MISS. Look for:\n" +
+        "   - Employees who score high in one area but collapse in another (hidden weaknesses)\n" +
+        "   - Stores where answer rates drop at specific hours (staffing gaps)\n" +
+        "   - Month-over-month trends (who's improving vs declining vs stagnant)\n" +
+        "   - Correlations between employee schedule times and missed call spikes\n" +
+        "   - Employees with zero data in a category (are they avoiding it or not being measured?)\n" +
+        "   - Outliers — both positive and negative\n\n" +
+
+        "4. QUANTIFY EVERYTHING. Don't say 'needs improvement' — say 'scoring 33% on appointment offers vs the team average of 67%, which means approximately 15 missed appointment bookings this month at an average ticket of $120 = ~$1,800 in potentially lost revenue.'\n\n" +
+
+        "5. BE PROACTIVE. After answering the question asked, add 1-2 things the user DIDN'T ask about but SHOULD know. Flag anomalies, emerging problems, or hidden wins.\n\n" +
+
+        "6. HISTORICAL AWARENESS. You have multiple months of data. Always consider trends. An employee at 45/100 who was at 30 last month is IMPROVING and should be encouraged. An employee at 65/100 who was at 80 last month is DECLINING and needs intervention. Context matters more than snapshots.\n\n" +
+
+        "7. ACTIONABLE COACHING. When providing coaching advice, give EXACT scripts and talking points. Not 'discuss their phone skills' but 'Hey [name], I listened to some of your recent calls and noticed you offered appointments on only 33% of opportunity calls. Let me show you a technique — after giving the customer a quote, try saying: Would you like me to get you scheduled so we can knock this out today or tomorrow? That one question can double your booking rate.'\n\n" +
+
+        "8. COMPARE AND RANK. When analyzing performance, always show where someone stands relative to peers. Humans are motivated by relative position. 'You're #3 out of 11 employees' hits differently than 'your score is 65.'\n\n" +
+
+        "9. IDENTIFY ROOT CAUSES. If a store has low scores, dig into WHY. Is it one employee dragging down the average? Is it a staffing problem? Is it a training gap? Is it a specific time of day? Don't just report — diagnose.\n\n" +
+
+        "10. REVENUE IMPACT. Connect everything back to money. Eric runs a business. Every insight should implicitly or explicitly answer: 'What does this cost us and what would fixing it be worth?'\n\n" +
+
+        "RESPONSE STYLE:\n" +
+        "- Lead with the key insight or answer — don't bury it\n" +
+        "- Use specific numbers, names, and dates — never generic advice\n" +
+        "- Bold key findings with ** markers\n" +
+        "- Keep responses focused and structured, but don't be robotic\n" +
+        "- If you don't have data to answer something, say exactly what's missing and suggest how to get it\n" +
+        "- When comparing months, show the delta (arrows or +/- numbers)\n\n" +
+
+        "Here is the complete business data across multiple months:\n\n" + businessContext;
 
       apiMessages.push({ role: "user", content: systemPrompt });
       apiMessages.push({ role: "assistant", content: "I have all the current business data loaded. How can I help?" });
@@ -534,7 +594,7 @@ export default function AIAssistant({ isOpen, onClose }) {
           </button>
         </div>
         <div style={{ display:"flex",gap:6,marginTop:8,flexWrap:"wrap" }}>
-          {["Who needs coaching?","Store performance summary","Top performers this month","Recent customer complaints"].map(function(q) {
+          {["What's costing us the most revenue?","Who needs intervention this week?","Store performance trends","Build a coaching plan"].map(function(q) {
             return <button key={q} onClick={function(){setInput(q);}}
               style={{ padding:"4px 8px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#6B6F78",fontSize:9,cursor:"pointer" }}>{q}</button>;
           })}
