@@ -61,7 +61,8 @@ export default function AIAssistant({ isOpen, onClose }) {
         fetch("/api/dialpad/weekly-goal?store=bloomington").then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=indianapolis").then(function(r){return r.json();}),
         fetch("/api/dialpad/voicemails").then(function(r){return r.json();}),
-        fetch("/api/wheniwork").then(function(r){return r.json();}),
+        fetch("/api/wheniwork?action=today").then(function(r){return r.json();}),
+        fetch("/api/wheniwork?action=shifts&start=" + new Date(Date.now() - 7*86400000).toISOString().split("T")[0] + "&end=" + new Date(Date.now() + 7*86400000).toISOString().split("T")[0]).then(function(r){return r.json();}),
       ]);
 
       function g(i) { return results[i] && results[i].status === "fulfilled" ? results[i].value : null; }
@@ -337,37 +338,42 @@ export default function AIAssistant({ isOpen, onClose }) {
       }
 
       // ═══ EMPLOYEE SCHEDULES (WhenIWork) ═══
-      var schedData = g(19);
-      if (schedData && schedData.success) {
+      var todayShifts = g(19);
+      var weekShifts = g(20);
+
+      if ((todayShifts && todayShifts.success) || (weekShifts && weekShifts.success)) {
         context += "═══ EMPLOYEE SCHEDULES (WhenIWork) ═══\n";
-        if (schedData.shifts && schedData.shifts.length > 0) {
-          context += "Upcoming/recent shifts:\n";
-          schedData.shifts.slice(0, 50).forEach(function(s) {
-            var startDate = s.start_time ? new Date(s.start_time).toLocaleString() : "?";
-            var endDate = s.end_time ? new Date(s.end_time).toLocaleString() : "?";
-            context += "  " + (s.employee_name || s.user_name || "Unknown") + " | " + (s.location_name || s.store || "") + " | " + startDate + " — " + endDate + "\n";
+
+        if (todayShifts && todayShifts.success && todayShifts.shifts && todayShifts.shifts.length > 0) {
+          context += "TODAY'S SCHEDULE:\n";
+          todayShifts.shifts.forEach(function(s) {
+            var start = s.start_time ? new Date(s.start_time).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) : "?";
+            var end = s.end_time ? new Date(s.end_time).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) : "?";
+            context += "  " + (s.employee || "Unknown") + " | " + (s.location || "") + " | " + start + " — " + end + " | " + (s.position || "") + "\n";
           });
+          context += "\n";
         }
-        if (schedData.schedule) {
-          // Might be structured differently
-          var sched = Array.isArray(schedData.schedule) ? schedData.schedule : [schedData.schedule];
-          sched.forEach(function(s) {
-            if (s.employee && s.shifts) {
-              context += s.employee + ":\n";
-              s.shifts.forEach(function(sh) {
-                context += "  " + (sh.date || "") + " " + (sh.start || "") + "-" + (sh.end || "") + " at " + (sh.store || sh.location || "") + "\n";
-              });
-            }
+
+        if (weekShifts && weekShifts.success && weekShifts.shifts && weekShifts.shifts.length > 0) {
+          context += "SHIFTS (Last 7 days + Next 7 days):\n";
+          // Group by date
+          var byDate = {};
+          weekShifts.shifts.forEach(function(s) {
+            var dateKey = s.start_time ? s.start_time.split("T")[0] || s.start_time.substring(0, 10) : "unknown";
+            if (!byDate[dateKey]) byDate[dateKey] = [];
+            byDate[dateKey].push(s);
           });
-        }
-        // Handle raw data format from WhenIWork API
-        if (schedData.data) {
-          var sd = Array.isArray(schedData.data) ? schedData.data : [];
-          sd.slice(0, 50).forEach(function(s) {
-            context += "  " + (s.employee || s.name || "?") + " | " + (s.store || s.location || "") + " | " + (s.start || s.start_time || "") + " — " + (s.end || s.end_time || "") + "\n";
+          Object.keys(byDate).sort().forEach(function(dateKey) {
+            var dayName = new Date(dateKey + "T12:00:00").toLocaleDateString([], {weekday:"short",month:"short",day:"numeric"});
+            context += "  " + dayName + ":\n";
+            byDate[dateKey].forEach(function(s) {
+              var start = s.start_time ? new Date(s.start_time).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) : "?";
+              var end = s.end_time ? new Date(s.end_time).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"}) : "?";
+              context += "    " + (s.employee || "Unknown") + " @ " + (s.location || "") + " " + start + "-" + end + " (" + (s.position || "") + ")\n";
+            });
           });
+          context += "\n";
         }
-        context += "\n";
       }
 
       // ═══ INSIGHTS ═══
