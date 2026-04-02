@@ -61,6 +61,7 @@ export default function AIAssistant({ isOpen, onClose }) {
         fetch("/api/dialpad/weekly-goal?store=bloomington").then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=indianapolis").then(function(r){return r.json();}),
         fetch("/api/dialpad/voicemails").then(function(r){return r.json();}),
+        fetch("/api/wheniwork").then(function(r){return r.json();}),
       ]);
 
       function g(i) { return results[i] && results[i].status === "fulfilled" ? results[i].value : null; }
@@ -96,49 +97,61 @@ export default function AIAssistant({ isOpen, onClose }) {
 
       // ═══ CALL RECORDS & PERFORMANCE ═══
       var stored = g(5);
-      if (stored && stored.success) {
+      if (stored && stored.success && stored.data) {
+        var sd = stored.data;
         context += "═══ CALL PERFORMANCE (Last 30 Days) ═══\n";
-        if (stored.dailyCalls) {
-          var totalCalls = 0, totalAnswered = 0, totalMissed = 0;
-          stored.dailyCalls.forEach(function(d) {
+        if (sd.dailyCalls && sd.dailyCalls.length > 0) {
+          context += "Daily call breakdown (date | store: total/answered/missed):\n";
+          sd.dailyCalls.forEach(function(d) {
+            var parts = [];
             ["fishers","bloomington","indianapolis"].forEach(function(sk) {
-              totalCalls += (d[sk + "_total"] || 0);
-              totalAnswered += (d[sk + "_answered"] || 0);
+              var t = d[sk + "_total"] || 0;
+              var a = d[sk + "_answered"] || 0;
+              var m = d[sk + "_missed"] || (t - a);
+              if (t > 0) parts.push(sk + ": " + t + "/" + a + "/" + m);
             });
+            if (parts.length > 0) context += "  " + d.date + " — " + parts.join(" | ") + "\n";
           });
-          totalMissed = totalCalls - totalAnswered;
-          context += "Total calls: " + totalCalls + " | Answered: " + totalAnswered + " | Missed: " + totalMissed + " | Answer rate: " + (totalCalls > 0 ? Math.round(totalAnswered/totalCalls*100) : 0) + "%\n";
+          context += "\n";
         }
-        if (stored.storePerf) {
-          context += "Per-store call stats:\n";
-          stored.storePerf.forEach(function(sp) {
+        if (sd.storePerf) {
+          context += "Per-store call totals:\n";
+          sd.storePerf.forEach(function(sp) {
             context += "  " + sp.store + ": " + (sp.total_calls||0) + " calls, " + (sp.answered||0) + " answered, " + (sp.missed||0) + " missed, rate " + (sp.answer_rate||0) + "%\n";
           });
+          context += "\n";
         }
-        if (stored.hourlyMissed) {
-          context += "Missed calls by hour (top problem hours):\n";
-          var hourProblems = stored.hourlyMissed.filter(function(h) {
-            var total = 0;
-            ["fishers","bloomington","indianapolis"].forEach(function(sk) { total += h[sk] || 0; });
-            return total > 3;
+        if (sd.hourlyMissed && sd.hourlyMissed.length > 0) {
+          context += "Missed calls by hour of day:\n";
+          sd.hourlyMissed.forEach(function(h) {
+            var total = (h.fishers||0) + (h.bloomington||0) + (h.indianapolis||0);
+            if (total > 0) context += "  " + h.hour + ": fishers=" + (h.fishers||0) + " bloomington=" + (h.bloomington||0) + " indianapolis=" + (h.indianapolis||0) + " (total=" + total + ")\n";
           });
-          hourProblems.forEach(function(h) {
-            context += "  " + h.hour + ": fishers=" + (h.fishers||0) + " bloom=" + (h.bloomington||0) + " indy=" + (h.indianapolis||0) + "\n";
-          });
+          context += "\n";
         }
-        if (stored.dowMissed) {
+        if (sd.dowData || sd.dowMissed) {
+          var dowArr = sd.dowData || sd.dowMissed;
           context += "Missed calls by day of week:\n";
-          stored.dowMissed.forEach(function(d) {
-            context += "  " + d.day + ": fishers=" + (d.fishers||0) + " bloom=" + (d.bloomington||0) + " indy=" + (d.indianapolis||0) + "\n";
+          dowArr.forEach(function(d) {
+            context += "  " + d.day + ": fishers=" + (d.fishers||0) + " bloomington=" + (d.bloomington||0) + " indianapolis=" + (d.indianapolis||0) + "\n";
           });
+          context += "\n";
         }
-        if (stored.callbackData) {
+        if (sd.callbackData) {
           context += "Callback performance:\n";
-          stored.callbackData.forEach(function(cb) {
-            context += "  " + cb.store + ": " + (cb.missed||0) + " missed, " + (cb.called_back||0) + " called back, rate " + (cb.callback_rate||0) + "%\n";
+          sd.callbackData.forEach(function(cb) {
+            context += "  " + cb.store + ": " + (cb.missed||0) + " missed, " + (cb.calledBack||cb.called_back||0) + " called back";
+            context += ", within30min:" + (cb.within30||0) + " within60min:" + (cb.within60||0) + " later:" + (cb.later||0) + " never:" + (cb.never||0) + "\n";
           });
+          context += "\n";
         }
-        context += "\n";
+        if (sd.problemCalls) {
+          context += "Problem call breakdown:\n";
+          sd.problemCalls.forEach(function(p) {
+            context += "  " + p.type + ": fishers=" + (p.fishers||0) + " bloomington=" + (p.bloomington||0) + " indianapolis=" + (p.indianapolis||0) + "\n";
+          });
+          context += "\n";
+        }
       }
 
       // ═══ TICKET COMPLIANCE ═══
@@ -320,6 +333,40 @@ export default function AIAssistant({ isOpen, onClose }) {
         vms.voicemails.slice(0, 10).forEach(function(v) {
           context += "  " + (v.store||"") + " | " + v.external_number + " | " + new Date(v.date_started).toLocaleString() + "\n";
         });
+        context += "\n";
+      }
+
+      // ═══ EMPLOYEE SCHEDULES (WhenIWork) ═══
+      var schedData = g(19);
+      if (schedData && schedData.success) {
+        context += "═══ EMPLOYEE SCHEDULES (WhenIWork) ═══\n";
+        if (schedData.shifts && schedData.shifts.length > 0) {
+          context += "Upcoming/recent shifts:\n";
+          schedData.shifts.slice(0, 50).forEach(function(s) {
+            var startDate = s.start_time ? new Date(s.start_time).toLocaleString() : "?";
+            var endDate = s.end_time ? new Date(s.end_time).toLocaleString() : "?";
+            context += "  " + (s.employee_name || s.user_name || "Unknown") + " | " + (s.location_name || s.store || "") + " | " + startDate + " — " + endDate + "\n";
+          });
+        }
+        if (schedData.schedule) {
+          // Might be structured differently
+          var sched = Array.isArray(schedData.schedule) ? schedData.schedule : [schedData.schedule];
+          sched.forEach(function(s) {
+            if (s.employee && s.shifts) {
+              context += s.employee + ":\n";
+              s.shifts.forEach(function(sh) {
+                context += "  " + (sh.date || "") + " " + (sh.start || "") + "-" + (sh.end || "") + " at " + (sh.store || sh.location || "") + "\n";
+              });
+            }
+          });
+        }
+        // Handle raw data format from WhenIWork API
+        if (schedData.data) {
+          var sd = Array.isArray(schedData.data) ? schedData.data : [];
+          sd.slice(0, 50).forEach(function(s) {
+            context += "  " + (s.employee || s.name || "?") + " | " + (s.store || s.location || "") + " | " + (s.start || s.start_time || "") + " — " + (s.end || s.end_time || "") + "\n";
+          });
+        }
         context += "\n";
       }
 
