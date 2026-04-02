@@ -275,7 +275,7 @@ function AuditTab({ rawCallData, storeFilter }) {
   var [batchRunning, setBatchRunning] = useState(false);
   var [batchProgress, setBatchProgress] = useState({ done:0, total:0 });
   var batchAbort = useRef(false);
-  var [autoAuditPending, setAutoAuditPending] = useState(false);
+  var autoAuditPending = useRef(false);
   var [error, setError] = useState(null);
   var [loading, setLoading] = useState(true);
   var [auditView, setAuditView] = useState("overview");
@@ -401,16 +401,15 @@ function AuditTab({ rawCallData, storeFilter }) {
 
   // Auto-audit: after Live Refresh loads new calls, start batch automatically
   useEffect(function() {
-    if (autoAuditPending && recordedCalls.length > 0 && !batchRunning) {
-      setAutoAuditPending(false);
-      // Small delay so UI renders the call list before auditing starts
+    if (autoAuditPending.current && recordedCalls.length > 0 && !batchRunning) {
+      autoAuditPending.current = false;
       var timer = setTimeout(function() { runBatch(); }, 2000);
       return function() { clearTimeout(timer); };
     }
-    if (autoAuditPending && recordedCalls.length === 0) {
-      setAutoAuditPending(false);
+    if (autoAuditPending.current && recordedCalls.length === 0) {
+      autoAuditPending.current = false;
     }
-  }, [autoAuditPending, recordedCalls, batchRunning]);
+  }, [recordedCalls.length, batchRunning]);
 
   var loadRepeatCallers = async function() {
     setRepeatLoading(true);
@@ -1198,7 +1197,7 @@ export default function DialpadDashboard() {
         var cbs = transformToCallbackData(data); if(cbs.some(function(c){return c.missed>0;})) setCallbackData(cbs);
         var probs = transformToProblemCalls(data); if(probs.some(function(p){return STORE_KEYS.some(function(k){return p[k]>0;});})) setProblemCalls(probs);
         setIsLive(true); setIsStored(false);
-        setAutoAuditPending(true);
+        autoAuditPending.current = true;
       }
     } catch(e) { console.error(e); }
     setIsLoading(false);
