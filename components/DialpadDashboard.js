@@ -172,17 +172,18 @@ function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
           );
         })}
       </div>
-      <SectionHeader title="Daily Call Volume" subtitle="Last 30 days" icon="📊" />
+      <SectionHeader title="Daily Call Volume" subtitle="Last 30 days — answered vs missed" icon="📊" />
       <div style={{ background:"#1A1D23",borderRadius:12,padding:20,height:300 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={dailyCalls}>
+          <BarChart data={dailyCalls}>
             <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" />
             <XAxis dataKey="date" tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} interval={4} />
             <YAxis tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} axisLine={false} />
             <Tooltip content={<CustomTooltip />} />
-            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Area key={key} type="monotone" dataKey={key+"_total"} name={STORES[key].name+" Total"} stroke={STORES[key].color} fill={STORES[key].color+"18"} strokeWidth={2} dot={false} /> : null; })}
-            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Area key={key+"_a"} type="monotone" dataKey={key+"_answered"} name={STORES[key].name+" Answered"} stroke={STORES[key].color} fill={STORES[key].color+"08"} strokeWidth={1} strokeDasharray="4 4" dot={false} /> : null; })}
-          </AreaChart>
+            <Legend wrapperStyle={{ fontSize:10, color:"#8B8F98" }} />
+            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Bar key={key+"_a"} stackId={key} dataKey={key+"_answered"} name={STORES[key].name.replace("CPR ","")+" Answered"} fill={STORES[key].color} radius={[0,0,0,0]} /> : null; })}
+            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Bar key={key+"_m"} stackId={key} dataKey={key+"_missed"} name={STORES[key].name.replace("CPR ","")+" Missed"} fill="#F87171" radius={[2,2,0,0]} /> : null; })}
+          </BarChart>
         </ResponsiveContainer>
       </div>
     </div>
@@ -1173,7 +1174,19 @@ export default function DialpadDashboard() {
       var json = await res.json();
       if (json.success && json.hasData) {
         var d = json.data;
-        if(d.dailyCalls&&d.dailyCalls.length>0) setDailyCalls(d.dailyCalls);
+        if(d.dailyCalls&&d.dailyCalls.length>0) {
+          // Ensure _missed is computed if not present
+          d.dailyCalls.forEach(function(day) {
+            STORE_KEYS.forEach(function(sk) {
+              var total = day[sk+"_total"] || 0;
+              var answered = day[sk+"_answered"] || 0;
+              if (day[sk+"_missed"] === undefined || day[sk+"_missed"] === 0) {
+                day[sk+"_missed"] = Math.max(0, total - answered);
+              }
+            });
+          });
+          setDailyCalls(d.dailyCalls);
+        }
         if(d.hourlyMissed&&d.hourlyMissed.length>0) setHourlyMissed(d.hourlyMissed);
         if(d.dowData&&d.dowData.length>0) setDowData(d.dowData);
         if(d.callbackData&&d.callbackData.length>0) setCallbackData(d.callbackData);
