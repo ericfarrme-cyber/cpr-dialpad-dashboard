@@ -13,9 +13,10 @@ function dialpadHeaders() {
   return { Authorization: "Bearer " + API_KEY, "Content-Type": "application/json" };
 }
 
-async function fetchStoreCallData(storeKey, baseUrl) {
+async function fetchStoreCallData(storeKey, baseUrl, daysBack) {
   try {
     var initUrl = baseUrl + "/api/dialpad/stats?action=initiate&store=" + storeKey;
+    if (daysBack) initUrl += "&days=" + daysBack;
     var initRes = await fetch(initUrl);
     if (!initRes.ok) { console.log("[Cron] initiate failed for " + storeKey + ": " + initRes.status); return []; }
     var initData = await initRes.json();
@@ -156,10 +157,11 @@ export async function GET(request) {
   if (storeParam && STORES[storeParam]) {
     var startTime = Date.now();
     var TIME_BUDGET_MS = 260000; // 260s — leave 40s buffer before 300s Vercel timeout
-    console.log("[Cron] Single store mode: " + storeParam);
+    var daysBack = url.searchParams.get("days") || null;
+    console.log("[Cron] Single store mode: " + storeParam + (daysBack ? " (backfill " + daysBack + " days)" : ""));
     var results = { store: storeParam, callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, skipped: 0, errors: [] };
     try {
-      var allCalls = await fetchStoreCallData(storeParam, baseUrl);
+      var allCalls = await fetchStoreCallData(storeParam, baseUrl, daysBack);
       if (allCalls.length > 0) {
         var saveResult = await saveCallRecords(allCalls);
         results.callSync = { fetched: allCalls.length, saved: saveResult.saved };
@@ -209,11 +211,13 @@ export async function GET(request) {
   // ── DISPATCHER MODE: /api/dialpad/cron (no store param) ──
   // Triggers all stores in PARALLEL — each as a separate request with its own 300s budget
   var storeKeys = Object.keys(STORES);
+  var dispatchDays = url.searchParams.get("days") || "";
   console.log("[Cron] Dispatcher mode: triggering " + storeKeys.length + " stores in parallel");
 
   var dispatched = [];
   storeKeys.forEach(function(sk) {
     var storeUrl = baseUrl + "/api/dialpad/cron?secret=" + (CRON_SECRET || "") + "&store=" + sk;
+    if (dispatchDays) storeUrl += "&days=" + dispatchDays;
     console.log("[Cron] Dispatching: " + sk);
     // Fire-and-forget — don't await, let each run independently
     fetch(storeUrl).then(function(r) {
