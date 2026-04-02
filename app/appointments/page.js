@@ -109,6 +109,7 @@ function StoreDashboard() {
   var [roster, setRoster] = useState([]);
   var [salesData, setSalesData] = useState(null);
   var [weeklyGoal, setWeeklyGoal] = useState(null);
+  var [callHealth, setCallHealth] = useState(null);
 
   // Appointment form states
   var [showForm, setShowForm] = useState(false);
@@ -160,7 +161,7 @@ function StoreDashboard() {
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes, callRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?period=" + selectedPeriod).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
@@ -170,6 +171,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=365").then(function(r){return r.json();}),
+        fetch("/api/dialpad/stored?days=7").then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -186,6 +188,52 @@ function StoreDashboard() {
         setGbpHistory(revRes.value.reportHistory || []);
       }
       if (allApptRes.status === "fulfilled" && allApptRes.value.success) setAllAppointments(allApptRes.value.appointments || []);
+
+      // Build call health from stored call data
+      if (callRes.status === "fulfilled" && callRes.value.success && callRes.value.data) {
+        var cd = callRes.value.data;
+        var todayStr = new Date().toISOString().split("T")[0];
+        var todayParts = todayStr.split("-");
+        var todayKey = parseInt(todayParts[1]) + "/" + parseInt(todayParts[2]);
+
+        // Compute today and this week stats for selected store
+        var todayTotal = 0, todayAnswered = 0, weekTotal = 0, weekAnswered = 0;
+        var unreturned = [];
+
+        if (cd.dailyCalls) {
+          cd.dailyCalls.forEach(function(day) {
+            var t = day[store + "_total"] || 0;
+            var a = day[store + "_answered"] || 0;
+            weekTotal += t;
+            weekAnswered += a;
+            if (day.date === todayKey || day.date === todayStr) {
+              todayTotal = t;
+              todayAnswered = a;
+            }
+          });
+        }
+
+        // Get unreturned voicemails/missed for this store from callback data
+        if (cd.callbackData) {
+          cd.callbackData.forEach(function(cb) {
+            if (cb.store === store) {
+              unreturned.push({ missed: cb.missed || 0, never: cb.never || 0, within30: cb.within30 || 0 });
+            }
+          });
+        }
+
+        setCallHealth({
+          todayTotal: todayTotal,
+          todayAnswered: todayAnswered,
+          todayMissed: todayTotal - todayAnswered,
+          todayRate: todayTotal > 0 ? Math.round((todayAnswered / todayTotal) * 100) : null,
+          weekTotal: weekTotal,
+          weekAnswered: weekAnswered,
+          weekMissed: weekTotal - weekAnswered,
+          weekRate: weekTotal > 0 ? Math.round((weekAnswered / weekTotal) * 100) : 0,
+          unreturned: unreturned.length > 0 ? unreturned[0] : null,
+        });
+      }
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -785,6 +833,65 @@ function StoreDashboard() {
                 <div style={{ color:"#6B6F78",fontSize:10 }}>Avg ticket score</div>
               </div>
             </div>
+
+            {/* Call Health */}
+            {callHealth && (
+              <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:24,border:"1px solid #2A2D35" }}>
+                <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDCDE"} Call Performance</div>
+                <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:16 }}>
+                  {/* Today */}
+                  <div style={{ background:"#12141A",borderRadius:12,padding:20,textAlign:"center",border:callHealth.todayRate !== null ? "1px solid " + (callHealth.todayRate >= 85 ? "#4ADE8033" : callHealth.todayRate >= 70 ? "#FBBF2433" : "#F8717133") : "1px solid #2A2D35" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Today</div>
+                    {callHealth.todayRate !== null ? (
+                      <div>
+                        <div style={{ fontSize:36,fontWeight:800,color:callHealth.todayRate >= 85 ? "#4ADE80" : callHealth.todayRate >= 70 ? "#FBBF24" : "#F87171" }}>{callHealth.todayRate}%</div>
+                        <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>{callHealth.todayAnswered} answered, {callHealth.todayMissed} missed</div>
+                      </div>
+                    ) : (
+                      <div>
+                        <div style={{ fontSize:28,fontWeight:700,color:"#6B6F78" }}>—</div>
+                        <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>No calls synced yet today</div>
+                      </div>
+                    )}
+                  </div>
+                  {/* This Week */}
+                  <div style={{ background:"#12141A",borderRadius:12,padding:20,textAlign:"center",border:"1px solid " + (callHealth.weekRate >= 85 ? "#4ADE8033" : callHealth.weekRate >= 70 ? "#FBBF2433" : "#F8717133") }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>This Week</div>
+                    <div style={{ fontSize:36,fontWeight:800,color:callHealth.weekRate >= 85 ? "#4ADE80" : callHealth.weekRate >= 70 ? "#FBBF24" : "#F87171" }}>{callHealth.weekRate}%</div>
+                    <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>{callHealth.weekAnswered} of {callHealth.weekTotal} answered</div>
+                    <div style={{ background:"#1A1D23",borderRadius:4,height:6,overflow:"hidden",marginTop:8 }}>
+                      <div style={{ width:callHealth.weekRate+"%",height:"100%",borderRadius:4,background:callHealth.weekRate >= 85 ? "#4ADE80" : callHealth.weekRate >= 70 ? "#FBBF24" : "#F87171" }} />
+                    </div>
+                  </div>
+                  {/* Missed / Action */}
+                  <div style={{ background:"#12141A",borderRadius:12,padding:20,textAlign:"center",border:callHealth.weekMissed > 0 ? "1px solid #F8717133" : "1px solid #4ADE8033" }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:6 }}>Missed This Week</div>
+                    <div style={{ fontSize:36,fontWeight:800,color:callHealth.weekMissed > 5 ? "#F87171" : callHealth.weekMissed > 0 ? "#FBBF24" : "#4ADE80" }}>{callHealth.weekMissed}</div>
+                    <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>
+                      {callHealth.weekMissed === 0 ? "Perfect week!" : callHealth.weekMissed + " calls need follow-up"}
+                    </div>
+                    {callHealth.unreturned && callHealth.unreturned.never > 0 && (
+                      <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:"#F8717112",border:"1px solid #F8717122" }}>
+                        <div style={{ color:"#F87171",fontSize:11,fontWeight:700 }}>{"\u26A0\uFE0F"} {callHealth.unreturned.never} never called back</div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                {/* Scorecard answer rate for the month */}
+                {storeScore && storeScore.categories && storeScore.categories.calls && (
+                  <div style={{ display:"flex",alignItems:"center",gap:12,padding:"10px 14px",background:"#12141A",borderRadius:8 }}>
+                    <div style={{ color:"#8B8F98",fontSize:10,minWidth:80 }}>Monthly Score</div>
+                    <div style={{ flex:1,background:"#1A1D23",borderRadius:4,height:8,overflow:"hidden" }}>
+                      <div style={{ width:storeScore.categories.calls.score+"%",height:"100%",borderRadius:4,background:storeScore.categories.calls.score >= 80 ? "#4ADE80" : storeScore.categories.calls.score >= 60 ? "#FBBF24" : "#F87171" }} />
+                    </div>
+                    <div style={{ color:storeScore.categories.calls.score >= 80 ? "#4ADE80" : storeScore.categories.calls.score >= 60 ? "#FBBF24" : "#F87171",fontSize:14,fontWeight:700,minWidth:40,textAlign:"right" }}>{storeScore.categories.calls.score}/100</div>
+                    <div style={{ color:"#6B6F78",fontSize:9 }}>
+                      {storeScore.categories.calls.details ? storeScore.categories.calls.details.answer_rate + "% answer | " + storeScore.categories.calls.details.callback_rate + "% callback" : ""}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Team Performance */}
             {storeEmployees.length > 0 && (
