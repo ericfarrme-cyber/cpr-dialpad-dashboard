@@ -344,10 +344,14 @@ function StoreForm({ store, data, period, onSave, saving }) {
         var newForm = Object.assign({}, form);
         Object.keys(json.data).forEach(function(k) { if (json.data[k] !== undefined) newForm[k] = json.data[k]; });
         setForm(newForm);
-        var totalRev = (parseFloat(json.data.accessory_revenue)||0) + (parseFloat(json.data.repair_revenue)||0) + (parseFloat(json.data.device_revenue)||0) + (parseFloat(json.data.parts_revenue)||0) + (parseFloat(json.data.services_revenue)||0) + (parseFloat(json.data.promotions_revenue)||0);
-        var totalCogs = (parseFloat(json.data.accessory_cogs)||0) + (parseFloat(json.data.repair_cogs)||0) + (parseFloat(json.data.device_cogs)||0) + (parseFloat(json.data.parts_cogs)||0) + (parseFloat(json.data.services_cogs)||0) + (parseFloat(json.data.promotions_cogs)||0);
-        var repairRev = parseFloat(json.data.repair_revenue) || 0;
-        setExtractMsg({ type: "success", text: "Extracted — Net Revenue: $" + totalRev.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " | COGS: $" + totalCogs.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " | Repair Rev: $" + repairRev.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " — Verify against your RepairQ Total row before saving!" });
+        var v = json.verification || {};
+        var verified = v.verified;
+        var rowCount = v.rows_extracted || 0;
+        if (verified) {
+          setExtractMsg({ type: "success", text: "\u2705 Verified! " + rowCount + " rows extracted. Revenue: $" + (v.computed_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " matches report total ($" + (v.report_total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + "). Ready to save." });
+        } else {
+          setExtractMsg({ type: "warning", text: "\u26A0\uFE0F " + rowCount + " rows extracted. Revenue: $" + (v.computed_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " vs report total $" + (v.report_total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " (diff: $" + (v.revenue_diff||0).toFixed(2) + "). Review numbers before saving." });
+        }
       } else { setExtractMsg({ type: "error", text: json.error || "Failed" }); }
     } catch(err) { setExtractMsg({ type: "error", text: err.message }); }
     setExtracting(false); e.target.value = "";
@@ -384,7 +388,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
             <input type="file" accept="image/*" onChange={handleExtractFromImage} disabled={extracting} style={{ display: "none" }} />
           </label>
         </div>
-        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : "#F8717133"), color: extractMsg.type === "success" ? "#4ADE80" : "#F87171", fontSize: 11 }}>{extractMsg.text}</div>}
+        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : extractMsg.type === "warning" ? "#FBBF2412" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : extractMsg.type === "warning" ? "#FBBF2433" : "#F8717133"), color: extractMsg.type === "success" ? "#4ADE80" : extractMsg.type === "warning" ? "#FBBF24" : "#F87171", fontSize: 11 }}>{extractMsg.text}</div>}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
             { l: "Accessory Revenue", k: "accessory_revenue" }, { l: "Accessory COGS", k: "accessory_cogs" },
