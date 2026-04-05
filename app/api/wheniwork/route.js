@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-var supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-
 // WhenIWork API Route
 // Env vars needed:
 //   WHENIWORK_KEY    - Developer API key (W-Key header)
@@ -12,6 +10,10 @@ var supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SU
 
 var WIW_API = "https://api.wheniwork.com/2";
 var WIW_LOGIN = "https://api.login.wheniwork.com/login";
+
+function getSupabase() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+}
 
 function corsHeaders() {
   return {
@@ -298,7 +300,7 @@ export async function GET(request) {
       var inserted = 0, updated = 0, errors = 0;
       for (var bi = 0; bi < rows.length; bi += 50) {
         var batch = rows.slice(bi, bi + 50);
-        var { error } = await supabase.from("employee_shifts").upsert(batch, { onConflict: "shift_id" });
+        var { error } = await getSupabase().from("employee_shifts").upsert(batch, { onConflict: "shift_id" });
         if (error) {
           console.error("[wheniwork] Upsert error:", error.message);
           errors += batch.length;
