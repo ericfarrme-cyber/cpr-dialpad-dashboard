@@ -377,39 +377,43 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
         <div>
           <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:20 }}>7-Day Rolling Performance</div>
 
-          {weeklyTrend && (
-            <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
-              {STORE_KEYS.map(function(sk) {
-                var wt = weeklyTrend[sk];
-                var store = STORES[sk];
-                var trendUp = wt.trend >= 0;
-                return (
-                  <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-                    <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:12 }}>{store.name.replace("CPR ","")}</div>
-                    <div style={{ display:"flex",alignItems:"baseline",gap:8,marginBottom:8 }}>
-                      <span style={{ color:sc(wt.rate,85,70),fontSize:32,fontWeight:800 }}>{wt.rate}%</span>
-                      <span style={{ color:trendUp?"#4ADE80":"#F87171",fontSize:13,fontWeight:600 }}>{trendUp?"\u25B2":"\u25BC"}{Math.abs(wt.trend)}% vs prior week</span>
-                    </div>
-                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6 }}>
-                      <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                        <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{wt.total}</div>
-                        <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total</div>
-                      </div>
-                      <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                        <div style={{ color:"#4ADE80",fontSize:16,fontWeight:700 }}>{wt.answered}</div>
-                        <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Answered</div>
-                      </div>
-                      <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                        <div style={{ color:"#F87171",fontSize:16,fontWeight:700 }}>{wt.missed}</div>
-                        <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Missed</div>
-                      </div>
-                    </div>
-                    <div style={{ marginTop:10,color:"#FF2D95",fontSize:11 }}>{"$" + Math.round(wt.missed * CONV_RATE * AVG_TICKET).toLocaleString() + " revenue at risk"}</div>
+          {/* Use overviewStats for accurate per-store data */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
+            {STORE_KEYS.map(function(sk) {
+              var s = overviewStats.storeStats[sk];
+              var store = STORES[sk];
+              var realTotal = s.answered + s.missed;
+              var rate = realTotal > 0 ? Math.round(s.answered / realTotal * 100) : 0;
+              var wt = weeklyTrend ? weeklyTrend[sk] : null;
+              var trendDelta = wt ? wt.trend : 0;
+              var trendUp = trendDelta >= 0;
+              // Use overviewStats for accurate numbers, weeklyTrend for delta only
+              return (
+                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                  <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:12 }}>{store.name.replace("CPR ","")}</div>
+                  <div style={{ display:"flex",alignItems:"baseline",gap:8,marginBottom:8 }}>
+                    <span style={{ color:sc(rate,85,70),fontSize:32,fontWeight:800 }}>{rate}%</span>
+                    {trendDelta !== 0 && <span style={{ color:trendUp?"#4ADE80":"#F87171",fontSize:13,fontWeight:600 }}>{trendUp?"\u25B2":"\u25BC"}{Math.abs(trendDelta)}%</span>}
                   </div>
-                );
-              })}
-            </div>
-          )}
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6 }}>
+                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{realTotal}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total</div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"#4ADE80",fontSize:16,fontWeight:700 }}>{s.answered}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Answered</div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"#F87171",fontSize:16,fontWeight:700 }}>{s.missed}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Missed</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop:10,color:"#FF2D95",fontSize:11 }}>{"$" + Math.round(s.missed * CONV_RATE * AVG_TICKET).toLocaleString() + " revenue at risk"}</div>
+                </div>
+              );
+            })}
+          </div>
 
           {/* Staffing gap analysis */}
           {peakMissHours.length > 0 && (
@@ -536,16 +540,21 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   </tr>
                 </thead>
                 <tbody>
-                  {employeeData.employees.map(function(e) {
+                  {employeeData.employees.filter(function(e) {
+                    return (e.name || e.employee) && (e.total_audits || 0) >= 1;
+                  }).sort(function(a, b) { return (b.total_audits || 0) - (a.total_audits || 0); }).map(function(e) {
+                    var empName = e.name || e.employee || "Unknown";
                     var avgScore = (e.avg_score || 0);
-                    var apptRate = Math.round((e.appt_rate || 0) * 100);
-                    var warrantyRate = Math.round((e.warranty_rate || 0) * 100);
-                    var discountRate = Math.round((e.discount_rate || 0) * 100);
+                    // Smart rate handling: if > 1, already a percentage; if <= 1, it's a decimal
+                    var apptRate = (e.appt_rate || 0) > 1 ? Math.round(e.appt_rate) : Math.round((e.appt_rate || 0) * 100);
+                    var warrantyRate = (e.warranty_rate || 0) > 1 ? Math.round(e.warranty_rate) : Math.round((e.warranty_rate || 0) * 100);
+                    var discountRate = (e.discount_rate || 0) > 1 ? Math.round(e.discount_rate) : Math.round((e.discount_rate || 0) * 100);
+                    var storeKey = e.store || "";
                     return (
-                      <tr key={e.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                        <td style={{ padding:"10px 14px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{e.name}</td>
-                        <td style={{ padding:"10px 14px",color:STORES[e.store]?STORES[e.store].color:"#8B8F98",fontSize:12 }}>{STORES[e.store]?STORES[e.store].name.replace("CPR ",""):e.store}</td>
-                        <td style={{ padding:"10px 14px",textAlign:"center",color:"#F0F1F3",fontSize:13 }}>{e.total_audits}</td>
+                      <tr key={empName + storeKey} style={{ borderBottom:"1px solid #1E2028" }}>
+                        <td style={{ padding:"10px 14px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{empName}</td>
+                        <td style={{ padding:"10px 14px",color:STORES[storeKey]?STORES[storeKey].color:"#8B8F98",fontSize:12 }}>{STORES[storeKey]?STORES[storeKey].name.replace("CPR ",""):storeKey}</td>
+                        <td style={{ padding:"10px 14px",textAlign:"center",color:"#F0F1F3",fontSize:13 }}>{e.total_audits || 0}</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(avgScore/4*100,80,60),fontSize:14,fontWeight:700 }}>{avgScore.toFixed(1)}/4</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(apptRate,70,40),fontSize:13,fontWeight:600 }}>{apptRate}%</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(warrantyRate,60,30),fontSize:13,fontWeight:600 }}>{warrantyRate}%</td>
@@ -633,23 +642,33 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
             </div>
             {employeeData && employeeData.employees ? (
               <div>
-                {employeeData.employees.filter(function(e) {
-                  return (e.appt_rate || 0) < 0.4 && e.total_audits >= 3;
-                }).map(function(e) {
-                  return <div key={e.name} style={{ padding:"6px 0",borderBottom:"1px solid #1E2028",color:"#C8CAD0",fontSize:12 }}>
-                    <strong style={{ color:"#FBBF24" }}>{e.name}</strong>: appointment offer rate at {Math.round((e.appt_rate||0)*100)}% — needs coaching on booking
-                  </div>;
-                })}
-                {employeeData.employees.filter(function(e) {
-                  return (e.warranty_rate || 0) < 0.3 && e.total_audits >= 3;
-                }).map(function(e) {
-                  return <div key={e.name+"w"} style={{ padding:"6px 0",borderBottom:"1px solid #1E2028",color:"#C8CAD0",fontSize:12 }}>
-                    <strong style={{ color:"#FBBF24" }}>{e.name}</strong>: warranty mention at {Math.round((e.warranty_rate||0)*100)}% — leaving money on the table
-                  </div>;
-                })}
-                {employeeData.employees.filter(function(e) { return (e.appt_rate||0) >= 0.4 && (e.warranty_rate||0) >= 0.3; }).length === employeeData.employees.length && (
-                  <div style={{ color:"#4ADE80",fontSize:12 }}>{"\u2705"} All employees meeting minimum thresholds</div>
-                )}
+                {(function() {
+                  // Consolidate flags per employee, require minimum 5 audits
+                  var flags = [];
+                  employeeData.employees.filter(function(e) {
+                    return (e.name || e.employee) && (e.total_audits || 0) >= 5;
+                  }).forEach(function(e) {
+                    var empName = e.name || e.employee;
+                    var issues = [];
+                    var apptRate = (e.appt_rate || 0) > 1 ? e.appt_rate : (e.appt_rate || 0) * 100;
+                    var warrantyRate = (e.warranty_rate || 0) > 1 ? e.warranty_rate : (e.warranty_rate || 0) * 100;
+                    var avgScore = e.avg_score || 0;
+                    if (apptRate < 40) issues.push("appt booking " + Math.round(apptRate) + "%");
+                    if (warrantyRate < 30) issues.push("warranty mention " + Math.round(warrantyRate) + "%");
+                    if (avgScore < 2.0) issues.push("avg score " + avgScore.toFixed(1) + "/4");
+                    if (issues.length > 0) flags.push({ name: empName, store: e.store, audits: e.total_audits, issues: issues });
+                  });
+                  if (flags.length === 0) return <div style={{ color:"#4ADE80",fontSize:12 }}>{"\u2705"} All employees with 5+ audits meeting thresholds</div>;
+                  return flags.slice(0, 8).map(function(f, i) {
+                    return <div key={i} style={{ padding:"8px 0",borderBottom:i < flags.length - 1 ? "1px solid #1E2028" : "none" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                        <span style={{ color:"#FBBF24",fontSize:12,fontWeight:700 }}>{f.name}</span>
+                        <span style={{ color:"#6B6F78",fontSize:10 }}>{STORES[f.store] ? STORES[f.store].name.replace("CPR ","") : f.store} — {f.audits} audits</span>
+                      </div>
+                      <div style={{ color:"#C8CAD0",fontSize:11,marginTop:2 }}>Needs work on: {f.issues.join(" · ")}</div>
+                    </div>;
+                  });
+                })()}
               </div>
             ) : (
               <div style={{ color:"#6B6F78",fontSize:12 }}>Loading employee data...</div>
