@@ -344,8 +344,10 @@ function StoreForm({ store, data, period, onSave, saving }) {
         var newForm = Object.assign({}, form);
         Object.keys(json.data).forEach(function(k) { if (json.data[k] !== undefined) newForm[k] = json.data[k]; });
         setForm(newForm);
-        var totalRev = (parseFloat(json.data.accessory_revenue)||0) + (parseFloat(json.data.repair_revenue)||0) + (parseFloat(json.data.device_revenue)||0) + (parseFloat(json.data.parts_revenue)||0) + (parseFloat(json.data.services_revenue)||0);
-        setExtractMsg({ type: "success", text: "Extracted $" + totalRev.toLocaleString(undefined,{maximumFractionDigits:2}) + " total revenue. Review and save." });
+        var totalRev = (parseFloat(json.data.accessory_revenue)||0) + (parseFloat(json.data.repair_revenue)||0) + (parseFloat(json.data.device_revenue)||0) + (parseFloat(json.data.parts_revenue)||0) + (parseFloat(json.data.services_revenue)||0) + (parseFloat(json.data.promotions_revenue)||0);
+        var totalCogs = (parseFloat(json.data.accessory_cogs)||0) + (parseFloat(json.data.repair_cogs)||0) + (parseFloat(json.data.device_cogs)||0) + (parseFloat(json.data.parts_cogs)||0) + (parseFloat(json.data.services_cogs)||0) + (parseFloat(json.data.promotions_cogs)||0);
+        var repairRev = parseFloat(json.data.repair_revenue) || 0;
+        setExtractMsg({ type: "success", text: "Extracted — Net Revenue: $" + totalRev.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " | COGS: $" + totalCogs.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " | Repair Rev: $" + repairRev.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " — Verify against your RepairQ Total row before saving!" });
       } else { setExtractMsg({ type: "error", text: json.error || "Failed" }); }
     } catch(err) { setExtractMsg({ type: "error", text: err.message }); }
     setExtracting(false); e.target.value = "";
