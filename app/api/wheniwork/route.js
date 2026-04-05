@@ -11,10 +11,6 @@ import supabase from "@/lib/supabase";
 var WIW_API = "https://api.wheniwork.com/2";
 var WIW_LOGIN = "https://api.login.wheniwork.com/login";
 
-function supabase {
-  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
-}
-
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
