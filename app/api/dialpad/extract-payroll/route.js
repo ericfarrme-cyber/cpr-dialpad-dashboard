@@ -84,59 +84,126 @@ export async function POST(request) {
       empTotals[name].entries += 1;
     });
 
-    // Step 3: Fetch WhenIWork shifts for the pay period
-    var wiwToken = process.env.WHENIWORK_TOKEN;
+    // Step 3: Fetch WhenIWork shifts via internal route (uses same auth that works)
     var shifts = [];
-    if (wiwToken) {
-      try {
-        var startDate = payrollData.pay_period_start ? new Date(payrollData.pay_period_start).toISOString().split("T")[0] : null;
-        var endDate = payrollData.pay_period_end ? new Date(payrollData.pay_period_end).toISOString().split("T")[0] : null;
-        if (!startDate || !endDate) {
-          // Fallback: use check date range
-          startDate = "2026-02-23";
-          endDate = "2026-03-22";
+    try {
+      var host = request.headers.get("host") || "cpr-dialpad-dashboard.vercel.app";
+      var protocol = host.includes("localhost") ? "http" : "https";
+      var baseUrl = protocol + "://" + host;
+
+      var startDate = payrollData.pay_period_start ? new Date(payrollData.pay_period_start).toISOString().split("T")[0] : null;
+      var endDate = payrollData.pay_period_end ? new Date(payrollData.pay_period_end).toISOString().split("T")[0] : null;
+      if (!startDate || !endDate) {
+        // Fallback: derive from check dates
+        var checkDates = payrollData.employees.map(function(e) { return e.check_date; }).filter(Boolean).sort();
+        if (checkDates.length > 0) {
+          endDate = new Date(checkDates[checkDates.length - 1]).toISOString().split("T")[0];
+          startDate = new Date(new Date(endDate).getTime() - 30 * 86400000).toISOString().split("T")[0];
         }
-        var wiwRes = await fetch("https://api.wheniwork.com/2/shifts?start=" + startDate + "&end=" + endDate + "&include_objects=true", {
-          headers: { "Authorization": "Bearer " + wiwToken, "Content-Type": "application/json" },
-        });
+      }
+
+      if (startDate && endDate) {
+        console.log("[extract-payroll] Fetching shifts from " + startDate + " to " + endDate);
+        var wiwRes = await fetch(baseUrl + "/api/wheniwork?action=shifts&start=" + startDate + "&end=" + endDate);
         if (wiwRes.ok) {
           var wiwData = await wiwRes.json();
-          var users = {};
-          (wiwData.users || []).forEach(function(u) { users[u.id] = ((u.first_name || "") + " " + (u.last_name || "")).trim(); });
-          var locations = {};
-          (wiwData.locations || []).forEach(function(l) { locations[l.id] = l.name || ""; });
+          if (wiwData.success && wiwData.shifts) {
+            wiwData.shifts.forEach(function(s) {
+              var locName = (s.location || "").toLowerCase();
+              var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : null;
+              var startH = new Date(s.start_time);
+              var endH = new Date(s.end_time);
+              var hours = (endH - startH) / (1000 * 60 * 60);
+              if (store && hours > 0) {
+                shifts.push({ employee: (s.employee || "").toLowerCase(), store: store, hours: hours });
+              }
+            });
+            console.log("[extract-payroll] Got " + shifts.length + " shifts from WhenIWork");
+          }
+        }
+      }
+    } catch (wiwErr) {
+      console.log("[extract-payroll] WhenIWork fetch failed:", wiwErr.message);
+    }
 
-          (wiwData.shifts || []).filter(function(s) { return !s.is_open; }).forEach(function(s) {
-            var empName = users[s.user_id] || "Unknown";
-            var locName = (locations[s.location_id] || "").toLowerCase();
-            var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : null;
-            var startH = new Date(s.start_time);
-            var endH = new Date(s.end_time);
-            var hours = (endH - startH) / (1000 * 60 * 60);
-            if (store && hours > 0) {
-              shifts.push({ employee: empName, store: store, hours: hours });
+    // Also fetch employee roster as fallback for store assignment
+    var rosterMap = {};
+    try {
+      var host2 = request.headers.get("host") || "cpr-dialpad-dashboard.vercel.app";
+      var proto2 = host2.includes("localhost") ? "http" : "https";
+      var rosterRes = await fetch(proto2 + "://" + host2 + "/api/dialpad/roster");
+      if (rosterRes.ok) {
+        var rosterData = await rosterRes.json();
+        if (rosterData.success && rosterData.roster) {
+          rosterData.roster.forEach(function(r) {
+            if (r.name && r.store) rosterMap[r.name.toLowerCase().trim()] = r.store;
+            // Also index by aliases
+            if (r.aliases) {
+              r.aliases.split(",").forEach(function(a) {
+                var alias = a.trim().toLowerCase();
+                if (alias) rosterMap[alias] = r.store;
+              });
             }
           });
         }
-      } catch (wiwErr) {
-        console.log("[extract-payroll] WhenIWork fetch failed:", wiwErr.message);
       }
+    } catch (rErr) { console.log("[extract-payroll] Roster fetch failed:", rErr.message); }
+
+    function findRosterStore(empName) {
+      var lower = empName.toLowerCase().trim();
+      if (rosterMap[lower]) return rosterMap[lower];
+      var parts = lower.split(/\s+/);
+      var first = parts[0] || "";
+      var last = parts[parts.length - 1] || "";
+      var keys = Object.keys(rosterMap);
+      for (var i = 0; i < keys.length; i++) {
+        if (first.length > 2 && last.length > 2 && keys[i].includes(first) && keys[i].includes(last)) return rosterMap[keys[i]];
+      }
+      if (last.length > 3) {
+        var matches = keys.filter(function(k) { return k.includes(last); });
+        if (matches.length === 1) return rosterMap[matches[0]];
+      }
+      return null;
     }
 
     // Step 4: Build per-employee store hour breakdown from WhenIWork
     var empStoreHours = {};
     shifts.forEach(function(s) {
-      var name = s.employee.toLowerCase();
+      var name = s.employee.toLowerCase().trim();
       if (!empStoreHours[name]) empStoreHours[name] = { fishers: 0, bloomington: 0, indianapolis: 0 };
       empStoreHours[name][s.store] += s.hours;
     });
+
+    // Fuzzy name matching — tries exact, first+last, last-only
+    function findStoreHours(empName) {
+      var lower = empName.toLowerCase().trim();
+      if (empStoreHours[lower]) return empStoreHours[lower];
+      var parts = lower.split(/\s+/);
+      var first = parts[0] || "";
+      var last = parts[parts.length - 1] || "";
+      var keys = Object.keys(empStoreHours);
+      // Try first AND last name both present
+      for (var i = 0; i < keys.length; i++) {
+        if (first.length > 2 && last.length > 2 && keys[i].includes(first) && keys[i].includes(last)) return empStoreHours[keys[i]];
+      }
+      // Try last name only if unique match
+      if (last.length > 3) {
+        var matches = keys.filter(function(k) { return k.includes(last); });
+        if (matches.length === 1) return empStoreHours[matches[0]];
+      }
+      // Try first name only if unique
+      if (first.length > 3) {
+        var fmatches = keys.filter(function(k) { return k.includes(first); });
+        if (fmatches.length === 1) return empStoreHours[fmatches[0]];
+      }
+      return null;
+    }
 
     // Step 5: Distribute payroll costs
     var distribution = { fishers: 0, bloomington: 0, indianapolis: 0, corporate: 0 };
     var employeeBreakdown = [];
 
     Object.values(empTotals).forEach(function(emp) {
-      var nameLower = emp.name.toLowerCase();
       var expense = Math.round(emp.total_expense * 100) / 100;
 
       // Area manager special handling
@@ -155,16 +222,7 @@ export async function POST(request) {
       }
 
       // Try WhenIWork-based distribution
-      var storeHours = empStoreHours[nameLower];
-      if (!storeHours) {
-        // Try partial match
-        Object.keys(empStoreHours).forEach(function(k) {
-          var nameParts = nameLower.split(" ");
-          if (nameParts.some(function(p) { return p.length > 2 && k.includes(p); })) {
-            storeHours = empStoreHours[k];
-          }
-        });
-      }
+      var storeHours = findStoreHours(emp.name);
 
       if (storeHours) {
         var totalH = storeHours.fishers + storeHours.bloomington + storeHours.indianapolis;
@@ -194,7 +252,17 @@ export async function POST(request) {
         }
       }
 
-      // No schedule data — mark as unassigned
+      // No schedule data — try roster fallback
+      var rosterStore = findRosterStore(emp.name);
+      if (rosterStore) {
+        distribution[rosterStore] = (distribution[rosterStore] || 0) + expense;
+        var rEntry = { name: emp.name, total_expense: expense, hours: Math.round(emp.hours * 100) / 100, method: "roster", fishers: 0, bloomington: 0, indianapolis: 0, corporate: 0 };
+        rEntry[rosterStore] = expense;
+        employeeBreakdown.push(rEntry);
+        return;
+      }
+
+      // No schedule AND no roster — mark as unassigned
       employeeBreakdown.push({
         name: emp.name, total_expense: expense, hours: Math.round(emp.hours * 100) / 100,
         method: "unassigned", fishers: 0, bloomington: 0, indianapolis: 0, corporate: 0,
