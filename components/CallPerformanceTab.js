@@ -65,10 +65,11 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
     STORE_KEYS.forEach(function(sk) {
       var t = yd[sk + "_total"] || 0;
       var a = yd[sk + "_answered"] || 0;
-      var m = yd[sk + "_missed"] || (t - a);
+      var m = Math.max(0, t - a); // Always derive — don't trust _missed field
       var tdb = dayBefore ? (dayBefore[sk + "_total"] || 0) : 0;
       var adb = dayBefore ? (dayBefore[sk + "_answered"] || 0) : 0;
-      res.stores[sk] = { total: t, answered: a, missed: m, prevTotal: tdb, prevAnswered: adb };
+      var mdb = Math.max(0, tdb - adb);
+      res.stores[sk] = { total: t, answered: a, missed: m, prevTotal: tdb, prevAnswered: adb, prevMissed: mdb };
       totalY += t; answeredY += a;
       totalDB += tdb; answeredDB += adb;
     });
@@ -294,7 +295,13 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                       </div>
                       <div style={{ marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                         <span style={{ color:sc(rate,85,70),fontSize:18,fontWeight:800 }}>{rate}%</span>
-                        {prevRate > 0 && <span style={{ color:rate >= prevRate ? "#4ADE80" : "#F87171",fontSize:11 }}>{rate >= prevRate ? "\u25B2" : "\u25BC"} vs prior day</span>}
+                        {prevRate > 0 ? (
+                          <span style={{ color:rate >= prevRate ? "#4ADE80" : "#F87171",fontSize:11,fontWeight:600 }}>
+                            {rate > prevRate ? "\u25B2+" + (rate - prevRate) + "%" : rate < prevRate ? "\u25BC" + (rate - prevRate) + "%" : "\u25B6 same"} vs prior day ({prevRate}%)
+                          </span>
+                        ) : (
+                          <span style={{ color:"#6B6F78",fontSize:10 }}>No prior day data</span>
+                        )}
                       </div>
                     </div>
                   );
@@ -415,20 +422,44 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
             })}
           </div>
 
-          {/* Staffing gap analysis */}
+          {/* Staffing gap analysis — per store */}
           {peakMissHours.length > 0 && (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDC65"} Staffing Gap Analysis — Hours With Consistent Misses</div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(120px,1fr))",gap:10 }}>
-                {peakMissHours.slice(0, 8).map(function(h) {
-                  var severity = h.total > 20 ? "#F87171" : h.total > 10 ? "#FBBF24" : "#8B8F98";
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDC65"} Staffing Gap Analysis — Peak Miss Hours by Store</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:16 }}>
+                {STORE_KEYS.map(function(sk) {
+                  var store = STORES[sk];
+                  // Get top miss hours for this store
+                  var storeHours = hourlyMissed ? hourlyMissed.map(function(h) {
+                    return { hour: h.hour, missed: h[sk] || 0 };
+                  }).filter(function(h) { return h.missed > 0; }).sort(function(a, b) { return b.missed - a.missed; }) : [];
+                  var totalStoreMissed = storeHours.reduce(function(s, h) { return s + h.missed; }, 0);
                   return (
-                    <div key={h.hour} style={{ background:"#12141A",borderRadius:8,padding:14,textAlign:"center",border:"1px solid "+severity+"22" }}>
-                      <div style={{ color:severity,fontSize:20,fontWeight:800 }}>{h.total}</div>
-                      <div style={{ color:"#C8CAD0",fontSize:12,fontWeight:600 }}>{h.hour}</div>
-                      <div style={{ color:"#6B6F78",fontSize:9,marginTop:4 }}>
-                        {STORE_KEYS.map(function(k) { return h[k] > 0 ? STORES[k].name.replace("CPR ","").charAt(0) + ":" + h[k] : null; }).filter(Boolean).join(" ")}
+                    <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:16,border:"1px solid "+store.color+"22" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                          <span style={{ width:8,height:8,borderRadius:"50%",background:store.color }} />
+                          <span style={{ color:store.color,fontSize:13,fontWeight:700 }}>{store.name.replace("CPR ","")}</span>
+                        </div>
+                        <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{totalStoreMissed} total</span>
                       </div>
+                      {storeHours.length > 0 ? storeHours.slice(0, 5).map(function(h, i) {
+                        var pct = totalStoreMissed > 0 ? Math.round(h.missed / totalStoreMissed * 100) : 0;
+                        var severity = h.missed > 10 ? "#F87171" : h.missed > 5 ? "#FBBF24" : "#8B8F98";
+                        return (
+                          <div key={h.hour} style={{ marginBottom:8 }}>
+                            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
+                              <span style={{ color:"#C8CAD0",fontSize:11,fontWeight:600 }}>{h.hour}</span>
+                              <span style={{ color:severity,fontSize:12,fontWeight:700 }}>{h.missed} <span style={{ color:"#6B6F78",fontSize:9,fontWeight:400 }}>({pct}%)</span></span>
+                            </div>
+                            <div style={{ background:"#1A1D23",borderRadius:3,height:4,overflow:"hidden" }}>
+                              <div style={{ width:pct+"%",height:"100%",borderRadius:3,background:severity }} />
+                            </div>
+                          </div>
+                        );
+                      }) : (
+                        <div style={{ color:"#4ADE80",fontSize:11,padding:10,textAlign:"center" }}>{"\u2705"} No significant gaps</div>
+                      )}
                     </div>
                   );
                 })}
