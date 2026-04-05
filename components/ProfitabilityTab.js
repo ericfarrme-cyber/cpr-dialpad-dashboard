@@ -85,6 +85,8 @@ export default function ProfitabilityTab() {
   var [saving, setSaving] = useState(false);
   var [msg, setMsg] = useState(null);
   var [editStore, setEditStore] = useState(null);
+  var [payrollResult, setPayrollResult] = useState(null);
+  var [payrollImporting, setPayrollImporting] = useState(false);
 
   var loadData = async function() {
     setLoading(true);
@@ -138,6 +140,44 @@ export default function ProfitabilityTab() {
     var json = await res.json();
     if (json.success) { setMsg({ type: "success", text: "Copied from " + prevLabel }); loadData(); }
     else setMsg({ type: "error", text: json.error || "Nothing to copy" });
+  };
+
+  var handlePayrollImport = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    setPayrollImporting(true); setPayrollResult(null);
+    try {
+      var fd = new FormData(); fd.append("file", file);
+      var res = await fetch("/api/dialpad/extract-payroll", { method: "POST", body: fd });
+      var json = await res.json();
+      if (json.success) {
+        setPayrollResult(json);
+        setMsg({ type: "success", text: "Payroll parsed: $" + (json.totals.distributed_total || 0).toLocaleString(undefined, { minimumFractionDigits: 2 }) + " distributed across stores." });
+      } else {
+        setMsg({ type: "error", text: json.error || "Payroll import failed" });
+      }
+    } catch (err) { setMsg({ type: "error", text: err.message }); }
+    setPayrollImporting(false); e.target.value = "";
+  };
+
+  var applyPayroll = async function() {
+    if (!payrollResult || !payrollResult.distribution) return;
+    setSaving(true);
+    var d = payrollResult.distribution;
+    // Save payroll to each store
+    for (var i = 0; i < STORE_KEYS.length; i++) {
+      var sk = STORE_KEYS[i];
+      var existing = records[sk] || {};
+      var payload = Object.assign({ action: "save", period: period, store: sk }, existing, { payroll: d[sk] || 0 });
+      await fetch("/api/dialpad/profitability", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    setMsg({ type: "success", text: "Payroll applied — Fishers: $" + (d.fishers || 0).toLocaleString() + " | Bloomington: $" + (d.bloomington || 0).toLocaleString() + " | Indianapolis: $" + (d.indianapolis || 0).toLocaleString() + (d.corporate > 0 ? " | Corporate: $" + d.corporate.toLocaleString() : "") });
+    setPayrollResult(null);
+    loadData();
+    setSaving(false);
   };
 
   // Computed data per store
@@ -213,12 +253,97 @@ export default function ProfitabilityTab() {
           </select>
           <span style={{ color: "#F0F1F3", fontSize: 18, fontWeight: 800 }}>Profit & Loss</span>
         </div>
-        <button onClick={copyForward} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#1A1D23", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>
-          Copy Last Month's Expenses
-        </button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #00D4FF33", background: "#00D4FF08", color: "#00D4FF", fontSize: 11, cursor: payrollImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {payrollImporting ? "Processing payroll..." : "\uD83D\uDCCB Import Payroll PDF"}
+            <input type="file" accept=".pdf" onChange={handlePayrollImport} disabled={payrollImporting} style={{ display: "none" }} />
+          </label>
+          <button onClick={copyForward} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#1A1D23", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>
+            Copy Last Month's Expenses
+          </button>
+        </div>
       </div>
 
       {msg && <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, background: msg.type === "success" ? "#4ADE8012" : "#F8717112", border: "1px solid " + (msg.type === "success" ? "#4ADE8033" : "#F8717133"), color: msg.type === "success" ? "#4ADE80" : "#F87171", fontSize: 12 }}>{msg.text}</div>}
+
+      {/* Payroll Distribution Preview */}
+      {payrollResult && payrollResult.distribution && (
+        <div style={{ background: "#1A1D23", borderRadius: 14, padding: 24, marginBottom: 20, border: "1px solid #00D4FF33" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ color: "#00D4FF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCCB"} Payroll Distribution Preview</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={function() { setPayrollResult(null); }}
+                style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "transparent", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+              <button onClick={applyPayroll} disabled={saving}
+                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#00D4FF", color: "#12141A", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                {saving ? "Applying..." : "Apply to All Stores"}
+              </button>
+            </div>
+          </div>
+
+          {payrollResult.pay_period && (
+            <div style={{ color: "#6B6F78", fontSize: 10, marginBottom: 12 }}>Pay Period: {payrollResult.pay_period.start} to {payrollResult.pay_period.end} | {payrollResult.shifts_found} schedule shifts matched</div>
+          )}
+
+          {/* Store distribution summary */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 16 }}>
+            {STORE_KEYS.map(function(sk) {
+              var st = STORES[sk];
+              return (
+                <div key={sk} style={{ background: "#12141A", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid " + st.color + "22" }}>
+                  <div style={{ color: st.color, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>{st.name.replace("CPR ", "")}</div>
+                  <div style={{ color: "#F0F1F3", fontSize: 20, fontWeight: 800 }}>{"$" + (payrollResult.distribution[sk] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                </div>
+              );
+            })}
+            {payrollResult.distribution.corporate > 0 && (
+              <div style={{ background: "#12141A", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid #7B2FFF22" }}>
+                <div style={{ color: "#7B2FFF", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Corporate</div>
+                <div style={{ color: "#F0F1F3", fontSize: 20, fontWeight: 800 }}>{"$" + payrollResult.distribution.corporate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Employee breakdown */}
+          <div style={{ background: "#12141A", borderRadius: 8, padding: 14 }}>
+            <div style={{ color: "#8B8F98", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Employee Breakdown</div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                  {["Employee", "Hours", "Total Expense", "Method", "Fishers", "Bloom.", "Indy", "Corp."].map(function(h, i) {
+                    return <th key={i} style={{ padding: "4px 6px", textAlign: i < 1 ? "left" : "right", color: "#6B6F78", fontSize: 9, fontWeight: 700 }}>{h}</th>;
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {payrollResult.employees.map(function(e, i) {
+                  var methodColor = e.method === "schedule" ? "#4ADE80" : e.method === "area_manager" ? "#7B2FFF" : "#FBBF24";
+                  var methodLabel = e.method === "schedule" ? "Schedule" : e.method === "area_manager" ? "Area Mgr" : "Unassigned";
+                  return (
+                    <tr key={i} style={{ borderBottom: "1px solid #1E2028" }}>
+                      <td style={{ padding: "4px 6px", color: "#F0F1F3", fontSize: 11, fontWeight: 600 }}>{e.name}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "#8B8F98", fontSize: 11 }}>{e.hours}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "#F0F1F3", fontSize: 11, fontWeight: 600 }}>{"$" + e.total_expense.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right" }}><span style={{ padding: "2px 6px", borderRadius: 4, background: methodColor + "18", color: methodColor, fontSize: 9, fontWeight: 600 }}>{methodLabel}</span></td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.fishers > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.fishers > 0 ? "$" + e.fishers.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.bloomington > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.bloomington > 0 ? "$" + e.bloomington.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.indianapolis > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.indianapolis > 0 ? "$" + e.indianapolis.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.corporate > 0 ? "#7B2FFF" : "#2A2D35", fontSize: 10 }}>{e.corporate > 0 ? "$" + e.corporate.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Unassigned warning */}
+          {payrollResult.unassigned && payrollResult.unassigned.length > 0 && (
+            <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "#FBBF2412", border: "1px solid #FBBF2433", color: "#FBBF24", fontSize: 11 }}>
+              {"\u26A0\uFE0F"} {payrollResult.unassigned.length} employee(s) could not be matched to a store schedule. Assign them manually or check WhenIWork data.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Store entry buttons */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
