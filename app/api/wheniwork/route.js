@@ -1,5 +1,12 @@
 import { NextResponse } from "next/server";
-import supabase from "@/lib/supabase";
+import { createClient } from "@supabase/supabase-js";
+
+function getSupabase() {
+  var url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  var key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+  if (!url || !key) return null;
+  return createClient(url, key);
+}
 
 // WhenIWork API Route
 // Env vars needed:
@@ -296,7 +303,7 @@ export async function GET(request) {
       var inserted = 0, updated = 0, errors = 0;
       for (var bi = 0; bi < rows.length; bi += 50) {
         var batch = rows.slice(bi, bi + 50);
-        var { error } = await supabase.from("employee_shifts").upsert(batch, { onConflict: "shift_id" });
+        var { error } = await getSupabase().from("employee_shifts").upsert(batch, { onConflict: "shift_id" });
         if (error) {
           console.error("[wheniwork] Upsert error:", error.message);
           errors += batch.length;
@@ -322,7 +329,7 @@ export async function GET(request) {
       var storeFilter = searchParams.get("store");
       var employee = searchParams.get("employee");
 
-      var query = supabase.from("employee_shifts").select("*").order("date", { ascending: true }).order("start_time", { ascending: true });
+      var query = getSupabase().from("employee_shifts").select("*").order("date", { ascending: true }).order("start_time", { ascending: true });
       if (start) query = query.gte("date", start);
       if (end) query = query.lte("date", end);
       if (storeFilter) query = query.eq("store", storeFilter);
