@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+var supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 // WhenIWork API Route
 // Env vars needed:
@@ -245,6 +248,121 @@ export async function GET(request) {
     if (action === "positions") {
       var data = await wiwFetch("/positions", token);
       return jsonResponse({ success: true, positions: data.positions || [] });
+    }
+
+    // ─── SYNC SHIFTS TO SUPABASE ───
+    if (action === "sync") {
+      var syncDays = parseInt(searchParams.get("days")) || 30;
+      var now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
+      var syncStart = searchParams.get("start") || fmtDate(new Date(now.getTime() - syncDays * 86400000));
+      var syncEnd = searchParams.get("end") || fmtDate(new Date(now.getTime() + 7 * 86400000));
+
+      console.log("[wheniwork] Syncing shifts from " + syncStart + " to " + syncEnd);
+      var data = await wiwFetch("/shifts?start=" + syncStart + "&end=" + syncEnd + "&include_objects=true", token);
+
+      var users = {};
+      (data.users || []).forEach(function(u) { users[u.id] = u; });
+      var locations = {};
+      (data.locations || []).forEach(function(l) { locations[l.id] = l; });
+      var positions = {};
+      (data.positions || []).forEach(function(p) { positions[p.id] = p; });
+
+      var rows = (data.shifts || []).filter(function(s) { return !s.is_open && s.user_id; }).map(function(s) {
+        var user = users[s.user_id] || {};
+        var loc = locations[s.location_id] || {};
+        var pos = positions[s.position_id] || {};
+        var empName = ((user.first_name || "") + " " + (user.last_name || "")).trim() || "Unknown";
+        var locName = (loc.name || "").toLowerCase();
+        var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : "unknown";
+        var startDt = new Date(s.start_time);
+        var endDt = new Date(s.end_time);
+        var hours = Math.round((endDt - startDt) / (1000 * 60 * 60) * 100) / 100;
+        var dateStr = s.start_time ? s.start_time.split("T")[0] || fmtDate(startDt) : fmtDate(startDt);
+
+        return {
+          shift_id: String(s.id),
+          employee_name: empName,
+          user_id: String(s.user_id),
+          store: store,
+          location_name: loc.name || "",
+          position: pos.name || "",
+          start_time: s.start_time,
+          end_time: s.end_time,
+          hours: hours,
+          date: dateStr,
+          notes: s.notes || "",
+        };
+      });
+
+      // Upsert in batches of 50
+      var inserted = 0, updated = 0, errors = 0;
+      for (var bi = 0; bi < rows.length; bi += 50) {
+        var batch = rows.slice(bi, bi + 50);
+        var { error } = await supabase.from("employee_shifts").upsert(batch, { onConflict: "shift_id" });
+        if (error) {
+          console.error("[wheniwork] Upsert error:", error.message);
+          errors += batch.length;
+        } else {
+          inserted += batch.length;
+        }
+      }
+
+      console.log("[wheniwork] Synced " + inserted + " shifts (" + errors + " errors)");
+      return jsonResponse({
+        success: true,
+        synced: inserted,
+        errors: errors,
+        total_from_wiw: rows.length,
+        date_range: { start: syncStart, end: syncEnd },
+      });
+    }
+
+    // ─── QUERY STORED SHIFTS FROM SUPABASE ───
+    if (action === "stored-shifts") {
+      var start = searchParams.get("start");
+      var end = searchParams.get("end");
+      var storeFilter = searchParams.get("store");
+      var employee = searchParams.get("employee");
+
+      var query = supabase.from("employee_shifts").select("*").order("date", { ascending: true }).order("start_time", { ascending: true });
+      if (start) query = query.gte("date", start);
+      if (end) query = query.lte("date", end);
+      if (storeFilter) query = query.eq("store", storeFilter);
+      if (employee) query = query.ilike("employee_name", "%" + employee + "%");
+      query = query.limit(2000);
+
+      var { data: shifts, error } = await query;
+      if (error) return jsonResponse({ success: false, error: error.message });
+
+      // Also compute summary stats
+      var byEmployee = {};
+      var byStore = { fishers: 0, bloomington: 0, indianapolis: 0 };
+      (shifts || []).forEach(function(s) {
+        var name = s.employee_name;
+        if (!byEmployee[name]) byEmployee[name] = { name: name, fishers: 0, bloomington: 0, indianapolis: 0, total: 0 };
+        byEmployee[name][s.store] = (byEmployee[name][s.store] || 0) + parseFloat(s.hours);
+        byEmployee[name].total += parseFloat(s.hours);
+        byStore[s.store] = (byStore[s.store] || 0) + parseFloat(s.hours);
+      });
+
+      // Round hours
+      Object.values(byEmployee).forEach(function(e) {
+        e.fishers = Math.round(e.fishers * 100) / 100;
+        e.bloomington = Math.round(e.bloomington * 100) / 100;
+        e.indianapolis = Math.round(e.indianapolis * 100) / 100;
+        e.total = Math.round(e.total * 100) / 100;
+      });
+
+      return jsonResponse({
+        success: true,
+        shifts: shifts || [],
+        count: (shifts || []).length,
+        summary: {
+          byEmployee: Object.values(byEmployee).sort(function(a, b) { return b.total - a.total; }),
+          byStore: byStore,
+          totalHours: Math.round((byStore.fishers + byStore.bloomington + byStore.indianapolis) * 100) / 100,
+        },
+      });
     }
 
     return jsonResponse({ success: false, error: "Unknown action: " + action });
