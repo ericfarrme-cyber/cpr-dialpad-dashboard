@@ -84,7 +84,7 @@ export async function POST(request) {
       empTotals[name].entries += 1;
     });
 
-    // Step 3: Fetch WhenIWork shifts via internal route (uses same auth that works)
+    // Step 3: Fetch shifts — stored (Supabase) first, then live WhenIWork fallback
     var shifts = [];
     try {
       var host = request.headers.get("host") || "cpr-dialpad-dashboard.vercel.app";
@@ -94,7 +94,6 @@ export async function POST(request) {
       var startDate = payrollData.pay_period_start ? new Date(payrollData.pay_period_start).toISOString().split("T")[0] : null;
       var endDate = payrollData.pay_period_end ? new Date(payrollData.pay_period_end).toISOString().split("T")[0] : null;
       if (!startDate || !endDate) {
-        // Fallback: derive from check dates
         var checkDates = payrollData.employees.map(function(e) { return e.check_date; }).filter(Boolean).sort();
         if (checkDates.length > 0) {
           endDate = new Date(checkDates[checkDates.length - 1]).toISOString().split("T")[0];
@@ -103,27 +102,45 @@ export async function POST(request) {
       }
 
       if (startDate && endDate) {
-        console.log("[extract-payroll] Fetching shifts from " + startDate + " to " + endDate);
-        var wiwRes = await fetch(baseUrl + "/api/wheniwork?action=shifts&start=" + startDate + "&end=" + endDate);
-        if (wiwRes.ok) {
-          var wiwData = await wiwRes.json();
-          if (wiwData.success && wiwData.shifts) {
-            wiwData.shifts.forEach(function(s) {
-              var locName = (s.location || "").toLowerCase();
-              var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : null;
-              var startH = new Date(s.start_time);
-              var endH = new Date(s.end_time);
-              var hours = (endH - startH) / (1000 * 60 * 60);
-              if (store && hours > 0) {
-                shifts.push({ employee: (s.employee || "").toLowerCase(), store: store, hours: hours });
+        // Try stored shifts first (permanent Supabase data)
+        console.log("[extract-payroll] Querying stored shifts: " + startDate + " to " + endDate);
+        var storedRes = await fetch(baseUrl + "/api/wheniwork?action=stored-shifts&start=" + startDate + "&end=" + endDate);
+        if (storedRes.ok) {
+          var storedData = await storedRes.json();
+          if (storedData.success && storedData.shifts && storedData.shifts.length > 0) {
+            storedData.shifts.forEach(function(s) {
+              if (s.store && parseFloat(s.hours) > 0) {
+                shifts.push({ employee: (s.employee_name || "").toLowerCase(), store: s.store, hours: parseFloat(s.hours) });
               }
             });
-            console.log("[extract-payroll] Got " + shifts.length + " shifts from WhenIWork");
+            console.log("[extract-payroll] Got " + shifts.length + " stored shifts from Supabase");
+          }
+        }
+
+        // Fallback: live WhenIWork if no stored data
+        if (shifts.length === 0) {
+          console.log("[extract-payroll] No stored shifts, trying live WhenIWork...");
+          var wiwRes = await fetch(baseUrl + "/api/wheniwork?action=shifts&start=" + startDate + "&end=" + endDate);
+          if (wiwRes.ok) {
+            var wiwData = await wiwRes.json();
+            if (wiwData.success && wiwData.shifts) {
+              wiwData.shifts.forEach(function(s) {
+                var locName = (s.location || "").toLowerCase();
+                var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : null;
+                var startH = new Date(s.start_time);
+                var endH = new Date(s.end_time);
+                var hours = (endH - startH) / (1000 * 60 * 60);
+                if (store && hours > 0) {
+                  shifts.push({ employee: (s.employee || "").toLowerCase(), store: store, hours: hours });
+                }
+              });
+              console.log("[extract-payroll] Got " + shifts.length + " live shifts");
+            }
           }
         }
       }
     } catch (wiwErr) {
-      console.log("[extract-payroll] WhenIWork fetch failed:", wiwErr.message);
+      console.log("[extract-payroll] Shift fetch failed:", wiwErr.message);
     }
 
     // Also fetch employee roster as fallback for store assignment
