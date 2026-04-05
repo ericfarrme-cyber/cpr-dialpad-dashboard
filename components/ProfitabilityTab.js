@@ -317,8 +317,8 @@ export default function ProfitabilityTab() {
               </thead>
               <tbody>
                 {payrollResult.employees.map(function(e, i) {
-                  var methodColor = e.method === "schedule" ? "#4ADE80" : e.method === "area_manager" ? "#7B2FFF" : "#FBBF24";
-                  var methodLabel = e.method === "schedule" ? "Schedule" : e.method === "area_manager" ? "Area Mgr" : "Unassigned";
+                  var methodColor = e.method === "schedule" ? "#4ADE80" : e.method === "area_manager" ? "#7B2FFF" : e.method === "roster" ? "#00D4FF" : "#FBBF24";
+                  var methodLabel = e.method === "schedule" ? "Schedule" : e.method === "area_manager" ? "Area Mgr" : e.method === "roster" ? "Roster" : "Unassigned";
                   return (
                     <tr key={i} style={{ borderBottom: "1px solid #1E2028" }}>
                       <td style={{ padding: "4px 6px", color: "#F0F1F3", fontSize: 11, fontWeight: 600 }}>{e.name}</td>
