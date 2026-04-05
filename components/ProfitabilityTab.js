@@ -327,31 +327,69 @@ function StoreForm({ store, data, period, onSave, saving }) {
   var [form, setForm] = useState({});
   var [extracting, setExtracting] = useState(false);
   var [extractMsg, setExtractMsg] = useState(null);
+  var [extractedRows, setExtractedRows] = useState(null);
 
   useEffect(function() { setForm(Object.assign({}, data)); }, [store, data]);
 
   var set = function(key, val) { setForm(function(prev) { var n = Object.assign({}, prev); n[key] = val; return n; }); };
 
+  // Recompute category sums from rows
+  var recomputeFromRows = function(rows) {
+    var cats = { accessory_revenue:0, accessory_cogs:0, device_revenue:0, device_cogs:0, repair_revenue:0, repair_cogs:0, parts_revenue:0, parts_cogs:0, services_revenue:0, services_cogs:0, promotions_revenue:0, promotions_cogs:0 };
+    rows.forEach(function(row) {
+      var item = (row.item || "").toLowerCase().trim();
+      var ns = parseFloat(row.net_sales) || 0;
+      var cogs = parseFloat(row.cogs) || 0;
+      if (item.startsWith("accessory")) { cats.accessory_revenue += ns; cats.accessory_cogs += cogs; }
+      else if (item.startsWith("repair")) { cats.repair_revenue += ns; cats.repair_cogs += cogs; }
+      else if (item.startsWith("device")) { cats.device_revenue += ns; cats.device_cogs += cogs; }
+      else if (item.startsWith("part")) { cats.parts_revenue += ns; cats.parts_cogs += cogs; }
+      else if (item.startsWith("service")) { cats.services_revenue += ns; cats.services_cogs += cogs; }
+      else if (item.startsWith("promotion")) { cats.promotions_revenue += ns; cats.promotions_cogs += cogs; }
+    });
+    Object.keys(cats).forEach(function(k) { cats[k] = Math.round(cats[k] * 100) / 100; });
+    return cats;
+  };
+
+  var applyRows = function(rows) {
+    var cats = recomputeFromRows(rows);
+    var newForm = Object.assign({}, form);
+    Object.keys(cats).forEach(function(k) { newForm[k] = cats[k]; });
+    setForm(newForm);
+    setExtractedRows(null);
+    setExtractMsg({ type: "success", text: "\u2705 Applied! Review the revenue/COGS fields below and save." });
+  };
+
+  var updateRow = function(idx, field, val) {
+    setExtractedRows(function(prev) {
+      var next = prev.map(function(r, i) {
+        if (i !== idx) return r;
+        var updated = Object.assign({}, r);
+        updated[field] = parseFloat(val) || 0;
+        return updated;
+      });
+      return next;
+    });
+  };
+
   var handleExtractFromImage = async function(e) {
     var file = e.target.files[0];
     if (!file) return;
-    setExtracting(true); setExtractMsg(null);
+    setExtracting(true); setExtractMsg(null); setExtractedRows(null);
     try {
       var fd = new FormData(); fd.append("image", file);
       var res = await fetch("/api/dialpad/extract-profitability", { method: "POST", body: fd });
       var json = await res.json();
-      if (json.success && json.data) {
+      if (json.success && json.rows && json.rows.length > 0) {
+        setExtractedRows(json.rows);
+        var v = json.verification || {};
+        setExtractMsg({ type: "info", text: v.rows_extracted + " rows extracted. Review each row below against your RepairQ report, correct any misreads, then click Apply." });
+      } else if (json.success && json.data) {
+        // Fallback if no rows returned
         var newForm = Object.assign({}, form);
         Object.keys(json.data).forEach(function(k) { if (json.data[k] !== undefined) newForm[k] = json.data[k]; });
         setForm(newForm);
-        var v = json.verification || {};
-        var verified = v.verified;
-        var rowCount = v.rows_extracted || 0;
-        if (verified) {
-          setExtractMsg({ type: "success", text: "\u2705 Verified! " + rowCount + " rows extracted. Revenue: $" + (v.computed_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " matches report total ($" + (v.report_total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + "). Ready to save." });
-        } else {
-          setExtractMsg({ type: "warning", text: "\u26A0\uFE0F " + rowCount + " rows extracted. Revenue: $" + (v.computed_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " vs report total $" + (v.report_total_revenue||0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) + " (diff: $" + (v.revenue_diff||0).toFixed(2) + "). Review numbers before saving." });
-        }
+        setExtractMsg({ type: "warning", text: "Extracted but no row detail available. Review numbers carefully." });
       } else { setExtractMsg({ type: "error", text: json.error || "Failed" }); }
     } catch(err) { setExtractMsg({ type: "error", text: err.message }); }
     setExtracting(false); e.target.value = "";
@@ -388,7 +426,56 @@ function StoreForm({ store, data, period, onSave, saving }) {
             <input type="file" accept="image/*" onChange={handleExtractFromImage} disabled={extracting} style={{ display: "none" }} />
           </label>
         </div>
-        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : extractMsg.type === "warning" ? "#FBBF2412" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : extractMsg.type === "warning" ? "#FBBF2433" : "#F8717133"), color: extractMsg.type === "success" ? "#4ADE80" : extractMsg.type === "warning" ? "#FBBF24" : "#F87171", fontSize: 11 }}>{extractMsg.text}</div>}
+        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : extractMsg.type === "warning" ? "#FBBF2412" : extractMsg.type === "info" ? "#7B2FFF12" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : extractMsg.type === "warning" ? "#FBBF2433" : extractMsg.type === "info" ? "#7B2FFF33" : "#F8717133"), color: extractMsg.type === "success" ? "#4ADE80" : extractMsg.type === "warning" ? "#FBBF24" : extractMsg.type === "info" ? "#7B2FFF" : "#F87171", fontSize: 11 }}>{extractMsg.text}</div>}
+
+        {/* Row review table */}
+        {extractedRows && extractedRows.length > 0 && (
+          <div style={{ marginBottom: 16, background: "#12141A", borderRadius: 10, padding: 16, border: "1px solid #7B2FFF22" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+              <div style={{ color: "#7B2FFF", fontSize: 11, fontWeight: 700 }}>{"\uD83D\uDD0D"} VERIFY EXTRACTED ROWS — Fix any misreads, then Apply</div>
+              <button onClick={function() { applyRows(extractedRows); }}
+                style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: "#7B2FFF", color: "#FFF", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                Apply to Form
+              </button>
+            </div>
+            <div style={{ color: "#6B6F78", fontSize: 9, marginBottom: 8 }}>Tip: Use PNG screenshots instead of JPG for better accuracy. Compare each row against your RepairQ report.</div>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>ITEM TYPE</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>NET SALES</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>COGS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {extractedRows.map(function(row, idx) {
+                  return (
+                    <tr key={idx} style={{ borderBottom: "1px solid #1E2028" }}>
+                      <td style={{ padding: "4px 8px", color: "#C8CAD0", fontSize: 11 }}>{row.item}</td>
+                      <td style={{ padding: "4px 4px" }}>
+                        <input type="number" step="0.01" value={row.net_sales} onChange={function(e) { updateRow(idx, "net_sales", e.target.value); }}
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #2A2D35", background: "#1A1D23", color: "#4ADE80", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
+                      </td>
+                      <td style={{ padding: "4px 4px" }}>
+                        <input type="number" step="0.01" value={row.cogs} onChange={function(e) { updateRow(idx, "cogs", e.target.value); }}
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #2A2D35", background: "#1A1D23", color: "#F87171", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr style={{ borderTop: "2px solid #7B2FFF44" }}>
+                  <td style={{ padding: "6px 8px", color: "#F0F1F3", fontSize: 11, fontWeight: 700 }}>Computed Total</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#4ADE80", fontSize: 11, fontWeight: 700 }}>
+                    {"$" + extractedRows.reduce(function(s, r) { return s + (parseFloat(r.net_sales) || 0); }, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#F87171", fontSize: 11, fontWeight: 700 }}>
+                    {"$" + extractedRows.reduce(function(s, r) { return s + (parseFloat(r.cogs) || 0); }, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
             { l: "Accessory Revenue", k: "accessory_revenue" }, { l: "Accessory COGS", k: "accessory_cogs" },
