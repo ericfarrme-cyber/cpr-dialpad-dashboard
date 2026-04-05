@@ -18,6 +18,7 @@ import InsightsTab from "@/components/InsightsTab";
 import AdminTab from "@/components/AdminTab";
 import AIAssistant from "@/components/AIAssistant";
 import ProfitabilityTab from "@/components/ProfitabilityTab";
+import CallPerformanceTab from "@/components/CallPerformanceTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import {
   fetchLiveStats,
@@ -1323,7 +1324,7 @@ export default function DialpadDashboard() {
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
-        {activeTab==="overview" && <OverviewTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} />}
+        {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} problemCalls={problemCalls} />}
         {activeTab==="keywords" && <KeywordsTab keywords={keywords} />}
         {activeTab==="missed" && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} />}
         {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
