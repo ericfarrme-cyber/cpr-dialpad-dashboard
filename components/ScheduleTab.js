@@ -73,6 +73,9 @@ export default function ScheduleTab({ storeFilter }) {
         var weekAgo = fmtDate(new Date(now.getTime() - 30*86400000));
         var weekAhead = fmtDate(new Date(now.getTime() + 14*86400000));
         var currentPeriod = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
+        // For labor economics, use last COMPLETED month
+        var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        var lastMonthPeriod = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth()+1).padStart(2,"0");
 
         var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes, scRes, profRes, auditRes] = await Promise.allSettled([
           fetch("/api/dialpad/roster").then(function(r){return r.json();}),
@@ -82,7 +85,7 @@ export default function ScheduleTab({ storeFilter }) {
           fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/dialpad/stored?days=30").then(function(r){return r.json();}),
           fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
-          fetch("/api/dialpad/profitability?action=get&period=" + currentPeriod).then(function(r){return r.json();}),
+          fetch("/api/dialpad/profitability?action=get&period=" + lastMonthPeriod).then(function(r){return r.json();}),
           fetch("/api/dialpad/audit?action=employees").then(function(r){return r.json();}),
         ]);
 
@@ -93,7 +96,11 @@ export default function ScheduleTab({ storeFilter }) {
         if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
         if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
         if (scRes.status === "fulfilled" && scRes.value.success) setScorecardData(scRes.value);
-        if (profRes.status === "fulfilled" && profRes.value.success) setProfitData(profRes.value);
+        if (profRes.status === "fulfilled" && profRes.value.success) {
+          var profMap = {};
+          (profRes.value.records || []).forEach(function(r) { profMap[r.store] = r; });
+          setProfitData(profMap);
+        }
         if (auditRes.status === "fulfilled" && auditRes.value.success) setAuditData(auditRes.value);
       } catch(e) { console.error("Schedule load error:", e); }
       setLoading(false);
@@ -318,40 +325,81 @@ export default function ScheduleTab({ storeFilter }) {
   // ═══ LABOR ECONOMICS (Phase 3) ═══
   var laborEconomics = useMemo(function() {
     var stores = {};
+    var lastMonth = new Date();
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    var periodLabel = lastMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
     STORE_KEYS.forEach(function(sk) {
       var store = STORES[sk];
-      // Hours from stored shifts
-      var storeHours = storedShifts.filter(function(s) { return s.store === sk; }).reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
 
-      // Revenue from profitability
-      var profRecord = profitData && profitData.records ? profitData.records.find(function(r) { return r.store === sk; }) : null;
-      var grossRev = profRecord ? (parseFloat(profRecord.repair_revenue) || 0) + (parseFloat(profRecord.accessory_revenue) || 0) + (parseFloat(profRecord.device_revenue) || 0) + (parseFloat(profRecord.services_revenue) || 0) + (parseFloat(profRecord.parts_revenue) || 0) : 0;
-      var payroll = profRecord ? parseFloat(profRecord.payroll) || 0 : 0;
+      // Hours from stored shifts for last month
+      var monthStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
+      var monthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
+      var startStr = fmtDate(monthStart);
+      var endStr = fmtDate(monthEnd);
+      var storeHours = storedShifts.filter(function(s) {
+        return s.store === sk && s.date >= startStr && s.date <= endStr;
+      }).reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
 
-      // Call performance from storePerf
+      // P&L from profitability data (last completed month)
+      var prof = profitData ? profitData[sk] : null;
+      var grossRev = 0, totalCogs = 0, payroll = 0, rent = 0, totalExpenses = 0, netProfit = 0;
+      if (prof) {
+        grossRev = (parseFloat(prof.repair_revenue)||0) + (parseFloat(prof.accessory_revenue)||0) + (parseFloat(prof.device_revenue)||0) + (parseFloat(prof.services_revenue)||0) + (parseFloat(prof.parts_revenue)||0);
+        totalCogs = (parseFloat(prof.repair_cogs)||0) + (parseFloat(prof.accessory_cogs)||0) + (parseFloat(prof.device_cogs)||0) + (parseFloat(prof.services_cogs)||0) + (parseFloat(prof.parts_cogs)||0);
+        payroll = parseFloat(prof.payroll) || 0;
+        rent = parseFloat(prof.rent) || 0;
+        var utilities = (parseFloat(prof.internet_security)||0) + (parseFloat(prof.electric)||0) + (parseFloat(prof.gas_parking)||0) + (parseFloat(prof.voip)||0);
+        var marketing = (parseFloat(prof.marketing_digital)||0) + (parseFloat(prof.marketing_local)||0);
+        var otherExp = (parseFloat(prof.store_budget)||0) + (parseFloat(prof.damaged)||0) + (parseFloat(prof.shrinkage)||0) + (parseFloat(prof.voided)||0) + (parseFloat(prof.kbb_charges)||0) + (parseFloat(prof.tips)||0) + (parseFloat(prof.lcd_credits)||0) + (parseFloat(prof.cc_fee_diff)||0);
+        totalExpenses = payroll + rent + utilities + marketing + otherExp;
+        var grossProfit = grossRev - totalCogs;
+        var royalties = grossRev * 0.05;
+        var fees = royalties + 285 + 95;
+        netProfit = grossProfit - fees - totalExpenses;
+      }
+
+      // Call performance from stored data
       var storeCallPerf = callData && callData.storePerf ? callData.storePerf.find(function(sp) { return sp.store === sk; }) : null;
       var answerRate = storeCallPerf ? storeCallPerf.answer_rate : 0;
       var missedCalls = storeCallPerf ? storeCallPerf.missed : 0;
 
       var revPerManHour = storeHours > 0 ? Math.round(grossRev / storeHours * 100) / 100 : 0;
       var laborPct = grossRev > 0 ? Math.round(payroll / grossRev * 1000) / 10 : 0;
-      var profitPerManHour = storeHours > 0 && grossRev > 0 ? Math.round((grossRev - payroll) / storeHours * 100) / 100 : 0;
+      var grossProfit = grossRev - totalCogs;
+      var profitPerManHour = storeHours > 0 ? Math.round(grossProfit / storeHours * 100) / 100 : 0;
 
-      // What would adding 1 FTE mean?
-      var additionalHours = 160; // ~40hrs/week * 4 weeks
-      var additionalCost = 2500; // ~$15/hr * 160hrs
-      var missedCallRevenue = missedCalls * 0.25 * 150; // 25% conversion, $150 avg ticket
-      var addFTENet = missedCallRevenue - additionalCost;
+      // ROI model: based on store's actual profit margin, not just missed calls
+      // If we add 1 FTE (~160hrs/mo at ~$15/hr = ~$2,500), what's the impact?
+      var avgTicket = grossRev > 0 && storeCallPerf ? grossRev / storeCallPerf.total_calls : 150;
+      var grossMargin = grossRev > 0 ? (grossRev - totalCogs) / grossRev : 0.55;
+      var additionalCost = 2500;
+      var recoveredCalls = Math.round(missedCalls * 0.6); // Adding staff recovers ~60% of missed
+      var recoveredRevenue = Math.round(recoveredCalls * 0.25 * avgTicket); // 25% convert
+      var recoveredProfit = Math.round(recoveredRevenue * grossMargin);
+      var addFTENet = recoveredProfit - additionalCost;
 
       stores[sk] = {
-        name: store.name.replace("CPR ",""), color: store.color,
+        name: store.name.replace("CPR ",""), color: store.color, period: periodLabel,
         hours: Math.round(storeHours * 10) / 10,
-        grossRev: grossRev, payroll: payroll,
+        grossRev: Math.round(grossRev * 100) / 100,
+        totalCogs: Math.round(totalCogs * 100) / 100,
+        grossProfit: Math.round(grossProfit * 100) / 100,
+        grossMarginPct: grossRev > 0 ? Math.round((grossRev - totalCogs) / grossRev * 1000) / 10 : 0,
+        payroll: Math.round(payroll * 100) / 100,
+        rent: Math.round(rent * 100) / 100,
+        totalExpenses: Math.round(totalExpenses * 100) / 100,
+        netProfit: Math.round(netProfit * 100) / 100,
         revPerManHour: revPerManHour, profitPerManHour: profitPerManHour,
         laborPct: laborPct, answerRate: answerRate, missedCalls: missedCalls,
-        addFTERevRecovery: Math.round(missedCallRevenue),
+        hasData: grossRev > 0,
+        // ROI
+        avgTicket: Math.round(avgTicket),
+        recoveredCalls: recoveredCalls,
+        recoveredRevenue: recoveredRevenue,
+        recoveredProfit: recoveredProfit,
         addFTECost: additionalCost,
-        addFTENet: Math.round(addFTENet),
+        addFTENet: addFTENet,
       };
     });
     return stores;
@@ -750,57 +798,76 @@ export default function ScheduleTab({ storeFilter }) {
       {subTab === "economics" && (
         <div>
           <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Labor Economics</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Revenue efficiency, labor cost ratios, and staffing ROI analysis</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>P&L data from {laborEconomics[STORE_KEYS[0]] ? laborEconomics[STORE_KEYS[0]].period : "last month"} — labor hours from stored shifts</div>
 
-          {/* Store economics cards */}
+          {/* Store P&L summary cards */}
           <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
             {STORE_KEYS.map(function(sk) {
               var econ = laborEconomics[sk];
               if (!econ) return null;
-              var laborTarget = 30; // 30% target
+              var laborTarget = 30;
               var laborStatus = econ.laborPct > 0 ? (econ.laborPct <= laborTarget ? "#4ADE80" : econ.laborPct <= 40 ? "#FBBF24" : "#F87171") : "#6B6F78";
               return (
                 <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+econ.color+"33" }}>
-                  <div style={{ color:econ.color,fontSize:14,fontWeight:700,marginBottom:14 }}>{econ.name}</div>
-                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                      <div style={{ color:"#4ADE80",fontSize:20,fontWeight:800 }}>{"$"+econ.revPerManHour}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Revenue/Hour</div>
-                    </div>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                      <div style={{ color:laborStatus,fontSize:20,fontWeight:800 }}>{econ.laborPct > 0 ? econ.laborPct+"%" : "—"}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor % of Rev</div>
-                    </div>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                      <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:700 }}>{econ.hours}h</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total Hours</div>
-                    </div>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                      <div style={{ color:"#00D4FF",fontSize:20,fontWeight:700 }}>{"$"+econ.profitPerManHour}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Profit/Hour</div>
-                    </div>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+                    <div style={{ color:econ.color,fontSize:14,fontWeight:700 }}>{econ.name}</div>
+                    {econ.hasData && <div style={{ padding:"3px 8px",borderRadius:4,background:econ.netProfit >= 0 ? "#4ADE8018" : "#F8717118",color:econ.netProfit >= 0 ? "#4ADE80" : "#F87171",fontSize:11,fontWeight:700 }}>{"$"+econ.netProfit.toLocaleString()+" net"}</div>}
                   </div>
-                  {econ.grossRev > 0 && (
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid #2A2D35" }}>
-                      <span style={{ color:"#8B8F98",fontSize:9 }}>Revenue</span>
-                      <span style={{ color:"#4ADE80",fontSize:11,fontWeight:600 }}>{"$"+econ.grossRev.toLocaleString()}</span>
+                  {econ.hasData ? (
+                    <div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
+                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                          <div style={{ color:"#4ADE80",fontSize:20,fontWeight:800 }}>{"$"+econ.revPerManHour}</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Revenue/Hour</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                          <div style={{ color:laborStatus,fontSize:20,fontWeight:800 }}>{econ.laborPct}%</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor % of Rev</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{econ.hours}h</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor Hours</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                          <div style={{ color:"#00D4FF",fontSize:18,fontWeight:700 }}>{"$"+econ.profitPerManHour}</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>GP/Hour</div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize:10 }}>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                          <span style={{ color:"#8B8F98" }}>Gross Revenue</span>
+                          <span style={{ color:"#4ADE80",fontWeight:600 }}>{"$"+econ.grossRev.toLocaleString()}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                          <span style={{ color:"#8B8F98" }}>COGS</span>
+                          <span style={{ color:"#F87171",fontWeight:600 }}>{"($"+econ.totalCogs.toLocaleString()+")"}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                          <span style={{ color:"#8B8F98" }}>Gross Profit</span>
+                          <span style={{ color:"#F0F1F3",fontWeight:600 }}>{"$"+econ.grossProfit.toLocaleString()+" ("+econ.grossMarginPct+"%)"}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                          <span style={{ color:"#8B8F98" }}>Payroll</span>
+                          <span style={{ color:"#FF2D95",fontWeight:600 }}>{"($"+econ.payroll.toLocaleString()+")"}</span>
+                        </div>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                          <span style={{ color:"#8B8F98" }}>Other Expenses</span>
+                          <span style={{ color:"#F87171",fontWeight:600 }}>{"($"+(econ.totalExpenses - econ.payroll).toLocaleString()+")"}</span>
+                        </div>
+                      </div>
                     </div>
-                  )}
-                  {econ.payroll > 0 && (
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
-                      <span style={{ color:"#8B8F98",fontSize:9 }}>Payroll</span>
-                      <span style={{ color:"#F87171",fontSize:11,fontWeight:600 }}>{"$"+econ.payroll.toLocaleString()}</span>
-                    </div>
+                  ) : (
+                    <div style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:11 }}>No P&L data for {econ.period}. Upload profitability data on the Profitability tab.</div>
                   )}
                 </div>
               );
             })}
           </div>
 
-          {/* Add FTE Analysis */}
+          {/* Staffing ROI Analysis */}
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83E\uDDE0"} Staffing ROI — What If You Added 1 FTE?</div>
-            <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Based on missed calls × 25% conversion × $150 avg ticket vs ~$2,500/mo labor cost</div>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83E\uDDE0"} Staffing ROI — Should You Add 1 FTE?</div>
+            <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Model: Adding staff recovers ~60% of missed calls → 25% convert → at store's actual gross margin</div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14 }}>
               {STORE_KEYS.map(function(sk) {
                 var econ = laborEconomics[sk];
@@ -814,19 +881,27 @@ export default function ScheduleTab({ storeFilter }) {
                       <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{econ.missedCalls}</span>
                     </div>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>Revenue recoverable</span>
-                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.addFTERevRecovery.toLocaleString()}</span>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>Recoverable (~60%)</span>
+                      <span style={{ color:"#FBBF24",fontSize:12,fontWeight:600 }}>{econ.recoveredCalls} calls</span>
                     </div>
                     <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>FTE cost</span>
-                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{"$"+econ.addFTECost.toLocaleString()}</span>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>Revenue recovered (25% conv × {"$"+econ.avgTicket})</span>
+                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.recoveredRevenue.toLocaleString()}</span>
                     </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",marginTop:4 }}>
-                      <span style={{ color:"#F0F1F3",fontSize:11,fontWeight:700 }}>Net ROI</span>
-                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:14,fontWeight:800 }}>{(positive?"+":"")+"$"+econ.addFTENet.toLocaleString()}</span>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>Gross profit at {econ.grossMarginPct}% margin</span>
+                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.recoveredProfit.toLocaleString()}</span>
                     </div>
-                    <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:positive?"#4ADE8008":"#F8717108",border:"1px solid "+(positive?"#4ADE8022":"#F8717122"),textAlign:"center" }}>
-                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:10,fontWeight:600 }}>{positive ? "\u2705 Hire — pays for itself" : "\u274C Not justified yet"}</span>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>FTE cost (~$15/hr × 160hrs)</span>
+                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{"($"+econ.addFTECost.toLocaleString()+")"}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4 }}>
+                      <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:700 }}>Net Monthly ROI</span>
+                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:16,fontWeight:800 }}>{(positive?"+":"")+"$"+econ.addFTENet.toLocaleString()}</span>
+                    </div>
+                    <div style={{ marginTop:8,padding:"8px 10px",borderRadius:6,background:positive?"#4ADE8008":"#F8717108",border:"1px solid "+(positive?"#4ADE8022":"#F8717122"),textAlign:"center" }}>
+                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:10,fontWeight:600 }}>{positive ? "\u2705 Hire — adds $"+(econ.addFTENet)+"/mo to bottom line" : "\u274C Not justified — would lose $"+Math.abs(econ.addFTENet)+"/mo"}</span>
                     </div>
                   </div>
                 );
