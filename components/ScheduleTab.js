@@ -67,8 +67,8 @@ export default function ScheduleTab({ storeFilter }) {
       try {
         var now = new Date();
         var todayStr = fmtDate(now);
-        var weekAgo = fmtDate(new Date(now.getTime() - 7*86400000));
-        var weekAhead = fmtDate(new Date(now.getTime() + 7*86400000));
+        var weekAgo = fmtDate(new Date(now.getTime() - 30*86400000));
+        var weekAhead = fmtDate(new Date(now.getTime() + 14*86400000));
 
         var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes] = await Promise.allSettled([
           fetch("/api/dialpad/roster").then(function(r){return r.json();}),
@@ -76,7 +76,7 @@ export default function ScheduleTab({ storeFilter }) {
           fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
-          fetch("/api/dialpad/stored?days=7").then(function(r){return r.json();}),
+          fetch("/api/dialpad/stored?days=30").then(function(r){return r.json();}),
         ]);
 
         if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
@@ -426,7 +426,7 @@ export default function ScheduleTab({ storeFilter }) {
       {subTab === "reality" && (
         <div>
           <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Schedule vs Reality</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>What was scheduled vs what actually happened — last 7 days</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Staffing levels correlated with call outcomes — insight cards use 30-day data</div>
 
           {/* Staffing insight cards */}
           {staffingInsight && (
@@ -459,7 +459,7 @@ export default function ScheduleTab({ storeFilter }) {
                     )}
                     {ins.overallRate > 0 && (
                       <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:"#12141A",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                        <span style={{ color:"#8B8F98",fontSize:9 }}>Monthly actual</span>
+                        <span style={{ color:"#8B8F98",fontSize:9 }}>30-day overall</span>
                         <span style={{ color:sc(ins.overallRate,85,70),fontSize:13,fontWeight:700 }}>{ins.overallRate}% <span style={{ color:"#F87171",fontSize:9,fontWeight:400 }}>({ins.missed} missed of {ins.totalInbound})</span></span>
                       </div>
                     )}
@@ -472,7 +472,7 @@ export default function ScheduleTab({ storeFilter }) {
           {/* Daily breakdown table */}
           {scheduleVsReality && (
             <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Daily Breakdown</div>
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Daily Breakdown <span style={{ color:"#6B6F78",fontSize:11,fontWeight:400 }}>— last 7 days</span></div>
               <div style={{ overflowX:"auto" }}>
                 <table style={{ width:"100%",borderCollapse:"collapse",minWidth:800 }}>
                   <thead>
@@ -489,7 +489,7 @@ export default function ScheduleTab({ storeFilter }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {scheduleVsReality.map(function(day) {
+                    {scheduleVsReality.slice(-7).map(function(day) {
                       return (
                         <tr key={day.date} style={{ borderBottom:"1px solid #1E2028" }}>
                           <td style={{ padding:"6px 8px",color:"#C8CAD0",fontSize:11,fontWeight:600 }}>{day.date}</td>
