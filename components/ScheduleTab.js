@@ -46,6 +46,7 @@ export default function ScheduleTab({ storeFilter }) {
   var [subTab, setSubTab] = useState("coverage");
   var [scheduleStoreFilter, setScheduleStoreFilter] = useState("all");
   var [roster, setRoster] = useState([]);
+  var [weekOffset, setWeekOffset] = useState(0);
 
   function resolveEmployee(name) {
     if (!name || roster.length === 0) return name;
@@ -68,14 +69,16 @@ export default function ScheduleTab({ storeFilter }) {
         var todayStr = fmtDate(now);
         var weekAgo = fmtDate(new Date(now.getTime() - 7*86400000));
         var weekAhead = fmtDate(new Date(now.getTime() + 7*86400000));
+        var currentPeriod = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
 
-        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes] = await Promise.allSettled([
+        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes, scorecardRes] = await Promise.allSettled([
           fetch("/api/dialpad/roster").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=status").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/dialpad/stored?days=7").then(function(r){return r.json();}),
+          fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
         ]);
 
         if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
@@ -84,11 +87,40 @@ export default function ScheduleTab({ storeFilter }) {
         if (weekRes.status === "fulfilled" && weekRes.value.success) setWeekShifts(weekRes.value);
         if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
         if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
+
+        // Use scorecard for accurate store-level call stats
+        if (scorecardRes.status === "fulfilled" && scorecardRes.value.success) {
+          // Patch callData with accurate per-store stats from scorecard
+          var ranked = scorecardRes.value.ranked || [];
+          var storeCallStats = {};
+          ranked.forEach(function(s) {
+            var sk = s.store || (s.store_name || "").toLowerCase().replace("cpr ","").trim();
+            if (s.categories && s.categories.calls && s.categories.calls.details) {
+              storeCallStats[sk] = s.categories.calls.details;
+            }
+          });
+          setCallData(function(prev) { return Object.assign({}, prev, { storeCallStats: storeCallStats }); });
+        }
       } catch(e) { console.error("Schedule load error:", e); }
       setLoading(false);
     }
     load();
   }, []);
+
+  // Re-fetch shifts when week navigation changes
+  useEffect(function() {
+    if (weekOffset === 0) return; // initial load already handled
+    async function loadWeek() {
+      var start = fmtDate(weekDates[0]);
+      var end = fmtDate(weekDates[6]);
+      try {
+        var res = await fetch("/api/wheniwork?action=shifts&start=" + start + "&end=" + end);
+        var json = await res.json();
+        if (json.success) setWeekShifts(json);
+      } catch(e) { console.error(e); }
+    }
+    loadWeek();
+  }, [weekOffset]);
 
   // ═══ TODAY'S SHIFTS BY STORE ═══
   var todayByStore = useMemo(function() {
@@ -140,13 +172,14 @@ export default function ScheduleTab({ storeFilter }) {
   // ═══ WEEKLY SCHEDULE GRID ═══
   var weekDates = useMemo(function() {
     var now = new Date();
+    now.setDate(now.getDate() + weekOffset * 7);
     var day = now.getDay();
     var monday = new Date(now);
     monday.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
     var dates = [];
     for (var i = 0; i < 7; i++) { var d = new Date(monday); d.setDate(monday.getDate() + i); dates.push(d); }
     return dates;
-  }, []);
+  }, [weekOffset]);
 
   var weekGrid = useMemo(function() {
     if (!weekShifts.shifts || weekShifts.shifts.length === 0) return [];
@@ -217,15 +250,21 @@ export default function ScheduleTab({ storeFilter }) {
           multiStaff.days++; multiStaff.totalRate += day[sk + "_rate"];
         }
       });
+      // Use scorecard call stats for accurate overall rates
+      var callStats = callData && callData.storeCallStats ? callData.storeCallStats[sk] : null;
       insights[sk] = {
         singleRate: singleStaff.days > 0 ? Math.round(singleStaff.totalRate / singleStaff.days) : 0,
         singleDays: singleStaff.days,
         multiRate: multiStaff.days > 0 ? Math.round(multiStaff.totalRate / multiStaff.days) : 0,
         multiDays: multiStaff.days,
+        // Accurate overall from scorecard
+        overallRate: callStats ? callStats.answer_rate : 0,
+        totalInbound: callStats ? callStats.total_inbound : 0,
+        missed: callStats ? callStats.missed : 0,
       };
     });
     return insights;
-  }, [scheduleVsReality]);
+  }, [scheduleVsReality, callData]);
 
   // ═══ HOURS BY EMPLOYEE (from stored shifts) ═══
   var hoursByEmployee = useMemo(function() {
@@ -435,6 +474,12 @@ export default function ScheduleTab({ storeFilter }) {
                         Adding a 2nd person improves answer rate by <strong>+{delta}%</strong>
                       </div>
                     )}
+                    {ins.overallRate > 0 && (
+                      <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:"#12141A",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                        <span style={{ color:"#8B8F98",fontSize:9 }}>Monthly actual</span>
+                        <span style={{ color:sc(ins.overallRate,85,70),fontSize:13,fontWeight:700 }}>{ins.overallRate}% <span style={{ color:"#F87171",fontSize:9,fontWeight:400 }}>({ins.missed} missed of {ins.totalInbound})</span></span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -496,9 +541,14 @@ export default function ScheduleTab({ storeFilter }) {
       {subTab === "week" && (
         <div>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-            <div>
-              <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Weekly Schedule</div>
-              <div style={{ color:"#6B6F78",fontSize:12 }}>Week of {weekDates[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})} - {weekDates[6].toLocaleDateString(undefined,{month:"short",day:"numeric"})}</div>
+            <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+              <button onClick={function(){setWeekOffset(weekOffset-1);}} style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#8B8F98",fontSize:14,cursor:"pointer" }}>{"\u25C0"}</button>
+              <div>
+                <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Weekly Schedule</div>
+                <div style={{ color:"#6B6F78",fontSize:12 }}>Week of {weekDates[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})} - {weekDates[6].toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</div>
+              </div>
+              <button onClick={function(){setWeekOffset(weekOffset+1);}} style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#8B8F98",fontSize:14,cursor:"pointer" }}>{"\u25B6"}</button>
+              {weekOffset !== 0 && <button onClick={function(){setWeekOffset(0);}} style={{ padding:"4px 10px",borderRadius:6,border:"none",background:"#7B2FFF22",color:"#7B2FFF",fontSize:11,fontWeight:600,cursor:"pointer" }}>Today</button>}
             </div>
             <div style={{ display:"flex",gap:6 }}>
               {[{id:"all",label:"All Stores"}].concat(STORE_KEYS.map(function(k){return{id:k,label:STORES[k].name.replace("CPR ","")}})).map(function(f) {
