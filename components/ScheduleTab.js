@@ -47,6 +47,9 @@ export default function ScheduleTab({ storeFilter }) {
   var [scheduleStoreFilter, setScheduleStoreFilter] = useState("all");
   var [roster, setRoster] = useState([]);
   var [weekOffset, setWeekOffset] = useState(0);
+  var [scorecardData, setScorecardData] = useState(null);
+  var [profitData, setProfitData] = useState(null);
+  var [auditData, setAuditData] = useState(null);
 
   function resolveEmployee(name) {
     if (!name || roster.length === 0) return name;
@@ -69,14 +72,18 @@ export default function ScheduleTab({ storeFilter }) {
         var todayStr = fmtDate(now);
         var weekAgo = fmtDate(new Date(now.getTime() - 30*86400000));
         var weekAhead = fmtDate(new Date(now.getTime() + 14*86400000));
+        var currentPeriod = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
 
-        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes] = await Promise.allSettled([
+        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes, scRes, profRes, auditRes] = await Promise.allSettled([
           fetch("/api/dialpad/roster").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=status").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/dialpad/stored?days=30").then(function(r){return r.json();}),
+          fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
+          fetch("/api/dialpad/profitability?action=get&period=" + currentPeriod).then(function(r){return r.json();}),
+          fetch("/api/dialpad/audit?action=employees").then(function(r){return r.json();}),
         ]);
 
         if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
@@ -85,6 +92,9 @@ export default function ScheduleTab({ storeFilter }) {
         if (weekRes.status === "fulfilled" && weekRes.value.success) setWeekShifts(weekRes.value);
         if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
         if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
+        if (scRes.status === "fulfilled" && scRes.value.success) setScorecardData(scRes.value);
+        if (profRes.status === "fulfilled" && profRes.value.success) setProfitData(profRes.value);
+        if (auditRes.status === "fulfilled" && auditRes.value.success) setAuditData(auditRes.value);
       } catch(e) { console.error("Schedule load error:", e); }
       setLoading(false);
     }
@@ -262,9 +272,126 @@ export default function ScheduleTab({ storeFilter }) {
     return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
   }, [storedShifts]);
 
+  // ═══ EMPLOYEE PRODUCTIVITY (Phase 2) ═══
+  var employeeProductivity = useMemo(function() {
+    if (!scorecardData || !scorecardData.employeeScores) return [];
+    var employees = scorecardData.employeeScores || [];
+    return employees.map(function(emp) {
+      var name = emp.name;
+      // Find hours from stored shifts
+      var hoursEntry = hoursByEmployee.find(function(h) { return h.name.toLowerCase() === name.toLowerCase(); });
+      var totalHours = hoursEntry ? hoursEntry.total : 0;
+
+      // Repair data
+      var repairs = emp.repairs || {};
+      var phoneRepairs = repairs.phone_tickets || 0;
+      var otherRepairs = repairs.other_tickets || 0;
+      var totalRepairs = phoneRepairs + otherRepairs;
+      var accyGP = repairs.accy_gp || 0;
+      var repairRevenue = repairs.revenue || (totalRepairs * 120); // estimate if no revenue field
+
+      // Audit data
+      var audit = emp.audit || {};
+      var auditScore = audit.score || 0;
+      var apptRate = audit.appt_offered || 0;
+
+      // Compliance
+      var compliance = emp.compliance || {};
+      var compScore = compliance.score || 0;
+
+      // Revenue per labor hour
+      var revPerHour = totalHours > 0 ? Math.round(repairRevenue / totalHours * 100) / 100 : 0;
+      var repairsPerHour = totalHours > 0 ? Math.round(totalRepairs / totalHours * 100) / 100 : 0;
+
+      return {
+        name: name, store: emp.store, overall: emp.overall,
+        totalHours: Math.round(totalHours * 10) / 10,
+        phoneRepairs: phoneRepairs, otherRepairs: otherRepairs, totalRepairs: totalRepairs,
+        accyGP: Math.round(accyGP * 100) / 100,
+        repairRevenue: Math.round(repairRevenue * 100) / 100,
+        auditScore: auditScore, apptRate: apptRate, compScore: compScore,
+        revPerHour: revPerHour, repairsPerHour: repairsPerHour,
+      };
+    }).sort(function(a, b) { return b.revPerHour - a.revPerHour; });
+  }, [scorecardData, hoursByEmployee]);
+
+  // ═══ LABOR ECONOMICS (Phase 3) ═══
+  var laborEconomics = useMemo(function() {
+    var stores = {};
+    STORE_KEYS.forEach(function(sk) {
+      var store = STORES[sk];
+      // Hours from stored shifts
+      var storeHours = storedShifts.filter(function(s) { return s.store === sk; }).reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
+
+      // Revenue from profitability
+      var profRecord = profitData && profitData.records ? profitData.records.find(function(r) { return r.store === sk; }) : null;
+      var grossRev = profRecord ? (parseFloat(profRecord.repair_revenue) || 0) + (parseFloat(profRecord.accessory_revenue) || 0) + (parseFloat(profRecord.device_revenue) || 0) + (parseFloat(profRecord.services_revenue) || 0) + (parseFloat(profRecord.parts_revenue) || 0) : 0;
+      var payroll = profRecord ? parseFloat(profRecord.payroll) || 0 : 0;
+
+      // Call performance from storePerf
+      var storeCallPerf = callData && callData.storePerf ? callData.storePerf.find(function(sp) { return sp.store === sk; }) : null;
+      var answerRate = storeCallPerf ? storeCallPerf.answer_rate : 0;
+      var missedCalls = storeCallPerf ? storeCallPerf.missed : 0;
+
+      var revPerManHour = storeHours > 0 ? Math.round(grossRev / storeHours * 100) / 100 : 0;
+      var laborPct = grossRev > 0 ? Math.round(payroll / grossRev * 1000) / 10 : 0;
+      var profitPerManHour = storeHours > 0 && grossRev > 0 ? Math.round((grossRev - payroll) / storeHours * 100) / 100 : 0;
+
+      // What would adding 1 FTE mean?
+      var additionalHours = 160; // ~40hrs/week * 4 weeks
+      var additionalCost = 2500; // ~$15/hr * 160hrs
+      var missedCallRevenue = missedCalls * 0.25 * 150; // 25% conversion, $150 avg ticket
+      var addFTENet = missedCallRevenue - additionalCost;
+
+      stores[sk] = {
+        name: store.name.replace("CPR ",""), color: store.color,
+        hours: Math.round(storeHours * 10) / 10,
+        grossRev: grossRev, payroll: payroll,
+        revPerManHour: revPerManHour, profitPerManHour: profitPerManHour,
+        laborPct: laborPct, answerRate: answerRate, missedCalls: missedCalls,
+        addFTERevRecovery: Math.round(missedCallRevenue),
+        addFTECost: additionalCost,
+        addFTENet: Math.round(addFTENet),
+      };
+    });
+    return stores;
+  }, [storedShifts, profitData, callData]);
+
+  // ═══ OPTIMAL SCHEDULE (Phase 3) ═══
+  var optimalSchedule = useMemo(function() {
+    if (!callData || !callData.hourlyMissed) return null;
+    var hourly = callData.hourlyMissed || [];
+    var result = {};
+    STORE_KEYS.forEach(function(sk) {
+      var hours = [];
+      hourly.forEach(function(h) {
+        var missed = h[sk] || 0;
+        var hourNum = parseInt(h.hour);
+        if (isNaN(hourNum) && h.hour) {
+          var m = h.hour.match(/(\d+)/);
+          if (m) hourNum = parseInt(m[1]);
+          if (h.hour.includes("PM") && hourNum !== 12) hourNum += 12;
+          if (h.hour.includes("AM") && hourNum === 12) hourNum = 0;
+        }
+        hours.push({ hour: h.hour, hourNum: hourNum, missed: missed });
+      });
+
+      // Determine recommended staffing: 2+ people if hourly missed > 3
+      var recommendations = hours.map(function(h) {
+        var recommended = h.missed > 5 ? 3 : h.missed > 2 ? 2 : 1;
+        return { hour: h.hour, hourNum: h.hourNum, missed: h.missed, recommended: recommended };
+      }).filter(function(h) { return h.hourNum >= 9 && h.hourNum <= 19; }); // Business hours only
+
+      result[sk] = recommendations;
+    });
+    return result;
+  }, [callData]);
+
   var SUB_TABS = [
     { id: "coverage", label: "Live Coverage", icon: "\uD83D\uDFE2" },
     { id: "reality", label: "Schedule vs Reality", icon: "\uD83D\uDD0D" },
+    { id: "productivity", label: "Employee Productivity", icon: "\uD83D\uDCB0" },
+    { id: "economics", label: "Labor Economics", icon: "\uD83D\uDCC8" },
     { id: "week", label: "Weekly View", icon: "\uD83D\uDCC5" },
     { id: "hours", label: "Hours Tracking", icon: "\u23F0" },
   ];
@@ -512,6 +639,228 @@ export default function ScheduleTab({ storeFilter }) {
                     })}
                   </tbody>
                 </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* EMPLOYEE PRODUCTIVITY (Phase 2) */}
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "productivity" && (
+        <div>
+          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Employee Productivity</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Revenue generation, repair output, and labor efficiency per employee</div>
+
+          {employeeProductivity.length > 0 ? (
+            <div>
+              {/* Top performers cards */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20 }}>
+                {employeeProductivity.slice(0, 3).map(function(emp, i) {
+                  var medals = ["\uD83E\uDD47","\uD83E\uDD48","\uD83E\uDD49"];
+                  var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#8B8F98";
+                  return (
+                    <div key={emp.name} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+storeColor+"33" }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
+                        <div>
+                          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{medals[i]} {emp.name}</div>
+                          <div style={{ color:storeColor,fontSize:10 }}>{STORES[emp.store]?STORES[emp.store].name.replace("CPR ",""):emp.store}</div>
+                        </div>
+                        <div style={{ padding:"4px 10px",borderRadius:6,background:"#4ADE8018",color:"#4ADE80",fontSize:16,fontWeight:800 }}>{emp.overall}/100</div>
+                      </div>
+                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
+                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"#4ADE80",fontSize:18,fontWeight:700 }}>{"$"+emp.revPerHour}</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Rev/Hour</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"#00D4FF",fontSize:18,fontWeight:700 }}>{emp.repairsPerHour}</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Repairs/Hour</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{emp.totalRepairs}</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total Repairs</div>
+                        </div>
+                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{emp.totalHours}h</div>
+                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Hours Worked</div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Full table */}
+              <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+                <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                  <thead>
+                    <tr style={{ borderBottom:"2px solid #2A2D35" }}>
+                      {["Employee","Store","Score","Hours","Repairs","Accy GP","Rev/Hour","Repairs/Hr","Audit","Appt %","Compliance"].map(function(h,i) {
+                        return <th key={i} style={{ padding:"10px 8px",textAlign:i < 2 ? "left" : "center",color:"#8B8F98",fontSize:9,fontWeight:700,textTransform:"uppercase" }}>{h}</th>;
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {employeeProductivity.map(function(emp) {
+                      var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#8B8F98";
+                      return (
+                        <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
+                          <td style={{ padding:"8px",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</td>
+                          <td style={{ padding:"8px",color:storeColor,fontSize:11 }}>{STORES[emp.store]?STORES[emp.store].name.replace("CPR ",""):emp.store}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.overall,70,40),fontSize:13,fontWeight:700 }}>{emp.overall}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:"#F0F1F3",fontSize:12 }}>{emp.totalHours}h</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.totalRepairs} <span style={{ color:"#6B6F78",fontSize:9 }}>({emp.phoneRepairs}📱 {emp.otherRepairs}🔧)</span></td>
+                          <td style={{ padding:"8px",textAlign:"center",color:emp.accyGP > 200 ? "#4ADE80" : emp.accyGP > 50 ? "#FBBF24" : "#F87171",fontSize:12,fontWeight:600 }}>{"$"+emp.accyGP}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:emp.revPerHour > 30 ? "#4ADE80" : emp.revPerHour > 15 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{"$"+emp.revPerHour}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:"#00D4FF",fontSize:12,fontWeight:600 }}>{emp.repairsPerHour}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.auditScore,70,40),fontSize:12 }}>{emp.auditScore}</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.apptRate,70,40),fontSize:12 }}>{emp.apptRate}%</td>
+                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.compScore,70,40),fontSize:12 }}>{emp.compScore}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Insight */}
+              {employeeProductivity.length >= 2 && (
+                <div style={{ marginTop:16,padding:"12px 16px",borderRadius:8,background:"#7B2FFF08",border:"1px solid #7B2FFF22" }}>
+                  <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCA1"} PRODUCTIVITY INSIGHT</div>
+                  <div style={{ color:"#C8CAD0",fontSize:12 }}>
+                    Top producer <strong style={{ color:"#4ADE80" }}>{employeeProductivity[0].name}</strong> generates <strong>{"$"+employeeProductivity[0].revPerHour}/hr</strong>.
+                    {employeeProductivity[employeeProductivity.length-1].revPerHour > 0 && (
+                      <span> Lowest is <strong style={{ color:"#FBBF24" }}>{employeeProductivity[employeeProductivity.length-1].name}</strong> at <strong>{"$"+employeeProductivity[employeeProductivity.length-1].revPerHour}/hr</strong> — a <strong style={{ color:"#F87171" }}>{Math.round(((employeeProductivity[0].revPerHour - employeeProductivity[employeeProductivity.length-1].revPerHour) / employeeProductivity[0].revPerHour) * 100)}%</strong> gap.</span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No scorecard data available for this month</div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* LABOR ECONOMICS (Phase 3) */}
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "economics" && (
+        <div>
+          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Labor Economics</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Revenue efficiency, labor cost ratios, and staffing ROI analysis</div>
+
+          {/* Store economics cards */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
+            {STORE_KEYS.map(function(sk) {
+              var econ = laborEconomics[sk];
+              if (!econ) return null;
+              var laborTarget = 30; // 30% target
+              var laborStatus = econ.laborPct > 0 ? (econ.laborPct <= laborTarget ? "#4ADE80" : econ.laborPct <= 40 ? "#FBBF24" : "#F87171") : "#6B6F78";
+              return (
+                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+econ.color+"33" }}>
+                  <div style={{ color:econ.color,fontSize:14,fontWeight:700,marginBottom:14 }}>{econ.name}</div>
+                  <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
+                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                      <div style={{ color:"#4ADE80",fontSize:20,fontWeight:800 }}>{"$"+econ.revPerManHour}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Revenue/Hour</div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                      <div style={{ color:laborStatus,fontSize:20,fontWeight:800 }}>{econ.laborPct > 0 ? econ.laborPct+"%" : "—"}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor % of Rev</div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                      <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:700 }}>{econ.hours}h</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total Hours</div>
+                    </div>
+                    <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                      <div style={{ color:"#00D4FF",fontSize:20,fontWeight:700 }}>{"$"+econ.profitPerManHour}</div>
+                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Profit/Hour</div>
+                    </div>
+                  </div>
+                  {econ.grossRev > 0 && (
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",borderTop:"1px solid #2A2D35" }}>
+                      <span style={{ color:"#8B8F98",fontSize:9 }}>Revenue</span>
+                      <span style={{ color:"#4ADE80",fontSize:11,fontWeight:600 }}>{"$"+econ.grossRev.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {econ.payroll > 0 && (
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0" }}>
+                      <span style={{ color:"#8B8F98",fontSize:9 }}>Payroll</span>
+                      <span style={{ color:"#F87171",fontSize:11,fontWeight:600 }}>{"$"+econ.payroll.toLocaleString()}</span>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add FTE Analysis */}
+          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
+            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83E\uDDE0"} Staffing ROI — What If You Added 1 FTE?</div>
+            <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Based on missed calls × 25% conversion × $150 avg ticket vs ~$2,500/mo labor cost</div>
+            <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14 }}>
+              {STORE_KEYS.map(function(sk) {
+                var econ = laborEconomics[sk];
+                if (!econ) return null;
+                var positive = econ.addFTENet > 0;
+                return (
+                  <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:16,border:"1px solid "+(positive?"#4ADE80":"#F87171")+"22" }}>
+                    <div style={{ color:econ.color,fontSize:12,fontWeight:700,marginBottom:10 }}>{econ.name}</div>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>Missed calls/month</span>
+                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{econ.missedCalls}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>Revenue recoverable</span>
+                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.addFTERevRecovery.toLocaleString()}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                      <span style={{ color:"#8B8F98",fontSize:10 }}>FTE cost</span>
+                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{"$"+econ.addFTECost.toLocaleString()}</span>
+                    </div>
+                    <div style={{ display:"flex",justifyContent:"space-between",padding:"6px 0",marginTop:4 }}>
+                      <span style={{ color:"#F0F1F3",fontSize:11,fontWeight:700 }}>Net ROI</span>
+                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:14,fontWeight:800 }}>{(positive?"+":"")+"$"+econ.addFTENet.toLocaleString()}</span>
+                    </div>
+                    <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:positive?"#4ADE8008":"#F8717108",border:"1px solid "+(positive?"#4ADE8022":"#F8717122"),textAlign:"center" }}>
+                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:10,fontWeight:600 }}>{positive ? "\u2705 Hire — pays for itself" : "\u274C Not justified yet"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Optimal Schedule Recommendations */}
+          {optimalSchedule && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCC5"} Optimal Staffing Recommendations</div>
+              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Based on 30-day call patterns — recommended minimum staff per hour</div>
+              <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14 }}>
+                {STORE_KEYS.map(function(sk) {
+                  var recs = optimalSchedule[sk] || [];
+                  return (
+                    <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:14 }}>
+                      <div style={{ color:STORES[sk].color,fontSize:12,fontWeight:700,marginBottom:8 }}>{STORES[sk].name.replace("CPR ","")}</div>
+                      {recs.map(function(r) {
+                        var bg = r.recommended >= 3 ? "#F8717112" : r.recommended >= 2 ? "#FBBF2412" : "#4ADE8012";
+                        var color = r.recommended >= 3 ? "#F87171" : r.recommended >= 2 ? "#FBBF24" : "#4ADE80";
+                        return (
+                          <div key={r.hour} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",borderBottom:"1px solid #1A1D23" }}>
+                            <span style={{ color:"#C8CAD0",fontSize:10 }}>{r.hour}</span>
+                            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                              {r.missed > 0 && <span style={{ color:"#F87171",fontSize:9 }}>{r.missed} missed</span>}
+                              <span style={{ padding:"2px 8px",borderRadius:4,background:bg,color:color,fontSize:10,fontWeight:700 }}>{r.recommended} staff</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}
