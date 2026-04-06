@@ -13,82 +13,82 @@ export async function GET(request) {
       getHourlyMissed(daysBack),
       getDOWMissed(daysBack),
       getCallbackData(daysBack),
-      getCallRecords({ store, daysBack, limit: 2000 }),
+      getCallRecords({ store, daysBack, limit: 5000 }),
       getCallSyncState(),
     ]);
 
-    // Transform daily volume into dashboard format
+    // Compute daily call volume directly from raw callRecords (bypasses broken getDailyCallVolume SQL)
+    const dailyFromRecords = {};
+    for (const r of callRecords) {
+      if (!r.date_started || !r.store) continue;
+      const dateStr = new Date(r.date_started).toISOString().split("T")[0];
+      if (!dailyFromRecords[dateStr]) {
+        dailyFromRecords[dateStr] = { date: dateStr };
+        ["fishers","bloomington","indianapolis"].forEach(s => {
+          dailyFromRecords[dateStr][`${s}_total`] = 0;
+          dailyFromRecords[dateStr][`${s}_answered`] = 0;
+          dailyFromRecords[dateStr][`${s}_missed`] = 0;
+        });
+      }
+      const st = r.store;
+      if (dailyFromRecords[dateStr][`${st}_total`] !== undefined) {
+        dailyFromRecords[dateStr][`${st}_total`]++;
+        if (r.is_answered) {
+          dailyFromRecords[dateStr][`${st}_answered`]++;
+        }
+        if (r.is_missed) {
+          dailyFromRecords[dateStr][`${st}_missed`]++;
+        }
+      }
+    }
+    // Use record-based computation as primary, getDailyCallVolume as fallback for date range
+    const recordDays = Object.values(dailyFromRecords).sort((a, b) => a.date.localeCompare(b.date));
+
+    // Merge: use getDailyCallVolume for dates that records don't cover, but override with record data where available
     const dailyMap = {};
+    // Start with SQL-based data
     for (const row of dailyRaw) {
       const dateStr = row.call_date;
-      if (!dailyMap[dateStr]) {
-        dailyMap[dateStr] = { date: dateStr };
-      }
+      if (!dailyMap[dateStr]) dailyMap[dateStr] = { date: dateStr };
       const total = row.total || 0;
       const answered = row.answered || 0;
-      const missed = Math.max(0, total - answered); // Always derive — don't trust missed field
       dailyMap[dateStr][`${row.store}_total`] = total;
       dailyMap[dateStr][`${row.store}_answered`] = answered;
-      dailyMap[dateStr][`${row.store}_missed`] = missed;
+      dailyMap[dateStr][`${row.store}_missed`] = Math.max(0, total - answered);
+    }
+    // Override with record-based data (more accurate for missed)
+    for (const rd of recordDays) {
+      if (!dailyMap[rd.date]) dailyMap[rd.date] = { date: rd.date };
+      ["fishers","bloomington","indianapolis"].forEach(s => {
+        const recTotal = rd[`${s}_total`] || 0;
+        const recAnswered = rd[`${s}_answered`] || 0;
+        const recMissed = rd[`${s}_missed`] || 0;
+        const sqlTotal = dailyMap[rd.date][`${s}_total`] || 0;
+        // Use whichever source has higher total (more complete data)
+        if (recTotal >= sqlTotal) {
+          dailyMap[rd.date][`${s}_total`] = recTotal;
+          dailyMap[rd.date][`${s}_answered`] = recAnswered;
+          dailyMap[rd.date][`${s}_missed`] = recMissed;
+        } else {
+          // SQL has more records but missed might be 0 — derive it
+          dailyMap[rd.date][`${s}_missed`] = Math.max(recMissed, sqlTotal - (dailyMap[rd.date][`${s}_answered`] || 0));
+        }
+      });
     }
     const dailyCalls = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Compute per-store aggregate stats from daily data
+    // Compute per-store aggregate stats
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
-      let total = 0, answered = 0;
+      let total = 0, answered = 0, missed = 0;
       dailyCalls.forEach(d => {
         total += d[`${s}_total`] || 0;
         answered += d[`${s}_answered`] || 0;
+        missed += d[`${s}_missed`] || 0;
       });
-      const missed = Math.max(0, total - answered);
+      // Ensure consistency
+      if (missed === 0 && total > answered) missed = total - answered;
       return { store: s, total_calls: total, answered, missed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
-
-    // Cross-check: compute daily missed directly from callRecords if dailyCalls shows 0 missed
-    const totalDailyMissed = dailyCalls.reduce((s, d) => {
-      return s + (d.fishers_missed || 0) + (d.bloomington_missed || 0) + (d.indianapolis_missed || 0);
-    }, 0);
-    
-    if (totalDailyMissed === 0 && callRecords.length > 0) {
-      // Daily data has no missed — recompute from raw records
-      const dailyFromRecords = {};
-      for (const r of callRecords) {
-        if (!r.date_started || !r.store) continue;
-        const dateStr = new Date(r.date_started).toISOString().split("T")[0];
-        if (!dailyFromRecords[dateStr]) {
-          dailyFromRecords[dateStr] = { date: dateStr };
-          ["fishers","bloomington","indianapolis"].forEach(s => {
-            dailyFromRecords[dateStr][`${s}_total`] = 0;
-            dailyFromRecords[dateStr][`${s}_answered`] = 0;
-            dailyFromRecords[dateStr][`${s}_missed`] = 0;
-          });
-        }
-        const st = r.store;
-        if (dailyFromRecords[dateStr][`${st}_total`] !== undefined) {
-          dailyFromRecords[dateStr][`${st}_total`]++;
-          if (r.is_answered) {
-            dailyFromRecords[dateStr][`${st}_answered`]++;
-          } else {
-            dailyFromRecords[dateStr][`${st}_missed`]++;
-          }
-        }
-      }
-      // If record-based computation shows missed > 0, use it instead
-      const recordDays = Object.values(dailyFromRecords).sort((a, b) => a.date.localeCompare(b.date));
-      const recordMissed = recordDays.reduce((s, d) => s + d.fishers_missed + d.bloomington_missed + d.indianapolis_missed, 0);
-      if (recordMissed > 0) {
-        // Replace dailyCalls with record-based data
-        dailyCalls.length = 0;
-        recordDays.forEach(d => dailyCalls.push(d));
-        // Recompute storePerf
-        storePerf.forEach(sp => {
-          let t = 0, a = 0;
-          dailyCalls.forEach(d => { t += d[`${sp.store}_total`] || 0; a += d[`${sp.store}_answered`] || 0; });
-          sp.total_calls = t; sp.answered = a; sp.missed = Math.max(0, t - a);
-          sp.answer_rate = t > 0 ? Math.round(a / t * 100) : 0;
-        });
-      }
-    }
 
     // Transform hourly missed into dashboard format
     const hourlyMap = {};
