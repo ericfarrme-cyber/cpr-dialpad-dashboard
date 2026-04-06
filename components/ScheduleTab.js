@@ -69,16 +69,14 @@ export default function ScheduleTab({ storeFilter }) {
         var todayStr = fmtDate(now);
         var weekAgo = fmtDate(new Date(now.getTime() - 7*86400000));
         var weekAhead = fmtDate(new Date(now.getTime() + 7*86400000));
-        var currentPeriod = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
 
-        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes, scorecardRes] = await Promise.allSettled([
+        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes] = await Promise.allSettled([
           fetch("/api/dialpad/roster").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=status").then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
           fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
           fetch("/api/dialpad/stored?days=7").then(function(r){return r.json();}),
-          fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
         ]);
 
         if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
@@ -87,20 +85,6 @@ export default function ScheduleTab({ storeFilter }) {
         if (weekRes.status === "fulfilled" && weekRes.value.success) setWeekShifts(weekRes.value);
         if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
         if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
-
-        // Use scorecard for accurate store-level call stats
-        if (scorecardRes.status === "fulfilled" && scorecardRes.value.success) {
-          // Patch callData with accurate per-store stats from scorecard
-          var ranked = scorecardRes.value.ranked || [];
-          var storeCallStats = {};
-          ranked.forEach(function(s) {
-            var sk = s.store || (s.store_name || "").toLowerCase().replace("cpr ","").trim();
-            if (s.categories && s.categories.calls && s.categories.calls.details) {
-              storeCallStats[sk] = s.categories.calls.details;
-            }
-          });
-          setCallData(function(prev) { return Object.assign({}, prev, { storeCallStats: storeCallStats }); });
-        }
       } catch(e) { console.error("Schedule load error:", e); }
       setLoading(false);
     }
@@ -250,17 +234,16 @@ export default function ScheduleTab({ storeFilter }) {
           multiStaff.days++; multiStaff.totalRate += day[sk + "_rate"];
         }
       });
-      // Use scorecard call stats for accurate overall rates
-      var callStats = callData && callData.storeCallStats ? callData.storeCallStats[sk] : null;
+      // Use storePerf from stored route for accurate overall rates
+      var storePerfEntry = callData && callData.storePerf ? callData.storePerf.find(function(sp) { return sp.store === sk; }) : null;
       insights[sk] = {
         singleRate: singleStaff.days > 0 ? Math.round(singleStaff.totalRate / singleStaff.days) : 0,
         singleDays: singleStaff.days,
         multiRate: multiStaff.days > 0 ? Math.round(multiStaff.totalRate / multiStaff.days) : 0,
         multiDays: multiStaff.days,
-        // Accurate overall from scorecard
-        overallRate: callStats ? callStats.answer_rate : 0,
-        totalInbound: callStats ? callStats.total_inbound : 0,
-        missed: callStats ? callStats.missed : 0,
+        overallRate: storePerfEntry ? storePerfEntry.answer_rate : 0,
+        totalInbound: storePerfEntry ? storePerfEntry.total_calls : 0,
+        missed: storePerfEntry ? storePerfEntry.missed : 0,
       };
     });
     return insights;
