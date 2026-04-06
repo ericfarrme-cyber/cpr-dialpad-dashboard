@@ -278,7 +278,7 @@ export async function GET(request) {
         var pos = positions[s.position_id] || {};
         var empName = ((user.first_name || "") + " " + (user.last_name || "")).trim() || "Unknown";
         var locName = (loc.name || "").toLowerCase();
-        var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : "unknown";
+        var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") || locName.includes("downtown") ? "indianapolis" : "unknown";
         var startDt = new Date(s.start_time);
         var endDt = new Date(s.end_time);
         var hours = Math.round((endDt - startDt) / (1000 * 60 * 60) * 100) / 100;
