@@ -17,14 +17,24 @@ export async function GET(request) {
       getCallSyncState(),
     ]);
 
-    // Compute daily call volume directly from raw callRecords ONLY
-    // CRITICAL: Do NOT count is_missed — it's unreliable (some records have both flags)
-    // Instead: total = all inbound records, answered = is_answered, missed = total - answered
+    // Build daily call volume from TWO sources:
+    // 1. dailyRaw (getDailyCallVolume) — has total and answered per day per store
+    // 2. missedRaw (getHourlyMissed) — individual missed call records with timestamps
+    // We count missedRaw per day per store to get accurate daily missed counts
+    
+    // Count missed calls per day per store from missedRaw
+    const dailyMissedFromRecords = {};
+    for (const row of missedRaw) {
+      if (!row.date_started || !row.store) continue;
+      const dateStr = new Date(row.date_started).toISOString().split("T")[0];
+      const key = dateStr + "|" + row.store;
+      dailyMissedFromRecords[key] = (dailyMissedFromRecords[key] || 0) + 1;
+    }
+
+    // Build daily data from dailyRaw, inject accurate missed from missedRaw
     const dailyMap = {};
-    for (const r of callRecords) {
-      if (!r.date_started || !r.store) continue;
-      if (r.direction && r.direction !== "inbound") continue; // Only count inbound calls
-      const dateStr = new Date(r.date_started).toISOString().split("T")[0];
+    for (const row of dailyRaw) {
+      const dateStr = row.call_date;
       if (!dailyMap[dateStr]) {
         dailyMap[dateStr] = { date: dateStr };
         ["fishers","bloomington","indianapolis"].forEach(s => {
@@ -33,28 +43,42 @@ export async function GET(request) {
           dailyMap[dateStr][`${s}_missed`] = 0;
         });
       }
-      const st = r.store;
-      if (dailyMap[dateStr][`${st}_total`] !== undefined) {
-        dailyMap[dateStr][`${st}_total`]++;
-        if (r.is_answered) dailyMap[dateStr][`${st}_answered`]++;
-      }
+      const answered = row.answered || 0;
+      const missedFromRecords = dailyMissedFromRecords[dateStr + "|" + row.store] || 0;
+      dailyMap[dateStr][`${row.store}_answered`] = answered;
+      dailyMap[dateStr][`${row.store}_missed`] = missedFromRecords;
+      dailyMap[dateStr][`${row.store}_total`] = answered + missedFromRecords;
     }
-    // Derive missed = total - answered (always consistent)
+    
+    // Also add days that only appear in missedRaw (in case dailyRaw missed them)
+    for (const row of missedRaw) {
+      if (!row.date_started || !row.store) continue;
+      const dateStr = new Date(row.date_started).toISOString().split("T")[0];
+      if (!dailyMap[dateStr]) {
+        dailyMap[dateStr] = { date: dateStr };
+        ["fishers","bloomington","indianapolis"].forEach(s => {
+          dailyMap[dateStr][`${s}_total`] = 0;
+          dailyMap[dateStr][`${s}_answered`] = 0;
+          dailyMap[dateStr][`${s}_missed`] = 0;
+        });
+      }
+      // Ensure missed count is set
+      const key = dateStr + "|" + row.store;
+      dailyMap[dateStr][`${row.store}_missed`] = dailyMissedFromRecords[key] || 0;
+      // Ensure total includes missed
+      dailyMap[dateStr][`${row.store}_total`] = (dailyMap[dateStr][`${row.store}_answered`] || 0) + (dailyMap[dateStr][`${row.store}_missed`] || 0);
+    }
+
     const dailyCalls = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
-    dailyCalls.forEach(d => {
-      ["fishers","bloomington","indianapolis"].forEach(s => {
-        d[`${s}_missed`] = Math.max(0, d[`${s}_total`] - d[`${s}_answered`]);
-      });
-    });
 
     // Per-store aggregate stats
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
-      let total = 0, answered = 0;
+      let total = 0, answered = 0, missed = 0;
       dailyCalls.forEach(d => {
         total += d[`${s}_total`] || 0;
         answered += d[`${s}_answered`] || 0;
+        missed += d[`${s}_missed`] || 0;
       });
-      const missed = Math.max(0, total - answered);
       return { store: s, total_calls: total, answered, missed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
 
