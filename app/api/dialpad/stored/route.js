@@ -17,67 +17,30 @@ export async function GET(request) {
       getCallSyncState(),
     ]);
 
-    // Compute daily call volume directly from raw callRecords (bypasses broken getDailyCallVolume SQL)
-    const dailyFromRecords = {};
+    // Compute daily call volume directly from raw callRecords ONLY
+    // This is the single source of truth — no SQL aggregation mixing
+    const dailyMap = {};
     for (const r of callRecords) {
       if (!r.date_started || !r.store) continue;
       const dateStr = new Date(r.date_started).toISOString().split("T")[0];
-      if (!dailyFromRecords[dateStr]) {
-        dailyFromRecords[dateStr] = { date: dateStr };
+      if (!dailyMap[dateStr]) {
+        dailyMap[dateStr] = { date: dateStr };
         ["fishers","bloomington","indianapolis"].forEach(s => {
-          dailyFromRecords[dateStr][`${s}_total`] = 0;
-          dailyFromRecords[dateStr][`${s}_answered`] = 0;
-          dailyFromRecords[dateStr][`${s}_missed`] = 0;
+          dailyMap[dateStr][`${s}_total`] = 0;
+          dailyMap[dateStr][`${s}_answered`] = 0;
+          dailyMap[dateStr][`${s}_missed`] = 0;
         });
       }
       const st = r.store;
-      if (dailyFromRecords[dateStr][`${st}_total`] !== undefined) {
-        dailyFromRecords[dateStr][`${st}_total`]++;
-        if (r.is_answered) {
-          dailyFromRecords[dateStr][`${st}_answered`]++;
-        }
-        if (r.is_missed) {
-          dailyFromRecords[dateStr][`${st}_missed`]++;
-        }
+      if (dailyMap[dateStr][`${st}_total`] !== undefined) {
+        dailyMap[dateStr][`${st}_total`]++;
+        if (r.is_answered) dailyMap[dateStr][`${st}_answered`]++;
+        if (r.is_missed) dailyMap[dateStr][`${st}_missed`]++;
       }
-    }
-    // Use record-based computation as primary, getDailyCallVolume as fallback for date range
-    const recordDays = Object.values(dailyFromRecords).sort((a, b) => a.date.localeCompare(b.date));
-
-    // Merge: use getDailyCallVolume for dates that records don't cover, but override with record data where available
-    const dailyMap = {};
-    // Start with SQL-based data
-    for (const row of dailyRaw) {
-      const dateStr = row.call_date;
-      if (!dailyMap[dateStr]) dailyMap[dateStr] = { date: dateStr };
-      const total = row.total || 0;
-      const answered = row.answered || 0;
-      dailyMap[dateStr][`${row.store}_total`] = total;
-      dailyMap[dateStr][`${row.store}_answered`] = answered;
-      dailyMap[dateStr][`${row.store}_missed`] = Math.max(0, total - answered);
-    }
-    // Override with record-based data (more accurate for missed)
-    for (const rd of recordDays) {
-      if (!dailyMap[rd.date]) dailyMap[rd.date] = { date: rd.date };
-      ["fishers","bloomington","indianapolis"].forEach(s => {
-        const recTotal = rd[`${s}_total`] || 0;
-        const recAnswered = rd[`${s}_answered`] || 0;
-        const recMissed = rd[`${s}_missed`] || 0;
-        const sqlTotal = dailyMap[rd.date][`${s}_total`] || 0;
-        // Use whichever source has higher total (more complete data)
-        if (recTotal >= sqlTotal) {
-          dailyMap[rd.date][`${s}_total`] = recTotal;
-          dailyMap[rd.date][`${s}_answered`] = recAnswered;
-          dailyMap[rd.date][`${s}_missed`] = recMissed;
-        } else {
-          // SQL has more records but missed might be 0 — derive it
-          dailyMap[rd.date][`${s}_missed`] = Math.max(recMissed, sqlTotal - (dailyMap[rd.date][`${s}_answered`] || 0));
-        }
-      });
     }
     const dailyCalls = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
 
-    // Compute per-store aggregate stats
+    // Per-store aggregate stats — single source, always consistent
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
       let total = 0, answered = 0, missed = 0;
       dailyCalls.forEach(d => {
@@ -85,8 +48,6 @@ export async function GET(request) {
         answered += d[`${s}_answered`] || 0;
         missed += d[`${s}_missed`] || 0;
       });
-      // Ensure consistency
-      if (missed === 0 && total > answered) missed = total - answered;
       return { store: s, total_calls: total, answered, missed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
 
