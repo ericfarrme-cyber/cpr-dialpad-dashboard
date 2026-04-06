@@ -1,4 +1,9 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+function getSupabase() {
+  return createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY);
+}
 
 function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type" }; }
 function json(data, status) { return NextResponse.json(data, { status: status || 200, headers: cors() }); }
@@ -84,13 +89,9 @@ export async function POST(request) {
       empTotals[name].entries += 1;
     });
 
-    // Step 3: Fetch shifts — stored (Supabase) first, then live WhenIWork fallback
+    // Step 3: Fetch shifts directly from Supabase (stored permanently)
     var shifts = [];
     try {
-      var host = request.headers.get("host") || "cpr-dialpad-dashboard.vercel.app";
-      var protocol = host.includes("localhost") ? "http" : "https";
-      var baseUrl = protocol + "://" + host;
-
       var startDate = payrollData.pay_period_start ? new Date(payrollData.pay_period_start).toISOString().split("T")[0] : null;
       var endDate = payrollData.pay_period_end ? new Date(payrollData.pay_period_end).toISOString().split("T")[0] : null;
       if (!startDate || !endDate) {
@@ -102,69 +103,48 @@ export async function POST(request) {
       }
 
       if (startDate && endDate) {
-        // Try stored shifts first (permanent Supabase data)
-        console.log("[extract-payroll] Querying stored shifts: " + startDate + " to " + endDate);
-        var storedRes = await fetch(baseUrl + "/api/wheniwork?action=stored-shifts&start=" + startDate + "&end=" + endDate);
-        if (storedRes.ok) {
-          var storedData = await storedRes.json();
-          if (storedData.success && storedData.shifts && storedData.shifts.length > 0) {
-            storedData.shifts.forEach(function(s) {
-              if (s.store && parseFloat(s.hours) > 0) {
-                shifts.push({ employee: (s.employee_name || "").toLowerCase(), store: s.store, hours: parseFloat(s.hours) });
-              }
-            });
-            console.log("[extract-payroll] Got " + shifts.length + " stored shifts from Supabase");
-          }
-        }
+        console.log("[extract-payroll] Querying Supabase shifts: " + startDate + " to " + endDate);
+        var sb = getSupabase();
+        var { data: storedShifts, error: shiftErr } = await sb
+          .from("employee_shifts")
+          .select("employee_name, store, hours")
+          .gte("date", startDate)
+          .lte("date", endDate);
 
-        // Fallback: live WhenIWork if no stored data
-        if (shifts.length === 0) {
-          console.log("[extract-payroll] No stored shifts, trying live WhenIWork...");
-          var wiwRes = await fetch(baseUrl + "/api/wheniwork?action=shifts&start=" + startDate + "&end=" + endDate);
-          if (wiwRes.ok) {
-            var wiwData = await wiwRes.json();
-            if (wiwData.success && wiwData.shifts) {
-              wiwData.shifts.forEach(function(s) {
-                var locName = (s.location || "").toLowerCase();
-                var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") || locName.includes("downtown") ? "indianapolis" : null;
-                var startH = new Date(s.start_time);
-                var endH = new Date(s.end_time);
-                var hours = (endH - startH) / (1000 * 60 * 60);
-                if (store && hours > 0) {
-                  shifts.push({ employee: (s.employee || "").toLowerCase(), store: store, hours: hours });
-                }
-              });
-              console.log("[extract-payroll] Got " + shifts.length + " live shifts");
+        if (shiftErr) {
+          console.log("[extract-payroll] Supabase error:", shiftErr.message);
+        } else if (storedShifts && storedShifts.length > 0) {
+          storedShifts.forEach(function(s) {
+            if (s.store && parseFloat(s.hours) > 0) {
+              shifts.push({ employee: (s.employee_name || "").toLowerCase(), store: s.store, hours: parseFloat(s.hours) });
             }
-          }
+          });
+          console.log("[extract-payroll] Got " + shifts.length + " shifts from Supabase");
+        } else {
+          console.log("[extract-payroll] No shifts found in Supabase for range");
         }
       }
-    } catch (wiwErr) {
-      console.log("[extract-payroll] Shift fetch failed:", wiwErr.message);
+    } catch (err) {
+      console.log("[extract-payroll] Shift query failed:", err.message);
     }
 
     // Also fetch employee roster as fallback for store assignment
     var rosterMap = {};
     try {
-      var host2 = request.headers.get("host") || "cpr-dialpad-dashboard.vercel.app";
-      var proto2 = host2.includes("localhost") ? "http" : "https";
-      var rosterRes = await fetch(proto2 + "://" + host2 + "/api/dialpad/roster");
-      if (rosterRes.ok) {
-        var rosterData = await rosterRes.json();
-        if (rosterData.success && rosterData.roster) {
-          rosterData.roster.forEach(function(r) {
-            if (r.name && r.store) rosterMap[r.name.toLowerCase().trim()] = r.store;
-            // Also index by aliases
-            if (r.aliases) {
-              r.aliases.split(",").forEach(function(a) {
-                var alias = a.trim().toLowerCase();
-                if (alias) rosterMap[alias] = r.store;
-              });
-            }
-          });
-        }
+      var sb2 = getSupabase();
+      var { data: rosterRows, error: rosterErr } = await sb2.from("employee_roster").select("name, store, aliases").eq("active", true);
+      if (!rosterErr && rosterRows) {
+        rosterRows.forEach(function(r) {
+          if (r.name && r.store) rosterMap[r.name.toLowerCase().trim()] = r.store;
+          if (r.aliases) {
+            r.aliases.split(",").forEach(function(a) {
+              var alias = a.trim().toLowerCase();
+              if (alias) rosterMap[alias] = r.store;
+            });
+          }
+        });
       }
-    } catch (rErr) { console.log("[extract-payroll] Roster fetch failed:", rErr.message); }
+    } catch (rErr) { console.log("[extract-payroll] Roster query failed:", rErr.message); }
 
     function findRosterStore(empName) {
       var lower = empName.toLowerCase().trim();
