@@ -126,7 +126,7 @@ export async function POST(request) {
             if (wiwData.success && wiwData.shifts) {
               wiwData.shifts.forEach(function(s) {
                 var locName = (s.location || "").toLowerCase();
-                var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") ? "indianapolis" : null;
+                var store = locName.includes("fishers") ? "fishers" : locName.includes("bloomington") ? "bloomington" : locName.includes("indianapolis") || locName.includes("indy") || locName.includes("downtown") ? "indianapolis" : null;
                 var startH = new Date(s.start_time);
                 var endH = new Date(s.end_time);
                 var hours = (endH - startH) / (1000 * 60 * 60);
