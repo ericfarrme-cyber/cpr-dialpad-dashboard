@@ -371,7 +371,7 @@ export default function ScheduleTab({ storeFilter }) {
 
       // ROI model: based on store's actual profit margin, not just missed calls
       // If we add 1 FTE (~160hrs/mo at ~$15/hr = ~$2,500), what's the impact?
-      var avgTicket = grossRev > 0 && storeCallPerf ? grossRev / storeCallPerf.total_calls : 150;
+      var avgTicket = 175;
       var grossMargin = grossRev > 0 ? (grossRev - totalCogs) / grossRev : 0.55;
       var additionalCost = 2500;
       var recoveredCalls = Math.round(missedCalls * 0.6); // Adding staff recovers ~60% of missed
