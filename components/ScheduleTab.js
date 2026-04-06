@@ -2,433 +2,619 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { STORES } from "@/lib/constants";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 
 var STORE_KEYS = Object.keys(STORES);
 var DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 
-// Map WhenIWork location names to store keys
 var WIW_LOCATION_MAP = {
-  "cpr fishers": "fishers",
-  "cpr bloomington": "bloomington",
-  "cpr downtown": "indianapolis",
-  "cpr indianapolis": "indianapolis",
-  "cpr indy": "indianapolis",
-  "cpr zionsville": "zionsville",
+  "cpr fishers": "fishers", "cpr bloomington": "bloomington",
+  "cpr downtown": "indianapolis", "cpr indianapolis": "indianapolis", "cpr indy": "indianapolis",
 };
 
-function StatCard({ label, value, sub, accent }) {
+function locationToStore(locName) {
+  if (!locName) return null;
+  var lower = locName.toLowerCase().trim();
+  if (WIW_LOCATION_MAP[lower]) return WIW_LOCATION_MAP[lower];
+  if (lower.includes("fishers")) return "fishers";
+  if (lower.includes("bloomington")) return "bloomington";
+  if (lower.includes("indianapolis") || lower.includes("indy") || lower.includes("downtown")) return "indianapolis";
+  return null;
+}
+
+function fmtTime(d) { if (!d) return "--"; return new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+function fmtDate(d) { return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
+function sc(v, g, y) { return v >= g ? "#4ADE80" : v >= y ? "#FBBF24" : "#F87171"; }
+
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload) return null;
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8,padding:"8px 12px" }}>
+      <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>{label}</div>
+      {payload.map(function(p, i) { return <div key={i} style={{ color:p.color,fontSize:11 }}>{p.name}: <strong>{p.value}</strong></div>; })}
     </div>
   );
-}
-
-function SectionHeader({ title, subtitle, icon }) {
-  return (
-    <div style={{ marginBottom:16,display:"flex",alignItems:"center",gap:10 }}>
-      <span style={{ fontSize:20 }}>{icon}</span>
-      <div>
-        <h2 style={{ color:"#F0F1F3",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
-        {subtitle && <p style={{ color:"#6B6F78",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
-      </div>
-    </div>
-  );
-}
-
-function formatTime(dateStr) {
-  if (!dateStr) return "--";
-  var d = new Date(dateStr);
-  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
-
-function getWeekDates() {
-  var now = new Date();
-  var day = now.getDay();
-  var monday = new Date(now);
-  monday.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
-  var dates = [];
-  for (var i = 0; i < 7; i++) {
-    var d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    dates.push(d);
-  }
-  return dates;
 }
 
 export default function ScheduleTab({ storeFilter }) {
   var [wiwStatus, setWiwStatus] = useState(null);
   var [todayShifts, setTodayShifts] = useState([]);
-  var [weekShifts, setWeekShifts] = useState({ shifts: [], users: {}, locations: {}, positions: {} });
+  var [weekShifts, setWeekShifts] = useState({ shifts: [] });
+  var [storedShifts, setStoredShifts] = useState([]);
+  var [callData, setCallData] = useState(null);
   var [loading, setLoading] = useState(true);
-  var [view, setView] = useState("today");
-  var [weekOffset, setWeekOffset] = useState(0);
+  var [subTab, setSubTab] = useState("coverage");
   var [scheduleStoreFilter, setScheduleStoreFilter] = useState("all");
   var [roster, setRoster] = useState([]);
 
-  // Resolve WIW location name to store key
-  function locationToStore(locName) {
-    if (!locName) return null;
-    var lower = locName.toLowerCase().trim();
-    // Direct map first
-    if (WIW_LOCATION_MAP[lower]) return WIW_LOCATION_MAP[lower];
-    // Fuzzy match against store names
-    for (var i = 0; i < STORE_KEYS.length; i++) {
-      var storeName = STORES[STORE_KEYS[i]].name.replace("CPR ", "").toLowerCase();
-      if (lower.includes(storeName) || storeName.includes(lower.replace("cpr ", ""))) return STORE_KEYS[i];
-    }
-    return null;
-  }
-
-  // Resolve WIW employee name against roster
-  function resolveEmployee(firstName, lastName) {
-    var full = ((firstName || "") + " " + (lastName || "")).trim();
-    if (!full || roster.length === 0) return full;
-    var lower = full.toLowerCase();
-    // Exact match
+  function resolveEmployee(name) {
+    if (!name || roster.length === 0) return name;
+    var lower = name.toLowerCase();
     var match = roster.find(function(r) { return r.name.toLowerCase() === lower; });
     if (match) return match.name;
-    // Last name match
-    var last = (lastName || "").toLowerCase();
-    if (last.length >= 3) {
-      match = roster.find(function(r) { return r.name.toLowerCase().includes(last); });
+    var parts = lower.split(/\s+/);
+    if (parts.length >= 2) {
+      match = roster.find(function(r) { return r.name.toLowerCase().includes(parts[parts.length-1]) && parts[parts.length-1].length > 2; });
       if (match) return match.name;
     }
-    // First name match
-    var first = (firstName || "").toLowerCase();
-    if (first.length >= 3) {
-      match = roster.find(function(r) { return r.name.toLowerCase().includes(first); });
-      if (match) return match.name;
-    }
-    return full;
+    return name;
   }
 
   useEffect(function() {
     async function load() {
       setLoading(true);
       try {
-        // Load roster for name matching
-        var rosterRes = await fetch("/api/dialpad/roster");
-        var rosterJson = await rosterRes.json();
-        if (rosterJson.success) setRoster(rosterJson.roster || []);
+        var now = new Date();
+        var todayStr = fmtDate(now);
+        var weekAgo = fmtDate(new Date(now.getTime() - 7*86400000));
+        var weekAhead = fmtDate(new Date(now.getTime() + 7*86400000));
 
-        // Check WhenIWork status
-        var statusRes = await fetch("/api/wheniwork?action=status");
-        var statusJson = await statusRes.json();
-        setWiwStatus(statusJson);
+        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes] = await Promise.allSettled([
+          fetch("/api/dialpad/roster").then(function(r){return r.json();}),
+          fetch("/api/wheniwork?action=status").then(function(r){return r.json();}),
+          fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
+          fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
+          fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
+          fetch("/api/dialpad/stored?days=7").then(function(r){return r.json();}),
+        ]);
 
-        if (statusJson.success && statusJson.authenticated) {
-          // Load today's shifts — send local date to avoid timezone issues
-          var localToday = new Date();
-          var todayStr = localToday.getFullYear() + "-" + String(localToday.getMonth()+1).padStart(2,"0") + "-" + String(localToday.getDate()).padStart(2,"0");
-          var todayRes = await fetch("/api/wheniwork?action=today&date=" + todayStr);
-          var todayJson = await todayRes.json();
-          if (todayJson.success) setTodayShifts(todayJson.shifts || []);
-
-          // Load week shifts
-          var weekDates = getWeekDates();
-          var start = weekDates[0].toISOString().split("T")[0];
-          var end = weekDates[6].toISOString().split("T")[0];
-          var weekRes = await fetch("/api/wheniwork?action=shifts&start=" + start + "&end=" + end);
-          var weekJson = await weekRes.json();
-          if (weekJson.success) setWeekShifts(weekJson);
-        }
+        if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
+        if (statusRes.status === "fulfilled") setWiwStatus(statusRes.value);
+        if (todayRes.status === "fulfilled" && todayRes.value.success) setTodayShifts(todayRes.value.shifts || []);
+        if (weekRes.status === "fulfilled" && weekRes.value.success) setWeekShifts(weekRes.value);
+        if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
+        if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
       } catch(e) { console.error("Schedule load error:", e); }
       setLoading(false);
     }
     load();
-  }, [weekOffset]);
+  }, []);
 
-  // Group today's shifts by store
+  // ═══ TODAY'S SHIFTS BY STORE ═══
   var todayByStore = useMemo(function() {
-    var groups = {};
-    STORE_KEYS.forEach(function(k) { groups[k] = []; });
+    var groups = {}; STORE_KEYS.forEach(function(k) { groups[k] = []; });
     todayShifts.forEach(function(s) {
-      var storeKey = locationToStore(s.location);
-      if (storeKey && groups[storeKey]) {
-        var resolved = Object.assign({}, s, { employee: resolveEmployee(null, null) });
-        // Parse first/last from the employee field if it's "First Last"
-        var parts = (s.employee || "").split(/\s+/);
-        resolved.employee = resolveEmployee(parts[0], parts.slice(1).join(" "));
-        groups[storeKey].push(resolved);
-      }
+      var sk = locationToStore(s.location);
+      if (sk && groups[sk]) groups[sk].push(Object.assign({}, s, { employee: resolveEmployee(s.employee) }));
     });
     return groups;
   }, [todayShifts, roster]);
 
-  // Build weekly grid data
+  // ═══ HOURLY COVERAGE MODEL ═══
+  var hourlyCoverage = useMemo(function() {
+    if (!callData) return null;
+    var hourly = callData.hourlyMissed || [];
+    var result = [];
+    for (var h = 8; h <= 20; h++) {
+      var label = (h > 12 ? (h-12) : h) + (h >= 12 ? "PM" : "AM");
+      var row = { hour: label, hourNum: h };
+      STORE_KEYS.forEach(function(sk) {
+        // Count staff on shift at this hour
+        var staffCount = 0;
+        (todayByStore[sk] || []).forEach(function(s) {
+          var start = new Date(s.start_time).getHours();
+          var end = new Date(s.end_time).getHours();
+          if (h >= start && h < end) staffCount++;
+        });
+        row[sk + "_staff"] = staffCount;
+        // Get historical missed calls for this hour
+        var missedEntry = hourly.find(function(hm) {
+          var hmHour = parseInt(hm.hour);
+          if (isNaN(hmHour) && hm.hour) {
+            var m = hm.hour.match(/(\d+)/);
+            if (m) hmHour = parseInt(m[1]);
+            if (hm.hour.includes("PM") && hmHour !== 12) hmHour += 12;
+            if (hm.hour.includes("AM") && hmHour === 12) hmHour = 0;
+          }
+          return hmHour === h;
+        });
+        row[sk + "_missed"] = missedEntry ? (missedEntry[sk] || 0) : 0;
+        // Coverage status
+        row[sk + "_status"] = staffCount === 0 ? "none" : (row[sk + "_missed"] > 5 && staffCount < 2) ? "under" : "ok";
+      });
+      result.push(row);
+    }
+    return result;
+  }, [callData, todayByStore]);
+
+  // ═══ WEEKLY SCHEDULE GRID ═══
+  var weekDates = useMemo(function() {
+    var now = new Date();
+    var day = now.getDay();
+    var monday = new Date(now);
+    monday.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
+    var dates = [];
+    for (var i = 0; i < 7; i++) { var d = new Date(monday); d.setDate(monday.getDate() + i); dates.push(d); }
+    return dates;
+  }, []);
+
   var weekGrid = useMemo(function() {
     if (!weekShifts.shifts || weekShifts.shifts.length === 0) return [];
-    var weekDates = getWeekDates();
     var byUser = {};
     weekShifts.shifts.forEach(function(s) {
       if (s.is_open) return;
-      var user = weekShifts.users[s.user_id];
-      var firstName = user ? user.first_name : "";
-      var lastName = user ? user.last_name : "";
-      var name = resolveEmployee(firstName, lastName) || "Unknown";
+      var name = resolveEmployee(s.employee || "Unknown");
       var storeKey = locationToStore(s.location) || "";
-
-      // Apply store filter
       if (scheduleStoreFilter !== "all" && storeKey !== scheduleStoreFilter) return;
-
-      var userKey = name + "|" + storeKey;
+      var userKey = name;
       if (!byUser[userKey]) byUser[userKey] = { name: name, store: storeKey, days: [null,null,null,null,null,null,null], totalHours: 0 };
       var shiftDate = new Date(s.start_time);
-      var dayIdx = weekDates.findIndex(function(d) {
-        return d.toDateString() === shiftDate.toDateString();
-      });
+      var dayIdx = weekDates.findIndex(function(d) { return d.toDateString() === shiftDate.toDateString(); });
       if (dayIdx >= 0) {
         var hours = (new Date(s.end_time) - new Date(s.start_time)) / 3600000;
-        byUser[userKey].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours, store: storeKey };
+        byUser[userKey].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours, store: storeKey, location: s.location };
         byUser[userKey].totalHours += hours;
+        if (storeKey) byUser[userKey].store = storeKey;
       }
     });
-    return Object.values(byUser).sort(function(a,b){ return b.totalHours - a.totalHours; });
-  }, [weekShifts, roster, scheduleStoreFilter]);
+    return Object.values(byUser).sort(function(a,b) { return b.totalHours - a.totalHours; });
+  }, [weekShifts, roster, scheduleStoreFilter, weekDates]);
 
-  var totalWeekHours = weekGrid.reduce(function(s,e){ return s + e.totalHours; }, 0);
+  // ═══ SCHEDULE VS REALITY (Last 7 days) ═══
+  var scheduleVsReality = useMemo(function() {
+    if (!callData || !callData.dailyCalls) return null;
+    var daily = callData.dailyCalls;
+    var result = [];
+    daily.forEach(function(day) {
+      var dateStr = day.date;
+      var row = { date: dateStr };
+      STORE_KEYS.forEach(function(sk) {
+        var total = day[sk + "_total"] || 0;
+        var answered = day[sk + "_answered"] || 0;
+        var missed = Math.max(0, total - answered);
+        var rate = total > 0 ? Math.round(answered / total * 100) : 0;
+        // Count staff scheduled that day from stored shifts
+        var staffOnDay = storedShifts.filter(function(s) {
+          return s.store === sk && s.date === dateStr;
+        });
+        var staffCount = staffOnDay.length;
+        var staffHours = staffOnDay.reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
+        row[sk + "_total"] = total;
+        row[sk + "_answered"] = answered;
+        row[sk + "_missed"] = missed;
+        row[sk + "_rate"] = rate;
+        row[sk + "_staff"] = staffCount;
+        row[sk + "_staffHours"] = Math.round(staffHours * 10) / 10;
+        row[sk + "_callsPerStaff"] = staffCount > 0 ? Math.round(total / staffCount * 10) / 10 : total;
+      });
+      result.push(row);
+    });
+    return result;
+  }, [callData, storedShifts]);
 
-  var SUBTABS = [
-    { id: "today", label: "Today", icon: "\u2600\ufe0f" },
-    { id: "week", label: "Weekly View", icon: "\ud83d\udcc5" },
-    { id: "hours", label: "Hours Tracking", icon: "\u23f0" },
+  // ═══ STAFFING INSIGHT ═══
+  var staffingInsight = useMemo(function() {
+    if (!scheduleVsReality) return null;
+    var insights = {};
+    STORE_KEYS.forEach(function(sk) {
+      var singleStaff = { days: 0, totalRate: 0 };
+      var multiStaff = { days: 0, totalRate: 0 };
+      scheduleVsReality.forEach(function(day) {
+        if (day[sk + "_total"] === 0) return;
+        if (day[sk + "_staff"] <= 1) {
+          singleStaff.days++; singleStaff.totalRate += day[sk + "_rate"];
+        } else {
+          multiStaff.days++; multiStaff.totalRate += day[sk + "_rate"];
+        }
+      });
+      insights[sk] = {
+        singleRate: singleStaff.days > 0 ? Math.round(singleStaff.totalRate / singleStaff.days) : 0,
+        singleDays: singleStaff.days,
+        multiRate: multiStaff.days > 0 ? Math.round(multiStaff.totalRate / multiStaff.days) : 0,
+        multiDays: multiStaff.days,
+      };
+    });
+    return insights;
+  }, [scheduleVsReality]);
+
+  // ═══ HOURS BY EMPLOYEE (from stored shifts) ═══
+  var hoursByEmployee = useMemo(function() {
+    var byEmp = {};
+    storedShifts.forEach(function(s) {
+      var name = s.employee_name || "Unknown";
+      if (!byEmp[name]) byEmp[name] = { name: name, fishers: 0, bloomington: 0, indianapolis: 0, total: 0 };
+      var h = parseFloat(s.hours) || 0;
+      byEmp[name][s.store] = (byEmp[name][s.store] || 0) + h;
+      byEmp[name].total += h;
+    });
+    return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
+  }, [storedShifts]);
+
+  var SUB_TABS = [
+    { id: "coverage", label: "Live Coverage", icon: "\uD83D\uDFE2" },
+    { id: "reality", label: "Schedule vs Reality", icon: "\uD83D\uDD0D" },
+    { id: "week", label: "Weekly View", icon: "\uD83D\uDCC5" },
+    { id: "hours", label: "Hours Tracking", icon: "\u23F0" },
   ];
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading schedule...</div>;
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading labor intelligence...</div>;
 
-  // Not connected state
-  if (!wiwStatus || !wiwStatus.success || !wiwStatus.authenticated) {
-    return (
-      <div>
-        <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",border:"1px solid #FBBF2433" }}>
-          <div style={{ fontSize:48,marginBottom:16 }}>{"\ud83d\udcc5"}</div>
-          <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:700,marginBottom:8 }}>Connect WhenIWork</div>
-          <div style={{ color:"#6B6F78",fontSize:14,marginBottom:24,maxWidth:500,margin:"0 auto 24px" }}>
-            The Schedule tab needs WhenIWork API access to display shifts, weekly schedules, and hours tracking across your stores.
-          </div>
-
-          <div style={{ background:"#12141A",borderRadius:12,padding:24,maxWidth:480,margin:"0 auto",textAlign:"left" }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>Setup Steps:</div>
-            {[
-              { n: "1", t: "Get WhenIWork API Key", d: "Log in as admin, go to Settings > Integrations or email WhenIWork support requesting a developer key." },
-              { n: "2", t: "Add Vercel Environment Variables", d: "WHENIWORK_KEY, WHENIWORK_EMAIL, WHENIWORK_PASSWORD" },
-              { n: "3", t: "Deploy & Refresh", d: "After adding env vars, redeploy on Vercel and refresh this page." },
-            ].map(function(step) {
-              return (
-                <div key={step.n} style={{ display:"flex",gap:12,marginBottom:16 }}>
-                  <div style={{ width:28,height:28,borderRadius:8,background:"#7C8AFF22",color:"#7C8AFF",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:13,flexShrink:0 }}>{step.n}</div>
-                  <div>
-                    <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{step.t}</div>
-                    <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{step.d}</div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {wiwStatus && wiwStatus.error && (
-            <div style={{ marginTop:16,padding:"8px 16px",borderRadius:8,background:"#F8717112",border:"1px solid #F8717133",color:"#F87171",fontSize:12,maxWidth:480,margin:"16px auto 0" }}>
-              {wiwStatus.error}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  // Connected state
   return (
     <div>
-      {/* Sub-nav */}
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
+      {/* WhenIWork Status */}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
         <div style={{ display:"flex",gap:4 }}>
-          {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7C8AFF22":"#1A1D23",color:view===v.id?"#7C8AFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          {SUB_TABS.map(function(t) {
+            return <button key={t.id} onClick={function(){setSubTab(t.id);}} style={{
+              padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",
+              background:subTab===t.id?"#7B2FFF22":"#1A1D23",color:subTab===t.id?"#7B2FFF":"#8B8F98",
+              fontSize:12,fontWeight:600
+            }}>{t.icon+" "+t.label}</button>;
           })}
         </div>
-        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-          <span style={{ width:8,height:8,borderRadius:"50%",background:"#4ADE80" }}></span>
-          <span style={{ color:"#4ADE80",fontSize:11 }}>WhenIWork Connected</span>
-        </div>
+        {wiwStatus && wiwStatus.authenticated && <span style={{ color:"#4ADE80",fontSize:11 }}>{"\u25CF"} WhenIWork Connected</span>}
       </div>
 
-      {/* Store filter for weekly/hours views */}
-      {(view === "week" || view === "hours") && (
-        <div style={{ display:"flex",gap:4,marginBottom:16 }}>
-          <button onClick={function(){setScheduleStoreFilter("all");}}
-            style={{ padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",background:scheduleStoreFilter==="all"?"#7C8AFF22":"#1A1D23",color:scheduleStoreFilter==="all"?"#7C8AFF":"#8B8F98",fontSize:11,fontWeight:600 }}>
-            All Stores
-          </button>
-          {STORE_KEYS.map(function(key) {
-            var store = STORES[key];
-            return (
-              <button key={key} onClick={function(){setScheduleStoreFilter(key);}}
-                style={{ padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",background:scheduleStoreFilter===key?store.color+"22":"#1A1D23",color:scheduleStoreFilter===key?store.color:"#8B8F98",fontSize:11,fontWeight:600 }}>
-                {store.name.replace("CPR ","")}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {/* TODAY */}
-      {view === "today" && (
+      {/* ═══════════════════════════════════════════ */}
+      {/* LIVE COVERAGE DASHBOARD */}
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "coverage" && (
         <div>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
-            {STORE_KEYS.map(function(key) {
-              var store = STORES[key];
-              var shifts = todayByStore[key] || [];
-              return (
-                <StatCard key={key} label={store.name.replace("CPR ","")} value={shifts.length} accent={store.color} sub={shifts.length === 1 ? "employee today" : "employees today"} />
-              );
-            })}
-          </div>
+          {/* Today's date */}
+          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Live Coverage Dashboard</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>{new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric", year:"numeric" })}</div>
 
-          <SectionHeader title={"Today's Schedule"} subtitle={new Date().toLocaleDateString([],{weekday:"long",month:"long",day:"numeric"})} icon={"\u2600\ufe0f"} />
+          {/* Per-store coverage cards */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:24 }}>
+            {STORE_KEYS.map(function(sk) {
+              var store = STORES[sk];
+              var shifts = todayByStore[sk] || [];
+              var now = new Date();
+              var currentHour = now.getHours();
+              var currentStaff = shifts.filter(function(s) {
+                return new Date(s.start_time).getHours() <= currentHour && new Date(s.end_time).getHours() > currentHour;
+              });
+              // Check next 3 hours
+              var upcoming = [];
+              for (var h = 1; h <= 3; h++) {
+                var futureHour = currentHour + h;
+                if (futureHour > 20) break;
+                var futureStaff = shifts.filter(function(s) {
+                  return new Date(s.start_time).getHours() <= futureHour && new Date(s.end_time).getHours() > futureHour;
+                });
+                var hourLabel = (futureHour > 12 ? futureHour-12 : futureHour) + (futureHour >= 12 ? "PM" : "AM");
+                var expectedMissed = hourlyCoverage ? (hourlyCoverage.find(function(hc) { return hc.hourNum === futureHour; }) || {})[sk+"_missed"] || 0 : 0;
+                upcoming.push({ hour: hourLabel, staff: futureStaff.length, expectedCalls: expectedMissed > 0 ? Math.round(expectedMissed * 4) : 0, expectedMissed: expectedMissed });
+              }
 
-          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:16 }}>
-            {STORE_KEYS.map(function(key) {
-              var store = STORES[key];
-              var shifts = todayByStore[key] || [];
+              var statusColor = currentStaff.length === 0 ? "#F87171" : currentStaff.length < 2 ? "#FBBF24" : "#4ADE80";
+              var statusText = currentStaff.length === 0 ? "NO COVERAGE" : currentStaff.length < 2 ? "SINGLE COVERAGE" : "FULLY STAFFED";
+
               return (
-                <div key={key} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:16 }}>
-                    <div style={{ width:32,height:32,borderRadius:8,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800 }}>{store.icon}</div>
-                    <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{store.name}</div>
+                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
+                    <div style={{ color:store.color,fontSize:14,fontWeight:700 }}>{store.name.replace("CPR ","")}</div>
+                    <div style={{ padding:"3px 8px",borderRadius:4,background:statusColor+"18",color:statusColor,fontSize:9,fontWeight:700 }}>{statusText}</div>
                   </div>
-                  {shifts.length > 0 ? shifts.map(function(s, i) {
-                    return (
-                      <div key={i} style={{ padding:"10px 0",borderBottom:i<shifts.length-1?"1px solid #2A2D35":"none" }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                          <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{s.employee}</div>
-                          <div style={{ color:"#8B8F98",fontSize:11 }}>{s.position}</div>
-                        </div>
-                        <div style={{ color:store.color,fontSize:12,marginTop:4 }}>
-                          {formatTime(s.start_time) + " - " + formatTime(s.end_time)}
-                        </div>
-                        {s.notes && <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>{s.notes}</div>}
-                      </div>
-                    );
-                  }) : (
-                    <div style={{ color:"#6B6F78",fontSize:12,textAlign:"center",padding:20 }}>No shifts today</div>
+
+                  {/* Current staff */}
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:6 }}>On Shift Now</div>
+                    {currentStaff.length > 0 ? currentStaff.map(function(s, i) {
+                      return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
+                        <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{s.employee}</span>
+                        <span style={{ color:"#6B6F78",fontSize:10 }}>{fmtTime(s.start_time)} - {fmtTime(s.end_time)}</span>
+                      </div>;
+                    }) : <div style={{ color:"#F87171",fontSize:11 }}>No one on shift</div>}
+                  </div>
+
+                  {/* All today's shifts */}
+                  <div style={{ marginBottom:14 }}>
+                    <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Full Day ({shifts.length} shifts)</div>
+                    {shifts.map(function(s, i) {
+                      var isNow = new Date(s.start_time).getHours() <= currentHour && new Date(s.end_time).getHours() > currentHour;
+                      return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"3px 0",color:isNow ? "#F0F1F3" : "#6B6F78",fontSize:11 }}>
+                        <span style={{ fontWeight:isNow?600:400 }}>{isNow ? "\u25CF " : ""}{s.employee}</span>
+                        <span>{fmtTime(s.start_time)}-{fmtTime(s.end_time)}</span>
+                      </div>;
+                    })}
+                    {shifts.length === 0 && <div style={{ color:"#F87171",fontSize:10 }}>No shifts scheduled</div>}
+                  </div>
+
+                  {/* Next 3 hours forecast */}
+                  {upcoming.length > 0 && (
+                    <div>
+                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Next Hours Forecast</div>
+                      {upcoming.map(function(u, i) {
+                        var risk = u.staff === 0 ? "#F87171" : (u.expectedMissed > 3 && u.staff < 2) ? "#FBBF24" : "#4ADE80";
+                        return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"3px 0",alignItems:"center" }}>
+                          <span style={{ color:"#C8CAD0",fontSize:11 }}>{u.hour}</span>
+                          <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                            <span style={{ color:"#6B6F78",fontSize:10 }}>{u.staff} staff</span>
+                            <span style={{ width:8,height:8,borderRadius:"50%",background:risk }} />
+                          </div>
+                        </div>;
+                      })}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
+
+          {/* Hourly Coverage Heat Map */}
+          {hourlyCoverage && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>Hourly Coverage vs Historical Missed Calls</div>
+              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Staff count today vs 30-day average missed calls per hour</div>
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%",borderCollapse:"collapse",minWidth:600 }}>
+                  <thead>
+                    <tr>
+                      <th style={{ padding:"6px 8px",textAlign:"left",color:"#8B8F98",fontSize:9,fontWeight:700 }}>HOUR</th>
+                      {STORE_KEYS.map(function(sk) {
+                        return [
+                          <th key={sk+"s"} style={{ padding:"6px 4px",textAlign:"center",color:STORES[sk].color,fontSize:9,fontWeight:700 }}>{STORES[sk].name.replace("CPR ","").substring(0,5).toUpperCase()} STAFF</th>,
+                          <th key={sk+"m"} style={{ padding:"6px 4px",textAlign:"center",color:"#F87171",fontSize:9,fontWeight:700 }}>MISSED</th>,
+                        ];
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hourlyCoverage.map(function(row) {
+                      var isCurrentHour = row.hourNum === new Date().getHours();
+                      return (
+                        <tr key={row.hour} style={{ background:isCurrentHour ? "#7B2FFF08" : "transparent",borderBottom:"1px solid #1E2028" }}>
+                          <td style={{ padding:"5px 8px",color:isCurrentHour ? "#7B2FFF" : "#C8CAD0",fontSize:11,fontWeight:isCurrentHour?700:400 }}>{isCurrentHour ? "\u25B6 " : ""}{row.hour}</td>
+                          {STORE_KEYS.map(function(sk) {
+                            var staff = row[sk+"_staff"];
+                            var missed = row[sk+"_missed"];
+                            var risk = staff === 0 && missed > 0 ? "#F87171" : staff < 2 && missed > 3 ? "#FBBF24" : "#4ADE80";
+                            return [
+                              <td key={sk+"s"} style={{ padding:"5px 4px",textAlign:"center",color:staff > 0 ? "#F0F1F3" : "#F87171",fontSize:12,fontWeight:600 }}>{staff}</td>,
+                              <td key={sk+"m"} style={{ padding:"5px 4px",textAlign:"center" }}>
+                                {missed > 0 ? <span style={{ padding:"2px 6px",borderRadius:4,background:risk+"18",color:risk,fontSize:10,fontWeight:600 }}>{missed}</span> : <span style={{ color:"#2A2D35",fontSize:10 }}>0</span>}
+                              </td>,
+                            ];
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* WEEKLY VIEW */}
-      {view === "week" && (
+      {/* ═══════════════════════════════════════════ */}
+      {/* SCHEDULE VS REALITY */}
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "reality" && (
         <div>
-          <SectionHeader title="Weekly Schedule" subtitle={"Week of " + getWeekDates()[0].toLocaleDateString([],{month:"short",day:"numeric"}) + " - " + getWeekDates()[6].toLocaleDateString([],{month:"short",day:"numeric"})} icon={"\ud83d\udcc5"} />
+          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Schedule vs Reality</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>What was scheduled vs what actually happened — last 7 days</div>
 
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,overflowX:"auto" }}>
-            <table style={{ width:"100%",borderCollapse:"collapse",minWidth:700 }}>
+          {/* Staffing insight cards */}
+          {staffingInsight && (
+            <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
+              {STORE_KEYS.map(function(sk) {
+                var store = STORES[sk];
+                var ins = staffingInsight[sk];
+                var delta = ins.multiRate - ins.singleRate;
+                return (
+                  <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                    <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:12 }}>{store.name.replace("CPR ","")}</div>
+                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10 }}>
+                      <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                        <div style={{ color:"#FBBF24",fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>1 Staff</div>
+                        <div style={{ color:sc(ins.singleRate,85,70),fontSize:22,fontWeight:800 }}>{ins.singleRate}%</div>
+                        <div style={{ color:"#6B6F78",fontSize:9 }}>answer rate</div>
+                        <div style={{ color:"#6B6F78",fontSize:9 }}>{ins.singleDays} days</div>
+                      </div>
+                      <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
+                        <div style={{ color:"#4ADE80",fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>2+ Staff</div>
+                        <div style={{ color:sc(ins.multiRate,85,70),fontSize:22,fontWeight:800 }}>{ins.multiRate}%</div>
+                        <div style={{ color:"#6B6F78",fontSize:9 }}>answer rate</div>
+                        <div style={{ color:"#6B6F78",fontSize:9 }}>{ins.multiDays} days</div>
+                      </div>
+                    </div>
+                    {delta > 0 && ins.singleDays > 0 && (
+                      <div style={{ padding:"6px 10px",borderRadius:6,background:"#7B2FFF08",border:"1px solid #7B2FFF22",color:"#7B2FFF",fontSize:10,textAlign:"center" }}>
+                        Adding a 2nd person improves answer rate by <strong>+{delta}%</strong>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Daily breakdown table */}
+          {scheduleVsReality && (
+            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Daily Breakdown</div>
+              <div style={{ overflowX:"auto" }}>
+                <table style={{ width:"100%",borderCollapse:"collapse",minWidth:800 }}>
+                  <thead>
+                    <tr style={{ borderBottom:"2px solid #2A2D35" }}>
+                      <th style={{ padding:"8px",textAlign:"left",color:"#8B8F98",fontSize:9,fontWeight:700 }}>DATE</th>
+                      {STORE_KEYS.map(function(sk) {
+                        return [
+                          <th key={sk+"st"} style={{ padding:"8px 4px",textAlign:"center",color:STORES[sk].color,fontSize:9,fontWeight:700 }}>STAFF</th>,
+                          <th key={sk+"c"} style={{ padding:"8px 4px",textAlign:"center",color:"#8B8F98",fontSize:9,fontWeight:700 }}>CALLS</th>,
+                          <th key={sk+"m"} style={{ padding:"8px 4px",textAlign:"center",color:"#F87171",fontSize:9,fontWeight:700 }}>MISS</th>,
+                          <th key={sk+"r"} style={{ padding:"8px 4px",textAlign:"center",color:"#8B8F98",fontSize:9,fontWeight:700 }}>RATE</th>,
+                        ];
+                      })}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scheduleVsReality.map(function(day) {
+                      return (
+                        <tr key={day.date} style={{ borderBottom:"1px solid #1E2028" }}>
+                          <td style={{ padding:"6px 8px",color:"#C8CAD0",fontSize:11,fontWeight:600 }}>{day.date}</td>
+                          {STORE_KEYS.map(function(sk) {
+                            var staff = day[sk+"_staff"];
+                            var total = day[sk+"_total"];
+                            var missed = day[sk+"_missed"];
+                            var rate = day[sk+"_rate"];
+                            return [
+                              <td key={sk+"st"} style={{ padding:"6px 4px",textAlign:"center",color:staff > 1 ? "#4ADE80" : staff === 1 ? "#FBBF24" : "#F87171",fontSize:12,fontWeight:700 }}>{staff}</td>,
+                              <td key={sk+"c"} style={{ padding:"6px 4px",textAlign:"center",color:"#C8CAD0",fontSize:11 }}>{total}</td>,
+                              <td key={sk+"m"} style={{ padding:"6px 4px",textAlign:"center",color:missed > 0 ? "#F87171" : "#4ADE80",fontSize:11,fontWeight:600 }}>{missed}</td>,
+                              <td key={sk+"r"} style={{ padding:"6px 4px",textAlign:"center" }}>
+                                <span style={{ padding:"2px 6px",borderRadius:4,background:sc(rate,85,70)+"18",color:sc(rate,85,70),fontSize:10,fontWeight:600 }}>{rate}%</span>
+                              </td>,
+                            ];
+                          })}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════ */}
+      {/* WEEKLY VIEW */}
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "week" && (
+        <div>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
+            <div>
+              <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Weekly Schedule</div>
+              <div style={{ color:"#6B6F78",fontSize:12 }}>Week of {weekDates[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})} - {weekDates[6].toLocaleDateString(undefined,{month:"short",day:"numeric"})}</div>
+            </div>
+            <div style={{ display:"flex",gap:6 }}>
+              {[{id:"all",label:"All Stores"}].concat(STORE_KEYS.map(function(k){return{id:k,label:STORES[k].name.replace("CPR ","")}})).map(function(f) {
+                return <button key={f.id} onClick={function(){setScheduleStoreFilter(f.id);}} style={{
+                  padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",
+                  background:scheduleStoreFilter===f.id?"#7B2FFF22":"#12141A",color:scheduleStoreFilter===f.id?"#7B2FFF":"#8B8F98",fontSize:11,fontWeight:600
+                }}>{f.label}</button>;
+              })}
+            </div>
+          </div>
+
+          <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+            <table style={{ width:"100%",borderCollapse:"collapse" }}>
               <thead>
-                <tr style={{ borderBottom:"1px solid #2A2D35" }}>
-                  <th style={{ textAlign:"left",padding:"10px 12px",color:"#8B8F98",fontSize:10,textTransform:"uppercase",width:120 }}>Employee</th>
-                  {getWeekDates().map(function(d, i) {
+                <tr style={{ borderBottom:"2px solid #2A2D35" }}>
+                  <th style={{ padding:"10px 12px",textAlign:"left",color:"#8B8F98",fontSize:10,fontWeight:700,width:140 }}>EMPLOYEE</th>
+                  {weekDates.map(function(d, i) {
                     var isToday = d.toDateString() === new Date().toDateString();
-                    return <th key={i} style={{ textAlign:"center",padding:"10px 6px",color:isToday?"#7C8AFF":"#6B6F78",fontSize:10,textTransform:"uppercase",background:isToday?"#7C8AFF08":"transparent",borderRadius:isToday?"6px 6px 0 0":"0" }}>
-                      {DAYS[d.getDay()]+" "+d.getDate()}
+                    return <th key={i} style={{ padding:"10px 6px",textAlign:"center",color:isToday?"#7B2FFF":"#8B8F98",fontSize:10,fontWeight:700 }}>
+                      {DAYS[d.getDay()]} {d.getDate()}
                     </th>;
                   })}
-                  <th style={{ textAlign:"right",padding:"10px 12px",color:"#8B8F98",fontSize:10 }}>TOTAL</th>
+                  <th style={{ padding:"10px 8px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>TOTAL</th>
                 </tr>
               </thead>
               <tbody>
-                {weekGrid.map(function(emp, i) {
-                  var empStore = STORES[emp.store];
+                {weekGrid.map(function(emp) {
+                  var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#6B6F78";
                   return (
-                    <tr key={i} style={{ borderBottom:"1px solid #1E2028" }}>
-                      <td style={{ padding:"10px 12px",fontSize:13,fontWeight:600 }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                          {empStore && <span style={{ width:6,height:6,borderRadius:"50%",background:empStore.color,flexShrink:0 }}></span>}
-                          <span style={{ color:"#F0F1F3" }}>{emp.name}</span>
-                        </div>
+                    <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
+                      <td style={{ padding:"8px 12px" }}>
+                        <div style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</div>
+                        <div style={{ color:storeColor,fontSize:9 }}>{emp.store ? STORES[emp.store].name.replace("CPR ","") : ""}</div>
                       </td>
-                      {emp.days.map(function(shift, j) {
-                        var isToday = getWeekDates()[j].toDateString() === new Date().toDateString();
-                        if (!shift) return <td key={j} style={{ textAlign:"center",padding:"8px 4px",color:"#2A2D35",fontSize:11,background:isToday?"#7C8AFF04":"transparent" }}>—</td>;
-                        return (
-                          <td key={j} style={{ textAlign:"center",padding:"8px 4px",background:isToday?"#7C8AFF04":"transparent" }}>
-                            <div style={{ padding:"4px 6px",borderRadius:6,background:"#7C8AFF12",border:"1px solid #7C8AFF22" }}>
-                              <div style={{ color:"#C8CAD0",fontSize:10 }}>{formatTime(shift.start)}</div>
-                              <div style={{ color:"#6B6F78",fontSize:9 }}>{shift.hours.toFixed(1)+"h"}</div>
-                            </div>
-                          </td>
-                        );
+                      {emp.days.map(function(day, i) {
+                        if (!day) return <td key={i} style={{ padding:"6px",textAlign:"center",color:"#2A2D35",fontSize:10 }}>—</td>;
+                        var dayStore = STORES[day.store];
+                        var dayColor = dayStore ? dayStore.color : "#6B6F78";
+                        return <td key={i} style={{ padding:"4px" }}>
+                          <div style={{ background:dayColor+"12",borderRadius:6,padding:"6px 4px",textAlign:"center",border:"1px solid "+dayColor+"22" }}>
+                            <div style={{ color:dayColor,fontSize:10,fontWeight:600 }}>{fmtTime(day.start)}</div>
+                            <div style={{ color:"#6B6F78",fontSize:8 }}>{day.hours.toFixed(1)}h</div>
+                          </div>
+                        </td>;
                       })}
-                      <td style={{ textAlign:"right",padding:"10px 12px",color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</td>
+                      <td style={{ padding:"8px",textAlign:"right",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</td>
                     </tr>
                   );
                 })}
-                {weekGrid.length === 0 && (
-                  <tr><td colSpan={9} style={{ textAlign:"center",padding:30,color:"#6B6F78",fontSize:13 }}>No shifts this week</td></tr>
-                )}
               </tbody>
-              {weekGrid.length > 0 && (
-                <tfoot>
-                  <tr style={{ borderTop:"2px solid #2A2D35" }}>
-                    <td style={{ padding:"10px 12px",color:"#8B8F98",fontSize:12,fontWeight:700 }}>Total</td>
-                    {getWeekDates().map(function(d, j) {
-                      var dayTotal = weekGrid.reduce(function(s,e){ return s + (e.days[j] ? e.days[j].hours : 0); }, 0);
-                      return <td key={j} style={{ textAlign:"center",padding:"10px 4px",color:dayTotal>0?"#C8CAD0":"#2A2D35",fontSize:12,fontWeight:600 }}>{dayTotal > 0 ? dayTotal.toFixed(1)+"h" : "—"}</td>;
-                    })}
-                    <td style={{ textAlign:"right",padding:"10px 12px",color:"#7C8AFF",fontSize:14,fontWeight:800 }}>{totalWeekHours.toFixed(1)}h</td>
-                  </tr>
-                </tfoot>
-              )}
             </table>
           </div>
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════ */}
       {/* HOURS TRACKING */}
-      {view === "hours" && (
+      {/* ═══════════════════════════════════════════ */}
+      {subTab === "hours" && (
         <div>
-          <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Total Week Hours" value={totalWeekHours.toFixed(1)+"h"} accent="#7C8AFF" sub={weekGrid.length+" employees scheduled"} />
-            <StatCard label="Avg Hours/Employee" value={weekGrid.length>0?(totalWeekHours/weekGrid.length).toFixed(1)+"h":"—"} accent="#C084FC" />
-            <StatCard label="Positions Covered" value={weekShifts.positions ? Object.keys(weekShifts.positions).length : 0} accent="#4ADE80" />
-          </div>
+          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Hours Tracking</div>
+          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>From stored shift data (last 7 days synced)</div>
 
-          <SectionHeader title="Hours by Employee" subtitle="This week" icon={"\u23f0"} />
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-            {weekGrid.length > 0 ? weekGrid.map(function(emp, i) {
-              var pct = totalWeekHours > 0 ? (emp.totalHours / 40 * 100) : 0;
-              var barColor = emp.totalHours >= 40 ? "#F87171" : emp.totalHours >= 30 ? "#FBBF24" : "#4ADE80";
-              var empStore = STORES[emp.store];
+          {/* Store hour summary */}
+          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
+            {STORE_KEYS.map(function(sk) {
+              var store = STORES[sk];
+              var totalH = hoursByEmployee.reduce(function(s, e) { return s + (e[sk] || 0); }, 0);
               return (
-                <div key={i} style={{ padding:"12px 0",borderBottom:i<weekGrid.length-1?"1px solid #1E2028":"none" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6 }}>
-                    <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                      {empStore && <span style={{ width:6,height:6,borderRadius:"50%",background:empStore.color,flexShrink:0 }}></span>}
-                      <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.name}</span>
-                      {empStore && <span style={{ color:empStore.color,fontSize:10,opacity:0.7 }}>{empStore.name.replace("CPR ","")}</span>}
-                    </div>
-                    <div style={{ color:barColor,fontSize:14,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</div>
-                  </div>
-                  <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}>
-                    <div style={{ width:Math.min(pct, 100)+"%",height:"100%",background:barColor,borderRadius:4,transition:"width 0.3s" }}></div>
-                  </div>
-                  <div style={{ display:"flex",justifyContent:"space-between",marginTop:4 }}>
-                    <div style={{ color:"#6B6F78",fontSize:10 }}>
-                      {emp.days.filter(function(d){return d!==null;}).length} shifts this week
-                    </div>
-                    <div style={{ color:"#6B6F78",fontSize:10 }}>of 40h target</div>
-                  </div>
+                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,textAlign:"center",border:"1px solid "+store.color+"33" }}>
+                  <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:6 }}>{store.name.replace("CPR ","")}</div>
+                  <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:800 }}>{Math.round(totalH * 10) / 10}h</div>
+                  <div style={{ color:"#6B6F78",fontSize:10 }}>total scheduled</div>
                 </div>
               );
-            }) : (
-              <div style={{ color:"#6B6F78",fontSize:13,textAlign:"center",padding:30 }}>No schedule data available</div>
-            )}
+            })}
           </div>
+
+          {/* Employee hours table */}
+          {hoursByEmployee.length > 0 && (
+            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+              <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom:"2px solid #2A2D35" }}>
+                    <th style={{ padding:"10px 14px",textAlign:"left",color:"#8B8F98",fontSize:10,fontWeight:700 }}>EMPLOYEE</th>
+                    {STORE_KEYS.map(function(sk) {
+                      return <th key={sk} style={{ padding:"10px 8px",textAlign:"center",color:STORES[sk].color,fontSize:10,fontWeight:700 }}>{STORES[sk].name.replace("CPR ","").substring(0,5).toUpperCase()}</th>;
+                    })}
+                    <th style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>TOTAL</th>
+                    <th style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>40H STATUS</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {hoursByEmployee.map(function(emp) {
+                    var overtime = emp.total > 40;
+                    var nearOT = emp.total > 35 && emp.total <= 40;
+                    return (
+                      <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
+                        <td style={{ padding:"8px 14px",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</td>
+                        {STORE_KEYS.map(function(sk) {
+                          var h = Math.round((emp[sk] || 0) * 10) / 10;
+                          return <td key={sk} style={{ padding:"8px",textAlign:"center",color:h > 0 ? "#F0F1F3" : "#2A2D35",fontSize:12 }}>{h > 0 ? h + "h" : "—"}</td>;
+                        })}
+                        <td style={{ padding:"8px 14px",textAlign:"right",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{Math.round(emp.total * 10) / 10}h</td>
+                        <td style={{ padding:"8px 14px",textAlign:"right" }}>
+                          {overtime ? <span style={{ padding:"2px 8px",borderRadius:4,background:"#F8717118",color:"#F87171",fontSize:10,fontWeight:600 }}>OT +{Math.round((emp.total - 40) * 10) / 10}h</span> :
+                           nearOT ? <span style={{ padding:"2px 8px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:10,fontWeight:600 }}>Near OT</span> :
+                           <span style={{ padding:"2px 8px",borderRadius:4,background:"#4ADE8018",color:"#4ADE80",fontSize:10,fontWeight:600 }}>OK</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
