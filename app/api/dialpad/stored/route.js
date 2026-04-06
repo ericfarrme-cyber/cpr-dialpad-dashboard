@@ -18,10 +18,12 @@ export async function GET(request) {
     ]);
 
     // Compute daily call volume directly from raw callRecords ONLY
-    // This is the single source of truth — no SQL aggregation mixing
+    // CRITICAL: Do NOT count is_missed — it's unreliable (some records have both flags)
+    // Instead: total = all inbound records, answered = is_answered, missed = total - answered
     const dailyMap = {};
     for (const r of callRecords) {
       if (!r.date_started || !r.store) continue;
+      if (r.direction && r.direction !== "inbound") continue; // Only count inbound calls
       const dateStr = new Date(r.date_started).toISOString().split("T")[0];
       if (!dailyMap[dateStr]) {
         dailyMap[dateStr] = { date: dateStr };
@@ -35,19 +37,24 @@ export async function GET(request) {
       if (dailyMap[dateStr][`${st}_total`] !== undefined) {
         dailyMap[dateStr][`${st}_total`]++;
         if (r.is_answered) dailyMap[dateStr][`${st}_answered`]++;
-        if (r.is_missed) dailyMap[dateStr][`${st}_missed`]++;
       }
     }
+    // Derive missed = total - answered (always consistent)
     const dailyCalls = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+    dailyCalls.forEach(d => {
+      ["fishers","bloomington","indianapolis"].forEach(s => {
+        d[`${s}_missed`] = Math.max(0, d[`${s}_total`] - d[`${s}_answered`]);
+      });
+    });
 
-    // Per-store aggregate stats — single source, always consistent
+    // Per-store aggregate stats
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
-      let total = 0, answered = 0, missed = 0;
+      let total = 0, answered = 0;
       dailyCalls.forEach(d => {
         total += d[`${s}_total`] || 0;
         answered += d[`${s}_answered`] || 0;
-        missed += d[`${s}_missed`] || 0;
       });
+      const missed = Math.max(0, total - answered);
       return { store: s, total_calls: total, answered, missed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
 
