@@ -297,8 +297,13 @@ async function getCoverageAnalysis(weekOf, demandPatterns) {
         var recommended = demandData.recommendedStaff;
         var gap = recommended - staffOnHand;
         var severity = gap <= 0 ? "OK" : gap === 1 ? "WATCH" : "CRITICAL";
-        // Revenue at risk: each understaffed hour × avg missed calls × 25% conversion × $175 avg ticket
-        var missedRevPerHour = gap > 0 ? Math.round(demandData.avgMissed * 0.25 * 175) : 0;
+        // Revenue at risk: each understaffed hour, estimate missed calls
+        // If we have historical missed data, use it. Otherwise estimate from call volume.
+        // With N staff needed but only M on hand, ~(gap/needed) of calls go unanswered
+        var estimatedMissed = demandData.avgMissed > 0
+          ? demandData.avgMissed
+          : (demandData.avgCalls > 0 && recommended > 0 ? demandData.avgCalls * (gap / recommended) : gap * 2);
+        var missedRevPerHour = gap > 0 ? Math.round(estimatedMissed * 0.25 * 175) : 0;
 
         analysis[sk].days[dateStr].hours[h] = {
           staffOnHand: staffOnHand,
