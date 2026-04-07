@@ -137,6 +137,13 @@ export default function ScheduleTab({ selectedStore }) {
   useEffect(function() {
     Promise.allSettled([
       fetch("/api/dialpad/profitability").then(function(r) { return r.json(); }),
+      // Also fetch last completed month explicitly
+      (function() {
+        var now = new Date();
+        var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        var period = lm.getFullYear() + "-" + String(lm.getMonth() + 1).padStart(2, "0");
+        return fetch("/api/dialpad/profitability?period=" + period).then(function(r) { return r.json(); });
+      })(),
       fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
       fetch("/api/dialpad/stored").then(function(r) { return r.json(); }),
       // Fetch ALL stored shifts (last 90 days) for Schedule vs Reality analysis
@@ -147,15 +154,21 @@ export default function ScheduleTab({ selectedStore }) {
           .then(function(r) { return r.json(); });
       })(),
     ]).then(function(results) {
-      if (results[0].status === "fulfilled") {
-        var profResp = results[0].value;
-        // Profitability could be {data: [...]} or {success: true, data: [...]} or just [...]
-        var pd = profResp.data || profResp;
-        if (Array.isArray(pd)) setProfitData(pd);
-      }
-      if (results[1].status === "fulfilled") setScorecardData(results[1].value);
-      if (results[2].status === "fulfilled") setStoredCallData(results[2].value);
-      if (results[3].status === "fulfilled" && results[3].value.shifts) setAllStoredShifts(results[3].value.shifts);
+      // Merge profitability from current month + last month
+      // API returns: {success:true, records:[], period:"2026-04"}
+      var allRecords = [];
+      [0, 1].forEach(function(i) {
+        if (results[i].status === "fulfilled") {
+          var resp = results[i].value;
+          var recs = resp.records || resp.data || resp;
+          if (Array.isArray(recs)) allRecords = allRecords.concat(recs);
+        }
+      });
+      if (allRecords.length > 0) setProfitData(allRecords);
+
+      if (results[2].status === "fulfilled") setScorecardData(results[2].value);
+      if (results[3].status === "fulfilled") setStoredCallData(results[3].value);
+      if (results[4].status === "fulfilled" && results[4].value.shifts) setAllStoredShifts(results[4].value.shifts);
     });
   }, []);
 
@@ -223,7 +236,7 @@ export default function ScheduleTab({ selectedStore }) {
       var store = locationToStore(rawStore) || rawStore;
       if (weekStore !== "all" && store !== weekStore) return;
 
-      var dateStr = s.shift_date || null;
+      var dateStr = s.shift_date || s.date || null;
       if (!dateStr && s.start_time) {
         // Robust date extraction — handle various formats
         try {
@@ -422,16 +435,16 @@ export default function ScheduleTab({ selectedStore }) {
       scheduleData.shifts.forEach(function(s) {
         var name = s.employee_name || s.user_name || "";
         if (!name) return;
-        var dateStr = s.shift_date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
+        var dateStr = s.shift_date || s.date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
         if (dateStr === todayStr) {
-          var exists = allShifts.some(function(x) { return (x.employee_name || x.user_name) === name && (x.shift_date || "") === todayStr; });
+          var exists = allShifts.some(function(x) { return (x.employee_name || x.user_name) === name && (x.shift_date || x.date || "") === todayStr; });
           if (!exists) allShifts.push(s);
         }
       });
     }
 
     allShifts.forEach(function(s) {
-      var dateStr = s.shift_date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
+      var dateStr = s.shift_date || s.date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
       if (dateStr !== todayStr) return;
       var rawStore = s.store || s.location_name || "unknown";
       var store = locationToStore(rawStore) || rawStore;
@@ -571,10 +584,12 @@ export default function ScheduleTab({ selectedStore }) {
               if (dayTotal === 0) return;
 
               // Count staff on this date from ALL stored shifts (90 days)
+              // Shift fields: employee_name, location_name ("CPR Fishers"), store ("fishers"), date ("2026-03-01")
               var maxStaff = 0;
               allStoredShifts.forEach(function(s) {
-                var sStore = locationToStore(s.store) || s.store;
-                if (sStore === sk && s.shift_date === dateStr) maxStaff++;
+                var sDate = s.shift_date || s.date;
+                var sStore = locationToStore(s.location_name || s.store) || s.store;
+                if (sStore === sk && sDate === dateStr) maxStaff++;
               });
 
               // If no shift data for this date, skip (can't compare)
