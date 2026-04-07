@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { STORES } from "@/lib/constants";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 
 var STORE_KEYS = Object.keys(STORES);
 var DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+var FULL_DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 
 var WIW_LOCATION_MAP = {
   "cpr fishers": "fishers", "cpr bloomington": "bloomington",
@@ -24,278 +24,213 @@ function locationToStore(locName) {
 
 function fmtTime(d) { if (!d) return "--"; return new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function fmtDate(d) { return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
-function sc(v, g, y) { return v >= g ? "#4ADE80" : v >= y ? "#FBBF24" : "#F87171"; }
+function sc(v, g, y) { return v >= g ? "#4ADE80" : v >= y ? "#FBBF24" : "#EF4444"; }
 
-function CustomTooltip({ active, payload, label }) {
-  if (!active || !payload) return null;
-  return (
-    <div style={{ background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8,padding:"8px 12px" }}>
-      <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>{label}</div>
-      {payload.map(function(p, i) { return <div key={i} style={{ color:p.color,fontSize:11 }}>{p.name}: <strong>{p.value}</strong></div>; })}
-    </div>
-  );
+function getWeekStart(date) {
+  var d = new Date(date); d.setDate(d.getDate() - d.getDay() + 1); // Monday
+  d.setHours(0,0,0,0); return d;
 }
 
-export default function ScheduleTab({ storeFilter }) {
-  var [wiwStatus, setWiwStatus] = useState(null);
-  var [todayShifts, setTodayShifts] = useState([]);
-  var [weekShifts, setWeekShifts] = useState({ shifts: [] });
-  var [storedShifts, setStoredShifts] = useState([]);
-  var [callData, setCallData] = useState(null);
+function getWeekEnd(d) { var e = new Date(d); e.setDate(e.getDate() + 6); return e; }
+
+function severity_color(sev) {
+  return sev === "CRITICAL" ? "#EF4444" : sev === "WATCH" ? "#FBBF24" : "#4ADE8033";
+}
+function severity_bg(sev) {
+  return sev === "CRITICAL" ? "#EF444422" : sev === "WATCH" ? "#FBBF2418" : "transparent";
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════
+export default function ScheduleTab({ selectedStore }) {
+  var [subTab, setSubTab] = useState("week");
   var [loading, setLoading] = useState(true);
-  var [subTab, setSubTab] = useState("coverage");
-  var [scheduleStoreFilter, setScheduleStoreFilter] = useState("all");
-  var [roster, setRoster] = useState([]);
+  var [wiwConnected, setWiwConnected] = useState(false);
+
+  // Schedule data
+  var [scheduleData, setScheduleData] = useState(null);
+  var [storedShifts, setStoredShifts] = useState([]);
   var [weekOffset, setWeekOffset] = useState(0);
+
+  // Demand intelligence
+  var [demandPatterns, setDemandPatterns] = useState(null);
+  var [coverageData, setCoverageData] = useState(null);
+  var [floatEmployees, setFloatEmployees] = useState([]);
+  var [demandLoading, setDemandLoading] = useState(false);
+  var [showDemandOverlay, setShowDemandOverlay] = useState(true);
+  var [optimizing, setOptimizing] = useState(false);
+  var [optimization, setOptimization] = useState(null);
+
+  // Store filter for weekly view
+  var [weekStore, setWeekStore] = useState("all");
+
+  // Profitability + scorecard for other sub-tabs
+  var [profitData, setProfitData] = useState([]);
   var [scorecardData, setScorecardData] = useState(null);
-  var [profitData, setProfitData] = useState(null);
-  var [auditData, setAuditData] = useState(null);
-  var [prodPeriod, setProdPeriod] = useState(function() {
-    var now = new Date(); return now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
-  });
-  var [prodLoading, setProdLoading] = useState(false);
+  var [storedCallData, setStoredCallData] = useState(null);
 
-  function resolveEmployee(name) {
-    if (!name || roster.length === 0) return name;
-    var lower = name.toLowerCase();
-    var match = roster.find(function(r) { return r.name.toLowerCase() === lower; });
-    if (match) return match.name;
-    var parts = lower.split(/\s+/);
-    if (parts.length >= 2) {
-      match = roster.find(function(r) { return r.name.toLowerCase().includes(parts[parts.length-1]) && parts[parts.length-1].length > 2; });
-      if (match) return match.name;
+  // Current week dates
+  var currentWeekStart = useMemo(function() {
+    var d = getWeekStart(new Date());
+    d.setDate(d.getDate() + weekOffset * 7);
+    return d;
+  }, [weekOffset]);
+
+  var weekDates = useMemo(function() {
+    var dates = [];
+    for (var i = 0; i < 7; i++) {
+      var d = new Date(currentWeekStart);
+      d.setDate(d.getDate() + i);
+      dates.push(d);
     }
-    return name;
-  }
+    return dates;
+  }, [currentWeekStart]);
 
+  var weekLabel = useMemo(function() {
+    var end = getWeekEnd(currentWeekStart);
+    var opts = { month: "short", day: "numeric", year: "numeric" };
+    return "Week of " + currentWeekStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " - " + end.toLocaleDateString("en-US", opts);
+  }, [currentWeekStart]);
+
+  var isCurrentWeek = weekOffset === 0;
+  var isFutureWeek = weekOffset > 0;
+
+  // ── Fetch WhenIWork live schedule ──
   useEffect(function() {
-    async function load() {
-      setLoading(true);
-      try {
-        var now = new Date();
-        var todayStr = fmtDate(now);
-        var weekAgo = fmtDate(new Date(now.getTime() - 30*86400000));
-        var weekAhead = fmtDate(new Date(now.getTime() + 14*86400000));
-        var currentPeriod = now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
-        // For labor economics, use last COMPLETED month
-        var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-        var lastMonthPeriod = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth()+1).padStart(2,"0");
-
-        var [rosterRes, statusRes, todayRes, weekRes, storedRes, callRes, scRes, profRes, auditRes] = await Promise.allSettled([
-          fetch("/api/dialpad/roster").then(function(r){return r.json();}),
-          fetch("/api/wheniwork?action=status").then(function(r){return r.json();}),
-          fetch("/api/wheniwork?action=today&date=" + todayStr).then(function(r){return r.json();}),
-          fetch("/api/wheniwork?action=shifts&start=" + weekAgo + "&end=" + weekAhead).then(function(r){return r.json();}),
-          fetch("/api/wheniwork?action=stored-shifts&start=" + weekAgo + "&end=" + todayStr).then(function(r){return r.json();}),
-          fetch("/api/dialpad/stored?days=30").then(function(r){return r.json();}),
-          fetch("/api/dialpad/scorecard?period=" + currentPeriod).then(function(r){return r.json();}),
-          fetch("/api/dialpad/profitability?action=get&period=" + lastMonthPeriod).then(function(r){return r.json();}),
-          fetch("/api/dialpad/audit?action=employees").then(function(r){return r.json();}),
-        ]);
-
-        if (rosterRes.status === "fulfilled" && rosterRes.value.success) setRoster(rosterRes.value.roster || []);
-        if (statusRes.status === "fulfilled") setWiwStatus(statusRes.value);
-        if (todayRes.status === "fulfilled" && todayRes.value.success) setTodayShifts(todayRes.value.shifts || []);
-        if (weekRes.status === "fulfilled" && weekRes.value.success) setWeekShifts(weekRes.value);
-        if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredShifts(storedRes.value.shifts || []);
-        if (callRes.status === "fulfilled" && callRes.value.success) setCallData(callRes.value.data || null);
-        if (scRes.status === "fulfilled" && scRes.value.success) setScorecardData(scRes.value);
-        if (profRes.status === "fulfilled" && profRes.value.success) {
-          var profMap = {};
-          (profRes.value.records || []).forEach(function(r) { profMap[r.store] = r; });
-          setProfitData(profMap);
-        }
-        if (auditRes.status === "fulfilled" && auditRes.value.success) setAuditData(auditRes.value);
-      } catch(e) { console.error("Schedule load error:", e); }
-      setLoading(false);
-    }
-    load();
+    fetch("/api/wheniwork?action=shifts&days=7")
+      .then(function(r) { return r.json(); })
+      .then(function(d) {
+        if (d.shifts) { setScheduleData(d); setWiwConnected(true); }
+      })
+      .catch(function() {});
   }, []);
 
-  // Re-fetch shifts when week navigation changes
+  // ── Fetch stored shifts from Supabase ──
   useEffect(function() {
-    if (weekOffset === 0) return;
-    async function loadWeek() {
-      var start = fmtDate(weekDates[0]);
-      var end = fmtDate(weekDates[6]);
-      try {
-        var res = await fetch("/api/wheniwork?action=shifts&start=" + start + "&end=" + end);
-        var json = await res.json();
-        if (json.success) setWeekShifts(json);
-      } catch(e) { console.error(e); }
-    }
-    loadWeek();
+    var start = fmtDate(weekDates[0]);
+    var end = fmtDate(weekDates[6]);
+    fetch("/api/wheniwork?action=stored-shifts&start=" + start + "&end=" + end)
+      .then(function(r) { return r.json(); })
+      .then(function(d) { if (d.shifts) setStoredShifts(d.shifts); })
+      .catch(function() {})
+      .finally(function() { setLoading(false); });
   }, [weekOffset]);
 
-  // Re-fetch scorecard + shifts when productivity period changes
+  // ── Fetch demand intelligence ──
   useEffect(function() {
-    async function loadProdPeriod() {
-      setProdLoading(true);
-      try {
-        var year = parseInt(prodPeriod.split("-")[0]);
-        var month = parseInt(prodPeriod.split("-")[1]);
-        var monthStart = fmtDate(new Date(year, month - 1, 1));
-        var monthEnd = fmtDate(new Date(year, month, 0));
-        var [scRes, shiftRes] = await Promise.allSettled([
-          fetch("/api/dialpad/scorecard?period=" + prodPeriod).then(function(r){return r.json();}),
-          fetch("/api/wheniwork?action=stored-shifts&start=" + monthStart + "&end=" + monthEnd).then(function(r){return r.json();}),
-        ]);
-        if (scRes.status === "fulfilled" && scRes.value.success) setScorecardData(scRes.value);
-        if (shiftRes.status === "fulfilled" && shiftRes.value.success) setStoredShifts(function(prev) {
-          // Merge: keep non-period shifts, add period shifts
-          var periodShifts = shiftRes.value.shifts || [];
-          return periodShifts.length > 0 ? periodShifts : prev;
-        });
-      } catch(e) { console.error(e); }
-      setProdLoading(false);
-    }
-    loadProdPeriod();
-  }, [prodPeriod]);
-
-  // ═══ TODAY'S SHIFTS BY STORE ═══
-  var todayByStore = useMemo(function() {
-    var groups = {}; STORE_KEYS.forEach(function(k) { groups[k] = []; });
-    todayShifts.forEach(function(s) {
-      var sk = locationToStore(s.location);
-      if (sk && groups[sk]) groups[sk].push(Object.assign({}, s, { employee: resolveEmployee(s.employee) }));
+    setDemandLoading(true);
+    var weekOfStr = fmtDate(currentWeekStart);
+    Promise.all([
+      fetch("/api/dialpad/demand-analysis?action=hourly-demand&days=30").then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch("/api/dialpad/demand-analysis?action=float-employees&days=60").then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch("/api/dialpad/demand-analysis?action=coverage&weekOf=" + weekOfStr + "&days=30").then(function(r) { return r.json(); }).catch(function() { return {}; }),
+    ]).then(function(results) {
+      if (results[0].patterns) setDemandPatterns(results[0].patterns);
+      if (results[1].employees) setFloatEmployees(results[1].employees);
+      if (results[2].stores) setCoverageData(results[2]);
+      setDemandLoading(false);
     });
-    return groups;
-  }, [todayShifts, roster]);
-
-  // ═══ HOURLY COVERAGE MODEL ═══
-  var hourlyCoverage = useMemo(function() {
-    if (!callData) return null;
-    var hourly = callData.hourlyMissed || [];
-    var result = [];
-    for (var h = 8; h <= 20; h++) {
-      var label = (h > 12 ? (h-12) : h) + (h >= 12 ? "PM" : "AM");
-      var row = { hour: label, hourNum: h };
-      STORE_KEYS.forEach(function(sk) {
-        // Count staff on shift at this hour
-        var staffCount = 0;
-        (todayByStore[sk] || []).forEach(function(s) {
-          var start = new Date(s.start_time).getHours();
-          var end = new Date(s.end_time).getHours();
-          if (h >= start && h < end) staffCount++;
-        });
-        row[sk + "_staff"] = staffCount;
-        // Get historical missed calls for this hour
-        var missedEntry = hourly.find(function(hm) {
-          var hmHour = parseInt(hm.hour);
-          if (isNaN(hmHour) && hm.hour) {
-            var m = hm.hour.match(/(\d+)/);
-            if (m) hmHour = parseInt(m[1]);
-            if (hm.hour.includes("PM") && hmHour !== 12) hmHour += 12;
-            if (hm.hour.includes("AM") && hmHour === 12) hmHour = 0;
-          }
-          return hmHour === h;
-        });
-        row[sk + "_missed"] = missedEntry ? (missedEntry[sk] || 0) : 0;
-        // Coverage status
-        row[sk + "_status"] = staffCount === 0 ? "none" : (row[sk + "_missed"] > 5 && staffCount < 2) ? "under" : "ok";
-      });
-      result.push(row);
-    }
-    return result;
-  }, [callData, todayByStore]);
-
-  // ═══ WEEKLY SCHEDULE GRID ═══
-  var weekDates = useMemo(function() {
-    var now = new Date();
-    now.setDate(now.getDate() + weekOffset * 7);
-    var day = now.getDay();
-    var monday = new Date(now);
-    monday.setDate(now.getDate() - day + (day === 0 ? -6 : 1));
-    var dates = [];
-    for (var i = 0; i < 7; i++) { var d = new Date(monday); d.setDate(monday.getDate() + i); dates.push(d); }
-    return dates;
   }, [weekOffset]);
 
-  var weekGrid = useMemo(function() {
-    if (!weekShifts.shifts || weekShifts.shifts.length === 0) return [];
-    var byUser = {};
-    weekShifts.shifts.forEach(function(s) {
-      if (s.is_open) return;
-      var name = resolveEmployee(s.employee || "Unknown");
-      var storeKey = locationToStore(s.location) || "";
-      if (scheduleStoreFilter !== "all" && storeKey !== scheduleStoreFilter) return;
-      var userKey = name;
-      if (!byUser[userKey]) byUser[userKey] = { name: name, store: storeKey, days: [null,null,null,null,null,null,null], totalHours: 0 };
-      var shiftDate = new Date(s.start_time);
-      var dayIdx = weekDates.findIndex(function(d) { return d.toDateString() === shiftDate.toDateString(); });
-      if (dayIdx >= 0) {
-        var hours = (new Date(s.end_time) - new Date(s.start_time)) / 3600000;
-        byUser[userKey].days[dayIdx] = { start: s.start_time, end: s.end_time, hours: hours, store: storeKey, location: s.location };
-        byUser[userKey].totalHours += hours;
-        if (storeKey) byUser[userKey].store = storeKey;
+  // ── Fetch supporting data (profitability, scorecard, calls) ──
+  useEffect(function() {
+    Promise.allSettled([
+      fetch("/api/dialpad/profitability").then(function(r) { return r.json(); }),
+      fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
+      fetch("/api/dialpad/stored").then(function(r) { return r.json(); }),
+    ]).then(function(results) {
+      if (results[0].status === "fulfilled" && results[0].value.data) setProfitData(results[0].value.data);
+      if (results[1].status === "fulfilled") setScorecardData(results[1].value);
+      if (results[2].status === "fulfilled") setStoredCallData(results[2].value);
+    });
+  }, []);
+
+  // ═══ Build weekly schedule grid from stored shifts ═══
+  var weeklySchedule = useMemo(function() {
+    var byEmployee = {};
+    var shiftSource = storedShifts.length > 0 ? storedShifts : (scheduleData?.shifts || []);
+
+    shiftSource.forEach(function(s) {
+      var name = s.employee_name || s.user_name || "Unknown";
+      var store = s.store || locationToStore(s.location_name) || "unknown";
+      if (weekStore !== "all" && store !== weekStore) return;
+
+      if (!byEmployee[name]) {
+        byEmployee[name] = { name: name, store: store, shifts: {}, totalHours: 0, stores: new Set() };
       }
-    });
-    return Object.values(byUser).sort(function(a,b) { return b.totalHours - a.totalHours; });
-  }, [weekShifts, roster, scheduleStoreFilter, weekDates]);
+      byEmployee[name].stores.add(store);
 
-  // ═══ SCHEDULE VS REALITY (Last 7 days) ═══
-  var scheduleVsReality = useMemo(function() {
-    if (!callData || !callData.dailyCalls) return null;
-    var daily = callData.dailyCalls;
-    var result = [];
-    daily.forEach(function(day) {
-      var dateStr = day.date;
-      var row = { date: dateStr };
-      STORE_KEYS.forEach(function(sk) {
-        var total = day[sk + "_total"] || 0;
-        var answered = day[sk + "_answered"] || 0;
-        var missed = Math.max(0, total - answered);
-        var rate = total > 0 ? Math.round(answered / total * 100) : 0;
-        // Count staff scheduled that day from stored shifts
-        var staffOnDay = storedShifts.filter(function(s) {
-          return s.store === sk && s.date === dateStr;
-        });
-        var staffCount = staffOnDay.length;
-        var staffHours = staffOnDay.reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
-        row[sk + "_total"] = total;
-        row[sk + "_answered"] = answered;
-        row[sk + "_missed"] = missed;
-        row[sk + "_rate"] = rate;
-        row[sk + "_staff"] = staffCount;
-        row[sk + "_staffHours"] = Math.round(staffHours * 10) / 10;
-        row[sk + "_callsPerStaff"] = staffCount > 0 ? Math.round(total / staffCount * 10) / 10 : total;
-      });
-      result.push(row);
-    });
-    return result;
-  }, [callData, storedShifts]);
+      var dateStr = s.shift_date || (s.start_time ? new Date(s.start_time).toISOString().split("T")[0] : null);
+      if (!dateStr) return;
 
-  // ═══ STAFFING INSIGHT ═══
-  var staffingInsight = useMemo(function() {
-    if (!scheduleVsReality) return null;
-    var insights = {};
-    STORE_KEYS.forEach(function(sk) {
-      var singleStaff = { days: 0, totalRate: 0 };
-      var multiStaff = { days: 0, totalRate: 0 };
-      scheduleVsReality.forEach(function(day) {
-        if (day[sk + "_total"] === 0) return;
-        if (day[sk + "_staff"] <= 1) {
-          singleStaff.days++; singleStaff.totalRate += day[sk + "_rate"];
-        } else {
-          multiStaff.days++; multiStaff.totalRate += day[sk + "_rate"];
+      var hours = parseFloat(s.hours) || 0;
+      var startTime = s.start_time ? fmtTime(s.start_time) : "--";
+      var startHour = s.start_time ? new Date(s.start_time).getHours() : null;
+      var endHour = s.end_time ? new Date(s.end_time).getHours() : null;
+
+      byEmployee[name].shifts[dateStr] = {
+        start: startTime, hours: hours, store: store,
+        startHour: startHour, endHour: endHour,
+      };
+      byEmployee[name].totalHours += hours;
+    });
+
+    return Object.values(byEmployee).sort(function(a, b) { return b.totalHours - a.totalHours; });
+  }, [storedShifts, scheduleData, weekStore]);
+
+  // ═══ Float employees for this view ═══
+  var floatMap = useMemo(function() {
+    var m = {};
+    floatEmployees.forEach(function(e) { if (e.isFloat) m[e.name] = e; });
+    return m;
+  }, [floatEmployees]);
+
+  // ═══ Coverage summary for week ═══
+  var coverageSummary = useMemo(function() {
+    if (!coverageData?.stores) return null;
+    var storeKeys = weekStore === "all" ? STORE_KEYS : [weekStore];
+    var totalGap = 0, critGap = 0, totalRisk = 0;
+    storeKeys.forEach(function(sk) {
+      var s = coverageData.stores[sk]?.summary;
+      if (s) { totalGap += s.totalGapHours; critGap += s.criticalHours; totalRisk += s.revenueAtRisk; }
+    });
+    return { totalGapHours: totalGap, criticalHours: critGap, revenueAtRisk: totalRisk };
+  }, [coverageData, weekStore]);
+
+  // ═══ Hourly staffing for each day (for demand overlay) ═══
+  var hourlyStaffing = useMemo(function() {
+    // Build [dateStr][hour] = count of staff
+    var map = {};
+    weeklySchedule.forEach(function(emp) {
+      Object.entries(emp.shifts).forEach(function(entry) {
+        var dateStr = entry[0], shift = entry[1];
+        if (!map[dateStr]) map[dateStr] = {};
+        var sh = shift.startHour || 9;
+        var eh = shift.endHour || (sh + shift.hours);
+        for (var h = sh; h < eh && h <= 20; h++) {
+          map[dateStr][h] = (map[dateStr][h] || 0) + 1;
         }
       });
-      // Use storePerf from stored route for accurate overall rates
-      var storePerfEntry = callData && callData.storePerf ? callData.storePerf.find(function(sp) { return sp.store === sk; }) : null;
-      insights[sk] = {
-        singleRate: singleStaff.days > 0 ? Math.round(singleStaff.totalRate / singleStaff.days) : 0,
-        singleDays: singleStaff.days,
-        multiRate: multiStaff.days > 0 ? Math.round(multiStaff.totalRate / multiStaff.days) : 0,
-        multiDays: multiStaff.days,
-        overallRate: storePerfEntry ? storePerfEntry.answer_rate : 0,
-        totalInbound: storePerfEntry ? storePerfEntry.total_calls : 0,
-        missed: storePerfEntry ? storePerfEntry.missed : 0,
-      };
     });
-    return insights;
-  }, [scheduleVsReality, callData]);
+    return map;
+  }, [weeklySchedule]);
 
-  // ═══ HOURS BY EMPLOYEE (from stored shifts) ═══
+  // ═══ AI Optimize ═══
+  var handleOptimize = useCallback(function() {
+    if (optimizing) return;
+    setOptimizing(true);
+    setOptimization(null);
+    var nextWeek = new Date(currentWeekStart);
+    nextWeek.setDate(nextWeek.getDate() + 7);
+    fetch("/api/dialpad/demand-analysis?action=optimize&weekOf=" + fmtDate(nextWeek) + "&days=30")
+      .then(function(r) { return r.json(); })
+      .then(function(d) { setOptimization(d.optimization || d); })
+      .catch(function(e) { setOptimization({ error: e.message }); })
+      .finally(function() { setOptimizing(false); });
+  }, [currentWeekStart, optimizing]);
+
+  // ═══ Hours by employee (for Hours Tracking) ═══
   var hoursByEmployee = useMemo(function() {
     var byEmp = {};
     storedShifts.forEach(function(s) {
@@ -308,700 +243,193 @@ export default function ScheduleTab({ storeFilter }) {
     return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
   }, [storedShifts]);
 
-  // ═══ EMPLOYEE PRODUCTIVITY (Phase 2) ═══
-  var employeeProductivity = useMemo(function() {
-    if (!scorecardData || !scorecardData.employeeScores) return [];
-    var employees = scorecardData.employeeScores || [];
-
-    // Filter stored shifts to the selected period
-    var pYear = parseInt(prodPeriod.split("-")[0]);
-    var pMonth = parseInt(prodPeriod.split("-")[1]);
-    var periodStart = fmtDate(new Date(pYear, pMonth - 1, 1));
-    var periodEnd = fmtDate(new Date(pYear, pMonth, 0));
-
-    var periodShifts = storedShifts.filter(function(s) {
-      return s.date >= periodStart && s.date <= periodEnd;
-    });
-
-    // Build hours per employee for this period
-    var hoursByEmpPeriod = {};
-    periodShifts.forEach(function(s) {
-      var name = (s.employee_name || "Unknown").toLowerCase();
-      hoursByEmpPeriod[name] = (hoursByEmpPeriod[name] || 0) + (parseFloat(s.hours) || 0);
-    });
-
-    return employees.map(function(emp) {
-      var name = emp.name;
-      // Find hours — try exact match, then fuzzy
-      var totalHours = hoursByEmpPeriod[name.toLowerCase()] || 0;
-      if (totalHours === 0) {
-        var parts = name.toLowerCase().split(/\s+/);
-        Object.keys(hoursByEmpPeriod).forEach(function(k) {
-          if (parts.length >= 2 && parts[0].length > 2 && parts[parts.length-1].length > 2 && k.includes(parts[0]) && k.includes(parts[parts.length-1])) {
-            totalHours = hoursByEmpPeriod[k];
-          }
+  // ═══ Employee Productivity (from scorecard + shifts) ═══
+  var productivity = useMemo(function() {
+    if (!scorecardData) return [];
+    var allEmps = [];
+    STORE_KEYS.forEach(function(sk) {
+      var storeData = scorecardData[sk];
+      if (!storeData?.employees) return;
+      storeData.employees.forEach(function(emp) {
+        var name = emp.name;
+        var hrs = hoursByEmployee.find(function(h) { return h.name === name; });
+        var totalHrs = hrs ? hrs.total : 0;
+        var repairs = (emp.repairs?.phoneRepairs || 0) + (emp.repairs?.otherRepairs || 0);
+        var accyGP = emp.repairs?.accessoryGP || 0;
+        var totalRev = repairs * 175 + accyGP; // $175 avg repair ticket
+        allEmps.push({
+          name: name, store: sk, hours: totalHrs,
+          repairs: repairs, accyGP: accyGP, totalRev: totalRev,
+          revPerHour: totalHrs > 0 ? Math.round(totalRev / totalHrs) : 0,
+          repairsPerHour: totalHrs > 0 ? Math.round(repairs / totalHrs * 10) / 10 : 0,
+          auditScore: emp.audit?.avgScore || 0,
+          compliance: emp.compliance?.score || 0,
+          score: emp.score || 0,
         });
-      }
-
-      var repairs = emp.repairs || {};
-      var phoneRepairs = repairs.phone_tickets || 0;
-      var otherRepairs = repairs.other_tickets || 0;
-      var totalRepairs = phoneRepairs + otherRepairs;
-      var accyGP = repairs.accy_gp || 0;
-      var repairRevenue = repairs.revenue || (totalRepairs * 120);
-      var audit = emp.audit || {};
-      var auditScore = audit.score || 0;
-      var apptRate = audit.appt_offered || 0;
-      var compliance = emp.compliance || {};
-      var compScore = compliance.score || 0;
-      var revPerHour = totalHours > 0 ? Math.round(repairRevenue / totalHours * 100) / 100 : 0;
-      var repairsPerHour = totalHours > 0 ? Math.round(totalRepairs / totalHours * 100) / 100 : 0;
-
-      return {
-        name: name, store: emp.store, overall: emp.overall,
-        totalHours: Math.round(totalHours * 10) / 10,
-        phoneRepairs: phoneRepairs, otherRepairs: otherRepairs, totalRepairs: totalRepairs,
-        accyGP: Math.round(accyGP * 100) / 100,
-        repairRevenue: Math.round(repairRevenue * 100) / 100,
-        auditScore: auditScore, apptRate: apptRate, compScore: compScore,
-        revPerHour: revPerHour, repairsPerHour: repairsPerHour,
-      };
-    }).sort(function(a, b) { return b.revPerHour - a.revPerHour; });
-  }, [scorecardData, storedShifts, prodPeriod]);
-
-  // ═══ LABOR ECONOMICS (Phase 3) ═══
-  var laborEconomics = useMemo(function() {
-    var stores = {};
-    var lastMonth = new Date();
-    lastMonth.setMonth(lastMonth.getMonth() - 1);
-    var periodLabel = lastMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
-
-    STORE_KEYS.forEach(function(sk) {
-      var store = STORES[sk];
-
-      // Hours from stored shifts for last month
-      var monthStart = new Date(lastMonth.getFullYear(), lastMonth.getMonth(), 1);
-      var monthEnd = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 0);
-      var startStr = fmtDate(monthStart);
-      var endStr = fmtDate(monthEnd);
-      var storeHours = storedShifts.filter(function(s) {
-        return s.store === sk && s.date >= startStr && s.date <= endStr;
-      }).reduce(function(sum, s) { return sum + (parseFloat(s.hours) || 0); }, 0);
-
-      // P&L from profitability data (last completed month)
-      var prof = profitData ? profitData[sk] : null;
-      var grossRev = 0, totalCogs = 0, payroll = 0, rent = 0, totalExpenses = 0, netProfit = 0;
-      if (prof) {
-        grossRev = (parseFloat(prof.repair_revenue)||0) + (parseFloat(prof.accessory_revenue)||0) + (parseFloat(prof.device_revenue)||0) + (parseFloat(prof.services_revenue)||0) + (parseFloat(prof.parts_revenue)||0);
-        totalCogs = (parseFloat(prof.repair_cogs)||0) + (parseFloat(prof.accessory_cogs)||0) + (parseFloat(prof.device_cogs)||0) + (parseFloat(prof.services_cogs)||0) + (parseFloat(prof.parts_cogs)||0);
-        payroll = parseFloat(prof.payroll) || 0;
-        rent = parseFloat(prof.rent) || 0;
-        var utilities = (parseFloat(prof.internet_security)||0) + (parseFloat(prof.electric)||0) + (parseFloat(prof.gas_parking)||0) + (parseFloat(prof.voip)||0);
-        var marketing = (parseFloat(prof.marketing_digital)||0) + (parseFloat(prof.marketing_local)||0);
-        var otherExp = (parseFloat(prof.store_budget)||0) + (parseFloat(prof.damaged)||0) + (parseFloat(prof.shrinkage)||0) + (parseFloat(prof.voided)||0) + (parseFloat(prof.kbb_charges)||0) + (parseFloat(prof.tips)||0) + (parseFloat(prof.lcd_credits)||0) + (parseFloat(prof.cc_fee_diff)||0);
-        totalExpenses = payroll + rent + utilities + marketing + otherExp;
-        var grossProfit = grossRev - totalCogs;
-        var royalties = grossRev * 0.05;
-        var fees = royalties + 285 + 95;
-        netProfit = grossProfit - fees - totalExpenses;
-      }
-
-      // Call performance from stored data
-      var storeCallPerf = callData && callData.storePerf ? callData.storePerf.find(function(sp) { return sp.store === sk; }) : null;
-      var answerRate = storeCallPerf ? storeCallPerf.answer_rate : 0;
-      var missedCalls = storeCallPerf ? storeCallPerf.missed : 0;
-
-      var revPerManHour = storeHours > 0 ? Math.round(grossRev / storeHours * 100) / 100 : 0;
-      var laborPct = grossRev > 0 ? Math.round(payroll / grossRev * 1000) / 10 : 0;
-      var grossProfit = grossRev - totalCogs;
-      var profitPerManHour = storeHours > 0 ? Math.round(grossProfit / storeHours * 100) / 100 : 0;
-
-      // ROI model: based on store's actual profit margin, not just missed calls
-      // If we add 1 FTE (~160hrs/mo at ~$15/hr = ~$2,500), what's the impact?
-      var avgTicket = 175;
-      var grossMargin = grossRev > 0 ? (grossRev - totalCogs) / grossRev : 0.55;
-      var additionalCost = 2500;
-      var recoveredCalls = Math.round(missedCalls * 0.6); // Adding staff recovers ~60% of missed
-      var recoveredRevenue = Math.round(recoveredCalls * 0.25 * avgTicket); // 25% convert
-      var recoveredProfit = Math.round(recoveredRevenue * grossMargin);
-      var addFTENet = recoveredProfit - additionalCost;
-
-      stores[sk] = {
-        name: store.name.replace("CPR ",""), color: store.color, period: periodLabel,
-        hours: Math.round(storeHours * 10) / 10,
-        grossRev: Math.round(grossRev * 100) / 100,
-        totalCogs: Math.round(totalCogs * 100) / 100,
-        grossProfit: Math.round(grossProfit * 100) / 100,
-        grossMarginPct: grossRev > 0 ? Math.round((grossRev - totalCogs) / grossRev * 1000) / 10 : 0,
-        payroll: Math.round(payroll * 100) / 100,
-        rent: Math.round(rent * 100) / 100,
-        totalExpenses: Math.round(totalExpenses * 100) / 100,
-        netProfit: Math.round(netProfit * 100) / 100,
-        revPerManHour: revPerManHour, profitPerManHour: profitPerManHour,
-        laborPct: laborPct, answerRate: answerRate, missedCalls: missedCalls,
-        hasData: grossRev > 0,
-        // ROI
-        avgTicket: Math.round(avgTicket),
-        recoveredCalls: recoveredCalls,
-        recoveredRevenue: recoveredRevenue,
-        recoveredProfit: recoveredProfit,
-        addFTECost: additionalCost,
-        addFTENet: addFTENet,
-      };
-    });
-    return stores;
-  }, [storedShifts, profitData, callData]);
-
-  // ═══ OPTIMAL SCHEDULE (Phase 3) ═══
-  var optimalSchedule = useMemo(function() {
-    if (!callData || !callData.hourlyMissed) return null;
-    var hourly = callData.hourlyMissed || [];
-    var result = {};
-    STORE_KEYS.forEach(function(sk) {
-      var hours = [];
-      hourly.forEach(function(h) {
-        var missed = h[sk] || 0;
-        var hourNum = parseInt(h.hour);
-        if (isNaN(hourNum) && h.hour) {
-          var m = h.hour.match(/(\d+)/);
-          if (m) hourNum = parseInt(m[1]);
-          if (h.hour.includes("PM") && hourNum !== 12) hourNum += 12;
-          if (h.hour.includes("AM") && hourNum === 12) hourNum = 0;
-        }
-        hours.push({ hour: h.hour, hourNum: hourNum, missed: missed });
       });
-
-      // Determine recommended staffing: 2+ people if hourly missed > 3
-      var recommendations = hours.map(function(h) {
-        var recommended = h.missed > 5 ? 3 : h.missed > 2 ? 2 : 1;
-        return { hour: h.hour, hourNum: h.hourNum, missed: h.missed, recommended: recommended };
-      }).filter(function(h) { return h.hourNum >= 9 && h.hourNum <= 19; }); // Business hours only
-
-      result[sk] = recommendations;
     });
-    return result;
-  }, [callData]);
+    return allEmps.sort(function(a, b) { return b.revPerHour - a.revPerHour; });
+  }, [scorecardData, hoursByEmployee]);
 
+  // ═══ Labor Economics (from profitability data) ═══
+  var laborEcon = useMemo(function() {
+    if (!profitData.length) return null;
+    // Get last completed month
+    var now = new Date();
+    var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    var periodStr = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth() + 1).padStart(2, "0");
+
+    var results = {};
+    STORE_KEYS.forEach(function(sk) {
+      var record = profitData.find(function(r) { return r.store === sk && r.period === periodStr; });
+      if (!record) return;
+      var revenue = (record.phone_repair_revenue || 0) + (record.other_repair_revenue || 0) + (record.accessory_revenue || 0);
+      var payroll = record.payroll || 0;
+      var totalHours = record.labor_hours || 0;
+      results[sk] = {
+        period: periodStr, revenue: revenue, payroll: payroll, totalHours: totalHours,
+        revPerHour: totalHours > 0 ? Math.round(revenue / totalHours) : 0,
+        laborPct: revenue > 0 ? Math.round(payroll / revenue * 100) : 0,
+        profitPerHour: totalHours > 0 ? Math.round((revenue - payroll) / totalHours) : 0,
+      };
+    });
+    return results;
+  }, [profitData]);
+
+  // ═══ Staffing ROI model ═══
+  var staffingROI = useMemo(function() {
+    if (!storedCallData || !laborEcon) return null;
+    var results = {};
+    STORE_KEYS.forEach(function(sk) {
+      var storeCall = storedCallData[sk];
+      var econ = laborEcon[sk];
+      if (!storeCall || !econ) return;
+      var missed = storeCall.missedCalls || Math.max(0, (storeCall.totalCalls || 0) - (storeCall.answeredCalls || 0));
+      var recoverableRev = Math.round(missed * 0.25 * 175);
+      var fteCost = 2500; // ~$15/hr × 40hrs × 4.3wks
+      var netROI = recoverableRev - fteCost;
+      results[sk] = {
+        missedCalls: missed, recoverableRevenue: recoverableRev, fteCost: fteCost, netROI: netROI,
+        justified: netROI > 0, paybackPct: Math.round(recoverableRev / fteCost * 100),
+      };
+    });
+    return results;
+  }, [storedCallData, laborEcon]);
+
+  // ═══ Live coverage (who's working now) ═══
+  var liveCoverage = useMemo(function() {
+    var now = new Date();
+    var todayStr = fmtDate(now);
+    var currentHour = now.getHours();
+    var coverage = {};
+    STORE_KEYS.forEach(function(sk) { coverage[sk] = { onShift: [], totalToday: 0 }; });
+
+    storedShifts.forEach(function(s) {
+      if (s.shift_date !== todayStr) return;
+      if (!coverage[s.store]) return;
+      coverage[s.store].totalToday++;
+      var sh = s.start_time ? new Date(s.start_time).getHours() : 9;
+      var eh = s.end_time ? new Date(s.end_time).getHours() : sh + (parseFloat(s.hours) || 8);
+      if (currentHour >= sh && currentHour < eh) {
+        coverage[s.store].onShift.push(s.employee_name);
+      }
+    });
+    return coverage;
+  }, [storedShifts]);
+
+  // ═══ SUB TAB CONFIG ═══
   var SUB_TABS = [
     { id: "coverage", label: "Live Coverage", icon: "\uD83D\uDFE2" },
     { id: "reality", label: "Schedule vs Reality", icon: "\uD83D\uDD0D" },
-    { id: "productivity", label: "Employee Productivity", icon: "\uD83D\uDCB0" },
-    { id: "economics", label: "Labor Economics", icon: "\uD83D\uDCC8" },
+    { id: "productivity", label: "Employee Productivity", icon: "\uD83D\uDD25" },
+    { id: "economics", label: "Labor Economics", icon: "\uD83D\uDCB0" },
     { id: "week", label: "Weekly View", icon: "\uD83D\uDCC5" },
     { id: "hours", label: "Hours Tracking", icon: "\u23F0" },
   ];
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading labor intelligence...</div>;
+  // ═══ STYLES ═══
+  var card = { background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 16 };
+  var miniCard = { background: "#12141A", borderRadius: 8, padding: 12, flex: 1 };
+  var sectionTitle = { fontSize: 14, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 };
+  var metricBig = { fontSize: 28, fontWeight: 800 };
+  var metricLabel = { fontSize: 11, color: "#6B7280", marginTop: 2 };
+  var badge = function(color) { return { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: color + "22", color: color, fontWeight: 700 }; };
+
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Loading labor intelligence...</div>;
 
   return (
     <div>
       {/* WhenIWork Status */}
-      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-        <div style={{ display:"flex",gap:4 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {SUB_TABS.map(function(t) {
-            return <button key={t.id} onClick={function(){setSubTab(t.id);}} style={{
-              padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",
-              background:subTab===t.id?"#7B2FFF22":"#1A1D23",color:subTab===t.id?"#7B2FFF":"#8B8F98",
-              fontSize:12,fontWeight:600
-            }}>{t.icon+" "+t.label}</button>;
+            return <button key={t.id} onClick={function() { setSubTab(t.id); }} style={{
+              padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", whiteSpace: "nowrap",
+              background: subTab === t.id ? "#7B2FFF22" : "#1A1D23", color: subTab === t.id ? "#7B2FFF" : "#9CA3AF",
+              fontSize: 13, fontWeight: subTab === t.id ? 700 : 500, transition: "all 0.2s",
+            }}>{t.icon} {t.label}</button>;
           })}
         </div>
-        {wiwStatus && wiwStatus.authenticated && <span style={{ color:"#4ADE80",fontSize:11 }}>{"\u25CF"} WhenIWork Connected</span>}
+        <div style={{ fontSize: 12, color: wiwConnected ? "#4ADE80" : "#6B7280" }}>
+          {wiwConnected ? "\u25CF WhenIWork Connected" : "\u25CB WhenIWork Disconnected"}
+        </div>
       </div>
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* LIVE COVERAGE DASHBOARD */}
-      {/* ═══════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════════════ */}
+      {/* LIVE COVERAGE */}
+      {/* ══════════════════════════════════════════════════ */}
       {subTab === "coverage" && (
         <div>
-          {/* Today's date */}
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Live Coverage Dashboard</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>{new Date().toLocaleDateString(undefined, { weekday:"long", month:"long", day:"numeric", year:"numeric" })}</div>
-
-          {/* Per-store coverage cards */}
-          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:24 }}>
+          <div style={sectionTitle}>LIVE STORE COVERAGE — {new Date().toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
             {STORE_KEYS.map(function(sk) {
-              var store = STORES[sk];
-              var shifts = todayByStore[sk] || [];
-              var now = new Date();
-              var currentHour = now.getHours();
-              var currentStaff = shifts.filter(function(s) {
-                return new Date(s.start_time).getHours() <= currentHour && new Date(s.end_time).getHours() > currentHour;
-              });
-              // Check next 3 hours
-              var upcoming = [];
-              for (var h = 1; h <= 3; h++) {
-                var futureHour = currentHour + h;
-                if (futureHour > 20) break;
-                var futureStaff = shifts.filter(function(s) {
-                  return new Date(s.start_time).getHours() <= futureHour && new Date(s.end_time).getHours() > futureHour;
-                });
-                var hourLabel = (futureHour > 12 ? futureHour-12 : futureHour) + (futureHour >= 12 ? "PM" : "AM");
-                var expectedMissed = hourlyCoverage ? (hourlyCoverage.find(function(hc) { return hc.hourNum === futureHour; }) || {})[sk+"_missed"] || 0 : 0;
-                upcoming.push({ hour: hourLabel, staff: futureStaff.length, expectedCalls: expectedMissed > 0 ? Math.round(expectedMissed * 4) : 0, expectedMissed: expectedMissed });
-              }
-
-              var statusColor = currentStaff.length === 0 ? "#F87171" : currentStaff.length < 2 ? "#FBBF24" : "#4ADE80";
-              var statusText = currentStaff.length === 0 ? "NO COVERAGE" : currentStaff.length < 2 ? "SINGLE COVERAGE" : "FULLY STAFFED";
-
+              var cov = liveCoverage[sk];
               return (
-                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-                    <div style={{ color:store.color,fontSize:14,fontWeight:700 }}>{store.name.replace("CPR ","")}</div>
-                    <div style={{ padding:"3px 8px",borderRadius:4,background:statusColor+"18",color:statusColor,fontSize:9,fontWeight:700 }}>{statusText}</div>
+                <div key={sk} style={card}>
+                  <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: STORES[sk].color }}>{STORES[sk].name}</div>
+                  <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                    <div><div style={{ ...metricBig, color: cov.onShift.length > 0 ? "#4ADE80" : "#EF4444" }}>{cov.onShift.length}</div><div style={metricLabel}>On Shift Now</div></div>
+                    <div><div style={{ ...metricBig, color: "#9CA3AF" }}>{cov.totalToday}</div><div style={metricLabel}>Total Today</div></div>
                   </div>
-
-                  {/* Current staff */}
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:6 }}>On Shift Now</div>
-                    {currentStaff.length > 0 ? currentStaff.map(function(s, i) {
-                      return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                        <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{s.employee}</span>
-                        <span style={{ color:"#6B6F78",fontSize:10 }}>{fmtTime(s.start_time)} - {fmtTime(s.end_time)}</span>
-                      </div>;
-                    }) : <div style={{ color:"#F87171",fontSize:11 }}>No one on shift</div>}
-                  </div>
-
-                  {/* All today's shifts */}
-                  <div style={{ marginBottom:14 }}>
-                    <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Full Day ({shifts.length} shifts)</div>
-                    {shifts.map(function(s, i) {
-                      var isNow = new Date(s.start_time).getHours() <= currentHour && new Date(s.end_time).getHours() > currentHour;
-                      return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"3px 0",color:isNow ? "#F0F1F3" : "#6B6F78",fontSize:11 }}>
-                        <span style={{ fontWeight:isNow?600:400 }}>{isNow ? "\u25CF " : ""}{s.employee}</span>
-                        <span>{fmtTime(s.start_time)}-{fmtTime(s.end_time)}</span>
-                      </div>;
-                    })}
-                    {shifts.length === 0 && <div style={{ color:"#F87171",fontSize:10 }}>No shifts scheduled</div>}
-                  </div>
-
-                  {/* Next 3 hours forecast */}
-                  {upcoming.length > 0 && (
-                    <div>
-                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Next Hours Forecast</div>
-                      {upcoming.map(function(u, i) {
-                        var risk = u.staff === 0 ? "#F87171" : (u.expectedMissed > 3 && u.staff < 2) ? "#FBBF24" : "#4ADE80";
-                        return <div key={i} style={{ display:"flex",justifyContent:"space-between",padding:"3px 0",alignItems:"center" }}>
-                          <span style={{ color:"#C8CAD0",fontSize:11 }}>{u.hour}</span>
-                          <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                            <span style={{ color:"#6B6F78",fontSize:10 }}>{u.staff} staff</span>
-                            <span style={{ width:8,height:8,borderRadius:"50%",background:risk }} />
-                          </div>
-                        </div>;
+                  {cov.onShift.length > 0 ? (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                      {cov.onShift.map(function(name) {
+                        return <span key={name} style={{ fontSize: 12, padding: "4px 8px", background: "#4ADE8022", color: "#4ADE80", borderRadius: 6 }}>{name}{floatMap[name] ? " \uD83D\uDD00" : ""}</span>;
                       })}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Hourly Coverage Heat Map */}
-          {hourlyCoverage && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>Hourly Coverage vs Historical Missed Calls</div>
-              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Staff count today vs 30-day average missed calls per hour</div>
-              <div style={{ overflowX:"auto" }}>
-                <table style={{ width:"100%",borderCollapse:"collapse",minWidth:600 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ padding:"6px 8px",textAlign:"left",color:"#8B8F98",fontSize:9,fontWeight:700 }}>HOUR</th>
-                      {STORE_KEYS.map(function(sk) {
-                        return [
-                          <th key={sk+"s"} style={{ padding:"6px 4px",textAlign:"center",color:STORES[sk].color,fontSize:9,fontWeight:700 }}>{STORES[sk].name.replace("CPR ","").substring(0,5).toUpperCase()} STAFF</th>,
-                          <th key={sk+"m"} style={{ padding:"6px 4px",textAlign:"center",color:"#F87171",fontSize:9,fontWeight:700 }}>MISSED</th>,
-                        ];
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {hourlyCoverage.map(function(row) {
-                      var isCurrentHour = row.hourNum === new Date().getHours();
-                      return (
-                        <tr key={row.hour} style={{ background:isCurrentHour ? "#7B2FFF08" : "transparent",borderBottom:"1px solid #1E2028" }}>
-                          <td style={{ padding:"5px 8px",color:isCurrentHour ? "#7B2FFF" : "#C8CAD0",fontSize:11,fontWeight:isCurrentHour?700:400 }}>{isCurrentHour ? "\u25B6 " : ""}{row.hour}</td>
-                          {STORE_KEYS.map(function(sk) {
-                            var staff = row[sk+"_staff"];
-                            var missed = row[sk+"_missed"];
-                            var risk = staff === 0 && missed > 0 ? "#F87171" : staff < 2 && missed > 3 ? "#FBBF24" : "#4ADE80";
-                            return [
-                              <td key={sk+"s"} style={{ padding:"5px 4px",textAlign:"center",color:staff > 0 ? "#F0F1F3" : "#F87171",fontSize:12,fontWeight:600 }}>{staff}</td>,
-                              <td key={sk+"m"} style={{ padding:"5px 4px",textAlign:"center" }}>
-                                {missed > 0 ? <span style={{ padding:"2px 6px",borderRadius:4,background:risk+"18",color:risk,fontSize:10,fontWeight:600 }}>{missed}</span> : <span style={{ color:"#2A2D35",fontSize:10 }}>0</span>}
-                              </td>,
-                            ];
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════ */}
-      {/* SCHEDULE VS REALITY */}
-      {/* ═══════════════════════════════════════════ */}
-      {subTab === "reality" && (
-        <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Schedule vs Reality</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Staffing levels correlated with call outcomes — insight cards use 30-day data</div>
-
-          {/* Staffing insight cards */}
-          {staffingInsight && (
-            <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
-              {STORE_KEYS.map(function(sk) {
-                var store = STORES[sk];
-                var ins = staffingInsight[sk];
-                var delta = ins.multiRate - ins.singleRate;
-                return (
-                  <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-                    <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:12 }}>{store.name.replace("CPR ","")}</div>
-                    <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10 }}>
-                      <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                        <div style={{ color:"#FBBF24",fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>1 Staff</div>
-                        <div style={{ color:sc(ins.singleRate,85,70),fontSize:22,fontWeight:800 }}>{ins.singleRate}%</div>
-                        <div style={{ color:"#6B6F78",fontSize:9 }}>answer rate</div>
-                        <div style={{ color:"#6B6F78",fontSize:9 }}>{ins.singleDays} days</div>
-                      </div>
-                      <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                        <div style={{ color:"#4ADE80",fontSize:9,fontWeight:700,textTransform:"uppercase",marginBottom:4 }}>2+ Staff</div>
-                        <div style={{ color:sc(ins.multiRate,85,70),fontSize:22,fontWeight:800 }}>{ins.multiRate}%</div>
-                        <div style={{ color:"#6B6F78",fontSize:9 }}>answer rate</div>
-                        <div style={{ color:"#6B6F78",fontSize:9 }}>{ins.multiDays} days</div>
-                      </div>
-                    </div>
-                    {delta > 0 && ins.singleDays > 0 && (
-                      <div style={{ padding:"6px 10px",borderRadius:6,background:"#7B2FFF08",border:"1px solid #7B2FFF22",color:"#7B2FFF",fontSize:10,textAlign:"center" }}>
-                        Adding a 2nd person improves answer rate by <strong>+{delta}%</strong>
-                      </div>
-                    )}
-                    {ins.overallRate > 0 && (
-                      <div style={{ marginTop:8,padding:"6px 10px",borderRadius:6,background:"#12141A",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                        <span style={{ color:"#8B8F98",fontSize:9 }}>30-day overall</span>
-                        <span style={{ color:sc(ins.overallRate,85,70),fontSize:13,fontWeight:700 }}>{ins.overallRate}% <span style={{ color:"#F87171",fontSize:9,fontWeight:400 }}>({ins.missed} missed of {ins.totalInbound})</span></span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Daily breakdown table */}
-          {scheduleVsReality && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Daily Breakdown <span style={{ color:"#6B6F78",fontSize:11,fontWeight:400 }}>— last 7 days</span></div>
-              <div style={{ overflowX:"auto" }}>
-                <table style={{ width:"100%",borderCollapse:"collapse",minWidth:800 }}>
-                  <thead>
-                    <tr style={{ borderBottom:"2px solid #2A2D35" }}>
-                      <th style={{ padding:"8px",textAlign:"left",color:"#8B8F98",fontSize:9,fontWeight:700 }}>DATE</th>
-                      {STORE_KEYS.map(function(sk) {
-                        return [
-                          <th key={sk+"st"} style={{ padding:"8px 4px",textAlign:"center",color:STORES[sk].color,fontSize:9,fontWeight:700 }}>STAFF</th>,
-                          <th key={sk+"c"} style={{ padding:"8px 4px",textAlign:"center",color:"#8B8F98",fontSize:9,fontWeight:700 }}>CALLS</th>,
-                          <th key={sk+"m"} style={{ padding:"8px 4px",textAlign:"center",color:"#F87171",fontSize:9,fontWeight:700 }}>MISS</th>,
-                          <th key={sk+"r"} style={{ padding:"8px 4px",textAlign:"center",color:"#8B8F98",fontSize:9,fontWeight:700 }}>RATE</th>,
-                        ];
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {scheduleVsReality.slice(-7).map(function(day) {
-                      return (
-                        <tr key={day.date} style={{ borderBottom:"1px solid #1E2028" }}>
-                          <td style={{ padding:"6px 8px",color:"#C8CAD0",fontSize:11,fontWeight:600 }}>{day.date}</td>
-                          {STORE_KEYS.map(function(sk) {
-                            var staff = day[sk+"_staff"];
-                            var total = day[sk+"_total"];
-                            var missed = day[sk+"_missed"];
-                            var rate = day[sk+"_rate"];
-                            return [
-                              <td key={sk+"st"} style={{ padding:"6px 4px",textAlign:"center",color:staff > 1 ? "#4ADE80" : staff === 1 ? "#FBBF24" : "#F87171",fontSize:12,fontWeight:700 }}>{staff}</td>,
-                              <td key={sk+"c"} style={{ padding:"6px 4px",textAlign:"center",color:"#C8CAD0",fontSize:11 }}>{total}</td>,
-                              <td key={sk+"m"} style={{ padding:"6px 4px",textAlign:"center",color:missed > 0 ? "#F87171" : "#4ADE80",fontSize:11,fontWeight:600 }}>{missed}</td>,
-                              <td key={sk+"r"} style={{ padding:"6px 4px",textAlign:"center" }}>
-                                <span style={{ padding:"2px 6px",borderRadius:4,background:sc(rate,85,70)+"18",color:sc(rate,85,70),fontSize:10,fontWeight:600 }}>{rate}%</span>
-                              </td>,
-                            ];
-                          })}
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════ */}
-      {/* EMPLOYEE PRODUCTIVITY (Phase 2) */}
-      {/* ═══════════════════════════════════════════ */}
-      {subTab === "productivity" && (
-        <div>
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
-            <div>
-              <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Employee Productivity</div>
-              <div style={{ color:"#6B6F78",fontSize:12 }}>Revenue generation, repair output, and labor efficiency per employee</div>
-            </div>
-            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-              {prodLoading && <span style={{ color:"#7B2FFF",fontSize:10 }}>Loading...</span>}
-              <select value={prodPeriod} onChange={function(e){setProdPeriod(e.target.value);}}
-                style={{ padding:"8px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12 }}>
-                {(function() {
-                  var opts = [];
-                  var now = new Date();
-                  for (var i = 0; i < 6; i++) {
-                    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                    var val = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0");
-                    var label = d.toLocaleDateString(undefined, { month:"long", year:"numeric" });
-                    if (i === 0) label += " (MTD)";
-                    opts.push(<option key={val} value={val}>{label}</option>);
-                  }
-                  return opts;
-                })()}
-              </select>
-            </div>
-          </div>
-
-          {employeeProductivity.length > 0 ? (
-            <div>
-              {/* Top performers cards */}
-              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20 }}>
-                {employeeProductivity.slice(0, 3).map(function(emp, i) {
-                  var medals = ["\uD83E\uDD47","\uD83E\uDD48","\uD83E\uDD49"];
-                  var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#8B8F98";
-                  return (
-                    <div key={emp.name} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+storeColor+"33" }}>
-                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-                        <div>
-                          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{medals[i]} {emp.name}</div>
-                          <div style={{ color:storeColor,fontSize:10 }}>{STORES[emp.store]?STORES[emp.store].name.replace("CPR ",""):emp.store}</div>
-                        </div>
-                        <div style={{ padding:"4px 10px",borderRadius:6,background:"#4ADE8018",color:"#4ADE80",fontSize:16,fontWeight:800 }}>{emp.overall}/100</div>
-                      </div>
-                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#4ADE80",fontSize:18,fontWeight:700 }}>{"$"+emp.revPerHour}</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Rev/Hour</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#00D4FF",fontSize:18,fontWeight:700 }}>{emp.repairsPerHour}</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Repairs/Hour</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{emp.totalRepairs}</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total Repairs</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{emp.totalHours}h</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Hours Worked</div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              {/* Full table */}
-              <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
-                <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                  <thead>
-                    <tr style={{ borderBottom:"2px solid #2A2D35" }}>
-                      {["Employee","Store","Score","Hours","Repairs","Accy GP","Rev/Hour","Repairs/Hr","Audit","Appt %","Compliance"].map(function(h,i) {
-                        return <th key={i} style={{ padding:"10px 8px",textAlign:i < 2 ? "left" : "center",color:"#8B8F98",fontSize:9,fontWeight:700,textTransform:"uppercase" }}>{h}</th>;
-                      })}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {employeeProductivity.map(function(emp) {
-                      var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#8B8F98";
-                      return (
-                        <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                          <td style={{ padding:"8px",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</td>
-                          <td style={{ padding:"8px",color:storeColor,fontSize:11 }}>{STORES[emp.store]?STORES[emp.store].name.replace("CPR ",""):emp.store}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.overall,70,40),fontSize:13,fontWeight:700 }}>{emp.overall}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:"#F0F1F3",fontSize:12 }}>{emp.totalHours}h</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.totalRepairs} <span style={{ color:"#6B6F78",fontSize:9 }}>({emp.phoneRepairs}📱 {emp.otherRepairs}🔧)</span></td>
-                          <td style={{ padding:"8px",textAlign:"center",color:emp.accyGP > 200 ? "#4ADE80" : emp.accyGP > 50 ? "#FBBF24" : "#F87171",fontSize:12,fontWeight:600 }}>{"$"+emp.accyGP}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:emp.revPerHour > 30 ? "#4ADE80" : emp.revPerHour > 15 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{"$"+emp.revPerHour}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:"#00D4FF",fontSize:12,fontWeight:600 }}>{emp.repairsPerHour}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.auditScore,70,40),fontSize:12 }}>{emp.auditScore}</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.apptRate,70,40),fontSize:12 }}>{emp.apptRate}%</td>
-                          <td style={{ padding:"8px",textAlign:"center",color:sc(emp.compScore,70,40),fontSize:12 }}>{emp.compScore}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Insight */}
-              {employeeProductivity.length >= 2 && (
-                <div style={{ marginTop:16,padding:"12px 16px",borderRadius:8,background:"#7B2FFF08",border:"1px solid #7B2FFF22" }}>
-                  <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCA1"} PRODUCTIVITY INSIGHT</div>
-                  <div style={{ color:"#C8CAD0",fontSize:12 }}>
-                    Top producer <strong style={{ color:"#4ADE80" }}>{employeeProductivity[0].name}</strong> generates <strong>{"$"+employeeProductivity[0].revPerHour}/hr</strong>.
-                    {employeeProductivity[employeeProductivity.length-1].revPerHour > 0 && (
-                      <span> Lowest is <strong style={{ color:"#FBBF24" }}>{employeeProductivity[employeeProductivity.length-1].name}</strong> at <strong>{"$"+employeeProductivity[employeeProductivity.length-1].revPerHour}/hr</strong> — a <strong style={{ color:"#F87171" }}>{Math.round(((employeeProductivity[0].revPerHour - employeeProductivity[employeeProductivity.length-1].revPerHour) / employeeProductivity[0].revPerHour) * 100)}%</strong> gap.</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No scorecard data available for this month</div>
-          )}
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════ */}
-      {/* LABOR ECONOMICS (Phase 3) */}
-      {/* ═══════════════════════════════════════════ */}
-      {subTab === "economics" && (
-        <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Labor Economics</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>P&L data from {laborEconomics[STORE_KEYS[0]] ? laborEconomics[STORE_KEYS[0]].period : "last month"} — labor hours from stored shifts</div>
-
-          {/* Store P&L summary cards */}
-          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
-            {STORE_KEYS.map(function(sk) {
-              var econ = laborEconomics[sk];
-              if (!econ) return null;
-              var laborTarget = 30;
-              var laborStatus = econ.laborPct > 0 ? (econ.laborPct <= laborTarget ? "#4ADE80" : econ.laborPct <= 40 ? "#FBBF24" : "#F87171") : "#6B6F78";
-              return (
-                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+econ.color+"33" }}>
-                  <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
-                    <div style={{ color:econ.color,fontSize:14,fontWeight:700 }}>{econ.name}</div>
-                    {econ.hasData && <div style={{ padding:"3px 8px",borderRadius:4,background:econ.netProfit >= 0 ? "#4ADE8018" : "#F8717118",color:econ.netProfit >= 0 ? "#4ADE80" : "#F87171",fontSize:11,fontWeight:700 }}>{"$"+econ.netProfit.toLocaleString()+" net"}</div>}
-                  </div>
-                  {econ.hasData ? (
-                    <div>
-                      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
-                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                          <div style={{ color:"#4ADE80",fontSize:20,fontWeight:800 }}>{"$"+econ.revPerManHour}</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Revenue/Hour</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                          <div style={{ color:laborStatus,fontSize:20,fontWeight:800 }}>{econ.laborPct}%</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor % of Rev</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>{econ.hours}h</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Labor Hours</div>
-                        </div>
-                        <div style={{ background:"#12141A",borderRadius:8,padding:12,textAlign:"center" }}>
-                          <div style={{ color:"#00D4FF",fontSize:18,fontWeight:700 }}>{"$"+econ.profitPerManHour}</div>
-                          <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>GP/Hour</div>
-                        </div>
-                      </div>
-                      <div style={{ fontSize:10 }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98" }}>Gross Revenue</span>
-                          <span style={{ color:"#4ADE80",fontWeight:600 }}>{"$"+econ.grossRev.toLocaleString()}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98" }}>COGS</span>
-                          <span style={{ color:"#F87171",fontWeight:600 }}>{"($"+econ.totalCogs.toLocaleString()+")"}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98" }}>Gross Profit</span>
-                          <span style={{ color:"#F0F1F3",fontWeight:600 }}>{"$"+econ.grossProfit.toLocaleString()+" ("+econ.grossMarginPct+"%)"}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98" }}>Payroll</span>
-                          <span style={{ color:"#FF2D95",fontWeight:600 }}>{"($"+econ.payroll.toLocaleString()+")"}</span>
-                        </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98" }}>Other Expenses</span>
-                          <span style={{ color:"#F87171",fontWeight:600 }}>{"($"+(econ.totalExpenses - econ.payroll).toLocaleString()+")"}</span>
-                        </div>
-                      </div>
                     </div>
                   ) : (
-                    <div style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:11 }}>No P&L data for {econ.period}. Upload profitability data on the Profitability tab.</div>
+                    <div style={{ color: "#EF4444", fontSize: 13 }}>\u26A0 No one on shift</div>
                   )}
                 </div>
               );
             })}
           </div>
 
-          {/* Staffing ROI Analysis */}
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83E\uDDE0"} Staffing ROI — Should You Add 1 FTE?</div>
-            <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Model: Adding staff recovers ~60% of missed calls → 25% convert → at store's actual gross margin</div>
-            <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14 }}>
-              {STORE_KEYS.map(function(sk) {
-                var econ = laborEconomics[sk];
-                if (!econ) return null;
-                var positive = econ.addFTENet > 0;
-                return (
-                  <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:16,border:"1px solid "+(positive?"#4ADE80":"#F87171")+"22" }}>
-                    <div style={{ color:econ.color,fontSize:12,fontWeight:700,marginBottom:10 }}>{econ.name}</div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>Missed calls/month</span>
-                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{econ.missedCalls}</span>
-                    </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>Recoverable (~60%)</span>
-                      <span style={{ color:"#FBBF24",fontSize:12,fontWeight:600 }}>{econ.recoveredCalls} calls</span>
-                    </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>Revenue recovered (25% conv × {"$"+econ.avgTicket})</span>
-                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.recoveredRevenue.toLocaleString()}</span>
-                    </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>Gross profit at {econ.grossMarginPct}% margin</span>
-                      <span style={{ color:"#4ADE80",fontSize:12,fontWeight:600 }}>{"$"+econ.recoveredProfit.toLocaleString()}</span>
-                    </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>FTE cost (~$15/hr × 160hrs)</span>
-                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{"($"+econ.addFTECost.toLocaleString()+")"}</span>
-                    </div>
-                    <div style={{ display:"flex",justifyContent:"space-between",padding:"8px 0",marginTop:4 }}>
-                      <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:700 }}>Net Monthly ROI</span>
-                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:16,fontWeight:800 }}>{(positive?"+":"")+"$"+econ.addFTENet.toLocaleString()}</span>
-                    </div>
-                    <div style={{ marginTop:8,padding:"8px 10px",borderRadius:6,background:positive?"#4ADE8008":"#F8717108",border:"1px solid "+(positive?"#4ADE8022":"#F8717122"),textAlign:"center" }}>
-                      <span style={{ color:positive?"#4ADE80":"#F87171",fontSize:10,fontWeight:600 }}>{positive ? "\u2705 Hire — adds $"+(econ.addFTENet)+"/mo to bottom line" : "\u274C Not justified — would lose $"+Math.abs(econ.addFTENet)+"/mo"}</span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Optimal Schedule Recommendations */}
-          {optimalSchedule && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCC5"} Optimal Staffing Recommendations</div>
-              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:14 }}>Based on 30-day call patterns — recommended minimum staff per hour</div>
-              <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14 }}>
+          {/* Demand heatmap for today */}
+          {demandPatterns && (
+            <div style={card}>
+              <div style={sectionTitle}>TODAY'S HOURLY DEMAND vs COVERAGE</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
                 {STORE_KEYS.map(function(sk) {
-                  var recs = optimalSchedule[sk] || [];
+                  var today = FULL_DAYS[new Date().getDay()];
+                  var dayPattern = demandPatterns[sk]?.[today] || {};
                   return (
-                    <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:14 }}>
-                      <div style={{ color:STORES[sk].color,fontSize:12,fontWeight:700,marginBottom:8 }}>{STORES[sk].name.replace("CPR ","")}</div>
-                      {recs.map(function(r) {
-                        var bg = r.recommended >= 3 ? "#F8717112" : r.recommended >= 2 ? "#FBBF2412" : "#4ADE8012";
-                        var color = r.recommended >= 3 ? "#F87171" : r.recommended >= 2 ? "#FBBF24" : "#4ADE80";
-                        return (
-                          <div key={r.hour} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"3px 0",borderBottom:"1px solid #1A1D23" }}>
-                            <span style={{ color:"#C8CAD0",fontSize:10 }}>{r.hour}</span>
-                            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                              {r.missed > 0 && <span style={{ color:"#F87171",fontSize:9 }}>{r.missed} missed</span>}
-                              <span style={{ padding:"2px 8px",borderRadius:4,background:bg,color:color,fontSize:10,fontWeight:700 }}>{r.recommended} staff</span>
-                            </div>
-                          </div>
-                        );
-                      })}
+                    <div key={sk} style={miniCard}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
+                      <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 60 }}>
+                        {[9,10,11,12,13,14,15,16,17,18,19].map(function(h) {
+                          var d = dayPattern[h] || {};
+                          var calls = d.avgCalls || 0;
+                          var maxCalls = 10;
+                          var height = Math.max(4, Math.min(60, (calls / maxCalls) * 60));
+                          var staff = hourlyStaffing[fmtDate(new Date())]?.[h] || 0;
+                          var color = staff >= (d.recommendedStaff || 1) ? "#4ADE80" : staff > 0 ? "#FBBF24" : "#EF4444";
+                          return <div key={h} title={h + ":00 — " + calls + " calls, " + staff + " staff"} style={{ width: 16, height: height, background: color, borderRadius: 2, opacity: 0.8 }}/>;
+                        })}
+                      </div>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#6B7280", marginTop: 4 }}>
+                        <span>9AM</span><span>2PM</span><span>7PM</span>
+                      </div>
                     </div>
                   );
                 })}
@@ -1011,136 +439,494 @@ export default function ScheduleTab({ storeFilter }) {
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* WEEKLY VIEW */}
-      {/* ═══════════════════════════════════════════ */}
-      {subTab === "week" && (
-        <div>
-          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-            <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-              <button onClick={function(){setWeekOffset(weekOffset-1);}} style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#8B8F98",fontSize:14,cursor:"pointer" }}>{"\u25C0"}</button>
-              <div>
-                <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Weekly Schedule</div>
-                <div style={{ color:"#6B6F78",fontSize:12 }}>Week of {weekDates[0].toLocaleDateString(undefined,{month:"short",day:"numeric"})} - {weekDates[6].toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"})}</div>
+      {/* ══════════════════════════════════════════════════ */}
+      {/* SCHEDULE VS REALITY */}
+      {/* ══════════════════════════════════════════════════ */}
+      {subTab === "reality" && (
+        <div style={card}>
+          <div style={sectionTitle}>STAFFING LEVEL vs ANSWER RATE CORRELATION</div>
+          <p style={{ color: "#9CA3AF", fontSize: 13, marginBottom: 16 }}>
+            Compares days with 1 staff vs 2+ staff against call answer rates. The data doesn't lie.
+          </p>
+          {STORE_KEYS.map(function(sk) {
+            // Compute from stored shifts + call data
+            var singleStaffDays = 0, singleStaffAnswerSum = 0;
+            var multiStaffDays = 0, multiStaffAnswerSum = 0;
+
+            weekDates.forEach(function(dt) {
+              var dateStr = fmtDate(dt);
+              var maxStaff = 0;
+              storedShifts.forEach(function(s) { if (s.store === sk && s.shift_date === dateStr) maxStaff++; });
+              // Get answer rate for this day from stored data
+              var dayCall = storedCallData?.[sk]?.dailyCalls?.find(function(d) { return d.date === dateStr; });
+              if (!dayCall || !maxStaff) return;
+              var rate = dayCall.total > 0 ? Math.round(dayCall.answered / dayCall.total * 100) : 0;
+              if (maxStaff <= 1) { singleStaffDays++; singleStaffAnswerSum += rate; }
+              else { multiStaffDays++; multiStaffAnswerSum += rate; }
+            });
+
+            var singleRate = singleStaffDays > 0 ? Math.round(singleStaffAnswerSum / singleStaffDays) : 0;
+            var multiRate = multiStaffDays > 0 ? Math.round(multiStaffAnswerSum / multiStaffDays) : 0;
+
+            return (
+              <div key={sk} style={{ display: "flex", gap: 16, marginBottom: 12, padding: 12, background: "#12141A", borderRadius: 8 }}>
+                <div style={{ width: 120, fontWeight: 700, color: STORES[sk].color }}>{STORES[sk].name}</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", gap: 16 }}>
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(singleRate, 80, 60) }}>{singleRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>1 staff ({singleStaffDays}d)</span></div>
+                    <div style={{ fontSize: 20, color: "#6B7280" }}>\u2192</div>
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(multiRate, 80, 60) }}>{multiRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>2+ staff ({multiStaffDays}d)</span></div>
+                    {multiRate > singleRate && <span style={badge("#4ADE80")}>+{multiRate - singleRate}%</span>}
+                  </div>
+                </div>
               </div>
-              <button onClick={function(){setWeekOffset(weekOffset+1);}} style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#8B8F98",fontSize:14,cursor:"pointer" }}>{"\u25B6"}</button>
-              {weekOffset !== 0 && <button onClick={function(){setWeekOffset(0);}} style={{ padding:"4px 10px",borderRadius:6,border:"none",background:"#7B2FFF22",color:"#7B2FFF",fontSize:11,fontWeight:600,cursor:"pointer" }}>Today</button>}
-            </div>
-            <div style={{ display:"flex",gap:6 }}>
-              {[{id:"all",label:"All Stores"}].concat(STORE_KEYS.map(function(k){return{id:k,label:STORES[k].name.replace("CPR ","")}})).map(function(f) {
-                return <button key={f.id} onClick={function(){setScheduleStoreFilter(f.id);}} style={{
-                  padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",
-                  background:scheduleStoreFilter===f.id?"#7B2FFF22":"#12141A",color:scheduleStoreFilter===f.id?"#7B2FFF":"#8B8F98",fontSize:11,fontWeight:600
-                }}>{f.label}</button>;
+            );
+          })}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════ */}
+      {/* EMPLOYEE PRODUCTIVITY */}
+      {/* ══════════════════════════════════════════════════ */}
+      {subTab === "productivity" && (
+        <div>
+          <div style={sectionTitle}>REVENUE PER LABOR HOUR — WHO EARNS THEIR KEEP</div>
+          {/* Top 3 */}
+          {productivity.length > 0 && (
+            <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
+              {productivity.slice(0, 3).map(function(emp, i) {
+                var medals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+                return (
+                  <div key={emp.name} style={{ ...card, flex: 1, textAlign: "center" }}>
+                    <div style={{ fontSize: 32 }}>{medals[i]}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>{emp.name}</div>
+                    <div style={{ fontSize: 11, color: STORES[emp.store]?.color || "#6B7280" }}>{STORES[emp.store]?.name || emp.store}</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "#4ADE80", marginTop: 8 }}>${emp.revPerHour}/hr</div>
+                    <div style={{ fontSize: 11, color: "#6B7280" }}>{emp.repairs} repairs in {Math.round(emp.hours)}h</div>
+                  </div>
+                );
               })}
             </div>
-          </div>
-
-          <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
-            <table style={{ width:"100%",borderCollapse:"collapse" }}>
-              <thead>
-                <tr style={{ borderBottom:"2px solid #2A2D35" }}>
-                  <th style={{ padding:"10px 12px",textAlign:"left",color:"#8B8F98",fontSize:10,fontWeight:700,width:140 }}>EMPLOYEE</th>
-                  {weekDates.map(function(d, i) {
-                    var isToday = d.toDateString() === new Date().toDateString();
-                    return <th key={i} style={{ padding:"10px 6px",textAlign:"center",color:isToday?"#7B2FFF":"#8B8F98",fontSize:10,fontWeight:700 }}>
-                      {DAYS[d.getDay()]} {d.getDate()}
-                    </th>;
-                  })}
-                  <th style={{ padding:"10px 8px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>TOTAL</th>
-                </tr>
-              </thead>
+          )}
+          {/* Full table */}
+          <div style={card}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                {["#","Employee","Store","Score","Hours","Repairs","Accy GP","Rev/Hr","Rep/Hr","Audit","Compliance"].map(function(h) {
+                  return <th key={h} style={{ padding: "8px 6px", textAlign: h === "Employee" || h === "Store" ? "left" : "right", color: "#6B7280", fontSize: 11 }}>{h}</th>;
+                })}
+              </tr></thead>
               <tbody>
-                {weekGrid.map(function(emp) {
-                  var storeColor = STORES[emp.store] ? STORES[emp.store].color : "#6B6F78";
+                {productivity.map(function(emp, i) {
                   return (
-                    <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                      <td style={{ padding:"8px 12px" }}>
-                        <div style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</div>
-                        <div style={{ color:storeColor,fontSize:9 }}>{emp.store ? STORES[emp.store].name.replace("CPR ","") : ""}</div>
-                      </td>
-                      {emp.days.map(function(day, i) {
-                        if (!day) return <td key={i} style={{ padding:"6px",textAlign:"center",color:"#2A2D35",fontSize:10 }}>—</td>;
-                        var dayStore = STORES[day.store];
-                        var dayColor = dayStore ? dayStore.color : "#6B6F78";
-                        return <td key={i} style={{ padding:"4px" }}>
-                          <div style={{ background:dayColor+"12",borderRadius:6,padding:"6px 4px",textAlign:"center",border:"1px solid "+dayColor+"22" }}>
-                            <div style={{ color:dayColor,fontSize:10,fontWeight:600 }}>{fmtTime(day.start)}</div>
-                            <div style={{ color:"#6B6F78",fontSize:8 }}>{day.hours.toFixed(1)}h</div>
-                          </div>
-                        </td>;
-                      })}
-                      <td style={{ padding:"8px",textAlign:"right",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.totalHours.toFixed(1)}h</td>
+                    <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
+                      <td style={{ padding: "8px 6px", textAlign: "right", color: "#6B7280" }}>{i + 1}</td>
+                      <td style={{ padding: "8px 6px", fontWeight: 600 }}>{emp.name}{floatMap[emp.name] ? " \uD83D\uDD00" : ""}</td>
+                      <td style={{ padding: "8px 6px", color: STORES[emp.store]?.color }}>{STORES[emp.store]?.name || emp.store}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.score, 80, 60) }}>{emp.score}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>{Math.round(emp.hours)}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairs}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.accyGP.toLocaleString()}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.revPerHour, 40, 25) }}>${emp.revPerHour}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairsPerHour}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right", color: sc(emp.auditScore, 85, 70) }}>{emp.auditScore}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right", color: sc(emp.compliance, 80, 60) }}>{emp.compliance}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {productivity.length >= 2 && (
+              <div style={{ marginTop: 12, padding: 10, background: "#12141A", borderRadius: 8, fontSize: 12, color: "#9CA3AF" }}>
+                \uD83D\uDCA1 Top producer <strong style={{ color: "#4ADE80" }}>{productivity[0].name}</strong> generates <strong>${productivity[0].revPerHour}/hr</strong>.
+                Lowest is <strong style={{ color: "#EF4444" }}>{productivity[productivity.length - 1].name}</strong> at <strong>${productivity[productivity.length - 1].revPerHour}/hr</strong>
+                {productivity[0].revPerHour > 0 ? " — a " + Math.round((1 - productivity[productivity.length - 1].revPerHour / productivity[0].revPerHour) * 100) + "% gap." : "."}
+              </div>
+            )}
           </div>
         </div>
       )}
 
-      {/* ═══════════════════════════════════════════ */}
-      {/* HOURS TRACKING */}
-      {/* ═══════════════════════════════════════════ */}
-      {subTab === "hours" && (
+      {/* ══════════════════════════════════════════════════ */}
+      {/* LABOR ECONOMICS */}
+      {/* ══════════════════════════════════════════════════ */}
+      {subTab === "economics" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Hours Tracking</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>From stored shift data (last 7 days synced)</div>
+          <div style={sectionTitle}>LABOR ECONOMICS — LAST COMPLETED MONTH</div>
+          {laborEcon ? (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 20 }}>
+                {STORE_KEYS.map(function(sk) {
+                  var e = laborEcon[sk];
+                  if (!e) return <div key={sk} style={card}><div style={{ color: "#6B7280" }}>No data for {STORES[sk].name}</div></div>;
+                  return (
+                    <div key={sk} style={card}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: STORES[sk].color, marginBottom: 12 }}>{STORES[sk].name}</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        <div><div style={{ ...metricBig, color: "#4ADE80", fontSize: 22 }}>${e.revPerHour}</div><div style={metricLabel}>Revenue/Man Hour</div></div>
+                        <div><div style={{ ...metricBig, color: sc(100 - e.laborPct, 70, 60), fontSize: 22 }}>{e.laborPct}%</div><div style={metricLabel}>Labor % of Rev</div></div>
+                        <div><div style={{ ...metricBig, color: e.profitPerHour > 0 ? "#4ADE80" : "#EF4444", fontSize: 22 }}>${e.profitPerHour}</div><div style={metricLabel}>Profit/Hour</div></div>
+                        <div><div style={{ ...metricBig, fontSize: 22, color: "#9CA3AF" }}>{e.totalHours}h</div><div style={metricLabel}>Total Hours</div></div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-          {/* Store hour summary */}
-          <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
-            {STORE_KEYS.map(function(sk) {
-              var store = STORES[sk];
-              var totalH = hoursByEmployee.reduce(function(s, e) { return s + (e[sk] || 0); }, 0);
-              return (
-                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,textAlign:"center",border:"1px solid "+store.color+"33" }}>
-                  <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:6 }}>{store.name.replace("CPR ","")}</div>
-                  <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:800 }}>{Math.round(totalH * 10) / 10}h</div>
-                  <div style={{ color:"#6B6F78",fontSize:10 }}>total scheduled</div>
+              {/* Staffing ROI */}
+              {staffingROI && (
+                <div style={card}>
+                  <div style={sectionTitle}>\uD83E\uDDE0 STAFFING ROI — WHAT IF YOU ADDED 1 FTE?</div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
+                    {STORE_KEYS.map(function(sk) {
+                      var r = staffingROI[sk];
+                      if (!r) return null;
+                      return (
+                        <div key={sk} style={{ padding: 16, background: "#12141A", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "#4ADE80" : "#EF4444") }}>
+                          <div style={{ fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>\u00D7 25% conversion \u00D7 $175 = <strong style={{ color: "#fff" }}>${r.recoverableRevenue.toLocaleString()}</strong> recoverable</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>\u2212 ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "#4ADE80" : "#EF4444" }}>
+                            {r.justified ? "\u2705 Hire — pays for itself" : "\u274C Not justified yet"} ({r.paybackPct}%)
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              );
-            })}
+              )}
+            </>
+          ) : (
+            <div style={card}><div style={{ color: "#6B7280" }}>No profitability data available. Import via Profitability tab.</div></div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════ */}
+      {/* WEEKLY VIEW — THE INTELLIGENCE HUB */}
+      {/* ══════════════════════════════════════════════════ */}
+      {subTab === "week" && (
+        <div>
+          {/* Week nav + controls */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <button onClick={function() { setWeekOffset(weekOffset - 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>\u25C0</button>
+              <div>
+                <div style={{ fontSize: 18, fontWeight: 800 }}>Weekly Schedule</div>
+                <div style={{ fontSize: 12, color: "#6B7280" }}>{weekLabel}</div>
+              </div>
+              <button onClick={function() { setWeekOffset(weekOffset + 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>\u25B6</button>
+              {weekOffset !== 0 && (
+                <button onClick={function() { setWeekOffset(0); }} style={{ background: "#7B2FFF22", border: "none", color: "#7B2FFF", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>Today</button>
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {/* Demand overlay toggle */}
+              <button onClick={function() { setShowDemandOverlay(!showDemandOverlay); }} style={{
+                padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
+                background: showDemandOverlay ? "#FF2D9522" : "#1A1D23", color: showDemandOverlay ? "#FF2D95" : "#6B7280",
+              }}>
+                {showDemandOverlay ? "\uD83D\uDCCA Demand ON" : "\uD83D\uDCCA Demand OFF"}
+              </button>
+
+              {/* Store filter */}
+              <div style={{ display: "flex", gap: 4 }}>
+                {[{ key: "all", label: "All Stores" }].concat(STORE_KEYS.map(function(sk) { return { key: sk, label: STORES[sk].name }; })).map(function(s) {
+                  return <button key={s.key} onClick={function() { setWeekStore(s.key); }} style={{
+                    padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12,
+                    background: weekStore === s.key ? "#00D4FF22" : "#1A1D23", color: weekStore === s.key ? "#00D4FF" : "#6B7280",
+                  }}>{s.label}</button>;
+                })}
+              </div>
+
+              {/* AI Optimize */}
+              <button onClick={handleOptimize} disabled={optimizing} style={{
+                padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
+                background: "linear-gradient(135deg, #7B2FFF, #FF2D95)", color: "#fff", opacity: optimizing ? 0.6 : 1,
+              }}>
+                {optimizing ? "\uD83E\uDDE0 Optimizing..." : "\uD83E\uDDE0 AI Optimize Next Week"}
+              </button>
+            </div>
           </div>
 
-          {/* Employee hours table */}
-          {hoursByEmployee.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
-              <table style={{ width:"100%",borderCollapse:"collapse" }}>
-                <thead>
-                  <tr style={{ borderBottom:"2px solid #2A2D35" }}>
-                    <th style={{ padding:"10px 14px",textAlign:"left",color:"#8B8F98",fontSize:10,fontWeight:700 }}>EMPLOYEE</th>
-                    {STORE_KEYS.map(function(sk) {
-                      return <th key={sk} style={{ padding:"10px 8px",textAlign:"center",color:STORES[sk].color,fontSize:10,fontWeight:700 }}>{STORES[sk].name.replace("CPR ","").substring(0,5).toUpperCase()}</th>;
-                    })}
-                    <th style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>TOTAL</th>
-                    <th style={{ padding:"10px 14px",textAlign:"right",color:"#8B8F98",fontSize:10,fontWeight:700 }}>40H STATUS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hoursByEmployee.map(function(emp) {
-                    var overtime = emp.total > 40;
-                    var nearOT = emp.total > 35 && emp.total <= 40;
-                    return (
-                      <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                        <td style={{ padding:"8px 14px",color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{emp.name}</td>
-                        {STORE_KEYS.map(function(sk) {
-                          var h = Math.round((emp[sk] || 0) * 10) / 10;
-                          return <td key={sk} style={{ padding:"8px",textAlign:"center",color:h > 0 ? "#F0F1F3" : "#2A2D35",fontSize:12 }}>{h > 0 ? h + "h" : "—"}</td>;
-                        })}
-                        <td style={{ padding:"8px 14px",textAlign:"right",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{Math.round(emp.total * 10) / 10}h</td>
-                        <td style={{ padding:"8px 14px",textAlign:"right" }}>
-                          {overtime ? <span style={{ padding:"2px 8px",borderRadius:4,background:"#F8717118",color:"#F87171",fontSize:10,fontWeight:600 }}>OT +{Math.round((emp.total - 40) * 10) / 10}h</span> :
-                           nearOT ? <span style={{ padding:"2px 8px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:10,fontWeight:600 }}>Near OT</span> :
-                           <span style={{ padding:"2px 8px",borderRadius:4,background:"#4ADE8018",color:"#4ADE80",fontSize:10,fontWeight:600 }}>OK</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+          {/* ── Coverage Alert Banner ── */}
+          {coverageSummary && coverageSummary.criticalHours > 0 && (
+            <div style={{ background: "#EF444422", border: "1px solid #EF444444", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>\u26A0 {coverageSummary.criticalHours} CRITICAL gap hours</span>
+                <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 8 }}>({coverageSummary.totalGapHours} total understaffed hours this week)</span>
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: "#EF4444" }}>
+                ${coverageSummary.revenueAtRisk.toLocaleString()} revenue at risk
+              </div>
             </div>
           )}
+
+          {/* ── Float Employees Banner ── */}
+          {floatEmployees.filter(function(e) { return e.isFloat; }).length > 0 && (
+            <div style={{ background: "#7B2FFF12", border: "1px solid #7B2FFF33", borderRadius: 8, padding: 10, marginBottom: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#7B2FFF" }}>\uD83D\uDD00 Float Employees:</span>
+              {floatEmployees.filter(function(e) { return e.isFloat; }).map(function(e) {
+                return <span key={e.name} style={{ fontSize: 11, padding: "3px 8px", background: "#7B2FFF22", color: "#C4B5FD", borderRadius: 4 }}>
+                  {e.name} ({e.storeList.map(function(s) { return STORES[s]?.name?.[0] || s[0]; }).join("/")})
+                </span>;
+              })}
+            </div>
+          )}
+
+          {/* ── DEMAND HEATMAP (above schedule) ── */}
+          {showDemandOverlay && demandPatterns && (
+            <div style={{ ...card, padding: 12, marginBottom: 8 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#FF2D95", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
+                HOURLY DEMAND PATTERN (30-day avg) — Calls + Tickets by Hour
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "120px repeat(7, 1fr)", gap: 2 }}>
+                <div style={{ fontSize: 10, color: "#6B7280", padding: 4 }}>STORE</div>
+                {weekDates.map(function(dt, i) {
+                  var isToday = fmtDate(dt) === fmtDate(new Date());
+                  return <div key={i} style={{ fontSize: 10, color: isToday ? "#00D4FF" : "#6B7280", textAlign: "center", padding: 4, fontWeight: isToday ? 700 : 400 }}>{DAYS[dt.getDay()]} {dt.getDate()}</div>;
+                })}
+
+                {(weekStore === "all" ? STORE_KEYS : [weekStore]).map(function(sk) {
+                  return [
+                    <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk].color, padding: "4px 4px", fontWeight: 600 }}>{STORES[sk].name}</div>,
+                    ...weekDates.map(function(dt, di) {
+                      var dow = FULL_DAYS[dt.getDay()];
+                      var dayPattern = demandPatterns[sk]?.[dow] || {};
+                      // Mini sparkline for this day
+                      var maxDemand = 0;
+                      for (var h = 9; h <= 19; h++) { maxDemand = Math.max(maxDemand, dayPattern[h]?.demandScore || 0); }
+                      return (
+                        <div key={sk + "-" + di} style={{ display: "flex", gap: 1, alignItems: "flex-end", height: 28, padding: "2px 4px", background: "#0A0C10", borderRadius: 4 }}>
+                          {[9,10,11,12,13,14,15,16,17,18,19].map(function(h) {
+                            var d = dayPattern[h] || {};
+                            var score = d.demandScore || 0;
+                            var height = maxDemand > 0 ? Math.max(2, (score / maxDemand) * 24) : 2;
+                            var staff = hourlyStaffing[fmtDate(dt)]?.[h] || 0;
+                            var needed = d.recommendedStaff || 1;
+                            var color = staff >= needed ? "#4ADE8088" : staff > 0 ? "#FBBF24AA" : "#EF4444AA";
+                            return <div key={h} title={STORES[sk].name + " " + dow + " " + h + ":00\nDemand: " + score + "\nStaff: " + staff + "/" + needed} style={{ flex: 1, height: height, background: color, borderRadius: 1 }}/>;
+                          })}
+                        </div>
+                      );
+                    })
+                  ];
+                })}
+              </div>
+              <div style={{ display: "flex", gap: 16, marginTop: 6, fontSize: 10, color: "#6B7280" }}>
+                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#4ADE80", borderRadius: 2, marginRight: 4 }}/>Adequately Staffed</span>
+                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#FBBF24", borderRadius: 2, marginRight: 4 }}/>Understaffed</span>
+                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#EF4444", borderRadius: 2, marginRight: 4 }}/>No Coverage</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── SCHEDULE GRID ── */}
+          <div style={{ ...card, padding: 0, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "2px solid #2A2D35" }}>
+                  <th style={{ padding: "10px 12px", textAlign: "left", color: "#6B7280", fontSize: 11, width: 150 }}>EMPLOYEE</th>
+                  {weekDates.map(function(dt, i) {
+                    var isToday = fmtDate(dt) === fmtDate(new Date());
+                    return <th key={i} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, color: isToday ? "#00D4FF" : "#6B7280", fontWeight: isToday ? 800 : 600 }}>
+                      {DAYS[dt.getDay()]} {dt.getDate()}
+                    </th>;
+                  })}
+                  <th style={{ padding: "10px 8px", textAlign: "right", color: "#6B7280", fontSize: 11 }}>TOTAL</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklySchedule.map(function(emp) {
+                  var isFloat = floatMap[emp.name];
+                  var storeColors = {};
+                  emp.stores.forEach(function(s) { storeColors[s] = STORES[s]?.color || "#6B7280"; });
+                  var primaryColor = STORES[emp.store]?.color || "#6B7280";
+
+                  return (
+                    <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
+                      <td style={{ padding: "8px 12px" }}>
+                        <div style={{ fontWeight: 600, fontSize: 13 }}>
+                          {emp.name}
+                          {isFloat && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>\uD83D\uDD00 FLOAT</span>}
+                        </div>
+                        <div style={{ fontSize: 10, color: primaryColor }}>{STORES[emp.store]?.name || emp.store}</div>
+                      </td>
+                      {weekDates.map(function(dt, di) {
+                        var dateStr = fmtDate(dt);
+                        var shift = emp.shifts[dateStr];
+                        if (!shift) return <td key={di} style={{ padding: "6px 4px", textAlign: "center" }}>
+                          <div style={{ color: "#2A2D35", fontSize: 10 }}>—</div>
+                        </td>;
+
+                        var shiftStore = shift.store || emp.store;
+                        var shiftColor = STORES[shiftStore]?.color || "#6B7280";
+
+                        // Coverage check for this cell
+                        var coverageInfo = coverageData?.stores?.[shiftStore]?.days?.[dateStr];
+                        var hasGap = false;
+                        if (coverageInfo) {
+                          for (var h = shift.startHour || 9; h < (shift.endHour || 17); h++) {
+                            if (coverageInfo.hours?.[h]?.severity === "CRITICAL") { hasGap = true; break; }
+                          }
+                        }
+
+                        return (
+                          <td key={di} style={{ padding: "4px 3px", textAlign: "center" }}>
+                            <div style={{
+                              background: shiftColor + "18",
+                              borderRadius: 6,
+                              padding: "6px 4px",
+                              borderLeft: "3px solid " + shiftColor,
+                              position: "relative",
+                            }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: shiftColor }}>{shift.start}</div>
+                              <div style={{ fontSize: 10, color: "#6B7280" }}>{shift.hours}h</div>
+                              {shiftStore !== emp.store && (
+                                <div style={{ fontSize: 9, color: STORES[shiftStore]?.color, fontWeight: 700 }}>\u2192 {STORES[shiftStore]?.name?.[0]}</div>
+                              )}
+                              {hasGap && showDemandOverlay && (
+                                <div style={{ position: "absolute", top: 2, right: 2, width: 6, height: 6, borderRadius: 3, background: "#EF4444" }} title="Critical gap during this shift"/>
+                              )}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 700, color: emp.totalHours >= 40 ? "#FBBF24" : emp.totalHours >= 35 ? "#4ADE80" : "#9CA3AF" }}>
+                        {emp.totalHours.toFixed(1)}h
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* ── Per-day staffing summary row ── */}
+            {showDemandOverlay && (
+              <div style={{ display: "grid", gridTemplateColumns: "150px repeat(7, 1fr) 60px", borderTop: "2px solid #2A2D35", padding: "8px 0" }}>
+                <div style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, color: "#FF2D95" }}>DAILY RISK</div>
+                {weekDates.map(function(dt, i) {
+                  var dateStr = fmtDate(dt);
+                  var dow = FULL_DAYS[dt.getDay()];
+                  var totalRisk = 0;
+                  var storeKeys = weekStore === "all" ? STORE_KEYS : [weekStore];
+                  storeKeys.forEach(function(sk) {
+                    var dayData = coverageData?.stores?.[sk]?.days?.[dateStr];
+                    if (!dayData) return;
+                    Object.values(dayData.hours || {}).forEach(function(h) { totalRisk += h.revenueAtRisk || 0; });
+                  });
+                  return (
+                    <div key={i} style={{ textAlign: "center", padding: "4px 4px" }}>
+                      {totalRisk > 0 ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: totalRisk > 200 ? "#EF4444" : "#FBBF24" }}>
+                          -${totalRisk}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 11, color: "#4ADE8066" }}>\u2713</span>
+                      )}
+                    </div>
+                  );
+                })}
+                <div/>
+              </div>
+            )}
+          </div>
+
+          {/* ── AI OPTIMIZATION RESULTS ── */}
+          {optimization && (
+            <div style={{ ...card, borderLeft: "3px solid #7B2FFF" }}>
+              <div style={sectionTitle}>\uD83E\uDDE0 AI-OPTIMIZED SCHEDULE — NEXT WEEK</div>
+              {optimization.error ? (
+                <div style={{ color: "#EF4444" }}>{optimization.error}</div>
+              ) : (
+                <>
+                  {optimization.rationale && (
+                    <div style={{ padding: 12, background: "#12141A", borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#C4B5FD", lineHeight: 1.6 }}>
+                      {optimization.rationale}
+                    </div>
+                  )}
+                  {optimization.expectedMetrics && (
+                    <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#4ADE80" }}>{optimization.expectedMetrics.totalLaborHours}h</div><div style={metricLabel}>Total Labor</div></div>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#00D4FF" }}>{optimization.expectedMetrics.coverageScore}%</div><div style={metricLabel}>Coverage Score</div></div>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#7B2FFF" }}>{optimization.expectedMetrics.estimatedAnswerRate}%</div><div style={metricLabel}>Est. Answer Rate</div></div>
+                    </div>
+                  )}
+                  {optimization.schedule && (
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                        <th style={{ padding: 8, textAlign: "left", color: "#6B7280", fontSize: 10 }}>Employee</th>
+                        {["Mon","Tue","Wed","Thu","Fri","Sat"].map(function(d) {
+                          return <th key={d} style={{ padding: 8, textAlign: "center", color: "#6B7280", fontSize: 10 }}>{d}</th>;
+                        })}
+                      </tr></thead>
+                      <tbody>
+                        {optimization.schedule.map(function(row) {
+                          return (
+                            <tr key={row.employee} style={{ borderBottom: "1px solid #1A1D23" }}>
+                              <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.employee}</td>
+                              {["monday","tuesday","wednesday","thursday","friday","saturday"].map(function(day) {
+                                var d = row[day];
+                                if (!d) return <td key={day} style={{ padding: 4, textAlign: "center", color: "#2A2D35" }}>OFF</td>;
+                                return (
+                                  <td key={day} style={{ padding: 4, textAlign: "center" }}>
+                                    <div style={{ background: (STORES[d.store]?.color || "#6B7280") + "18", borderRadius: 4, padding: "4px 2px" }}>
+                                      <div style={{ fontSize: 10, color: STORES[d.store]?.color || "#6B7280", fontWeight: 700 }}>{STORES[d.store]?.name?.[0] || d.store}</div>
+                                      <div style={{ fontSize: 10, color: "#9CA3AF" }}>{d.start}-{d.end}</div>
+                                    </div>
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════════ */}
+      {/* HOURS TRACKING */}
+      {/* ══════════════════════════════════════════════════ */}
+      {subTab === "hours" && (
+        <div style={card}>
+          <div style={sectionTitle}>HOURS TRACKING — THIS WEEK</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+              {["Employee","Fishers","Bloomington","Indianapolis","Total","Status"].map(function(h) {
+                return <th key={h} style={{ padding: "8px 10px", textAlign: h === "Employee" ? "left" : "right", color: "#6B7280", fontSize: 11 }}>{h}</th>;
+              })}
+            </tr></thead>
+            <tbody>
+              {hoursByEmployee.map(function(emp) {
+                var isOT = emp.total > 40;
+                return (
+                  <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
+                    <td style={{ padding: "8px 10px", fontWeight: 600 }}>
+                      {emp.name}
+                      {floatMap[emp.name] && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>\uD83D\uDD00</span>}
+                    </td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.fishers > 0 ? STORES.fishers.color : "#2A2D35" }}>{emp.fishers > 0 ? emp.fishers.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.bloomington > 0 ? STORES.bloomington.color : "#2A2D35" }}>{emp.bloomington > 0 ? emp.bloomington.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.indianapolis > 0 ? STORES.indianapolis.color : "#2A2D35" }}>{emp.indianapolis > 0 ? emp.indianapolis.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: isOT ? "#EF4444" : emp.total >= 35 ? "#4ADE80" : "#FBBF24" }}>{emp.total.toFixed(1)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right" }}>
+                      {isOT ? <span style={badge("#EF4444")}>\u26A0 OT +{(emp.total - 40).toFixed(1)}h</span> :
+                       emp.total >= 35 ? <span style={badge("#4ADE80")}>Full</span> :
+                       <span style={badge("#FBBF24")}>Under</span>}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
