@@ -59,63 +59,53 @@ async function getHourlyDemand(store, days) {
       dailyCallsByDow[d] = { totalCalls: 0, totalMissed: 0, dayCount: 0 };
     }
 
-    // Try call_records first, then audit_records as fallback
-    var gotCallData = false;
+    // ── Get daily call data from audit_records (PRIMARY — known to exist) ──
     try {
-      var { data: callRecords } = await sb.from("call_records")
-        .select("date, total_calls, answered_calls, missed_calls")
+      var { data: audits } = await sb.from("audit_records")
+        .select("date, categories")
         .eq("store", sk)
         .gte("date", cutoffStr)
-        .order("date", { ascending: false });
+        .limit(10000);
 
-      if (callRecords && callRecords.length > 0) {
-        gotCallData = true;
-        callRecords.forEach(function(r) {
-          var dt = new Date(r.date + "T12:00:00");
+      if (audits && audits.length > 0) {
+        var byDate = {};
+        audits.forEach(function(a) {
+          if (!a.date) return;
+          if (!byDate[a.date]) byDate[a.date] = { total: 0, missed: 0 };
+          byDate[a.date].total++;
+          // Word-boundary check for missed (avoid "answered" matching in "unanswered")
+          var cats = (a.categories || "").toLowerCase();
+          var catList = cats.split(/[\s,|]+/);
+          var isAnswered = catList.indexOf("answered") >= 0;
+          var isMissed = !isAnswered || catList.indexOf("missed") >= 0;
+          if (isMissed) byDate[a.date].missed++;
+        });
+        Object.entries(byDate).forEach(function(entry) {
+          var date = entry[0], counts = entry[1];
+          var dt = new Date(date + "T12:00:00");
           var dow = dt.getDay();
-          var total = r.total_calls || 0;
-          var answered = r.answered_calls || 0;
-          var missed = r.missed_calls || Math.max(0, total - answered);
-          dailyCallsByDow[dow].totalCalls += total;
-          dailyCallsByDow[dow].totalMissed += missed;
+          dailyCallsByDow[dow].totalCalls += counts.total;
+          dailyCallsByDow[dow].totalMissed += counts.missed;
           dailyCallsByDow[dow].dayCount++;
         });
       }
     } catch (e) {
-      console.error("call_records query failed for " + sk + ":", e.message);
-    }
-
-    if (!gotCallData) {
-      // Fallback: count audit_records per day as call volume proxy
+      console.error("audit_records query failed for " + sk + ":", e.message);
+      // Last resort fallback: try call_records table
       try {
-        var { data: audits } = await sb.from("audit_records")
-          .select("date, categories")
-          .eq("store", sk)
-          .gte("date", cutoffStr);
-
-        if (audits && audits.length > 0) {
-          var byDate = {};
-          audits.forEach(function(a) {
-            if (!byDate[a.date]) byDate[a.date] = { total: 0, missed: 0 };
-            byDate[a.date].total++;
-            // Check if missed using categories field
-            var cats = (a.categories || "").toLowerCase();
-            var catList = cats.split(/[\s,|]+/);
-            var isMissed = catList.indexOf("missed") >= 0 || catList.indexOf("unanswered") >= 0;
-            if (isMissed) byDate[a.date].missed++;
-          });
-          Object.entries(byDate).forEach(function(entry) {
-            var date = entry[0], counts = entry[1];
-            var dt = new Date(date + "T12:00:00");
+        var { data: callRecords } = await sb.from("call_records")
+          .select("date, total_calls, answered_calls, missed_calls")
+          .eq("store", sk).gte("date", cutoffStr);
+        if (callRecords) {
+          callRecords.forEach(function(r) {
+            var dt = new Date(r.date + "T12:00:00");
             var dow = dt.getDay();
-            dailyCallsByDow[dow].totalCalls += counts.total;
-            dailyCallsByDow[dow].totalMissed += counts.missed;
+            dailyCallsByDow[dow].totalCalls += r.total_calls || 0;
+            dailyCallsByDow[dow].totalMissed += r.missed_calls || Math.max(0, (r.total_calls||0) - (r.answered_calls||0));
             dailyCallsByDow[dow].dayCount++;
           });
         }
-      } catch (e2) {
-        console.error("audit_records fallback failed for " + sk + ":", e2.message);
-      }
+      } catch (e2) { console.error("call_records also failed:", e2.message); }
     }
 
     // ── Get hourly ticket data from ticket_grades ──
