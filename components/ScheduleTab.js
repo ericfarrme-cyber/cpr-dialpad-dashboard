@@ -70,6 +70,7 @@ export default function ScheduleTab({ selectedStore }) {
   var [scorecardData, setScorecardData] = useState(null);
   var [storedCallData, setStoredCallData] = useState(null);
   var [allStoredShifts, setAllStoredShifts] = useState([]); // 90 days for analysis
+  var [salesData, setSalesData] = useState(null);
 
   // Current week dates
   var currentWeekStart = useMemo(function() {
@@ -153,6 +154,7 @@ export default function ScheduleTab({ selectedStore }) {
         return fetch("/api/wheniwork?action=stored-shifts&start=" + fmtDate(start) + "&end=" + fmtDate(end))
           .then(function(r) { return r.json(); });
       })(),
+      fetch("/api/dialpad/sales?action=performance").then(function(r) { return r.json(); }),
     ]).then(function(results) {
       // Merge profitability from current month + last month
       // API returns: {success:true, records:[], period:"2026-04"}
@@ -169,6 +171,7 @@ export default function ScheduleTab({ selectedStore }) {
       if (results[2].status === "fulfilled") setScorecardData(results[2].value);
       if (results[3].status === "fulfilled") setStoredCallData(results[3].value);
       if (results[4].status === "fulfilled" && results[4].value.shifts) setAllStoredShifts(results[4].value.shifts);
+      if (results[5].status === "fulfilled") setSalesData(results[5].value);
     });
   }, []);
 
@@ -346,8 +349,62 @@ export default function ScheduleTab({ selectedStore }) {
   // ═══ Employee Productivity (from scorecard + shifts) ═══
   var productivity = useMemo(function() {
     if (!scorecardData) return [];
-    // Scorecard returns: { scores: {fishers: {...}, ...}, employeeScores: [{name, store, repairs, audit, compliance, overall}, ...] }
     var empScores = scorecardData.employeeScores || [];
+
+    // Build per-employee actual revenue from sales data
+    // Sales route returns: {phones: [{employee, repair_tickets, repair_total, avg_repair}],
+    //   others: [{employee, repair_count, repair_total}],
+    //   accessories: [{employee, accy_gp, accy_count}],
+    //   cleanings: [{employee, clean_count, clean_total}],
+    //   cleaningSales: [{employee, gross_sales}]}
+    var empRevMap = {};
+    if (salesData && salesData.phones) {
+      // Initialize from phone repairs
+      (salesData.phones || []).forEach(function(r) {
+        if (!r.employee) return;
+        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
+        empRevMap[r.employee].phoneRev = r.repair_total || 0;
+      });
+      // Add other repairs
+      (salesData.others || []).forEach(function(r) {
+        if (!r.employee) return;
+        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
+        empRevMap[r.employee].otherRev = r.repair_total || 0;
+      });
+      // Add accessories (GP, not revenue)
+      (salesData.accessories || []).forEach(function(r) {
+        if (!r.employee) return;
+        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
+        empRevMap[r.employee].accyGP = r.accy_gp || 0;
+      });
+      // Add cleanings
+      (salesData.cleanings || []).forEach(function(r) {
+        if (!r.employee) return;
+        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
+        empRevMap[r.employee].cleanRev = r.clean_total || 0;
+      });
+      // Add cleaning sales (CLN)
+      (salesData.cleaningSales || []).forEach(function(r) {
+        if (!r.employee) return;
+        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
+        empRevMap[r.employee].clnRev = r.gross_sales || r.discounted_sales || 0;
+      });
+    }
+
+    // Fallback: store avg ticket from profitability
+    var storeAvgTicket = {};
+    var now = new Date();
+    var curPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    var lastPeriod = (function() { var d = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); })();
+    STORE_KEYS.forEach(function(sk) {
+      var record = profitData.find(function(r) { return r.store === sk && r.period === curPeriod; }) ||
+                   profitData.find(function(r) { return r.store === sk && r.period === lastPeriod; });
+      if (!record) return;
+      var repairRev = record.repair_revenue || 0;
+      var repairTickets = record.repair_tickets || 0;
+      storeAvgTicket[sk] = repairTickets > 0 ? Math.round(repairRev / repairTickets) : 175;
+    });
+
     var allEmps = [];
     empScores.forEach(function(emp) {
       if (!emp.name || !emp.hasData) return;
@@ -355,14 +412,29 @@ export default function ScheduleTab({ selectedStore }) {
       var sk = emp.store || "unknown";
       var hrs = hoursByEmployee.find(function(h) { return h.name === name; });
       var totalHrs = hrs ? hrs.total : 0;
-      var phoneRepairs = emp.repairs?.phone_tickets || 0;
-      var otherRepairs = emp.repairs?.other_tickets || 0;
-      var totalRepairs = emp.repairs?.total_repairs || (phoneRepairs + otherRepairs);
+      var totalRepairs = emp.repairs?.total_repairs || ((emp.repairs?.phone_tickets || 0) + (emp.repairs?.other_tickets || 0));
       var accyGP = emp.repairs?.accy_gp || 0;
-      var totalRev = totalRepairs * 175 + accyGP;
+      var cleanCount = emp.repairs?.clean_count || 0;
+
+      // Use ACTUAL per-employee revenue from sales if available
+      var sales = empRevMap[name];
+      var totalRev;
+      var revenueSource;
+      if (sales) {
+        totalRev = sales.phoneRev + sales.otherRev + sales.accyGP + sales.cleanRev + sales.clnRev;
+        revenueSource = totalRev > 0 ? "actual" : "estimated";
+      }
+      if (!sales || totalRev === 0) {
+        // Fallback to store avg ticket estimate
+        var avgTicket = storeAvgTicket[sk] || 175;
+        totalRev = totalRepairs * avgTicket + accyGP + cleanCount * 10;
+        revenueSource = "estimated";
+      }
+
       allEmps.push({
         name: name, store: sk, hours: totalHrs,
-        repairs: totalRepairs, accyGP: accyGP, totalRev: totalRev,
+        repairs: totalRepairs, accyGP: Math.round(accyGP), cleanCount: cleanCount,
+        totalRev: Math.round(totalRev), revenueSource: revenueSource,
         revPerHour: totalHrs > 0 ? Math.round(totalRev / totalHrs) : 0,
         repairsPerHour: totalHrs > 0 ? Math.round(totalRepairs / totalHrs * 10) / 10 : 0,
         auditScore: emp.audit?.avg_pct || emp.audit?.score || 0,
@@ -371,7 +443,7 @@ export default function ScheduleTab({ selectedStore }) {
       });
     });
     return allEmps.sort(function(a, b) { return b.revPerHour - a.revPerHour; });
-  }, [scorecardData, hoursByEmployee]);
+  }, [scorecardData, hoursByEmployee, profitData, salesData]);
 
   // ═══ Labor Economics (from profitability data + stored shifts for hours) ═══
   var laborEcon = useMemo(function() {
@@ -679,7 +751,7 @@ export default function ScheduleTab({ selectedStore }) {
           <div style={card}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
-                {["#","Employee","Store","Score","Hours","Repairs","Accy GP","Rev/Hr","Rep/Hr","Audit","Compliance"].map(function(h) {
+                {["#","Employee","Store","Score","Hours","Repairs","Accy GP","Total Rev","Rev/Hr","Rep/Hr","Audit","Compliance"].map(function(h) {
                   return <th key={h} style={{ padding: "8px 6px", textAlign: h === "Employee" || h === "Store" ? "left" : "right", color: "#6B7280", fontSize: 11 }}>{h}</th>;
                 })}
               </tr></thead>
@@ -694,6 +766,7 @@ export default function ScheduleTab({ selectedStore }) {
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{Math.round(emp.hours)}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairs}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.accyGP.toLocaleString()}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.totalRev.toLocaleString()}{emp.revenueSource === "estimated" ? <span style={{ fontSize: 8, color: "#6B7280", marginLeft: 2 }}>est</span> : ""}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.revPerHour, 40, 25) }}>${emp.revPerHour}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairsPerHour}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", color: sc(emp.auditScore, 85, 70) }}>{emp.auditScore}</td>
