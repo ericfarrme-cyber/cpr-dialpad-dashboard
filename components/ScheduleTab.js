@@ -229,11 +229,18 @@ export default function ScheduleTab({ selectedStore }) {
       var store = locationToStore(rawStore) || rawStore;
       if (weekStore !== "all" && store !== weekStore) return;
 
-      var dateStr = s.shift_date || (s.start_time ? new Date(s.start_time).toISOString().split("T")[0] : null);
+      var dateStr = s.shift_date || null;
+      if (!dateStr && s.start_time) {
+        // Robust date extraction — handle various formats
+        try {
+          var d = new Date(s.start_time);
+          dateStr = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+        } catch(e) { return; }
+      }
       if (!dateStr) return;
 
-      // Deduplicate by employee + date
-      var key = name + "|" + dateStr;
+      // Deduplicate by normalized name + date (case-insensitive, trimmed)
+      var key = name.trim().toLowerCase() + "|" + dateStr;
       if (seen.has(key)) return;
       seen.add(key);
 
@@ -763,51 +770,84 @@ export default function ScheduleTab({ selectedStore }) {
           )}
 
           {/* ── DEMAND HEATMAP (above schedule) ── */}
-          {showDemandOverlay && effectiveDemand && (
+          {showDemandOverlay && effectiveDemand && (function() {
+            // Find GLOBAL max demand across all stores and days for consistent scaling
+            var storeKeys = weekStore === "all" ? STORE_KEYS : [weekStore];
+            var globalMax = 0;
+            storeKeys.forEach(function(sk) {
+              FULL_DAYS.forEach(function(dow) {
+                for (var h = 9; h <= 19; h++) {
+                  globalMax = Math.max(globalMax, effectiveDemand[sk]?.[dow]?.[h]?.avgCalls || 0);
+                }
+              });
+            });
+            if (globalMax === 0) globalMax = 1;
+
+            return (
             <div style={{ ...card, padding: 12, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#FF2D95", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
-                HOURLY DEMAND PATTERN (30-day avg) — Calls + Tickets by Hour
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#FF2D95", textTransform: "uppercase", letterSpacing: 1 }}>
+                  HOURLY DEMAND PATTERN (30-day avg) — Calls by Hour
+                </div>
+                <div style={{ fontSize: 10, color: "#6B7280" }}>Peak: {globalMax.toFixed(1)} calls/hr</div>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "120px repeat(7, 1fr)", gap: 2 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "100px repeat(7, 1fr)", gap: 3 }}>
+                {/* Header row with day labels */}
                 <div style={{ fontSize: 10, color: "#6B7280", padding: 4 }}>STORE</div>
                 {weekDates.map(function(dt, i) {
                   var isToday = fmtDate(dt) === fmtDate(new Date());
                   return <div key={i} style={{ fontSize: 10, color: isToday ? "#00D4FF" : "#6B7280", textAlign: "center", padding: 4, fontWeight: isToday ? 700 : 400 }}>{DAYS[dt.getDay()]} {dt.getDate()}</div>;
                 })}
 
-                {(weekStore === "all" ? STORE_KEYS : [weekStore]).map(function(sk) {
+                {storeKeys.map(function(sk) {
                   return [
-                    <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk].color, padding: "4px 4px", fontWeight: 600 }}>{STORES[sk].name}</div>,
+                    <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk]?.color || "#9CA3AF", padding: "8px 4px", fontWeight: 600 }}>{STORES[sk]?.name || sk}</div>,
                     ...weekDates.map(function(dt, di) {
                       var dow = FULL_DAYS[dt.getDay()];
                       var dayPattern = effectiveDemand[sk]?.[dow] || {};
-                      // Mini sparkline for this day
-                      var maxDemand = 0;
-                      for (var h = 9; h <= 19; h++) { maxDemand = Math.max(maxDemand, dayPattern[h]?.demandScore || 0); }
+                      // Compute daily total for display
+                      var dailyTotal = 0, dailyMissed = 0;
+                      for (var hh = 9; hh <= 19; hh++) {
+                        dailyTotal += dayPattern[hh]?.avgCalls || 0;
+                        dailyMissed += dayPattern[hh]?.avgMissed || 0;
+                      }
+
                       return (
-                        <div key={sk + "-" + di} style={{ display: "flex", gap: 1, alignItems: "flex-end", height: 28, padding: "2px 4px", background: "#0A0C10", borderRadius: 4 }}>
-                          {[9,10,11,12,13,14,15,16,17,18,19].map(function(h) {
-                            var d = dayPattern[h] || {};
-                            var score = d.demandScore || 0;
-                            var height = maxDemand > 0 ? Math.max(2, (score / maxDemand) * 24) : 2;
-                            var staff = hourlyStaffing[fmtDate(dt)]?.[h] || 0;
-                            var needed = d.recommendedStaff || 1;
-                            var color = staff >= needed ? "#4ADE8088" : staff > 0 ? "#FBBF24AA" : "#EF4444AA";
-                            return <div key={h} title={STORES[sk].name + " " + dow + " " + h + ":00\nDemand: " + score + "\nStaff: " + staff + "/" + needed} style={{ flex: 1, height: height, background: color, borderRadius: 1 }}/>;
-                          })}
+                        <div key={sk + "-" + di} style={{ background: "#0A0C10", borderRadius: 6, padding: "4px 3px 2px" }}>
+                          {/* Sparkline bars — scaled to GLOBAL max for cross-day comparison */}
+                          <div style={{ display: "flex", gap: 1, alignItems: "flex-end", height: 40 }}>
+                            {[9,10,11,12,13,14,15,16,17,18,19].map(function(h) {
+                              var d = dayPattern[h] || {};
+                              var calls = d.avgCalls || 0;
+                              var height = Math.max(2, (calls / globalMax) * 36);
+                              var staff = hourlyStaffing[fmtDate(dt)]?.[h] || 0;
+                              var needed = d.recommendedStaff || 1;
+                              var color = staff >= needed ? "#4ADE80" : staff > 0 ? "#FBBF24" : "#EF4444";
+                              return <div key={h} title={h + ":00 — " + calls.toFixed(1) + " calls, " + (d.avgMissed||0).toFixed(1) + " missed\nStaff: " + staff + " / " + needed + " needed"} style={{ flex: 1, height: height, background: color + "BB", borderRadius: 1, transition: "height 0.3s" }}/>;
+                            })}
+                          </div>
+                          {/* Daily summary */}
+                          <div style={{ textAlign: "center", marginTop: 3, fontSize: 9, color: dailyTotal > 0 ? "#9CA3AF" : "#3A3D45" }}>
+                            {dailyTotal > 0 ? Math.round(dailyTotal) + " calls" : "—"}
+                          </div>
                         </div>
                       );
                     })
                   ];
                 })}
               </div>
-              <div style={{ display: "flex", gap: 16, marginTop: 6, fontSize: 10, color: "#6B7280" }}>
-                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#4ADE80", borderRadius: 2, marginRight: 4 }}/>Adequately Staffed</span>
-                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#FBBF24", borderRadius: 2, marginRight: 4 }}/>Understaffed</span>
-                <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#EF4444", borderRadius: 2, marginRight: 4 }}/>No Coverage</span>
+              {/* Legend + time axis */}
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
+                <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#6B7280" }}>
+                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#4ADE80", borderRadius: 2, marginRight: 4 }}/>Staffed</span>
+                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#FBBF24", borderRadius: 2, marginRight: 4 }}/>Understaffed</span>
+                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#EF4444", borderRadius: 2, marginRight: 4 }}/>No Coverage</span>
+                </div>
+                <div style={{ fontSize: 9, color: "#4B5563" }}>Each bar = 1 hour (9AM→7PM)</div>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* ── SCHEDULE GRID ── */}
           <div style={{ ...card, padding: 0, overflow: "auto" }}>
