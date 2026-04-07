@@ -91,8 +91,11 @@ export async function GET(request) {
       var hasMatch = dates.some(function(td) {
         var ticketDate = new Date(td);
         if (isNaN(ticketDate.getTime())) return false;
-        var diff = Math.abs(apptDate - ticketDate) / (1000 * 60 * 60 * 24);
-        return diff <= 2;
+        // Ticket must be ON or AFTER appointment date (customer arrived then ticket created)
+        // Allow up to 2 days after, but NEVER before the appointment
+        var diffMs = ticketDate - apptDate;
+        var diffDays = diffMs / (1000 * 60 * 60 * 24);
+        return diffDays >= -0.5 && diffDays <= 2.5; // small buffer for same-day timezone edge
       });
 
       if (hasMatch) toUpdate.push(appt.id);
@@ -112,13 +115,51 @@ export async function GET(request) {
       verified = toUpdate.length;
     }
 
+    // ── CLEANUP: revert false conversions that no longer match ──
+    // Check existing "Converted" appointments against the stricter date rule
+    var revertQuery = supabase.from("appointments")
+      .select("id, customer_phone, date_of_appt, store")
+      .eq("did_arrive", "Converted")
+      .gte("date_of_appt", cutoffStr);
+    if (store) revertQuery = revertQuery.eq("store", store);
+
+    var { data: convertedAppts } = await revertQuery;
+    var toRevert = [];
+    if (convertedAppts) {
+      convertedAppts.forEach(function(appt) {
+        var apptPhone = normPhone(appt.customer_phone);
+        if (apptPhone.length !== 10) return;
+        var dates = ticketLookup[apptPhone];
+        if (!dates || dates.length === 0) { toRevert.push(appt.id); return; }
+
+        var apptDate = new Date(appt.date_of_appt + "T12:00:00");
+        var stillValid = dates.some(function(td) {
+          var ticketDate = new Date(td);
+          if (isNaN(ticketDate.getTime())) return false;
+          var diffDays = (ticketDate - apptDate) / (1000 * 60 * 60 * 24);
+          return diffDays >= -0.5 && diffDays <= 2.5;
+        });
+        if (!stillValid) toRevert.push(appt.id);
+      });
+    }
+
+    var reverted = 0;
+    if (toRevert.length > 0) {
+      var { error: revertErr } = await supabase.from("appointments")
+        .update({ did_arrive: "Yes", updated_at: new Date().toISOString() })
+        .in("id", toRevert);
+      if (!revertErr) reverted = toRevert.length;
+    }
+
     return json({
       success: true,
       verified: verified,
+      reverted: reverted,
       checked: withPhone.length,
       ticketPhones: ticketPhoneCount,
       totalTickets: tickets.length,
-      message: verified > 0 ? verified + " appointments auto-verified as Converted" : "No new conversions found",
+      message: (verified > 0 ? verified + " appointments verified as Converted. " : "No new conversions. ") +
+               (reverted > 0 ? reverted + " false conversions reverted." : ""),
     });
 
   } catch(e) {
