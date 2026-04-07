@@ -69,6 +69,7 @@ export default function ScheduleTab({ selectedStore }) {
   var [profitData, setProfitData] = useState([]);
   var [scorecardData, setScorecardData] = useState(null);
   var [storedCallData, setStoredCallData] = useState(null);
+  var [allStoredShifts, setAllStoredShifts] = useState([]); // 90 days for analysis
 
   // Current week dates
   var currentWeekStart = useMemo(function() {
@@ -132,16 +133,29 @@ export default function ScheduleTab({ selectedStore }) {
     });
   }, [weekOffset]);
 
-  // ── Fetch supporting data (profitability, scorecard, calls) ──
+  // ── Fetch supporting data (profitability, scorecard, calls, historical shifts) ──
   useEffect(function() {
     Promise.allSettled([
       fetch("/api/dialpad/profitability").then(function(r) { return r.json(); }),
       fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
       fetch("/api/dialpad/stored").then(function(r) { return r.json(); }),
+      // Fetch ALL stored shifts (last 90 days) for Schedule vs Reality analysis
+      (function() {
+        var end = new Date(); end.setDate(end.getDate() + 1);
+        var start = new Date(); start.setDate(start.getDate() - 90);
+        return fetch("/api/wheniwork?action=stored-shifts&start=" + fmtDate(start) + "&end=" + fmtDate(end))
+          .then(function(r) { return r.json(); });
+      })(),
     ]).then(function(results) {
-      if (results[0].status === "fulfilled" && results[0].value.data) setProfitData(results[0].value.data);
+      if (results[0].status === "fulfilled") {
+        var profResp = results[0].value;
+        // Profitability could be {data: [...]} or {success: true, data: [...]} or just [...]
+        var pd = profResp.data || profResp;
+        if (Array.isArray(pd)) setProfitData(pd);
+      }
       if (results[1].status === "fulfilled") setScorecardData(results[1].value);
       if (results[2].status === "fulfilled") setStoredCallData(results[2].value);
+      if (results[3].status === "fulfilled" && results[3].value.shifts) setAllStoredShifts(results[3].value.shifts);
     });
   }, []);
 
@@ -556,9 +570,9 @@ export default function ScheduleTab({ selectedStore }) {
               var dayAnswered = dayCall[sk + "_answered"] || 0;
               if (dayTotal === 0) return;
 
-              // Count staff on this date from stored shifts
+              // Count staff on this date from ALL stored shifts (90 days)
               var maxStaff = 0;
-              storedShifts.forEach(function(s) {
+              allStoredShifts.forEach(function(s) {
                 var sStore = locationToStore(s.store) || s.store;
                 if (sStore === sk && s.shift_date === dateStr) maxStaff++;
               });
