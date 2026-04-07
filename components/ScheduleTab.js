@@ -109,7 +109,8 @@ export default function ScheduleTab({ selectedStore }) {
   // ── Fetch stored shifts from Supabase ──
   useEffect(function() {
     var start = fmtDate(weekDates[0]);
-    var end = fmtDate(weekDates[6]);
+    var endPlusOne = new Date(weekDates[6]); endPlusOne.setDate(endPlusOne.getDate() + 1);
+    var end = fmtDate(endPlusOne);
     fetch("/api/wheniwork?action=stored-shifts&start=" + start + "&end=" + end)
       .then(function(r) { return r.json(); })
       .then(function(d) { if (d.shifts) setStoredShifts(d.shifts); })
@@ -153,7 +154,8 @@ export default function ScheduleTab({ selectedStore }) {
 
     shiftSource.forEach(function(s) {
       var name = s.employee_name || s.user_name || "Unknown";
-      var store = s.store || locationToStore(s.location_name) || "unknown";
+      var rawStore = s.store || s.location_name || "unknown";
+      var store = locationToStore(rawStore) || rawStore;
       if (weekStore !== "all" && store !== weekStore) return;
 
       if (!byEmployee[name]) {
@@ -339,12 +341,12 @@ export default function ScheduleTab({ selectedStore }) {
 
   // ═══ SUB TAB CONFIG ═══
   var SUB_TABS = [
-    { id: "coverage", label: "Live Coverage", icon: "\uD83D\uDFE2" },
-    { id: "reality", label: "Schedule vs Reality", icon: "\uD83D\uDD0D" },
-    { id: "productivity", label: "Employee Productivity", icon: "\uD83D\uDD25" },
-    { id: "economics", label: "Labor Economics", icon: "\uD83D\uDCB0" },
-    { id: "week", label: "Weekly View", icon: "\uD83D\uDCC5" },
-    { id: "hours", label: "Hours Tracking", icon: "\u23F0" },
+    { id: "coverage", label: "Live Coverage", icon: "🟢" },
+    { id: "reality", label: "Schedule vs Reality", icon: "🔍" },
+    { id: "productivity", label: "Employee Productivity", icon: "🔥" },
+    { id: "economics", label: "Labor Economics", icon: "💰" },
+    { id: "week", label: "Weekly View", icon: "📅" },
+    { id: "hours", label: "Hours Tracking", icon: "⏰" },
   ];
 
   // ═══ STYLES ═══
@@ -371,7 +373,7 @@ export default function ScheduleTab({ selectedStore }) {
           })}
         </div>
         <div style={{ fontSize: 12, color: wiwConnected ? "#4ADE80" : "#6B7280" }}>
-          {wiwConnected ? "\u25CF WhenIWork Connected" : "\u25CB WhenIWork Disconnected"}
+          {wiwConnected ? "● WhenIWork Connected" : "○ WhenIWork Disconnected"}
         </div>
       </div>
 
@@ -394,11 +396,11 @@ export default function ScheduleTab({ selectedStore }) {
                   {cov.onShift.length > 0 ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {cov.onShift.map(function(name) {
-                        return <span key={name} style={{ fontSize: 12, padding: "4px 8px", background: "#4ADE8022", color: "#4ADE80", borderRadius: 6 }}>{name}{floatMap[name] ? " \uD83D\uDD00" : ""}</span>;
+                        return <span key={name} style={{ fontSize: 12, padding: "4px 8px", background: "#4ADE8022", color: "#4ADE80", borderRadius: 6 }}>{name}{floatMap[name] ? " 🔀" : ""}</span>;
                       })}
                     </div>
                   ) : (
-                    <div style={{ color: "#EF4444", fontSize: 13 }}>\u26A0 No one on shift</div>
+                    <div style={{ color: "#EF4444", fontSize: 13 }}>⚠ No one on shift</div>
                   )}
                 </div>
               );
@@ -474,7 +476,7 @@ export default function ScheduleTab({ selectedStore }) {
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", gap: 16 }}>
                     <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(singleRate, 80, 60) }}>{singleRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>1 staff ({singleStaffDays}d)</span></div>
-                    <div style={{ fontSize: 20, color: "#6B7280" }}>\u2192</div>
+                    <div style={{ fontSize: 20, color: "#6B7280" }}>→</div>
                     <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(multiRate, 80, 60) }}>{multiRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>2+ staff ({multiStaffDays}d)</span></div>
                     {multiRate > singleRate && <span style={badge("#4ADE80")}>+{multiRate - singleRate}%</span>}
                   </div>
@@ -495,7 +497,7 @@ export default function ScheduleTab({ selectedStore }) {
           {productivity.length > 0 && (
             <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
               {productivity.slice(0, 3).map(function(emp, i) {
-                var medals = ["\uD83E\uDD47", "\uD83E\uDD48", "\uD83E\uDD49"];
+                var medals = ["🥇", "🥈", "🥉"];
                 return (
                   <div key={emp.name} style={{ ...card, flex: 1, textAlign: "center" }}>
                     <div style={{ fontSize: 32 }}>{medals[i]}</div>
@@ -521,7 +523,7 @@ export default function ScheduleTab({ selectedStore }) {
                   return (
                     <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
                       <td style={{ padding: "8px 6px", textAlign: "right", color: "#6B7280" }}>{i + 1}</td>
-                      <td style={{ padding: "8px 6px", fontWeight: 600 }}>{emp.name}{floatMap[emp.name] ? " \uD83D\uDD00" : ""}</td>
+                      <td style={{ padding: "8px 6px", fontWeight: 600 }}>{emp.name}{floatMap[emp.name] ? " 🔀" : ""}</td>
                       <td style={{ padding: "8px 6px", color: STORES[emp.store]?.color }}>{STORES[emp.store]?.name || emp.store}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.score, 80, 60) }}>{emp.score}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{Math.round(emp.hours)}</td>
@@ -538,7 +540,7 @@ export default function ScheduleTab({ selectedStore }) {
             </table>
             {productivity.length >= 2 && (
               <div style={{ marginTop: 12, padding: 10, background: "#12141A", borderRadius: 8, fontSize: 12, color: "#9CA3AF" }}>
-                \uD83D\uDCA1 Top producer <strong style={{ color: "#4ADE80" }}>{productivity[0].name}</strong> generates <strong>${productivity[0].revPerHour}/hr</strong>.
+                💡 Top producer <strong style={{ color: "#4ADE80" }}>{productivity[0].name}</strong> generates <strong>${productivity[0].revPerHour}/hr</strong>.
                 Lowest is <strong style={{ color: "#EF4444" }}>{productivity[productivity.length - 1].name}</strong> at <strong>${productivity[productivity.length - 1].revPerHour}/hr</strong>
                 {productivity[0].revPerHour > 0 ? " — a " + Math.round((1 - productivity[productivity.length - 1].revPerHour / productivity[0].revPerHour) * 100) + "% gap." : "."}
               </div>
@@ -576,7 +578,7 @@ export default function ScheduleTab({ selectedStore }) {
               {/* Staffing ROI */}
               {staffingROI && (
                 <div style={card}>
-                  <div style={sectionTitle}>\uD83E\uDDE0 STAFFING ROI — WHAT IF YOU ADDED 1 FTE?</div>
+                  <div style={sectionTitle}>🧠 STAFFING ROI — WHAT IF YOU ADDED 1 FTE?</div>
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
                     {STORE_KEYS.map(function(sk) {
                       var r = staffingROI[sk];
@@ -585,10 +587,10 @@ export default function ScheduleTab({ selectedStore }) {
                         <div key={sk} style={{ padding: 16, background: "#12141A", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "#4ADE80" : "#EF4444") }}>
                           <div style={{ fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
                           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>\u00D7 25% conversion \u00D7 $175 = <strong style={{ color: "#fff" }}>${r.recoverableRevenue.toLocaleString()}</strong> recoverable</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>\u2212 ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>× 25% conversion × $175 = <strong style={{ color: "#fff" }}>${r.recoverableRevenue.toLocaleString()}</strong> recoverable</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>− ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
                           <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "#4ADE80" : "#EF4444" }}>
-                            {r.justified ? "\u2705 Hire — pays for itself" : "\u274C Not justified yet"} ({r.paybackPct}%)
+                            {r.justified ? "✅ Hire — pays for itself" : "❌ Not justified yet"} ({r.paybackPct}%)
                           </div>
                         </div>
                       );
@@ -611,12 +613,12 @@ export default function ScheduleTab({ selectedStore }) {
           {/* Week nav + controls */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button onClick={function() { setWeekOffset(weekOffset - 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>\u25C0</button>
+              <button onClick={function() { setWeekOffset(weekOffset - 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>◀</button>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>Weekly Schedule</div>
                 <div style={{ fontSize: 12, color: "#6B7280" }}>{weekLabel}</div>
               </div>
-              <button onClick={function() { setWeekOffset(weekOffset + 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>\u25B6</button>
+              <button onClick={function() { setWeekOffset(weekOffset + 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>▶</button>
               {weekOffset !== 0 && (
                 <button onClick={function() { setWeekOffset(0); }} style={{ background: "#7B2FFF22", border: "none", color: "#7B2FFF", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>Today</button>
               )}
@@ -628,7 +630,7 @@ export default function ScheduleTab({ selectedStore }) {
                 padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
                 background: showDemandOverlay ? "#FF2D9522" : "#1A1D23", color: showDemandOverlay ? "#FF2D95" : "#6B7280",
               }}>
-                {showDemandOverlay ? "\uD83D\uDCCA Demand ON" : "\uD83D\uDCCA Demand OFF"}
+                {showDemandOverlay ? "📊 Demand ON" : "📊 Demand OFF"}
               </button>
 
               {/* Store filter */}
@@ -646,7 +648,7 @@ export default function ScheduleTab({ selectedStore }) {
                 padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
                 background: "linear-gradient(135deg, #7B2FFF, #FF2D95)", color: "#fff", opacity: optimizing ? 0.6 : 1,
               }}>
-                {optimizing ? "\uD83E\uDDE0 Optimizing..." : "\uD83E\uDDE0 AI Optimize Next Week"}
+                {optimizing ? "🧠 Optimizing..." : "🧠 AI Optimize Next Week"}
               </button>
             </div>
           </div>
@@ -655,7 +657,7 @@ export default function ScheduleTab({ selectedStore }) {
           {coverageSummary && coverageSummary.criticalHours > 0 && (
             <div style={{ background: "#EF444422", border: "1px solid #EF444444", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
-                <span style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>\u26A0 {coverageSummary.criticalHours} CRITICAL gap hours</span>
+                <span style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>⚠ {coverageSummary.criticalHours} CRITICAL gap hours</span>
                 <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 8 }}>({coverageSummary.totalGapHours} total understaffed hours this week)</span>
               </div>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#EF4444" }}>
@@ -667,7 +669,7 @@ export default function ScheduleTab({ selectedStore }) {
           {/* ── Float Employees Banner ── */}
           {floatEmployees.filter(function(e) { return e.isFloat; }).length > 0 && (
             <div style={{ background: "#7B2FFF12", border: "1px solid #7B2FFF33", borderRadius: 8, padding: 10, marginBottom: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#7B2FFF" }}>\uD83D\uDD00 Float Employees:</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "#7B2FFF" }}>🔀 Float Employees:</span>
               {floatEmployees.filter(function(e) { return e.isFloat; }).map(function(e) {
                 return <span key={e.name} style={{ fontSize: 11, padding: "3px 8px", background: "#7B2FFF22", color: "#C4B5FD", borderRadius: 4 }}>
                   {e.name} ({e.storeList.map(function(s) { return STORES[s]?.name?.[0] || s[0]; }).join("/")})
@@ -750,7 +752,7 @@ export default function ScheduleTab({ selectedStore }) {
                       <td style={{ padding: "8px 12px" }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>
                           {emp.name}
-                          {isFloat && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>\uD83D\uDD00 FLOAT</span>}
+                          {isFloat && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>🔀 FLOAT</span>}
                         </div>
                         <div style={{ fontSize: 10, color: primaryColor }}>{STORES[emp.store]?.name || emp.store}</div>
                       </td>
@@ -785,7 +787,7 @@ export default function ScheduleTab({ selectedStore }) {
                               <div style={{ fontSize: 12, fontWeight: 600, color: shiftColor }}>{shift.start}</div>
                               <div style={{ fontSize: 10, color: "#6B7280" }}>{shift.hours}h</div>
                               {shiftStore !== emp.store && (
-                                <div style={{ fontSize: 9, color: STORES[shiftStore]?.color, fontWeight: 700 }}>\u2192 {STORES[shiftStore]?.name?.[0]}</div>
+                                <div style={{ fontSize: 9, color: STORES[shiftStore]?.color, fontWeight: 700 }}>→ {STORES[shiftStore]?.name?.[0]}</div>
                               )}
                               {hasGap && showDemandOverlay && (
                                 <div style={{ position: "absolute", top: 2, right: 2, width: 6, height: 6, borderRadius: 3, background: "#EF4444" }} title="Critical gap during this shift"/>
@@ -824,7 +826,7 @@ export default function ScheduleTab({ selectedStore }) {
                           -${totalRisk}
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: "#4ADE8066" }}>\u2713</span>
+                        <span style={{ fontSize: 11, color: "#4ADE8066" }}>✓</span>
                       )}
                     </div>
                   );
@@ -837,7 +839,7 @@ export default function ScheduleTab({ selectedStore }) {
           {/* ── AI OPTIMIZATION RESULTS ── */}
           {optimization && (
             <div style={{ ...card, borderLeft: "3px solid #7B2FFF" }}>
-              <div style={sectionTitle}>\uD83E\uDDE0 AI-OPTIMIZED SCHEDULE — NEXT WEEK</div>
+              <div style={sectionTitle}>🧠 AI-OPTIMIZED SCHEDULE — NEXT WEEK</div>
               {optimization.error ? (
                 <div style={{ color: "#EF4444" }}>{optimization.error}</div>
               ) : (
@@ -911,14 +913,14 @@ export default function ScheduleTab({ selectedStore }) {
                   <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 600 }}>
                       {emp.name}
-                      {floatMap[emp.name] && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>\uD83D\uDD00</span>}
+                      {floatMap[emp.name] && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>🔀</span>}
                     </td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: emp.fishers > 0 ? STORES.fishers.color : "#2A2D35" }}>{emp.fishers > 0 ? emp.fishers.toFixed(1) : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: emp.bloomington > 0 ? STORES.bloomington.color : "#2A2D35" }}>{emp.bloomington > 0 ? emp.bloomington.toFixed(1) : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", color: emp.indianapolis > 0 ? STORES.indianapolis.color : "#2A2D35" }}>{emp.indianapolis > 0 ? emp.indianapolis.toFixed(1) : "—"}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: isOT ? "#EF4444" : emp.total >= 35 ? "#4ADE80" : "#FBBF24" }}>{emp.total.toFixed(1)}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right" }}>
-                      {isOT ? <span style={badge("#EF4444")}>\u26A0 OT +{(emp.total - 40).toFixed(1)}h</span> :
+                      {isOT ? <span style={badge("#EF4444")}>⚠ OT +{(emp.total - 40).toFixed(1)}h</span> :
                        emp.total >= 35 ? <span style={badge("#4ADE80")}>Full</span> :
                        <span style={badge("#FBBF24")}>Under</span>}
                     </td>
