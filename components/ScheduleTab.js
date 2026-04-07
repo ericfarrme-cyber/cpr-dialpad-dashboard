@@ -106,16 +106,48 @@ export default function ScheduleTab({ selectedStore }) {
       .catch(function() {});
   }, []);
 
-  // ── Fetch stored shifts from Supabase ──
+  // ── Fetch shifts from BOTH Supabase stored + WhenIWork live, merge ──
   useEffect(function() {
     var start = fmtDate(weekDates[0]);
     var endPlusOne = new Date(weekDates[6]); endPlusOne.setDate(endPlusOne.getDate() + 1);
     var end = fmtDate(endPlusOne);
-    fetch("/api/wheniwork?action=stored-shifts&start=" + start + "&end=" + end)
-      .then(function(r) { return r.json(); })
-      .then(function(d) { if (d.shifts) setStoredShifts(d.shifts); })
-      .catch(function() {})
-      .finally(function() { setLoading(false); });
+
+    Promise.all([
+      fetch("/api/wheniwork?action=stored-shifts&start=" + start + "&end=" + end).then(function(r) { return r.json(); }).catch(function() { return {}; }),
+      fetch("/api/wheniwork?action=shifts&days=14").then(function(r) { return r.json(); }).catch(function() { return {}; }),
+    ]).then(function(results) {
+      var stored = results[0].shifts || [];
+      var live = results[1].shifts || [];
+
+      // Normalize live shifts to same shape as stored
+      var normalized = live.map(function(s) {
+        var empName = s.user_name || s.employee_name || "Unknown";
+        var store = locationToStore(s.location_name) || s.store || "unknown";
+        var shiftDate = s.start_time ? new Date(s.start_time).toISOString().split("T")[0] : null;
+        return {
+          employee_name: empName, store: store, shift_date: shiftDate,
+          start_time: s.start_time, end_time: s.end_time,
+          hours: s.hours || (s.start_time && s.end_time ? (new Date(s.end_time) - new Date(s.start_time)) / 3600000 : 0),
+          source: "live",
+        };
+      }).filter(function(s) {
+        // Only keep shifts within our week range
+        return s.shift_date && s.shift_date >= start && s.shift_date < end;
+      });
+
+      // Merge: stored takes priority, add live shifts that aren't already in stored
+      var merged = stored.slice();
+      normalized.forEach(function(liveShift) {
+        var exists = merged.some(function(s) {
+          return s.employee_name === liveShift.employee_name &&
+            s.shift_date === liveShift.shift_date &&
+            (s.store === liveShift.store || locationToStore(s.store) === liveShift.store);
+        });
+        if (!exists) merged.push(liveShift);
+      });
+
+      setStoredShifts(merged);
+    }).finally(function() { setLoading(false); });
   }, [weekOffset]);
 
   // ── Fetch demand intelligence ──
