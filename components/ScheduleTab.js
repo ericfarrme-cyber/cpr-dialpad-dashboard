@@ -50,6 +50,10 @@ export default function ScheduleTab({ storeFilter }) {
   var [scorecardData, setScorecardData] = useState(null);
   var [profitData, setProfitData] = useState(null);
   var [auditData, setAuditData] = useState(null);
+  var [prodPeriod, setProdPeriod] = useState(function() {
+    var now = new Date(); return now.getFullYear() + "-" + String(now.getMonth()+1).padStart(2,"0");
+  });
+  var [prodLoading, setProdLoading] = useState(false);
 
   function resolveEmployee(name) {
     if (!name || roster.length === 0) return name;
@@ -110,7 +114,7 @@ export default function ScheduleTab({ storeFilter }) {
 
   // Re-fetch shifts when week navigation changes
   useEffect(function() {
-    if (weekOffset === 0) return; // initial load already handled
+    if (weekOffset === 0) return;
     async function loadWeek() {
       var start = fmtDate(weekDates[0]);
       var end = fmtDate(weekDates[6]);
@@ -122,6 +126,31 @@ export default function ScheduleTab({ storeFilter }) {
     }
     loadWeek();
   }, [weekOffset]);
+
+  // Re-fetch scorecard + shifts when productivity period changes
+  useEffect(function() {
+    async function loadProdPeriod() {
+      setProdLoading(true);
+      try {
+        var year = parseInt(prodPeriod.split("-")[0]);
+        var month = parseInt(prodPeriod.split("-")[1]);
+        var monthStart = fmtDate(new Date(year, month - 1, 1));
+        var monthEnd = fmtDate(new Date(year, month, 0));
+        var [scRes, shiftRes] = await Promise.allSettled([
+          fetch("/api/dialpad/scorecard?period=" + prodPeriod).then(function(r){return r.json();}),
+          fetch("/api/wheniwork?action=stored-shifts&start=" + monthStart + "&end=" + monthEnd).then(function(r){return r.json();}),
+        ]);
+        if (scRes.status === "fulfilled" && scRes.value.success) setScorecardData(scRes.value);
+        if (shiftRes.status === "fulfilled" && shiftRes.value.success) setStoredShifts(function(prev) {
+          // Merge: keep non-period shifts, add period shifts
+          var periodShifts = shiftRes.value.shifts || [];
+          return periodShifts.length > 0 ? periodShifts : prev;
+        });
+      } catch(e) { console.error(e); }
+      setProdLoading(false);
+    }
+    loadProdPeriod();
+  }, [prodPeriod]);
 
   // ═══ TODAY'S SHIFTS BY STORE ═══
   var todayByStore = useMemo(function() {
@@ -283,30 +312,48 @@ export default function ScheduleTab({ storeFilter }) {
   var employeeProductivity = useMemo(function() {
     if (!scorecardData || !scorecardData.employeeScores) return [];
     var employees = scorecardData.employeeScores || [];
+
+    // Filter stored shifts to the selected period
+    var pYear = parseInt(prodPeriod.split("-")[0]);
+    var pMonth = parseInt(prodPeriod.split("-")[1]);
+    var periodStart = fmtDate(new Date(pYear, pMonth - 1, 1));
+    var periodEnd = fmtDate(new Date(pYear, pMonth, 0));
+
+    var periodShifts = storedShifts.filter(function(s) {
+      return s.date >= periodStart && s.date <= periodEnd;
+    });
+
+    // Build hours per employee for this period
+    var hoursByEmpPeriod = {};
+    periodShifts.forEach(function(s) {
+      var name = (s.employee_name || "Unknown").toLowerCase();
+      hoursByEmpPeriod[name] = (hoursByEmpPeriod[name] || 0) + (parseFloat(s.hours) || 0);
+    });
+
     return employees.map(function(emp) {
       var name = emp.name;
-      // Find hours from stored shifts
-      var hoursEntry = hoursByEmployee.find(function(h) { return h.name.toLowerCase() === name.toLowerCase(); });
-      var totalHours = hoursEntry ? hoursEntry.total : 0;
+      // Find hours — try exact match, then fuzzy
+      var totalHours = hoursByEmpPeriod[name.toLowerCase()] || 0;
+      if (totalHours === 0) {
+        var parts = name.toLowerCase().split(/\s+/);
+        Object.keys(hoursByEmpPeriod).forEach(function(k) {
+          if (parts.length >= 2 && parts[0].length > 2 && parts[parts.length-1].length > 2 && k.includes(parts[0]) && k.includes(parts[parts.length-1])) {
+            totalHours = hoursByEmpPeriod[k];
+          }
+        });
+      }
 
-      // Repair data
       var repairs = emp.repairs || {};
       var phoneRepairs = repairs.phone_tickets || 0;
       var otherRepairs = repairs.other_tickets || 0;
       var totalRepairs = phoneRepairs + otherRepairs;
       var accyGP = repairs.accy_gp || 0;
-      var repairRevenue = repairs.revenue || (totalRepairs * 120); // estimate if no revenue field
-
-      // Audit data
+      var repairRevenue = repairs.revenue || (totalRepairs * 120);
       var audit = emp.audit || {};
       var auditScore = audit.score || 0;
       var apptRate = audit.appt_offered || 0;
-
-      // Compliance
       var compliance = emp.compliance || {};
       var compScore = compliance.score || 0;
-
-      // Revenue per labor hour
       var revPerHour = totalHours > 0 ? Math.round(repairRevenue / totalHours * 100) / 100 : 0;
       var repairsPerHour = totalHours > 0 ? Math.round(totalRepairs / totalHours * 100) / 100 : 0;
 
@@ -320,7 +367,7 @@ export default function ScheduleTab({ storeFilter }) {
         revPerHour: revPerHour, repairsPerHour: repairsPerHour,
       };
     }).sort(function(a, b) { return b.revPerHour - a.revPerHour; });
-  }, [scorecardData, hoursByEmployee]);
+  }, [scorecardData, storedShifts, prodPeriod]);
 
   // ═══ LABOR ECONOMICS (Phase 3) ═══
   var laborEconomics = useMemo(function() {
@@ -698,8 +745,30 @@ export default function ScheduleTab({ storeFilter }) {
       {/* ═══════════════════════════════════════════ */}
       {subTab === "productivity" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:4 }}>Employee Productivity</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:20 }}>Revenue generation, repair output, and labor efficiency per employee</div>
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
+            <div>
+              <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Employee Productivity</div>
+              <div style={{ color:"#6B6F78",fontSize:12 }}>Revenue generation, repair output, and labor efficiency per employee</div>
+            </div>
+            <div style={{ display:"flex",alignItems:"center",gap:8 }}>
+              {prodLoading && <span style={{ color:"#7B2FFF",fontSize:10 }}>Loading...</span>}
+              <select value={prodPeriod} onChange={function(e){setProdPeriod(e.target.value);}}
+                style={{ padding:"8px 12px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12 }}>
+                {(function() {
+                  var opts = [];
+                  var now = new Date();
+                  for (var i = 0; i < 6; i++) {
+                    var d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                    var val = d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0");
+                    var label = d.toLocaleDateString(undefined, { month:"long", year:"numeric" });
+                    if (i === 0) label += " (MTD)";
+                    opts.push(<option key={val} value={val}>{label}</option>);
+                  }
+                  return opts;
+                })()}
+              </select>
+            </div>
+          </div>
 
           {employeeProductivity.length > 0 ? (
             <div>
