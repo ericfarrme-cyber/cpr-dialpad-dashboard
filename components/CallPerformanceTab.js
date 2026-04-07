@@ -34,6 +34,52 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
   var [scheduleData, setScheduleData] = useState(null);
   var [employeeData, setEmployeeData] = useState(null);
   var [repeatCallers, setRepeatCallers] = useState(null);
+  var [timeWindow, setTimeWindow] = useState("30day");
+
+  // Filter filteredDailyCalls based on time window
+  var now = new Date();
+  var mtdStart = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01";
+  var filteredDailyCalls = useMemo(function() {
+    if (!dailyCalls) return [];
+    if (timeWindow === "mtd") return dailyCalls.filter(function(d) { return d.date >= mtdStart; });
+    return dailyCalls;
+  }, [dailyCalls, timeWindow]);
+
+  // Recompute totals and storeStats from filtered data
+  var filteredStats = useMemo(function() {
+    var storeStats = {};
+    STORE_KEYS.forEach(function(sk) { storeStats[sk] = { answered: 0, missed: 0, total: 0 }; });
+    var totalAnswered = 0, totalMissed = 0;
+
+    filteredDailyCalls.forEach(function(d) {
+      STORE_KEYS.forEach(function(sk) {
+        var t = d[sk + "_total"] || 0;
+        var a = d[sk + "_answered"] || 0;
+        var m = d[sk + "_missed"] || Math.max(0, t - a);
+        storeStats[sk].answered += a;
+        storeStats[sk].missed += m;
+        storeStats[sk].total += t;
+        totalAnswered += a;
+        totalMissed += m;
+      });
+    });
+
+    STORE_KEYS.forEach(function(sk) {
+      var s = storeStats[sk];
+      s.total_calls = s.total;
+      s.answer_rate = s.total > 0 ? Math.round(s.answered / s.total * 100) : 0;
+    });
+
+    return {
+      totals: { answered: totalAnswered, missed: totalMissed, avgDuration: overviewStats?.totals?.avgDuration || 0, vmRate: overviewStats?.totals?.vmRate || 0 },
+      storeStats: storeStats,
+    };
+  }, [filteredDailyCalls, overviewStats]);
+
+  // Use filtered or original stats based on toggle
+  var activeTotals = timeWindow === "30day" ? (overviewStats?.totals || { answered: 0, missed: 0, avgDuration: 0, vmRate: 0 }) : filteredStats.totals;
+  var activeStoreStats = timeWindow === "30day" ? (overviewStats?.storeStats || {}) : filteredStats.storeStats;
+  var activeLabel = timeWindow === "30day" ? "30 DAYS" : "THIS MONTH";
 
   // Fetch additional data
   useEffect(function() {
@@ -49,16 +95,16 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
   }, []);
 
   // ═══ COMPUTED METRICS ═══
-  var totals = overviewStats.totals;
+  var totals = activeTotals;
   var totalCalls = totals.answered + totals.missed;
   var answerRate = totalCalls > 0 ? (totals.answered / totalCalls * 100) : 0;
   var missedRevenue = Math.round(totals.missed * CONV_RATE * AVG_TICKET);
 
-  // Yesterday's data (last entry in dailyCalls)
+  // Yesterday's data (last entry in filteredDailyCalls)
   var yesterday = useMemo(function() {
-    if (!dailyCalls || dailyCalls.length < 2) return null;
-    var yd = dailyCalls[dailyCalls.length - 1];
-    var dayBefore = dailyCalls[dailyCalls.length - 2];
+    if (!filteredDailyCalls || filteredDailyCalls.length < 2) return null;
+    var yd = filteredDailyCalls[filteredDailyCalls.length - 1];
+    var dayBefore = filteredDailyCalls[filteredDailyCalls.length - 2];
     if (!yd) return null;
     var res = { date: yd.date, stores: {} };
     var totalY = 0, answeredY = 0, totalDB = 0, answeredDB = 0;
@@ -78,13 +124,13 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
     res.prevRate = totalDB > 0 ? Math.round(answeredDB / totalDB * 100) : 0;
     res.revenueLost = Math.round(res.missed * CONV_RATE * AVG_TICKET);
     return res;
-  }, [dailyCalls]);
+  }, [filteredDailyCalls]);
 
   // 7-day rolling stats per store
   var weeklyTrend = useMemo(function() {
-    if (!dailyCalls || dailyCalls.length < 7) return null;
-    var last7 = dailyCalls.slice(-7);
-    var prev7 = dailyCalls.length >= 14 ? dailyCalls.slice(-14, -7) : null;
+    if (!filteredDailyCalls || filteredDailyCalls.length < 7) return null;
+    var last7 = filteredDailyCalls.slice(-7);
+    var prev7 = filteredDailyCalls.length >= 14 ? filteredDailyCalls.slice(-14, -7) : null;
     var stores = {};
     STORE_KEYS.forEach(function(sk) {
       var t7 = 0, a7 = 0, pt = 0, pa = 0;
@@ -95,7 +141,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       stores[sk] = { total: t7, answered: a7, missed: t7 - a7, rate: rate, prevRate: prevRate, trend: rate - prevRate };
     });
     return stores;
-  }, [dailyCalls]);
+  }, [filteredDailyCalls]);
 
   // Peak miss hours
   var peakMissHours = useMemo(function() {
@@ -117,12 +163,12 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
 
   // Predicted today's volume
   var prediction = useMemo(function() {
-    if (!dailyCalls || dailyCalls.length < 14) return null;
+    if (!filteredDailyCalls || filteredDailyCalls.length < 14) return null;
     var todayDow = new Date().getDay();
     var dayNames = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
     var todayName = dayNames[todayDow];
     // Get same DOW from last 4 weeks
-    var sameDow = dailyCalls.filter(function(d, i) { return i % 7 === (dailyCalls.length - 1) % 7; }).slice(-4);
+    var sameDow = filteredDailyCalls.filter(function(d, i) { return i % 7 === (filteredDailyCalls.length - 1) % 7; }).slice(-4);
     if (sameDow.length === 0) return null;
     var avgTotal = Math.round(sameDow.reduce(function(s, d) {
       return s + STORE_KEYS.reduce(function(ss, k) { return ss + (d[k + "_total"] || 0); }, 0);
@@ -131,7 +177,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       return s + STORE_KEYS.reduce(function(ss, k) { return ss + (d[k + "_missed"] || Math.max(0, (d[k + "_total"] || 0) - (d[k + "_answered"] || 0))); }, 0);
     }, 0) / sameDow.length);
     return { day: todayName, expectedCalls: avgTotal, expectedMissed: avgMissed };
-  }, [dailyCalls]);
+  }, [filteredDailyCalls]);
 
   var SUB_TABS = [
     { id: "executive", label: "Executive Summary", icon: "\uD83C\uDFAF" },
@@ -145,14 +191,27 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
   return (
     <div>
       {/* Sub-tab nav */}
-      <div style={{ display:"flex",gap:4,marginBottom:24,overflowX:"auto" }}>
-        {SUB_TABS.map(function(t) {
-          return <button key={t.id} onClick={function(){setSubTab(t.id);}} style={{
-            padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",
-            background:subTab===t.id?"#7B2FFF22":"#1A1D23",color:subTab===t.id?"#7B2FFF":"#8B8F98",
-            fontSize:12,fontWeight:600
-          }}>{t.icon + " " + t.label}</button>;
-        })}
+      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:24 }}>
+        <div style={{ display:"flex",gap:4,overflowX:"auto" }}>
+          {SUB_TABS.map(function(t) {
+            return <button key={t.id} onClick={function(){setSubTab(t.id);}} style={{
+              padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",
+              background:subTab===t.id?"#7B2FFF22":"#1A1D23",color:subTab===t.id?"#7B2FFF":"#8B8F98",
+              fontSize:12,fontWeight:600
+            }}>{t.icon + " " + t.label}</button>;
+          })}
+        </div>
+        {/* Time window toggle */}
+        <div style={{ display:"flex",gap:2,background:"#1A1D23",borderRadius:8,padding:2 }}>
+          <button onClick={function(){setTimeWindow("30day");}} style={{
+            padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+            background:timeWindow==="30day"?"#7B2FFF":"transparent",color:timeWindow==="30day"?"#fff":"#8B8F98",
+          }}>30 Days</button>
+          <button onClick={function(){setTimeWindow("mtd");}} style={{
+            padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+            background:timeWindow==="mtd"?"#FF2D95":"transparent",color:timeWindow==="mtd"?"#fff":"#8B8F98",
+          }}>This Month</button>
+        </div>
       </div>
 
       {/* ═══════════════════════════════════════════ */}
@@ -164,7 +223,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           <div style={{ background:"linear-gradient(135deg,#F8717108,#FF2D9508)",borderRadius:14,padding:24,marginBottom:20,border:"1px solid #F8717122" }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
               <div>
-                <div style={{ color:"#F87171",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>{"\uD83D\uDCB0"} Revenue Impact (30 Days)</div>
+                <div style={{ color:"#F87171",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>{"💰"} Revenue Impact ({activeLabel})</div>
                 <div style={{ color:"#F0F1F3",fontSize:32,fontWeight:800 }}>{"$" + missedRevenue.toLocaleString()}</div>
                 <div style={{ color:"#8B8F98",fontSize:11,marginTop:2 }}>{totals.missed} missed calls × {Math.round(CONV_RATE*100)}% conversion × ${AVG_TICKET} avg ticket</div>
               </div>
@@ -178,7 +237,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {/* Store Rankings */}
           <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
             {STORE_KEYS.map(function(sk) {
-              var s = overviewStats.storeStats[sk];
+              var s = activeStoreStats[sk];
               var store = STORES[sk];
               var realTotal = s.answered + s.missed;
               var rate = realTotal > 0 ? (s.answered / realTotal * 100) : 0;
@@ -209,7 +268,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {(function() {
             var alerts = [];
             STORE_KEYS.forEach(function(sk) {
-              var s = overviewStats.storeStats[sk];
+              var s = activeStoreStats[sk];
               if (s.missed > 15 * 30 / 30) alerts.push({ type: "high_miss", store: STORES[sk].name, missed: s.missed, color: "#F87171" });
             });
             if (peakMissHours.length > 0 && peakMissHours[0].total > 10) {
@@ -240,7 +299,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           <div style={{ background:"#1A1D23",borderRadius:12,padding:20,height:320,marginBottom:20 }}>
             <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Daily Call Volume — Answered vs Missed</div>
             <ResponsiveContainer width="100%" height="85%">
-              <BarChart data={dailyCalls}>
+              <BarChart data={filteredDailyCalls}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" />
                 <XAxis dataKey="date" tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} interval={4} />
                 <YAxis tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} axisLine={false} />
@@ -387,7 +446,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {/* Use overviewStats for accurate per-store data */}
           <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
             {STORE_KEYS.map(function(sk) {
-              var s = overviewStats.storeStats[sk];
+              var s = activeStoreStats[sk];
               var store = STORES[sk];
               var realTotal = s.answered + s.missed;
               var rate = realTotal > 0 ? Math.round(s.answered / realTotal * 100) : 0;
