@@ -194,8 +194,8 @@ export default function ScheduleTab({ selectedStore }) {
     return patterns;
   }, [storedCallData]);
 
-  // Use API demand patterns if available, otherwise computed fallback
-  var effectiveDemand = demandPatterns && Object.keys(demandPatterns).length > 0 ? demandPatterns : computedDemand;
+  // Computed demand (from stored call data) takes priority — it uses verified field names
+  var effectiveDemand = computedDemand && Object.keys(computedDemand).length > 0 ? computedDemand : demandPatterns;
 
   // ═══ Build weekly schedule grid — MERGE stored + live shifts ═══
   var weeklySchedule = useMemo(function() {
@@ -402,18 +402,35 @@ export default function ScheduleTab({ selectedStore }) {
     var coverage = {};
     STORE_KEYS.forEach(function(sk) { coverage[sk] = { onShift: [], totalToday: 0 }; });
 
-    storedShifts.forEach(function(s) {
-      if (s.shift_date !== todayStr) return;
-      if (!coverage[s.store]) return;
-      coverage[s.store].totalToday++;
+    // Check BOTH stored shifts and live WhenIWork data
+    var allShifts = storedShifts.slice();
+    if (scheduleData?.shifts) {
+      scheduleData.shifts.forEach(function(s) {
+        var name = s.employee_name || s.user_name || "";
+        if (!name) return;
+        var dateStr = s.shift_date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
+        if (dateStr === todayStr) {
+          var exists = allShifts.some(function(x) { return (x.employee_name || x.user_name) === name && (x.shift_date || "") === todayStr; });
+          if (!exists) allShifts.push(s);
+        }
+      });
+    }
+
+    allShifts.forEach(function(s) {
+      var dateStr = s.shift_date || (s.start_time ? fmtDate(new Date(s.start_time)) : null);
+      if (dateStr !== todayStr) return;
+      var rawStore = s.store || s.location_name || "unknown";
+      var store = locationToStore(rawStore) || rawStore;
+      if (!coverage[store]) return;
+      coverage[store].totalToday++;
       var sh = s.start_time ? new Date(s.start_time).getHours() : 9;
       var eh = s.end_time ? new Date(s.end_time).getHours() : sh + (parseFloat(s.hours) || 8);
       if (currentHour >= sh && currentHour < eh) {
-        coverage[s.store].onShift.push(s.employee_name);
+        coverage[store].onShift.push(s.employee_name || s.user_name || "Unknown");
       }
     });
     return coverage;
-  }, [storedShifts]);
+  }, [storedShifts, scheduleData]);
 
   // ═══ SUB TAB CONFIG ═══
   var SUB_TABS = [
@@ -527,21 +544,29 @@ export default function ScheduleTab({ selectedStore }) {
             Compares days with 1 staff vs 2+ staff against call answer rates. The data doesn't lie.
           </p>
           {STORE_KEYS.map(function(sk) {
-            // Compute from stored shifts + call data
+            // Compute from ALL stored shifts + call data (not just current week)
             var singleStaffDays = 0, singleStaffAnswerSum = 0;
             var multiStaffDays = 0, multiStaffAnswerSum = 0;
+            var srcDaily = storedCallData?.data?.dailyCalls || [];
 
-            weekDates.forEach(function(dt) {
-              var dateStr = fmtDate(dt);
-              var maxStaff = 0;
-              storedShifts.forEach(function(s) { if (s.store === sk && s.shift_date === dateStr) maxStaff++; });
-              // Get answer rate for this day from stored data
-              var srcDaily = storedCallData?.data?.dailyCalls || [];
-              var dayCall = srcDaily.find(function(d) { return d.date === dateStr; });
-              if (!dayCall || !maxStaff) return;
+            srcDaily.forEach(function(dayCall) {
+              var dateStr = dayCall.date;
+              if (!dateStr) return;
               var dayTotal = dayCall[sk + "_total"] || 0;
               var dayAnswered = dayCall[sk + "_answered"] || 0;
-              var rate = dayTotal > 0 ? Math.round(dayAnswered / dayTotal * 100) : 0;
+              if (dayTotal === 0) return;
+
+              // Count staff on this date from stored shifts
+              var maxStaff = 0;
+              storedShifts.forEach(function(s) {
+                var sStore = locationToStore(s.store) || s.store;
+                if (sStore === sk && s.shift_date === dateStr) maxStaff++;
+              });
+
+              // If no shift data for this date, skip (can't compare)
+              if (maxStaff === 0) return;
+
+              var rate = Math.round(dayAnswered / dayTotal * 100);
               if (maxStaff <= 1) { singleStaffDays++; singleStaffAnswerSum += rate; }
               else { multiStaffDays++; multiStaffAnswerSum += rate; }
             });
