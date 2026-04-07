@@ -147,114 +147,29 @@ export default function ScheduleTab({ selectedStore }) {
 
   // ═══ Compute demand patterns from stored call data (RELIABLE FALLBACK) ═══
   var HOURLY_DIST = { 9:0.06, 10:0.09, 11:0.12, 12:0.13, 13:0.12, 14:0.11, 15:0.10, 16:0.09, 17:0.08, 18:0.06, 19:0.04 };
-  var demandDebugRef = { current: "" };
   var computedDemand = useMemo(function() {
-    if (!storedCallData) { demandDebugRef.current = "No storedCallData"; return null; }
+    // Stored route returns: { data: { dailyCalls: [{date, fishers_total, fishers_answered, fishers_missed, ...}], storePerf: [...], hourlyMissed: [...] } }
+    var srcData = storedCallData?.data || storedCallData;
+    if (!srcData || !srcData.dailyCalls) return null;
 
-    // Debug: capture structure
-    var topKeys = Object.keys(storedCallData);
-    var debugLines = ["stored keys: " + topKeys.join(", ")];
-    var firstStoreKey = topKeys.find(function(k) { return storedCallData[k] && typeof storedCallData[k] === "object"; });
-    if (firstStoreKey) {
-      var firstStore = storedCallData[firstStoreKey];
-      debugLines.push(firstStoreKey + " keys: " + Object.keys(firstStore).join(", "));
-      // Check for daily data
-      var dailyKey = Object.keys(firstStore).find(function(k) { return Array.isArray(firstStore[k]); });
-      if (dailyKey && firstStore[dailyKey].length > 0) {
-        debugLines.push(dailyKey + "[0] keys: " + Object.keys(firstStore[dailyKey][0]).join(", "));
-        debugLines.push(dailyKey + " count: " + firstStore[dailyKey].length);
-        debugLines.push("sample: " + JSON.stringify(firstStore[dailyKey][0]));
-      }
-      // Show numeric top-level values
-      var nums = Object.entries(firstStore).filter(function(e) { return typeof e[1] === "number"; }).map(function(e) { return e[0] + "=" + e[1]; });
-      if (nums.length) debugLines.push("numbers: " + nums.join(", "));
-    }
-    demandDebugRef.current = debugLines.join(" | ");
-
+    var dailyCalls = srcData.dailyCalls || [];
     var patterns = {};
+
     STORE_KEYS.forEach(function(sk) {
-      var storeData = storedCallData[sk];
-      if (!storeData) {
-        // Try alternate keys
-        storeData = storedCallData[STORES[sk]?.name] || storedCallData[sk.charAt(0).toUpperCase() + sk.slice(1)];
-      }
-      if (!storeData || typeof storeData !== "object") return;
       patterns[sk] = {};
-
-      // Find any array field that could be daily data
-      var dailyCalls = null;
-      ["dailyCalls", "daily_calls", "days", "daily", "records", "calls"].forEach(function(key) {
-        if (!dailyCalls && Array.isArray(storeData[key]) && storeData[key].length > 0) dailyCalls = storeData[key];
-      });
-      // Last resort: find first array in storeData
-      if (!dailyCalls) {
-        Object.values(storeData).forEach(function(v) {
-          if (!dailyCalls && Array.isArray(v) && v.length > 0) dailyCalls = v;
-        });
-      }
-
-      if (!dailyCalls || dailyCalls.length === 0) {
-        // Use top-level totals — try every possible field name
-        var total = 0;
-        ["totalCalls","total_calls","total","calls","count","callCount","inbound","all"].forEach(function(key) {
-          if (!total && typeof storeData[key] === "number" && storeData[key] > 0) total = storeData[key];
-        });
-        var answered = 0;
-        ["answeredCalls","answered_calls","answered","connected"].forEach(function(key) {
-          if (!answered && typeof storeData[key] === "number") answered = storeData[key];
-        });
-        var missed = 0;
-        ["missedCalls","missed_calls","missed","unanswered"].forEach(function(key) {
-          if (!missed && typeof storeData[key] === "number") missed = storeData[key];
-        });
-        if (!missed && total > answered) missed = total - answered;
-        if (!total && answered) total = answered + missed;
-
-        var avgDaily = total / 30;
-        var avgMissedDaily = missed / 30;
-        FULL_DAYS.forEach(function(dow) {
-          patterns[sk][dow] = {};
-          for (var h = 9; h <= 19; h++) {
-            var pct = HOURLY_DIST[h] || 0.05;
-            var calls = Math.round(avgDaily * pct * 10) / 10;
-            var miss = Math.round(avgMissedDaily * pct * 10) / 10;
-            patterns[sk][dow][h] = {
-              avgCalls: calls, avgMissed: miss, avgTickets: 0,
-              demandScore: calls, recommendedStaff: Math.max(1, Math.ceil(calls / 4)),
-            };
-          }
-        });
-        return;
-      }
-
-      // Group daily calls by day-of-week — try every possible field name
+      // Group dailyCalls by day-of-week using {sk}_total, {sk}_answered, {sk}_missed fields
       var byDow = {};
       for (var d = 0; d < 7; d++) byDow[d] = { totalCalls: 0, totalMissed: 0, dayCount: 0 };
+
       dailyCalls.forEach(function(day) {
-        var dateStr = day.date || day.d || day.day || day.dateStr;
-        if (!dateStr) return;
-        // Handle date that might already be a Date object or timestamp
-        var dt;
-        try { dt = new Date(typeof dateStr === "string" && dateStr.length === 10 ? dateStr + "T12:00:00" : dateStr); } catch(e) { return; }
+        if (!day.date) return;
+        var dt = new Date(day.date + "T12:00:00");
         if (isNaN(dt.getTime())) return;
         var dow = dt.getDay();
-
-        // Extract total calls — try every field pattern
-        var total = 0;
-        ["total","calls","totalCalls","total_calls","count","inbound","all"].forEach(function(key) {
-          if (!total && typeof day[key] === "number" && day[key] > 0) total = day[key];
-        });
-        var answered = 0;
-        ["answered","answeredCalls","answered_calls","connected"].forEach(function(key) {
-          if (!answered && typeof day[key] === "number") answered = day[key];
-        });
-        var missed = 0;
-        ["missed","missedCalls","missed_calls","unanswered"].forEach(function(key) {
-          if (!missed && typeof day[key] === "number") missed = day[key];
-        });
-        if (!total && answered) total = answered + missed;
-        if (!missed && total > answered) missed = total - answered;
-
+        var total = day[sk + "_total"] || 0;
+        var answered = day[sk + "_answered"] || 0;
+        var missed = day[sk + "_missed"] || Math.max(0, total - answered);
+        if (total === 0 && answered === 0) return; // skip days with no data
         byDow[dow].totalCalls += total;
         byDow[dow].totalMissed += missed;
         byDow[dow].dayCount++;
@@ -404,26 +319,28 @@ export default function ScheduleTab({ selectedStore }) {
   // ═══ Employee Productivity (from scorecard + shifts) ═══
   var productivity = useMemo(function() {
     if (!scorecardData) return [];
+    // Scorecard returns: { scores: {fishers: {...}, ...}, employeeScores: [{name, store, repairs, audit, compliance, overall}, ...] }
+    var empScores = scorecardData.employeeScores || [];
     var allEmps = [];
-    STORE_KEYS.forEach(function(sk) {
-      var storeData = scorecardData[sk];
-      if (!storeData?.employees) return;
-      storeData.employees.forEach(function(emp) {
-        var name = emp.name;
-        var hrs = hoursByEmployee.find(function(h) { return h.name === name; });
-        var totalHrs = hrs ? hrs.total : 0;
-        var repairs = (emp.repairs?.phoneRepairs || 0) + (emp.repairs?.otherRepairs || 0);
-        var accyGP = emp.repairs?.accessoryGP || 0;
-        var totalRev = repairs * 175 + accyGP; // $175 avg repair ticket
-        allEmps.push({
-          name: name, store: sk, hours: totalHrs,
-          repairs: repairs, accyGP: accyGP, totalRev: totalRev,
-          revPerHour: totalHrs > 0 ? Math.round(totalRev / totalHrs) : 0,
-          repairsPerHour: totalHrs > 0 ? Math.round(repairs / totalHrs * 10) / 10 : 0,
-          auditScore: emp.audit?.avgScore || 0,
-          compliance: emp.compliance?.score || 0,
-          score: emp.score || 0,
-        });
+    empScores.forEach(function(emp) {
+      if (!emp.name || !emp.hasData) return;
+      var name = emp.name;
+      var sk = emp.store || "unknown";
+      var hrs = hoursByEmployee.find(function(h) { return h.name === name; });
+      var totalHrs = hrs ? hrs.total : 0;
+      var phoneRepairs = emp.repairs?.phone_tickets || 0;
+      var otherRepairs = emp.repairs?.other_tickets || 0;
+      var totalRepairs = emp.repairs?.total_repairs || (phoneRepairs + otherRepairs);
+      var accyGP = emp.repairs?.accy_gp || 0;
+      var totalRev = totalRepairs * 175 + accyGP;
+      allEmps.push({
+        name: name, store: sk, hours: totalHrs,
+        repairs: totalRepairs, accyGP: accyGP, totalRev: totalRev,
+        revPerHour: totalHrs > 0 ? Math.round(totalRev / totalHrs) : 0,
+        repairsPerHour: totalHrs > 0 ? Math.round(totalRepairs / totalHrs * 10) / 10 : 0,
+        auditScore: emp.audit?.avg_pct || emp.audit?.score || 0,
+        compliance: emp.compliance?.score || 0,
+        score: emp.overall || 0,
       });
     });
     return allEmps.sort(function(a, b) { return b.revPerHour - a.revPerHour; });
@@ -457,14 +374,17 @@ export default function ScheduleTab({ selectedStore }) {
   // ═══ Staffing ROI model ═══
   var staffingROI = useMemo(function() {
     if (!storedCallData || !laborEcon) return null;
+    var srcData = storedCallData?.data || storedCallData;
+    var storePerf = srcData?.storePerf || [];
+    if (!Array.isArray(storePerf)) storePerf = [];
     var results = {};
     STORE_KEYS.forEach(function(sk) {
-      var storeCall = storedCallData[sk];
+      var perf = storePerf.find(function(p) { return p.store === sk; });
       var econ = laborEcon[sk];
-      if (!storeCall || !econ) return;
-      var missed = storeCall.missedCalls || Math.max(0, (storeCall.totalCalls || 0) - (storeCall.answeredCalls || 0));
+      if (!perf || !econ) return;
+      var missed = perf.missed || Math.max(0, (perf.total_calls || 0) - (perf.answered || 0));
       var recoverableRev = Math.round(missed * 0.25 * 175);
-      var fteCost = 2500; // ~$15/hr × 40hrs × 4.3wks
+      var fteCost = 2500;
       var netROI = recoverableRev - fteCost;
       results[sk] = {
         missedCalls: missed, recoverableRevenue: recoverableRev, fteCost: fteCost, netROI: netROI,
@@ -616,9 +536,12 @@ export default function ScheduleTab({ selectedStore }) {
               var maxStaff = 0;
               storedShifts.forEach(function(s) { if (s.store === sk && s.shift_date === dateStr) maxStaff++; });
               // Get answer rate for this day from stored data
-              var dayCall = storedCallData?.[sk]?.dailyCalls?.find(function(d) { return d.date === dateStr; });
+              var srcDaily = storedCallData?.data?.dailyCalls || [];
+              var dayCall = srcDaily.find(function(d) { return d.date === dateStr; });
               if (!dayCall || !maxStaff) return;
-              var rate = dayCall.total > 0 ? Math.round(dayCall.answered / dayCall.total * 100) : 0;
+              var dayTotal = dayCall[sk + "_total"] || 0;
+              var dayAnswered = dayCall[sk + "_answered"] || 0;
+              var rate = dayTotal > 0 ? Math.round(dayAnswered / dayTotal * 100) : 0;
               if (maxStaff <= 1) { singleStaffDays++; singleStaffAnswerSum += rate; }
               else { multiStaffDays++; multiStaffAnswerSum += rate; }
             });
@@ -856,8 +779,6 @@ export default function ScheduleTab({ selectedStore }) {
                 </div>
                 <div style={{ fontSize: 10, color: "#6B7280" }}>Peak: {globalMax.toFixed(1)} calls/hr</div>
               </div>
-              {/* Debug: show data structure — REMOVE AFTER FIXING */}
-              {demandDebugRef.current && <div style={{ fontSize: 9, color: "#F59E0B", padding: "4px 8px", background: "#F59E0B11", borderRadius: 4, marginBottom: 8, wordBreak: "break-all" }}>DEBUG: {demandDebugRef.current}</div>}
               <div style={{ display: "grid", gridTemplateColumns: "100px repeat(7, 1fr)", gap: 3 }}>
                 {/* Header row with day labels */}
                 <div style={{ fontSize: 10, color: "#6B7280", padding: 4 }}>STORE</div>
