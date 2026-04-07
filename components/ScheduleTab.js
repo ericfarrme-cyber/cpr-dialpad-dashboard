@@ -110,10 +110,7 @@ export default function ScheduleTab({ selectedStore }) {
 
   // ── Fetch WhenIWork live schedule (includes future shifts) ──
   useEffect(function() {
-    var start = fmtDate(weekDates[0]);
-    var endPlusOne = new Date(weekDates[6]); endPlusOne.setDate(endPlusOne.getDate() + 1);
-    var end = fmtDate(endPlusOne);
-    fetch("/api/wheniwork?action=shifts&start=" + start + "&end=" + end)
+    fetch("/api/wheniwork?action=shifts&days=7")
       .then(function(r) { return r.json(); })
       .then(function(d) { if (d.shifts) { setScheduleData(d); setWiwConnected(true); } })
       .catch(function() {});
@@ -148,13 +145,86 @@ export default function ScheduleTab({ selectedStore }) {
     });
   }, []);
 
+  // ═══ Compute demand patterns from stored call data (RELIABLE FALLBACK) ═══
+  var HOURLY_DIST = { 9:0.06, 10:0.09, 11:0.12, 12:0.13, 13:0.12, 14:0.11, 15:0.10, 16:0.09, 17:0.08, 18:0.06, 19:0.04 };
+  var computedDemand = useMemo(function() {
+    if (!storedCallData) return null;
+    var patterns = {};
+    STORE_KEYS.forEach(function(sk) {
+      var storeData = storedCallData[sk];
+      if (!storeData) return;
+      patterns[sk] = {};
+
+      // Get daily call data — try various field names
+      var dailyCalls = storeData.dailyCalls || storeData.daily_calls || storeData.days || [];
+      if (!Array.isArray(dailyCalls) || dailyCalls.length === 0) {
+        // If no daily breakdown, use totals and distribute evenly across 30 days
+        var total = storeData.totalCalls || storeData.total_calls || storeData.total || 0;
+        var missed = storeData.missedCalls || storeData.missed_calls || Math.max(0, total - (storeData.answeredCalls || storeData.answered_calls || storeData.answered || 0));
+        var avgDaily = total / 30;
+        var avgMissedDaily = missed / 30;
+        FULL_DAYS.forEach(function(dow) {
+          patterns[sk][dow] = {};
+          for (var h = 9; h <= 19; h++) {
+            var pct = HOURLY_DIST[h] || 0.05;
+            var calls = Math.round(avgDaily * pct * 10) / 10;
+            var miss = Math.round(avgMissedDaily * pct * 10) / 10;
+            patterns[sk][dow][h] = {
+              avgCalls: calls, avgMissed: miss, avgTickets: 0,
+              demandScore: calls, recommendedStaff: Math.max(1, Math.ceil(calls / 4)),
+            };
+          }
+        });
+        return;
+      }
+
+      // Group daily calls by day-of-week
+      var byDow = {};
+      for (var d = 0; d < 7; d++) byDow[d] = { totalCalls: 0, totalMissed: 0, dayCount: 0 };
+      dailyCalls.forEach(function(day) {
+        var dateStr = day.date || day.d;
+        if (!dateStr) return;
+        var dt = new Date(dateStr + "T12:00:00");
+        var dow = dt.getDay();
+        var total = day.total || day.calls || (day.answered || 0) + (day.missed || 0) || 0;
+        var answered = day.answered || 0;
+        var missed = day.missed || Math.max(0, total - answered);
+        byDow[dow].totalCalls += total;
+        byDow[dow].totalMissed += missed;
+        byDow[dow].dayCount++;
+      });
+
+      // Build hourly patterns
+      FULL_DAYS.forEach(function(dow, d) {
+        patterns[sk][dow] = {};
+        var data = byDow[d];
+        var avgDaily = data.dayCount > 0 ? data.totalCalls / data.dayCount : 0;
+        var avgMissedDaily = data.dayCount > 0 ? data.totalMissed / data.dayCount : 0;
+        for (var h = 9; h <= 19; h++) {
+          var pct = HOURLY_DIST[h] || 0.05;
+          var calls = Math.round(avgDaily * pct * 10) / 10;
+          var miss = Math.round(avgMissedDaily * pct * 10) / 10;
+          patterns[sk][dow][h] = {
+            avgCalls: calls, avgMissed: miss, avgTickets: 0,
+            demandScore: calls, recommendedStaff: Math.max(1, Math.ceil(calls / 4)),
+          };
+        }
+      });
+    });
+    return patterns;
+  }, [storedCallData]);
+
+  // Use API demand patterns if available, otherwise computed fallback
+  var effectiveDemand = demandPatterns && Object.keys(demandPatterns).length > 0 ? demandPatterns : computedDemand;
+
   // ═══ Build weekly schedule grid — MERGE stored + live shifts ═══
   var weeklySchedule = useMemo(function() {
     var byEmployee = {};
     var seen = new Set(); // track employee+date to deduplicate
 
     function processShift(s) {
-      var name = s.employee_name || s.user_name || "Unknown";
+      var name = s.employee_name || s.user_name || "";
+      if (!name || name === "Unknown") return; // Skip unresolved entries
       var rawStore = s.store || s.location_name || "unknown";
       var store = locationToStore(rawStore) || rawStore;
       if (weekStore !== "all" && store !== weekStore) return;
@@ -422,13 +492,13 @@ export default function ScheduleTab({ selectedStore }) {
           </div>
 
           {/* Demand heatmap for today */}
-          {demandPatterns && (
+          {effectiveDemand && (
             <div style={card}>
               <div style={sectionTitle}>TODAY'S HOURLY DEMAND vs COVERAGE</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }}>
                 {STORE_KEYS.map(function(sk) {
                   var today = FULL_DAYS[new Date().getDay()];
-                  var dayPattern = demandPatterns[sk]?.[today] || {};
+                  var dayPattern = effectiveDemand[sk]?.[today] || {};
                   return (
                     <div key={sk} style={miniCard}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
@@ -693,7 +763,7 @@ export default function ScheduleTab({ selectedStore }) {
           )}
 
           {/* ── DEMAND HEATMAP (above schedule) ── */}
-          {showDemandOverlay && demandPatterns && (
+          {showDemandOverlay && effectiveDemand && (
             <div style={{ ...card, padding: 12, marginBottom: 8 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#FF2D95", marginBottom: 8, textTransform: "uppercase", letterSpacing: 1 }}>
                 HOURLY DEMAND PATTERN (30-day avg) — Calls + Tickets by Hour
@@ -710,7 +780,7 @@ export default function ScheduleTab({ selectedStore }) {
                     <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk].color, padding: "4px 4px", fontWeight: 600 }}>{STORES[sk].name}</div>,
                     ...weekDates.map(function(dt, di) {
                       var dow = FULL_DAYS[dt.getDay()];
-                      var dayPattern = demandPatterns[sk]?.[dow] || {};
+                      var dayPattern = effectiveDemand[sk]?.[dow] || {};
                       // Mini sparkline for this day
                       var maxDemand = 0;
                       for (var h = 9; h <= 19; h++) { maxDemand = Math.max(maxDemand, dayPattern[h]?.demandScore || 0); }
