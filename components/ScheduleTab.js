@@ -147,20 +147,69 @@ export default function ScheduleTab({ selectedStore }) {
 
   // ═══ Compute demand patterns from stored call data (RELIABLE FALLBACK) ═══
   var HOURLY_DIST = { 9:0.06, 10:0.09, 11:0.12, 12:0.13, 13:0.12, 14:0.11, 15:0.10, 16:0.09, 17:0.08, 18:0.06, 19:0.04 };
+  var demandDebugRef = { current: "" };
   var computedDemand = useMemo(function() {
-    if (!storedCallData) return null;
+    if (!storedCallData) { demandDebugRef.current = "No storedCallData"; return null; }
+
+    // Debug: capture structure
+    var topKeys = Object.keys(storedCallData);
+    var debugLines = ["stored keys: " + topKeys.join(", ")];
+    var firstStoreKey = topKeys.find(function(k) { return storedCallData[k] && typeof storedCallData[k] === "object"; });
+    if (firstStoreKey) {
+      var firstStore = storedCallData[firstStoreKey];
+      debugLines.push(firstStoreKey + " keys: " + Object.keys(firstStore).join(", "));
+      // Check for daily data
+      var dailyKey = Object.keys(firstStore).find(function(k) { return Array.isArray(firstStore[k]); });
+      if (dailyKey && firstStore[dailyKey].length > 0) {
+        debugLines.push(dailyKey + "[0] keys: " + Object.keys(firstStore[dailyKey][0]).join(", "));
+        debugLines.push(dailyKey + " count: " + firstStore[dailyKey].length);
+        debugLines.push("sample: " + JSON.stringify(firstStore[dailyKey][0]));
+      }
+      // Show numeric top-level values
+      var nums = Object.entries(firstStore).filter(function(e) { return typeof e[1] === "number"; }).map(function(e) { return e[0] + "=" + e[1]; });
+      if (nums.length) debugLines.push("numbers: " + nums.join(", "));
+    }
+    demandDebugRef.current = debugLines.join(" | ");
+
     var patterns = {};
     STORE_KEYS.forEach(function(sk) {
       var storeData = storedCallData[sk];
-      if (!storeData) return;
+      if (!storeData) {
+        // Try alternate keys
+        storeData = storedCallData[STORES[sk]?.name] || storedCallData[sk.charAt(0).toUpperCase() + sk.slice(1)];
+      }
+      if (!storeData || typeof storeData !== "object") return;
       patterns[sk] = {};
 
-      // Get daily call data — try various field names
-      var dailyCalls = storeData.dailyCalls || storeData.daily_calls || storeData.days || [];
-      if (!Array.isArray(dailyCalls) || dailyCalls.length === 0) {
-        // If no daily breakdown, use totals and distribute evenly across 30 days
-        var total = storeData.totalCalls || storeData.total_calls || storeData.total || 0;
-        var missed = storeData.missedCalls || storeData.missed_calls || Math.max(0, total - (storeData.answeredCalls || storeData.answered_calls || storeData.answered || 0));
+      // Find any array field that could be daily data
+      var dailyCalls = null;
+      ["dailyCalls", "daily_calls", "days", "daily", "records", "calls"].forEach(function(key) {
+        if (!dailyCalls && Array.isArray(storeData[key]) && storeData[key].length > 0) dailyCalls = storeData[key];
+      });
+      // Last resort: find first array in storeData
+      if (!dailyCalls) {
+        Object.values(storeData).forEach(function(v) {
+          if (!dailyCalls && Array.isArray(v) && v.length > 0) dailyCalls = v;
+        });
+      }
+
+      if (!dailyCalls || dailyCalls.length === 0) {
+        // Use top-level totals — try every possible field name
+        var total = 0;
+        ["totalCalls","total_calls","total","calls","count","callCount","inbound","all"].forEach(function(key) {
+          if (!total && typeof storeData[key] === "number" && storeData[key] > 0) total = storeData[key];
+        });
+        var answered = 0;
+        ["answeredCalls","answered_calls","answered","connected"].forEach(function(key) {
+          if (!answered && typeof storeData[key] === "number") answered = storeData[key];
+        });
+        var missed = 0;
+        ["missedCalls","missed_calls","missed","unanswered"].forEach(function(key) {
+          if (!missed && typeof storeData[key] === "number") missed = storeData[key];
+        });
+        if (!missed && total > answered) missed = total - answered;
+        if (!total && answered) total = answered + missed;
+
         var avgDaily = total / 30;
         var avgMissedDaily = missed / 30;
         FULL_DAYS.forEach(function(dow) {
@@ -178,23 +227,39 @@ export default function ScheduleTab({ selectedStore }) {
         return;
       }
 
-      // Group daily calls by day-of-week
+      // Group daily calls by day-of-week — try every possible field name
       var byDow = {};
       for (var d = 0; d < 7; d++) byDow[d] = { totalCalls: 0, totalMissed: 0, dayCount: 0 };
       dailyCalls.forEach(function(day) {
-        var dateStr = day.date || day.d;
+        var dateStr = day.date || day.d || day.day || day.dateStr;
         if (!dateStr) return;
-        var dt = new Date(dateStr + "T12:00:00");
+        // Handle date that might already be a Date object or timestamp
+        var dt;
+        try { dt = new Date(typeof dateStr === "string" && dateStr.length === 10 ? dateStr + "T12:00:00" : dateStr); } catch(e) { return; }
+        if (isNaN(dt.getTime())) return;
         var dow = dt.getDay();
-        var total = day.total || day.calls || (day.answered || 0) + (day.missed || 0) || 0;
-        var answered = day.answered || 0;
-        var missed = day.missed || Math.max(0, total - answered);
+
+        // Extract total calls — try every field pattern
+        var total = 0;
+        ["total","calls","totalCalls","total_calls","count","inbound","all"].forEach(function(key) {
+          if (!total && typeof day[key] === "number" && day[key] > 0) total = day[key];
+        });
+        var answered = 0;
+        ["answered","answeredCalls","answered_calls","connected"].forEach(function(key) {
+          if (!answered && typeof day[key] === "number") answered = day[key];
+        });
+        var missed = 0;
+        ["missed","missedCalls","missed_calls","unanswered"].forEach(function(key) {
+          if (!missed && typeof day[key] === "number") missed = day[key];
+        });
+        if (!total && answered) total = answered + missed;
+        if (!missed && total > answered) missed = total - answered;
+
         byDow[dow].totalCalls += total;
         byDow[dow].totalMissed += missed;
         byDow[dow].dayCount++;
       });
 
-      // Build hourly patterns
       FULL_DAYS.forEach(function(dow, d) {
         patterns[sk][dow] = {};
         var data = byDow[d];
@@ -791,6 +856,8 @@ export default function ScheduleTab({ selectedStore }) {
                 </div>
                 <div style={{ fontSize: 10, color: "#6B7280" }}>Peak: {globalMax.toFixed(1)} calls/hr</div>
               </div>
+              {/* Debug: show data structure — REMOVE AFTER FIXING */}
+              {demandDebugRef.current && <div style={{ fontSize: 9, color: "#F59E0B", padding: "4px 8px", background: "#F59E0B11", borderRadius: 4, marginBottom: 8, wordBreak: "break-all" }}>DEBUG: {demandDebugRef.current}</div>}
               <div style={{ display: "grid", gridTemplateColumns: "100px repeat(7, 1fr)", gap: 3 }}>
                 {/* Header row with day labels */}
                 <div style={{ fontSize: 10, color: "#6B7280", padding: 4 }}>STORE</div>
