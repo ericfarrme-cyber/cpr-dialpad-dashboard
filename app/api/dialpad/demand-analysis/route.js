@@ -7,107 +7,131 @@ function getSupabase() {
   );
 }
 
-var STORES = {
-  fishers: { targetId: process.env.DIALPAD_FISHERS_ID, name: "Fishers" },
-  bloomington: { targetId: process.env.DIALPAD_BLOOMINGTON_ID, name: "Bloomington" },
-  indianapolis: { targetId: process.env.DIALPAD_INDIANAPOLIS_ID, name: "Indianapolis" },
+var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
+var DAYS_OF_WEEK = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+
+// Typical phone repair store hourly demand distribution (% of daily total)
+// Based on retail foot traffic patterns — peaks late morning through early afternoon
+var HOURLY_DISTRIBUTION = {
+  9: 0.06,
+  10: 0.09,
+  11: 0.12,
+  12: 0.13,
+  13: 0.12,
+  14: 0.11,
+  15: 0.10,
+  16: 0.09,
+  17: 0.08,
+  18: 0.06,
+  19: 0.04,
 };
 
-var DAYS_OF_WEEK = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+// Store name resolver
+function resolveStore(name) {
+  if (!name) return null;
+  var lower = name.toLowerCase().trim();
+  if (lower === "fishers" || lower === "bloomington" || lower === "indianapolis") return lower;
+  if (lower.includes("fishers")) return "fishers";
+  if (lower.includes("bloomington")) return "bloomington";
+  if (lower.includes("indianapolis") || lower.includes("indy") || lower.includes("downtown")) return "indianapolis";
+  return name;
+}
 
 // ═══════════════════════════════════════════════════════════
 // ACTION: hourly-demand
-// Computes average call volume per hour per day-of-week per store
-// Uses Dialpad API for call data + ticket_grades for ticket data
+// Builds hourly demand patterns per store per day-of-week
+// Uses: daily call totals from Supabase × hourly distribution curve
+// + actual ticket timestamps from ticket_grades
 // ═══════════════════════════════════════════════════════════
 async function getHourlyDemand(store, days) {
   var sb = getSupabase();
-  var storeKeys = store ? [store] : Object.keys(STORES);
-  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
-  var cutoffStr = cutoff.toISOString();
+  var storeKeys = store ? [store] : STORE_KEYS;
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  var cutoffStr = cutoff.toISOString().split("T")[0];
 
   var results = {};
 
   for (var sk of storeKeys) {
-    // Initialize hourly buckets: [dayOfWeek][hour] = { calls, missed, tickets, days_seen }
-    var buckets = {};
+    // ── Get daily call data ──
+    var dailyCallsByDow = {};
     for (var d = 0; d < 7; d++) {
-      buckets[d] = {};
-      for (var h = 8; h <= 20; h++) {
-        buckets[d][h] = { calls: 0, missed: 0, tickets: 0, days_seen: new Set() };
-      }
+      dailyCallsByDow[d] = { totalCalls: 0, totalMissed: 0, dayCount: 0 };
     }
 
-    // ── Fetch call data from Dialpad API (last N days) ──
-    var targetId = STORES[sk].targetId;
-    if (targetId) {
-      try {
-        var startDate = cutoff.toISOString().split("T")[0];
-        var endDate = new Date().toISOString().split("T")[0];
-        var apiKey = process.env.DIALPAD_API_KEY;
+    // Try call_records first, then audit_records as fallback
+    var gotCallData = false;
+    try {
+      var { data: callRecords } = await sb.from("call_records")
+        .select("date, total_calls, answered_calls, missed_calls")
+        .eq("store", sk)
+        .gte("date", cutoffStr)
+        .order("date", { ascending: false });
 
-        // Fetch calls in batches
-        var cursor = null;
-        var allCalls = [];
-        var maxPages = 10;
-
-        for (var page = 0; page < maxPages; page++) {
-          var url = "https://dialpad.com/api/v2/stats/calls?" +
-            "target_id=" + targetId +
-            "&target_type=office" +
-            "&stat_type=calls" +
-            "&days_ago_start=" + days +
-            "&days_ago_end=0" +
-            "&limit=200" +
-            "&timezone=America/Indiana/Indianapolis";
-          if (cursor) url += "&cursor=" + cursor;
-
-          var resp = await fetch(url, {
-            headers: { Authorization: "Bearer " + apiKey, Accept: "application/json" }
-          });
-          if (!resp.ok) break;
-          var data = await resp.json();
-          var calls = data.items || data.records || data || [];
-          if (Array.isArray(calls)) allCalls = allCalls.concat(calls);
-          cursor = data.cursor;
-          if (!cursor || calls.length === 0) break;
-        }
-
-        // Bucket calls by day-of-week and hour (Eastern time)
-        allCalls.forEach(function(call) {
-          var ts = call.started_at || call.start_date_time || call.date_started;
-          if (!ts) return;
-          var dt = new Date(typeof ts === "number" ? ts * 1000 : ts);
-          // Convert to ET
-          var etStr = dt.toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" });
-          var etDate = new Date(etStr);
-          var dow = etDate.getDay();
-          var hr = etDate.getHours();
-          if (hr < 8 || hr > 20) return;
-          if (!buckets[dow][hr]) return;
-
-          var dateKey = etDate.toISOString().split("T")[0];
-          buckets[dow][hr].days_seen.add(dateKey);
-          buckets[dow][hr].calls++;
-
-          // Check if missed
-          var isMissed = call.call_type === "missed" ||
-            call.disposition === "missed" ||
-            (call.is_missed === true) ||
-            (call.talk_duration !== undefined && call.talk_duration === 0 && !call.voicemail);
-          if (isMissed) buckets[dow][hr].missed++;
+      if (callRecords && callRecords.length > 0) {
+        gotCallData = true;
+        callRecords.forEach(function(r) {
+          var dt = new Date(r.date + "T12:00:00");
+          var dow = dt.getDay();
+          var total = r.total_calls || 0;
+          var answered = r.answered_calls || 0;
+          var missed = r.missed_calls || Math.max(0, total - answered);
+          dailyCallsByDow[dow].totalCalls += total;
+          dailyCallsByDow[dow].totalMissed += missed;
+          dailyCallsByDow[dow].dayCount++;
         });
-      } catch (e) {
-        console.error("Dialpad fetch error for " + sk + ":", e.message);
+      }
+    } catch (e) {
+      console.error("call_records query failed for " + sk + ":", e.message);
+    }
+
+    if (!gotCallData) {
+      // Fallback: count audit_records per day as call volume proxy
+      try {
+        var { data: audits } = await sb.from("audit_records")
+          .select("date, categories")
+          .eq("store", sk)
+          .gte("date", cutoffStr);
+
+        if (audits && audits.length > 0) {
+          var byDate = {};
+          audits.forEach(function(a) {
+            if (!byDate[a.date]) byDate[a.date] = { total: 0, missed: 0 };
+            byDate[a.date].total++;
+            // Check if missed using categories field
+            var cats = (a.categories || "").toLowerCase();
+            var catList = cats.split(/[\s,|]+/);
+            var isMissed = catList.indexOf("missed") >= 0 || catList.indexOf("unanswered") >= 0;
+            if (isMissed) byDate[a.date].missed++;
+          });
+          Object.entries(byDate).forEach(function(entry) {
+            var date = entry[0], counts = entry[1];
+            var dt = new Date(date + "T12:00:00");
+            var dow = dt.getDay();
+            dailyCallsByDow[dow].totalCalls += counts.total;
+            dailyCallsByDow[dow].totalMissed += counts.missed;
+            dailyCallsByDow[dow].dayCount++;
+          });
+        }
+      } catch (e2) {
+        console.error("audit_records fallback failed for " + sk + ":", e2.message);
       }
     }
 
-    // ── Fetch ticket data from ticket_grades ──
+    // ── Get hourly ticket data from ticket_grades ──
+    var ticketsByDowHour = {};
+    var ticketDays = {};
+    for (var d = 0; d < 7; d++) {
+      ticketsByDowHour[d] = {};
+      for (var h = 9; h <= 19; h++) ticketsByDowHour[d][h] = 0;
+      ticketDays[d] = new Set();
+    }
+
     try {
       var { data: tickets } = await sb.from("ticket_grades")
         .select("graded_at, created_at")
         .eq("store", sk)
-        .gte("graded_at", cutoffStr)
+        .gte("graded_at", cutoff.toISOString())
         .order("graded_at", { ascending: false })
         .limit(5000);
 
@@ -120,41 +144,45 @@ async function getHourlyDemand(store, days) {
           var etDate = new Date(etStr);
           var dow = etDate.getDay();
           var hr = etDate.getHours();
-          if (hr < 8 || hr > 20 || !buckets[dow] || !buckets[dow][hr]) return;
-          buckets[dow][hr].tickets++;
-          buckets[dow][hr].days_seen.add(etDate.toISOString().split("T")[0]);
+          if (hr < 9 || hr > 19) return;
+          ticketsByDowHour[dow][hr]++;
+          ticketDays[dow].add(etDate.toISOString().split("T")[0]);
         });
       }
     } catch (e) {
-      console.error("Ticket fetch error for " + sk + ":", e.message);
+      console.error("Ticket query error for " + sk + ":", e.message);
     }
 
-    // ── Compute averages ──
+    // ── Build hourly patterns: daily calls × distribution curve ──
     var hourlyPatterns = {};
     for (var d = 0; d < 7; d++) {
-      hourlyPatterns[DAYS_OF_WEEK[d]] = {};
-      for (var h = 8; h <= 20; h++) {
-        var b = buckets[d][h];
-        var numDays = Math.max(b.days_seen.size, 1);
-        // For days with no data, estimate based on total days / 7
-        var estimatedDays = Math.max(Math.floor(days / 7), 1);
-        var divisor = Math.max(numDays, estimatedDays);
-        hourlyPatterns[DAYS_OF_WEEK[d]][h] = {
-          avgCalls: Math.round((b.calls / divisor) * 10) / 10,
-          avgMissed: Math.round((b.missed / divisor) * 10) / 10,
-          avgTickets: Math.round((b.tickets / divisor) * 10) / 10,
-          totalCalls: b.calls,
-          totalMissed: b.missed,
-          totalTickets: b.tickets,
-          daysObserved: numDays,
-          missRate: b.calls > 0 ? Math.round((b.missed / b.calls) * 100) : 0,
-          // Demand score: calls + tickets weighted
-          demandScore: Math.round(((b.calls + b.tickets * 1.5) / divisor) * 10) / 10,
-          // Recommended staff: 1 per 4 calls/hr or 1 per 3 tickets/hr, min 1
+      var dow = DAYS_OF_WEEK[d];
+      hourlyPatterns[dow] = {};
+
+      var callData = dailyCallsByDow[d];
+      var avgDailyCalls = callData.dayCount > 0 ? callData.totalCalls / callData.dayCount : 0;
+      var avgDailyMissed = callData.dayCount > 0 ? callData.totalMissed / callData.dayCount : 0;
+      var ticketDayCount = ticketDays[d] ? Math.max(ticketDays[d].size, 1) : Math.max(Math.floor(days / 7), 1);
+
+      for (var h = 9; h <= 19; h++) {
+        var pct = HOURLY_DISTRIBUTION[h] || 0.05;
+        var hourlyCalls = Math.round(avgDailyCalls * pct * 10) / 10;
+        var hourlyMissed = Math.round(avgDailyMissed * pct * 10) / 10;
+        var hourlyTickets = Math.round((ticketsByDowHour[d][h] || 0) / ticketDayCount * 10) / 10;
+        var demandScore = Math.round((hourlyCalls + hourlyTickets * 1.5) * 10) / 10;
+
+        hourlyPatterns[dow][h] = {
+          avgCalls: hourlyCalls,
+          avgMissed: hourlyMissed,
+          avgTickets: hourlyTickets,
+          missRate: hourlyCalls > 0 ? Math.round((hourlyMissed / hourlyCalls) * 100) : 0,
+          demandScore: demandScore,
           recommendedStaff: Math.max(1, Math.ceil(Math.max(
-            (b.calls / divisor) / 4,
-            (b.tickets / divisor) / 3
+            hourlyCalls / 4,
+            hourlyTickets / 2,
+            demandScore / 5
           ))),
+          daysObserved: callData.dayCount,
         };
       }
     }
@@ -167,11 +195,11 @@ async function getHourlyDemand(store, days) {
 
 // ═══════════════════════════════════════════════════════════
 // ACTION: float-employees
-// Identifies employees who work at multiple stores
 // ═══════════════════════════════════════════════════════════
 async function getFloatEmployees(days) {
   var sb = getSupabase();
-  var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - days);
+  var cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
 
   var { data: shifts } = await sb.from("employee_shifts")
     .select("employee_name, store, hours, shift_date")
@@ -180,20 +208,20 @@ async function getFloatEmployees(days) {
 
   if (!shifts) return [];
 
-  // Group by employee
   var byEmployee = {};
   shifts.forEach(function(s) {
     var name = s.employee_name;
     if (!byEmployee[name]) byEmployee[name] = { name: name, stores: {}, totalHours: 0, shifts: 0 };
-    if (!byEmployee[name].stores[s.store]) byEmployee[name].stores[s.store] = { hours: 0, shifts: 0 };
+    var store = s.store;
+    if (!byEmployee[name].stores[store]) byEmployee[name].stores[store] = { hours: 0, shifts: 0 };
     var h = parseFloat(s.hours) || 0;
-    byEmployee[name].stores[s.store].hours += h;
-    byEmployee[name].stores[s.store].shifts++;
+    byEmployee[name].stores[store].hours += h;
+    byEmployee[name].stores[store].shifts++;
     byEmployee[name].totalHours += h;
     byEmployee[name].shifts++;
   });
 
-  var employees = Object.values(byEmployee).map(function(e) {
+  return Object.values(byEmployee).map(function(e) {
     var storeList = Object.keys(e.stores);
     return {
       name: e.name,
@@ -207,48 +235,84 @@ async function getFloatEmployees(days) {
       }),
       avgWeeklyHours: Math.round((e.totalHours / Math.max(days / 7, 1)) * 10) / 10,
     };
-  });
-
-  return employees.sort(function(a, b) { return b.storeCount - a.storeCount || b.totalHours - a.totalHours; });
+  }).sort(function(a, b) { return b.storeCount - a.storeCount || b.totalHours - a.totalHours; });
 }
 
 // ═══════════════════════════════════════════════════════════
-// ACTION: coverage-analysis
-// For a given week, compute coverage score per store per day per hour
-// Cross-references shifts with demand patterns
+// ACTION: coverage
 // ═══════════════════════════════════════════════════════════
 async function getCoverageAnalysis(weekOf, demandPatterns) {
   var sb = getSupabase();
 
-  // Parse week start date
   var startDate = new Date(weekOf + "T00:00:00");
   var endDate = new Date(startDate);
-  endDate.setDate(endDate.getDate() + 7);
+  endDate.setDate(endDate.getDate() + 8);
 
   var startStr = startDate.toISOString().split("T")[0];
   var endStr = endDate.toISOString().split("T")[0];
 
-  // Get shifts for this week
-  var { data: shifts } = await sb.from("employee_shifts")
-    .select("*")
-    .gte("shift_date", startStr)
-    .lt("shift_date", endStr)
-    .order("shift_date");
+  // Merge stored shifts + WhenIWork live
+  var shifts = [];
 
-  if (!shifts) shifts = [];
+  try {
+    var { data: storedShifts } = await sb.from("employee_shifts")
+      .select("*")
+      .gte("shift_date", startStr)
+      .lt("shift_date", endStr)
+      .order("shift_date");
+    if (storedShifts) shifts = shifts.concat(storedShifts);
+  } catch (e) { console.error("Stored shifts error:", e.message); }
 
-  // Build coverage map: [store][date][hour] = [employee names]
+  // WhenIWork live for future/unsynced shifts
+  try {
+    var wiwToken = process.env.WHENIWORK_TOKEN;
+    if (wiwToken) {
+      var wiwResp = await fetch("https://api.wheniwork.com/2/shifts?start=" + startStr + "&end=" + endStr, {
+        headers: { "W-Token": wiwToken, Accept: "application/json" }
+      });
+      if (wiwResp.ok) {
+        var wiwData = await wiwResp.json();
+        var wiwUsers = {};
+        (wiwData.users || []).forEach(function(u) { wiwUsers[u.id] = ((u.first_name || "") + " " + (u.last_name || "")).trim(); });
+        var wiwLocations = {};
+        (wiwData.locations || []).forEach(function(l) { wiwLocations[l.id] = l.name || ""; });
+
+        (wiwData.shifts || []).forEach(function(ws) {
+          var name = wiwUsers[ws.user_id] || "Unknown";
+          var store = resolveStore(wiwLocations[ws.location_id] || "");
+          var shiftDate = ws.start_time ? ws.start_time.split("T")[0] : null;
+          if (!shiftDate || !store) return;
+
+          var exists = shifts.some(function(s) {
+            return s.employee_name === name && s.shift_date === shiftDate && s.store === store;
+          });
+          if (!exists) {
+            var hours = 0;
+            if (ws.start_time && ws.end_time) hours = (new Date(ws.end_time) - new Date(ws.start_time)) / 3600000;
+            shifts.push({
+              employee_name: name, store: store, shift_date: shiftDate,
+              start_time: ws.start_time, end_time: ws.end_time, hours: hours,
+            });
+          }
+        });
+      }
+    }
+  } catch (e) { console.error("WhenIWork live error:", e.message); }
+
+  // Build coverage map
   var coverage = {};
-  Object.keys(STORES).forEach(function(sk) { coverage[sk] = {}; });
+  STORE_KEYS.forEach(function(sk) { coverage[sk] = {}; });
 
   shifts.forEach(function(s) {
-    if (!coverage[s.store]) coverage[s.store] = {};
-    if (!coverage[s.store][s.shift_date]) {
-      coverage[s.store][s.shift_date] = {};
-      for (var h = 8; h <= 20; h++) coverage[s.store][s.shift_date][h] = [];
+    var store = resolveStore(s.store) || s.store;
+    if (!coverage[store]) return;
+    if (!s.shift_date) return;
+    if (!coverage[store][s.shift_date]) {
+      coverage[store][s.shift_date] = {};
+      for (var h = 9; h <= 19; h++) coverage[store][s.shift_date][h] = [];
     }
-    // Determine which hours this shift covers
-    var startH = 9, endH = 17; // defaults
+
+    var startH = 9, endH = 17;
     if (s.start_time) {
       var st = new Date(s.start_time);
       var stET = new Date(st.toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
@@ -261,24 +325,18 @@ async function getCoverageAnalysis(weekOf, demandPatterns) {
         endH = startH + (parseFloat(s.hours) || 8);
       }
     }
-    for (var h = startH; h < endH && h <= 20; h++) {
-      if (!coverage[s.store][s.shift_date]) {
-        coverage[s.store][s.shift_date] = {};
-      }
-      if (!coverage[s.store][s.shift_date][h]) {
-        coverage[s.store][s.shift_date][h] = [];
-      }
-      coverage[s.store][s.shift_date][h].push(s.employee_name);
+
+    for (var h = Math.max(startH, 9); h < Math.min(endH, 20); h++) {
+      if (!coverage[store][s.shift_date][h]) coverage[store][s.shift_date][h] = [];
+      coverage[store][s.shift_date][h].push(s.employee_name);
     }
   });
 
-  // Now cross-reference with demand patterns to find gaps
+  // Gap analysis
   var analysis = {};
-  var totalGaps = 0;
-  var criticalGaps = 0;
-  var revenueAtRisk = 0;
+  var totalGaps = 0, criticalGaps = 0, revenueAtRisk = 0;
 
-  Object.keys(STORES).forEach(function(sk) {
+  STORE_KEYS.forEach(function(sk) {
     analysis[sk] = { days: {}, summary: { totalGapHours: 0, criticalHours: 0, revenueAtRisk: 0 } };
 
     for (var dayOffset = 0; dayOffset < 7; dayOffset++) {
@@ -293,38 +351,27 @@ async function getCoverageAnalysis(weekOf, demandPatterns) {
       for (var h = 9; h <= 19; h++) {
         var staffOnHand = coverage[sk]?.[dateStr]?.[h]?.length || 0;
         var staffNames = coverage[sk]?.[dateStr]?.[h] || [];
-        var demandData = demand[h] || { avgCalls: 0, avgMissed: 0, avgTickets: 0, recommendedStaff: 1, demandScore: 0 };
-        var recommended = demandData.recommendedStaff;
+        var dd = demand[h] || { avgCalls: 0, avgMissed: 0, avgTickets: 0, recommendedStaff: 1, demandScore: 0 };
+        var recommended = dd.recommendedStaff;
         var gap = recommended - staffOnHand;
         var severity = gap <= 0 ? "OK" : gap === 1 ? "WATCH" : "CRITICAL";
-        // Revenue at risk: each understaffed hour, estimate missed calls
-        // If we have historical missed data, use it. Otherwise estimate from call volume.
-        // With N staff needed but only M on hand, ~(gap/needed) of calls go unanswered
-        var estimatedMissed = demandData.avgMissed > 0
-          ? demandData.avgMissed
-          : (demandData.avgCalls > 0 && recommended > 0 ? demandData.avgCalls * (gap / recommended) : gap * 2);
+
+        var estimatedMissed = dd.avgMissed > 0
+          ? dd.avgMissed
+          : (dd.avgCalls > 0 && recommended > 0 ? dd.avgCalls * Math.max(gap, 0) / recommended : Math.max(gap, 0) * 2);
         var missedRevPerHour = gap > 0 ? Math.round(estimatedMissed * 0.25 * 175) : 0;
 
         analysis[sk].days[dateStr].hours[h] = {
-          staffOnHand: staffOnHand,
-          staffNames: staffNames,
-          recommended: recommended,
-          gap: gap,
-          severity: severity,
-          demandScore: demandData.demandScore,
-          avgCalls: demandData.avgCalls,
-          avgMissed: demandData.avgMissed,
-          avgTickets: demandData.avgTickets,
-          revenueAtRisk: missedRevPerHour,
+          staffOnHand: staffOnHand, staffNames: staffNames,
+          recommended: recommended, gap: gap, severity: severity,
+          demandScore: dd.demandScore, avgCalls: dd.avgCalls, avgMissed: dd.avgMissed,
+          avgTickets: dd.avgTickets, revenueAtRisk: missedRevPerHour,
         };
 
         if (severity !== "OK") {
           analysis[sk].summary.totalGapHours++;
           totalGaps++;
-          if (severity === "CRITICAL") {
-            analysis[sk].summary.criticalHours++;
-            criticalGaps++;
-          }
+          if (severity === "CRITICAL") { analysis[sk].summary.criticalHours++; criticalGaps++; }
           analysis[sk].summary.revenueAtRisk += missedRevPerHour;
           revenueAtRisk += missedRevPerHour;
         }
@@ -333,108 +380,70 @@ async function getCoverageAnalysis(weekOf, demandPatterns) {
   });
 
   return {
-    weekOf: startStr,
-    stores: analysis,
+    weekOf: startStr, stores: analysis,
     summary: { totalGapHours: totalGaps, criticalGapHours: criticalGaps, totalRevenueAtRisk: revenueAtRisk }
   };
 }
 
 // ═══════════════════════════════════════════════════════════
 // ACTION: optimize
-// AI-powered schedule optimization for a future week
 // ═══════════════════════════════════════════════════════════
 async function optimizeSchedule(weekOf, demandPatterns, floatEmployees) {
-  var sb = getSupabase();
-
-  // Get each employee's recent avg weekly hours and store assignments
   var employeeProfiles = floatEmployees.map(function(e) {
-    return {
-      name: e.name,
-      primaryStore: e.primaryStore,
-      canWorkAt: e.storeList,
-      avgWeeklyHours: e.avgWeeklyHours,
-      isFloat: e.isFloat,
-    };
+    return { name: e.name, primaryStore: e.primaryStore, canWorkAt: e.storeList, avgWeeklyHours: e.avgWeeklyHours, isFloat: e.isFloat };
   });
 
-  // Build demand summary for the AI
   var demandSummary = {};
-  Object.keys(STORES).forEach(function(sk) {
+  STORE_KEYS.forEach(function(sk) {
     demandSummary[sk] = {};
     DAYS_OF_WEEK.forEach(function(dow) {
-      if (dow === "Sunday") return; // Closed Sundays typically
       var dayDemand = demandPatterns[sk]?.[dow] || {};
-      var peakHour = 9, peakCalls = 0;
-      for (var h = 9; h <= 19; h++) {
-        if ((dayDemand[h]?.avgCalls || 0) > peakCalls) {
-          peakCalls = dayDemand[h]?.avgCalls || 0;
-          peakHour = h;
-        }
-      }
-      var totalCalls = 0, totalMissed = 0;
+      var totalCalls = 0, totalMissed = 0, peakHour = 12, peakDemand = 0;
       for (var h = 9; h <= 19; h++) {
         totalCalls += dayDemand[h]?.avgCalls || 0;
         totalMissed += dayDemand[h]?.avgMissed || 0;
+        if ((dayDemand[h]?.demandScore || 0) > peakDemand) {
+          peakDemand = dayDemand[h]?.demandScore || 0; peakHour = h;
+        }
       }
-      demandSummary[sk][dow] = {
-        totalCalls: Math.round(totalCalls),
-        totalMissed: Math.round(totalMissed),
-        peakHour: peakHour,
-        peakCalls: Math.round(peakCalls * 10) / 10,
-      };
+      demandSummary[sk][dow] = { totalCalls: Math.round(totalCalls), totalMissed: Math.round(totalMissed), peakHour: peakHour, peakDemand: Math.round(peakDemand * 10) / 10 };
     });
   });
-
-  // Call Anthropic API for optimization
-  var prompt = `You are a ruthlessly analytical staffing optimizer for 3 cell phone repair stores. Generate the optimal weekly schedule.
-
-CONSTRAINTS:
-- Each store must have at least 1 person at all times during operating hours (Mon-Sat 9AM-7PM)
-- No employee should exceed 40 hours/week
-- Float employees can work at multiple stores but should minimize travel days
-- Prioritize coverage during peak hours (highest call/ticket volume)
-- Minimize labor cost while maintaining >85% call answer rate
-
-EMPLOYEES:
-${JSON.stringify(employeeProfiles, null, 1)}
-
-DEMAND PATTERNS (avg daily calls/missed by store by day):
-${JSON.stringify(demandSummary, null, 1)}
-
-WEEK TO SCHEDULE: ${weekOf}
-
-Generate a JSON schedule. For each employee, specify which store and hours for each day (Mon-Sat). Format:
-{
-  "schedule": [
-    { "employee": "Name", "monday": {"store":"fishers","start":"9:00","end":"5:00","hours":8}, "tuesday": null, ... },
-  ],
-  "rationale": "Brief explanation of key decisions",
-  "expectedMetrics": { "totalLaborHours": N, "coverageScore": N, "estimatedAnswerRate": N }
-}
-
-Return ONLY valid JSON, no markdown or preamble.`;
 
   try {
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": process.env.ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 4000,
-        messages: [{ role: "user", content: prompt }],
+        model: "claude-sonnet-4-20250514", max_tokens: 4000,
+        messages: [{ role: "user", content: `You are a ruthlessly analytical staffing optimizer for 3 cell phone repair stores (Fishers, Bloomington, Indianapolis). Generate the optimal weekly schedule starting ${weekOf}.
+
+CONSTRAINTS:
+- Stores open Mon-Sat 10AM-7PM, some open Sunday 11AM-5PM
+- At least 1 person per open store at all times
+- No employee exceeds 40 hours/week
+- Float employees can work multiple stores — minimize travel days
+- Prioritize 2+ staff during peak hours (11AM-2PM)
+
+EMPLOYEES:
+${JSON.stringify(employeeProfiles, null, 1)}
+
+DEMAND PATTERNS:
+${JSON.stringify(demandSummary, null, 1)}
+
+Return ONLY valid JSON:
+{
+  "schedule": [{"employee":"Name","monday":{"store":"fishers","start":"10:00","end":"6:00","hours":8},"tuesday":null,...}],
+  "rationale": "Brief explanation",
+  "expectedMetrics": {"totalLaborHours":N,"coverageScore":N,"estimatedAnswerRate":N}
+}` }],
       }),
     });
 
     var aiData = await resp.json();
     var text = (aiData.content || []).map(function(c) { return c.text || ""; }).join("");
-    var clean = text.replace(/```json|```/g, "").trim();
-    return JSON.parse(clean);
+    return JSON.parse(text.replace(/```json|```/g, "").trim());
   } catch (e) {
-    console.error("AI optimize error:", e.message);
     return { error: "Optimization failed: " + e.message };
   }
 }
@@ -454,28 +463,24 @@ export async function GET(request) {
       var patterns = await getHourlyDemand(store, days);
       return Response.json({ success: true, patterns: patterns, days: days });
     }
-
     if (action === "float-employees") {
       var floats = await getFloatEmployees(days);
       return Response.json({ success: true, employees: floats });
     }
-
     if (action === "coverage") {
-      if (!weekOf) return Response.json({ error: "weekOf parameter required" }, { status: 400 });
+      if (!weekOf) return Response.json({ error: "weekOf required" }, { status: 400 });
       var demand = await getHourlyDemand(null, days);
-      var coverage = await getCoverageAnalysis(weekOf, demand);
-      return Response.json({ success: true, ...coverage });
+      var cov = await getCoverageAnalysis(weekOf, demand);
+      return Response.json({ success: true, ...cov });
     }
-
     if (action === "optimize") {
-      if (!weekOf) return Response.json({ error: "weekOf parameter required" }, { status: 400 });
-      var demand = await getHourlyDemand(null, Math.min(days, 30));
-      var floats = await getFloatEmployees(60);
-      var result = await optimizeSchedule(weekOf, demand, floats);
-      return Response.json({ success: true, optimization: result });
+      if (!weekOf) return Response.json({ error: "weekOf required" }, { status: 400 });
+      var demand2 = await getHourlyDemand(null, 30);
+      var floats2 = await getFloatEmployees(60);
+      var opt = await optimizeSchedule(weekOf, demand2, floats2);
+      return Response.json({ success: true, optimization: opt });
     }
-
-    return Response.json({ error: "Unknown action: " + action }, { status: 400 });
+    return Response.json({ error: "Unknown action" }, { status: 400 });
   } catch (e) {
     console.error("Demand analysis error:", e);
     return Response.json({ error: e.message }, { status: 500 });
