@@ -109,6 +109,8 @@ function StoreDashboard() {
   var [roster, setRoster] = useState([]);
   var [salesData, setSalesData] = useState(null);
   var [weeklyGoal, setWeeklyGoal] = useState(null);
+  var [storedCallData, setStoredCallData] = useState(null);
+  var [callTimeWindow, setCallTimeWindow] = useState("mtd"); // store pages default to This Month
 
   // Appointment form states
   var [showForm, setShowForm] = useState(false);
@@ -160,7 +162,7 @@ function StoreDashboard() {
   var loadData = async function() {
     setLoading(true);
     try {
-      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes] = await Promise.allSettled([
+      var [scRes, apptStRes, apptRes, tixRes, rostRes, salesRes, goalRes, revRes, allApptRes, storedRes] = await Promise.allSettled([
         fetch("/api/dialpad/scorecard?period=" + selectedPeriod).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=stats&store=" + store + "&days=30").then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
@@ -170,6 +172,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=365").then(function(r){return r.json();}),
+        fetch("/api/dialpad/stored").then(function(r){return r.json();}),
       ]);
       if (scRes.status === "fulfilled" && scRes.value.success) setScorecard(scRes.value);
       if (apptStRes.status === "fulfilled" && apptStRes.value.success) setApptStats(apptStRes.value);
@@ -186,6 +189,7 @@ function StoreDashboard() {
         setGbpHistory(revRes.value.reportHistory || []);
       }
       if (allApptRes.status === "fulfilled" && allApptRes.value.success) setAllAppointments(allApptRes.value.appointments || []);
+      if (storedRes.status === "fulfilled" && storedRes.value.success) setStoredCallData(storedRes.value);
     } catch(e) { console.error(e); }
     setLoading(false);
   };
@@ -787,24 +791,70 @@ function StoreDashboard() {
             </div>
 
             {/* Call Performance */}
-            {storeScore && storeScore.categories && storeScore.categories.calls && (function() {
-              var cd = storeScore.categories.calls.details || {};
-              var answerRate = cd.answer_rate || 0;
+            {(function() {
+              // Compute call stats from stored dailyCalls for both time windows
+              var dailyCalls = storedCallData?.data?.dailyCalls || [];
+              var now = new Date();
+              var mtdStart = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01";
+
+              function computeStats(days) {
+                var total = 0, answered = 0, missed = 0;
+                days.forEach(function(d) {
+                  total += d[store + "_total"] || 0;
+                  answered += d[store + "_answered"] || 0;
+                  missed += d[store + "_missed"] || Math.max(0, (d[store + "_total"] || 0) - (d[store + "_answered"] || 0));
+                });
+                return { total: total, answered: answered, missed: missed, rate: total > 0 ? Math.round(answered / total * 100) : 0 };
+              }
+
+              var stats30 = computeStats(dailyCalls);
+              var statsMTD = computeStats(dailyCalls.filter(function(d) { return d.date >= mtdStart; }));
+
+              // Also get scorecard data for callback rate + vm info (always from scorecard)
+              var cd = storeScore?.categories?.calls?.details || {};
               var callbackRate = cd.callback_rate || 0;
               var vmReturnRate = cd.vm_return_rate || 0;
-              var totalInbound = cd.total_inbound || 0;
-              var missed = cd.missed || 0;
-              var answered = totalInbound - missed;
+              var callScore = storeScore?.categories?.calls?.score || 0;
               var vms = cd.vms || 0;
-              var callScore = storeScore.categories.calls.score || 0;
+
+              var active = callTimeWindow === "mtd" ? statsMTD : stats30;
+              var answerRate = active.rate;
+              var totalInbound = active.total;
+              var answered = active.answered;
+              var missed = active.missed;
+              var windowLabel = callTimeWindow === "mtd" ? "This Month" : "30 Days";
+
+              if (totalInbound === 0 && !storeScore?.categories?.calls) return null;
+
+              // If no stored data, fall back to scorecard
+              if (totalInbound === 0 && storeScore?.categories?.calls) {
+                answerRate = cd.answer_rate || 0;
+                totalInbound = cd.total_inbound || 0;
+                missed = cd.missed || 0;
+                answered = totalInbound - missed;
+              }
+
               var rateColor = answerRate >= 85 ? "#4ADE80" : answerRate >= 70 ? "#FBBF24" : "#F87171";
               var cbColor = callbackRate >= 80 ? "#4ADE80" : callbackRate >= 50 ? "#FBBF24" : "#F87171";
 
               return (
                 <div style={{ background:"#1A1D23",borderRadius:14,padding:24,marginBottom:24,border:"1px solid #2A2D35" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-                    <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{"\uD83D\uDCDE"} Call Performance</div>
-                    <div style={{ padding:"4px 12px",borderRadius:6,background:callScore >= 80 ? "#4ADE8018" : callScore >= 60 ? "#FBBF2418" : "#F8717118",color:callScore >= 80 ? "#4ADE80" : callScore >= 60 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{callScore}/100</div>
+                    <div style={{ display:"flex",alignItems:"center",gap:12 }}>
+                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>📞 Call Performance</div>
+                      <div style={{ padding:"4px 12px",borderRadius:6,background:callScore >= 80 ? "#4ADE8018" : callScore >= 60 ? "#FBBF2418" : "#F8717118",color:callScore >= 80 ? "#4ADE80" : callScore >= 60 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{callScore}/100</div>
+                    </div>
+                    {/* Time window toggle */}
+                    <div style={{ display:"flex",gap:2,background:"#12141A",borderRadius:8,padding:2 }}>
+                      <button onClick={function(){setCallTimeWindow("mtd");}} style={{
+                        padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,
+                        background:callTimeWindow==="mtd"?"#FF2D95":"transparent",color:callTimeWindow==="mtd"?"#fff":"#8B8F98",
+                      }}>This Month</button>
+                      <button onClick={function(){setCallTimeWindow("30day");}} style={{
+                        padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,
+                        background:callTimeWindow==="30day"?"#7B2FFF":"transparent",color:callTimeWindow==="30day"?"#fff":"#8B8F98",
+                      }}>30 Days</button>
+                    </div>
                   </div>
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:16 }}>
                     {/* Answer Rate */}
@@ -820,7 +870,7 @@ function StoreDashboard() {
                     <div style={{ background:"#12141A",borderRadius:12,padding:20,textAlign:"center",border:missed > 5 ? "1px solid #F8717133" : "1px solid #2A2D35" }}>
                       <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8 }}>Missed Calls</div>
                       <div style={{ fontSize:38,fontWeight:800,color:missed > 10 ? "#F87171" : missed > 0 ? "#FBBF24" : "#4ADE80" }}>{missed}</div>
-                      <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>{vms > 0 ? vms + " went to voicemail" : "this period"}</div>
+                      <div style={{ color:"#6B6F78",fontSize:11,marginTop:4 }}>{vms > 0 ? vms + " went to voicemail" : windowLabel}</div>
                     </div>
                     {/* Callback Rate */}
                     <div style={{ background:"#12141A",borderRadius:12,padding:20,textAlign:"center",border:"1px solid " + cbColor + "33" }}>
@@ -831,7 +881,7 @@ function StoreDashboard() {
                         <div style={{ width:callbackRate+"%",height:"100%",borderRadius:4,background:cbColor }} />
                       </div>
                       {callbackRate < 50 && missed > 3 && (
-                        <div style={{ marginTop:8,padding:"4px 8px",borderRadius:4,background:"#F8717112",color:"#F87171",fontSize:9,fontWeight:600 }}>{"\u26A0\uFE0F"} Needs improvement</div>
+                        <div style={{ marginTop:8,padding:"4px 8px",borderRadius:4,background:"#F8717112",color:"#F87171",fontSize:9,fontWeight:600 }}>⚠️ Needs improvement</div>
                       )}
                     </div>
                   </div>
