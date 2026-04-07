@@ -810,12 +810,17 @@ function StoreDashboard() {
               var stats30 = computeStats(dailyCalls);
               var statsMTD = computeStats(dailyCalls.filter(function(d) { return d.date >= mtdStart; }));
 
-              // Also get scorecard data for callback rate + vm info (always from scorecard)
+              // Also get scorecard data for vm info
               var cd = storeScore?.categories?.calls?.details || {};
-              var callbackRate = cd.callback_rate || 0;
               var vmReturnRate = cd.vm_return_rate || 0;
               var callScore = storeScore?.categories?.calls?.score || 0;
               var vms = cd.vms || 0;
+
+              // Get callback rate from stored route (same source as main dashboard)
+              var cbData = (storedCallData?.data?.callbackData || []).find(function(c) { return c.store === store; });
+              var callbackRate = cbData && cbData.missed > 0
+                ? Math.round((cbData.calledBack || 0) / cbData.missed * 100)
+                : (cd.callback_rate || 0);
 
               var active = callTimeWindow === "mtd" ? statsMTD : stats30;
               var answerRate = active.rate;
