@@ -268,10 +268,16 @@ function StoreDashboard() {
     var converted = recent.filter(function(a) { return a.did_arrive && a.did_arrive.toLowerCase() === "converted"; });
     var arrivedTotal = recent.filter(function(a) { return a.did_arrive && (a.did_arrive.toLowerCase() === "yes" || a.did_arrive.toLowerCase() === "converted"); });
 
-    // Days with at least one appointment (to avoid dividing by empty days)
-    var daysWithAppts = {};
-    recent.forEach(function(a) { if (a.date_of_appt) daysWithAppts[a.date_of_appt] = true; });
-    var activeDays = Math.max(Object.keys(daysWithAppts).length, 1);
+    // Days elapsed: current month = today's date, past months = total days in month
+    var now = new Date();
+    var currentPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    var activeDays;
+    if (selectedPeriod === currentPeriod) {
+      activeDays = now.getDate(); // e.g. April 7 = 7 days
+    } else {
+      var parts = selectedPeriod.split("-");
+      activeDays = new Date(parseInt(parts[0]), parseInt(parts[1]), 0).getDate(); // total days in that month
+    }
 
     var perDay = converted.length / activeDays;
     var conversionRate = arrivedTotal.length > 0 ? (converted.length / arrivedTotal.length) * 100 : 0;
@@ -298,16 +304,23 @@ function StoreDashboard() {
     };
   }, [allAppointments, selectedPeriod]);
 
-  // Booking rate: appointments booked vs total inbound calls
+  // Booking rate: appointments booked vs OPPORTUNITY calls only (not total inbound)
   var bookingRate = useMemo(function() {
-    var totalInbound = storeScore && storeScore.categories && storeScore.categories.calls
-      ? storeScore.categories.calls.details.total_inbound || 0 : 0;
+    // Sum opp_audits from employee scorecard data (calls where customer had a bookable need)
+    var oppCalls = 0;
+    storeEmployees.forEach(function(e) {
+      oppCalls += e.audit?.opp_audits || 0;
+    });
+    // Fallback: use total_audits from store scorecard
+    if (oppCalls === 0 && storeScore?.categories?.audit?.details) {
+      oppCalls = storeScore.categories.audit.details.total_audits || 0;
+    }
     var periodApptCount = allAppointments.filter(function(a) {
       return a.date_of_appt && a.date_of_appt.substring(0, 7) === selectedPeriod;
     }).length;
-    if (totalInbound === 0) return { rate: 0, appts: periodApptCount, calls: 0 };
-    return { rate: Math.min(Math.round((periodApptCount / totalInbound) * 100), 100), appts: periodApptCount, calls: totalInbound };
-  }, [storeScore, allAppointments, selectedPeriod]);
+    if (oppCalls === 0) return { rate: 0, appts: periodApptCount, calls: 0 };
+    return { rate: Math.min(Math.round((periodApptCount / oppCalls) * 100), 100), appts: periodApptCount, calls: oppCalls };
+  }, [storeScore, storeEmployees, allAppointments, selectedPeriod]);
 
   // Generate team wins
   var teamWins = useMemo(function() {
@@ -776,7 +789,7 @@ function StoreDashboard() {
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCDE"} Booking Rate</div>
                 <div style={{ color:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",fontSize:26,fontWeight:700 }}>{bookingRate.rate}%</div>
-                <div style={{ color:"#6B6F78",fontSize:10 }}>{bookingRate.appts} appts / {bookingRate.calls} calls</div>
+                <div style={{ color:"#6B6F78",fontSize:10 }}>{bookingRate.appts} appts / {bookingRate.calls} opp calls</div>
               </div>
               <div style={{ background:"#1A1D23",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
                 <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Follow-Ups</div>
@@ -1193,7 +1206,7 @@ function StoreDashboard() {
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
-              {[{l:"Total Appts",v:bookingRate.appts,c:"#7B2FFF"},{l:"Booking Rate",v:bookingRate.rate+"%",c:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",sub:bookingRate.appts+" of "+bookingRate.calls+" calls"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
+              {[{l:"Total Appts",v:bookingRate.appts,c:"#7B2FFF"},{l:"Booking Rate",v:bookingRate.rate+"%",c:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",sub:bookingRate.appts+" of "+bookingRate.calls+" opp calls"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
                 return <div key={i} style={{ background:"#1A1D23",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid "+s.c }}>
                   <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>{s.l}</div>
                   <div style={{ color:s.c,fontSize:22,fontWeight:700 }}>{s.v}</div>
