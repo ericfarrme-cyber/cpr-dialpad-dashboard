@@ -373,30 +373,48 @@ export default function ScheduleTab({ selectedStore }) {
     return allEmps.sort(function(a, b) { return b.revPerHour - a.revPerHour; });
   }, [scorecardData, hoursByEmployee]);
 
-  // ═══ Labor Economics (from profitability data) ═══
+  // ═══ Labor Economics (from profitability data + stored shifts for hours) ═══
   var laborEcon = useMemo(function() {
     if (!profitData.length) return null;
-    // Get last completed month
     var now = new Date();
     var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     var periodStr = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth() + 1).padStart(2, "0");
+    // Date range for last month's shifts
+    var monthStart = periodStr + "-01";
+    var nextMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1);
+    var monthEnd = nextMonth.getFullYear() + "-" + String(nextMonth.getMonth() + 1).padStart(2, "0") + "-01";
 
     var results = {};
     STORE_KEYS.forEach(function(sk) {
       var record = profitData.find(function(r) { return r.store === sk && r.period === periodStr; });
       if (!record) return;
-      var revenue = (record.phone_repair_revenue || 0) + (record.other_repair_revenue || 0) + (record.accessory_revenue || 0);
+
+      // Correct field names from profitability table
+      var revenue = (record.repair_revenue || 0) + (record.accessory_revenue || 0) +
+        (record.device_revenue || 0) + (record.parts_revenue || 0) + (record.services_revenue || 0);
       var payroll = record.payroll || 0;
-      var totalHours = record.labor_hours || 0;
+
+      // Hours: use hours_worked if populated, otherwise compute from stored shifts
+      var totalHours = record.hours_worked || 0;
+      if (totalHours === 0 && allStoredShifts.length > 0) {
+        allStoredShifts.forEach(function(s) {
+          var sStore = locationToStore(s.location_name || s.store) || s.store;
+          var sDate = s.shift_date || s.date || "";
+          if (sStore === sk && sDate >= monthStart && sDate < monthEnd) {
+            totalHours += parseFloat(s.hours) || 0;
+          }
+        });
+      }
+
       results[sk] = {
-        period: periodStr, revenue: revenue, payroll: payroll, totalHours: totalHours,
+        period: periodStr, revenue: revenue, payroll: payroll, totalHours: Math.round(totalHours),
         revPerHour: totalHours > 0 ? Math.round(revenue / totalHours) : 0,
         laborPct: revenue > 0 ? Math.round(payroll / revenue * 100) : 0,
         profitPerHour: totalHours > 0 ? Math.round((revenue - payroll) / totalHours) : 0,
       };
     });
-    return results;
-  }, [profitData]);
+    return Object.keys(results).length > 0 ? results : null;
+  }, [profitData, allStoredShifts]);
 
   // ═══ Staffing ROI model ═══
   var staffingROI = useMemo(function() {
