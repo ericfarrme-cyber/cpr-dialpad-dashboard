@@ -427,17 +427,31 @@ export default function ScheduleTab({ selectedStore }) {
       var perf = storePerf.find(function(p) { return p.store === sk; });
       var econ = laborEcon[sk];
       if (!perf || !econ) return;
+
+      // Pull actual Repair GPM from profitability data
+      var profRecord = profitData.find(function(r) { return r.store === sk && r.period === econ.period; });
+      var repairRev = profRecord?.repair_revenue || 0;
+      var repairCOGS = profRecord?.repair_cogs || 0;
+      var repairGPM = repairRev > 0 ? (repairRev - repairCOGS) / repairRev : 0.55; // fallback 55%
+
       var missed = perf.missed || Math.max(0, (perf.total_calls || 0) - (perf.answered || 0));
-      var recoverableRev = Math.round(missed * 0.25 * 175);
+      var grossRevRecoverable = missed * 0.25 * 175; // missed × conversion × avg ticket
+      var grossProfitRecoverable = Math.round(grossRevRecoverable * repairGPM);
       var fteCost = 2500;
-      var netROI = recoverableRev - fteCost;
+      var netROI = grossProfitRecoverable - fteCost;
       results[sk] = {
-        missedCalls: missed, recoverableRevenue: recoverableRev, fteCost: fteCost, netROI: netROI,
-        justified: netROI > 0, paybackPct: Math.round(recoverableRev / fteCost * 100),
+        missedCalls: missed,
+        grossRevRecoverable: Math.round(grossRevRecoverable),
+        repairGPM: Math.round(repairGPM * 100),
+        grossProfitRecoverable: grossProfitRecoverable,
+        fteCost: fteCost,
+        netROI: netROI,
+        justified: netROI > 0,
+        paybackPct: Math.round(grossProfitRecoverable / fteCost * 100),
       };
     });
     return results;
-  }, [storedCallData, laborEcon]);
+  }, [storedCallData, laborEcon, profitData]);
 
   // ═══ Live coverage (who's working now) ═══
   var liveCoverage = useMemo(function() {
@@ -737,8 +751,9 @@ export default function ScheduleTab({ selectedStore }) {
                       return (
                         <div key={sk} style={{ padding: 16, background: "#12141A", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "#4ADE80" : "#EF4444") }}>
                           <div style={{ fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>× 25% conversion × $175 = <strong style={{ color: "#fff" }}>${r.recoverableRevenue.toLocaleString()}</strong> recoverable</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo × 25% conv × $175 avg ticket</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>= <strong style={{ color: "#fff" }}>${r.grossRevRecoverable.toLocaleString()}</strong> recoverable revenue</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>× <strong style={{ color: "#00D4FF" }}>{r.repairGPM}% repair GPM</strong> = <strong style={{ color: "#fff" }}>${r.grossProfitRecoverable.toLocaleString()}</strong> gross profit</div>
                           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>− ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
                           <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "#4ADE80" : "#EF4444" }}>
                             {r.justified ? "✅ Hire — pays for itself" : "❌ Not justified yet"} ({r.paybackPct}%)
