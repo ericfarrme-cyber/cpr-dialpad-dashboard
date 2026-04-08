@@ -334,13 +334,37 @@ export default function ScheduleTab({ selectedStore }) {
   }, [currentWeekStart, optimizing]);
 
   // ═══ Hours by employee (for Hours Tracking) ═══
+  // Hours by employee — uses allStoredShifts (rolling 30 days matching scorecard period)
+  // For Hours Tracking sub-tab, uses current week's storedShifts
   var hoursByEmployee = useMemo(function() {
+    // Filter allStoredShifts to last 30 days (matching scorecard window)
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 30);
+    var cutoffStr = fmtDate(cutoff);
+
+    var byEmp = {};
+    allStoredShifts.forEach(function(s) {
+      var sDate = s.shift_date || s.date || "";
+      if (sDate < cutoffStr) return;
+      var name = s.employee_name || "Unknown";
+      if (!byEmp[name]) byEmp[name] = { name: name, fishers: 0, bloomington: 0, indianapolis: 0, total: 0 };
+      var h = parseFloat(s.hours) || 0;
+      var store = locationToStore(s.location_name || s.store) || s.store || "unknown";
+      byEmp[name][store] = (byEmp[name][store] || 0) + h;
+      byEmp[name].total += h;
+    });
+    return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
+  }, [allStoredShifts]);
+
+  // Hours for current week only (Hours Tracking sub-tab)
+  var weekHoursByEmployee = useMemo(function() {
     var byEmp = {};
     storedShifts.forEach(function(s) {
       var name = s.employee_name || "Unknown";
       if (!byEmp[name]) byEmp[name] = { name: name, fishers: 0, bloomington: 0, indianapolis: 0, total: 0 };
       var h = parseFloat(s.hours) || 0;
-      byEmp[name][s.store] = (byEmp[name][s.store] || 0) + h;
+      var store = locationToStore(s.location_name || s.store) || s.store || "unknown";
+      byEmp[name][store] = (byEmp[name][store] || 0) + h;
       byEmp[name].total += h;
     });
     return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
@@ -446,30 +470,29 @@ export default function ScheduleTab({ selectedStore }) {
   }, [scorecardData, hoursByEmployee, profitData, salesData]);
 
   // ═══ Labor Economics (from profitability data + stored shifts for hours) ═══
-  var laborEcon = useMemo(function() {
-    if (!profitData.length) return null;
-    var now = new Date();
-    var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    var periodStr = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth() + 1).padStart(2, "0");
-    // Date range for last month's shifts
+  var [econPeriod, setEconPeriod] = useState("last"); // "last" or "mtd"
+
+  function computeEconForPeriod(periodStr, profData, shifts) {
     var monthStart = periodStr + "-01";
-    var nextMonth = new Date(lastMonth.getFullYear(), lastMonth.getMonth() + 1, 1);
+    var parts = periodStr.split("-");
+    var nextMonth = new Date(parseInt(parts[0]), parseInt(parts[1]), 1);
     var monthEnd = nextMonth.getFullYear() + "-" + String(nextMonth.getMonth() + 1).padStart(2, "0") + "-01";
+    var now = new Date();
+    var isCurrentMonth = periodStr === now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    var daysInPeriod = isCurrentMonth ? now.getDate() : new Date(parseInt(parts[0]), parseInt(parts[1]), 0).getDate();
 
     var results = {};
     STORE_KEYS.forEach(function(sk) {
-      var record = profitData.find(function(r) { return r.store === sk && r.period === periodStr; });
-      if (!record) return;
+      var record = profData.find(function(r) { return r.store === sk && r.period === periodStr; });
 
-      // Correct field names from profitability table
-      var revenue = (record.repair_revenue || 0) + (record.accessory_revenue || 0) +
-        (record.device_revenue || 0) + (record.parts_revenue || 0) + (record.services_revenue || 0);
-      var payroll = record.payroll || 0;
+      var revenue = record ? (record.repair_revenue || 0) + (record.accessory_revenue || 0) +
+        (record.device_revenue || 0) + (record.parts_revenue || 0) + (record.services_revenue || 0) : 0;
+      var payroll = record ? (record.payroll || 0) : 0;
 
-      // Hours: use hours_worked if populated, otherwise compute from stored shifts
-      var totalHours = record.hours_worked || 0;
-      if (totalHours === 0 && allStoredShifts.length > 0) {
-        allStoredShifts.forEach(function(s) {
+      // Compute hours from shifts
+      var totalHours = (record && record.hours_worked) || 0;
+      if (totalHours === 0 && shifts.length > 0) {
+        shifts.forEach(function(s) {
           var sStore = locationToStore(s.location_name || s.store) || s.store;
           var sDate = s.shift_date || s.date || "";
           if (sStore === sk && sDate >= monthStart && sDate < monthEnd) {
@@ -478,26 +501,57 @@ export default function ScheduleTab({ selectedStore }) {
         });
       }
 
+      // For MTD with no profitability record, estimate revenue from shifts + avg ticket
+      if (!record && isCurrentMonth && totalHours > 0) {
+        // Can't estimate revenue without profitability data — show hours only
+        results[sk] = {
+          period: periodStr, revenue: 0, payroll: 0, totalHours: Math.round(totalHours),
+          revPerHour: 0, laborPct: 0, profitPerHour: 0, daysInPeriod: daysInPeriod,
+          isPartial: true,
+        };
+        return;
+      }
+
+      if (!record && totalHours === 0) return;
+
       results[sk] = {
         period: periodStr, revenue: revenue, payroll: payroll, totalHours: Math.round(totalHours),
         revPerHour: totalHours > 0 ? Math.round(revenue / totalHours) : 0,
         laborPct: revenue > 0 ? Math.round(payroll / revenue * 100) : 0,
         profitPerHour: totalHours > 0 ? Math.round((revenue - payroll) / totalHours) : 0,
+        daysInPeriod: daysInPeriod,
+        isPartial: isCurrentMonth,
       };
     });
     return Object.keys(results).length > 0 ? results : null;
+  }
+
+  var laborEconLast = useMemo(function() {
+    if (!profitData.length) return null;
+    var now = new Date();
+    var lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    var periodStr = lastMonth.getFullYear() + "-" + String(lastMonth.getMonth() + 1).padStart(2, "0");
+    return computeEconForPeriod(periodStr, profitData, allStoredShifts);
   }, [profitData, allStoredShifts]);
+
+  var laborEconMTD = useMemo(function() {
+    var now = new Date();
+    var periodStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    return computeEconForPeriod(periodStr, profitData, allStoredShifts);
+  }, [profitData, allStoredShifts]);
+
+  var laborEcon = econPeriod === "mtd" ? laborEconMTD : laborEconLast;
 
   // ═══ Staffing ROI model ═══
   var staffingROI = useMemo(function() {
-    if (!storedCallData || !laborEcon) return null;
+    if (!storedCallData || !laborEconLast) return null;
     var srcData = storedCallData?.data || storedCallData;
     var storePerf = srcData?.storePerf || [];
     if (!Array.isArray(storePerf)) storePerf = [];
     var results = {};
     STORE_KEYS.forEach(function(sk) {
       var perf = storePerf.find(function(p) { return p.store === sk; });
-      var econ = laborEcon[sk];
+      var econ = laborEconLast[sk];
       if (!perf || !econ) return;
 
       // Pull actual Repair GPM from profitability data
@@ -523,7 +577,7 @@ export default function ScheduleTab({ selectedStore }) {
       };
     });
     return results;
-  }, [storedCallData, laborEcon, profitData]);
+  }, [storedCallData, laborEconLast, profitData]);
 
   // ═══ Live coverage (who's working now) ═══
   var liveCoverage = useMemo(function() {
@@ -792,28 +846,90 @@ export default function ScheduleTab({ selectedStore }) {
       {/* ══════════════════════════════════════════════════ */}
       {subTab === "economics" && (
         <div>
-          <div style={sectionTitle}>LABOR ECONOMICS — LAST COMPLETED MONTH</div>
+          {/* Period toggle */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={sectionTitle}>LABOR ECONOMICS</div>
+            <div style={{ display: "flex", gap: 2, background: "#1A1D23", borderRadius: 8, padding: 2 }}>
+              <button onClick={function(){setEconPeriod("last");}} style={{
+                padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                background: econPeriod === "last" ? "#7B2FFF" : "transparent", color: econPeriod === "last" ? "#fff" : "#8B8F98",
+              }}>Last Month</button>
+              <button onClick={function(){setEconPeriod("mtd");}} style={{
+                padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                background: econPeriod === "mtd" ? "#FF2D95" : "transparent", color: econPeriod === "mtd" ? "#fff" : "#8B8F98",
+              }}>This Month</button>
+            </div>
+          </div>
+
           {laborEcon ? (
             <>
+              {/* Period indicator */}
+              {econPeriod === "mtd" && (
+                <div style={{ padding: "8px 12px", background: "#FF2D9512", border: "1px solid #FF2D9533", borderRadius: 8, marginBottom: 16, fontSize: 12, color: "#FF2D95" }}>
+                  📊 Month-to-date — {(function() { var e = Object.values(laborEcon)[0]; return e ? e.daysInPeriod + " days" : ""; })()} into the month
+                  {(function() { var e = Object.values(laborEcon)[0]; return e && e.revenue === 0 ? " (profitability data not yet imported for this month)" : ""; })()}
+                </div>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginBottom: 20 }}>
                 {STORE_KEYS.map(function(sk) {
                   var e = laborEcon[sk];
+                  var cmp = econPeriod === "mtd" ? (laborEconLast || {})[sk] : (laborEconMTD || {})[sk]; // comparison period
                   if (!e) return <div key={sk} style={card}><div style={{ color: "#6B7280" }}>No data for {STORES[sk].name}</div></div>;
+
+                  function delta(cur, prev) {
+                    if (!prev || prev === 0) return null;
+                    var diff = cur - prev;
+                    return { diff: diff, pct: Math.round(diff / prev * 100), color: diff >= 0 ? "#4ADE80" : "#EF4444", arrow: diff >= 0 ? "↑" : "↓" };
+                  }
+
+                  var revDelta = cmp ? delta(e.revPerHour, cmp.revPerHour) : null;
+                  var laborDelta = cmp ? delta(e.laborPct, cmp.laborPct) : null;
+
                   return (
                     <div key={sk} style={card}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: STORES[sk].color, marginBottom: 12 }}>{STORES[sk].name}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: STORES[sk].color }}>{STORES[sk].name}</div>
+                        {e.isPartial && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#FF2D9522", color: "#FF2D95" }}>MTD</span>}
+                      </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        <div><div style={{ ...metricBig, color: "#4ADE80", fontSize: 22 }}>${e.revPerHour}</div><div style={metricLabel}>Revenue/Man Hour</div></div>
-                        <div><div style={{ ...metricBig, color: sc(100 - e.laborPct, 70, 60), fontSize: 22 }}>{e.laborPct}%</div><div style={metricLabel}>Labor % of Rev</div></div>
-                        <div><div style={{ ...metricBig, color: e.profitPerHour > 0 ? "#4ADE80" : "#EF4444", fontSize: 22 }}>${e.profitPerHour}</div><div style={metricLabel}>Profit/Hour</div></div>
-                        <div><div style={{ ...metricBig, fontSize: 22, color: "#9CA3AF" }}>{e.totalHours}h</div><div style={metricLabel}>Total Hours</div></div>
+                        <div>
+                          <div style={{ ...metricBig, color: "#4ADE80", fontSize: 22 }}>${e.revPerHour}</div>
+                          <div style={metricLabel}>Revenue/Man Hour</div>
+                          {revDelta && <div style={{ fontSize: 10, color: revDelta.color, marginTop: 2 }}>{revDelta.arrow} {revDelta.diff >= 0 ? "+" : ""}{revDelta.diff} vs {econPeriod === "mtd" ? "last mo" : "MTD"}</div>}
+                        </div>
+                        <div>
+                          <div style={{ ...metricBig, color: sc(100 - e.laborPct, 70, 60), fontSize: 22 }}>{e.laborPct}%</div>
+                          <div style={metricLabel}>Labor % of Rev</div>
+                          {laborDelta && <div style={{ fontSize: 10, color: laborDelta.diff <= 0 ? "#4ADE80" : "#EF4444", marginTop: 2 }}>{laborDelta.diff <= 0 ? "↓" : "↑"} {Math.abs(laborDelta.diff)}pts vs {econPeriod === "mtd" ? "last mo" : "MTD"}</div>}
+                        </div>
+                        <div>
+                          <div style={{ ...metricBig, color: e.profitPerHour > 0 ? "#4ADE80" : "#EF4444", fontSize: 22 }}>${e.profitPerHour}</div>
+                          <div style={metricLabel}>Profit/Hour</div>
+                        </div>
+                        <div>
+                          <div style={{ ...metricBig, fontSize: 22, color: "#9CA3AF" }}>{e.totalHours}h</div>
+                          <div style={metricLabel}>Total Hours</div>
+                        </div>
+                        {e.revenue > 0 && (
+                          <>
+                            <div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "#00D4FF" }}>${Math.round(e.revenue).toLocaleString()}</div>
+                              <div style={metricLabel}>Revenue</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "#FBBF24" }}>${Math.round(e.payroll).toLocaleString()}</div>
+                              <div style={metricLabel}>Payroll</div>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
 
-              {/* Staffing ROI */}
+              {/* Staffing ROI — always based on last completed month */}
               {staffingROI && (
                 <div style={card}>
                   <div style={sectionTitle}>🧠 STAFFING ROI — WHAT IF YOU ADDED 1 FTE?</div>
@@ -1179,7 +1295,7 @@ export default function ScheduleTab({ selectedStore }) {
               })}
             </tr></thead>
             <tbody>
-              {hoursByEmployee.map(function(emp) {
+              {weekHoursByEmployee.map(function(emp) {
                 var isOT = emp.total > 40;
                 return (
                   <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
