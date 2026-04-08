@@ -19,29 +19,40 @@ function trimBase64(b64, maxSizeKB) {
 export async function POST(request) {
   try {
     var body = await request.json();
-    var pages = body.pages; // array of { data: base64, media_type: "image/png" | "application/pdf" }
+    var pages = body.pages; // array of { data: base64, media_type }
+    var rawText = body.text; // extracted text from PDF (preferred — no size limits)
 
-    if (!pages || pages.length === 0) {
-      return json({ success: false, error: "No pages provided" });
+    if (!pages && !rawText) {
+      return json({ success: false, error: "No pages or text provided" });
     }
 
     var apiKey = process.env.ANTHROPIC_API_KEY;
     if (!apiKey) return json({ success: false, error: "Anthropic API key not configured" });
 
-    // Build content array with all pages
+    // Build content array
     var content = [];
-    for (var i = 0; i < pages.length; i++) {
-      var pg = pages[i];
-      if (pg.media_type === "application/pdf") {
-        content.push({
-          type: "document",
-          source: { type: "base64", media_type: "application/pdf", data: pg.data },
-        });
-      } else {
-        content.push({
-          type: "image",
-          source: { type: "base64", media_type: pg.media_type || "image/png", data: pg.data },
-        });
+
+    if (rawText) {
+      // Text mode — pdf.js extracted the text client-side
+      content.push({
+        type: "text",
+        text: "Here is the extracted text from a Google Business Profile weekly report PDF:\n\n" + rawText,
+      });
+    } else {
+      // Image/PDF mode — send base64 content
+      for (var i = 0; i < pages.length; i++) {
+        var pg = pages[i];
+        if (pg.media_type === "application/pdf") {
+          content.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: pg.data },
+          });
+        } else {
+          content.push({
+            type: "image",
+            source: { type: "base64", media_type: pg.media_type || "image/png", data: pg.data },
+          });
+        }
       }
     }
 
