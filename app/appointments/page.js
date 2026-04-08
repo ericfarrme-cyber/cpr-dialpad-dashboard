@@ -567,13 +567,20 @@ function StoreDashboard() {
         }
 
         var pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
-        var maxPages = Math.min(pdf.numPages, 4); // First 4 pages max — covers all GBP report data
+        var maxPages = Math.min(pdf.numPages, 3); // First 3 pages — stats, keywords, competitors — covers all GBP report data
 
         for (var i = 1; i <= maxPages; i++) {
           setMsg({ type: "success", text: "Rendering page " + i + " of " + maxPages + "..." });
           var page = await pdf.getPage(i);
-          var scale = 2; // Good quality for text extraction
+          var scale = 1.5; // Balance quality vs size
           var viewport = page.getViewport({ scale: scale });
+
+          // Cap dimensions to prevent oversized images
+          var maxDim = 1600;
+          if (viewport.width > maxDim || viewport.height > maxDim) {
+            var ratio = Math.min(maxDim / viewport.width, maxDim / viewport.height);
+            viewport = page.getViewport({ scale: scale * ratio });
+          }
 
           var canvas = document.createElement("canvas");
           canvas.width = viewport.width;
@@ -583,7 +590,7 @@ function StoreDashboard() {
           await page.render({ canvasContext: ctx, viewport: viewport }).promise;
 
           // Convert to JPEG (much smaller than PNG)
-          var dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          var dataUrl = canvas.toDataURL("image/jpeg", 0.65);
           var imgBase64 = dataUrl.split(",")[1];
           pages.push({ data: imgBase64, media_type: "image/jpeg" });
         }
@@ -597,6 +604,13 @@ function StoreDashboard() {
       }
 
       setMsg({ type: "success", text: "Extracting data with AI..." });
+
+      // Check total payload size — Vercel limit is ~4.5MB
+      var totalB64 = pages.reduce(function(s, p) { return s + p.data.length; }, 0);
+      if (totalB64 > 3500000) {
+        // Too large even after rendering — reduce to 2 pages
+        pages = pages.slice(0, 2);
+      }
 
       var res = await fetch("/api/dialpad/extract-gbp", {
         method: "POST",
