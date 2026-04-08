@@ -71,6 +71,7 @@ export default function ScheduleTab({ selectedStore }) {
   var [storedCallData, setStoredCallData] = useState(null);
   var [allStoredShifts, setAllStoredShifts] = useState([]); // 90 days for analysis
   var [salesData, setSalesData] = useState(null);
+  var [lastMonthSalesData, setLastMonthSalesData] = useState(null);
 
   // Current week dates
   var currentWeekStart = useMemo(function() {
@@ -155,6 +156,11 @@ export default function ScheduleTab({ selectedStore }) {
           .then(function(r) { return r.json(); });
       })(),
       fetch("/api/dialpad/sales?action=performance").then(function(r) { return r.json(); }),
+      (function() {
+        var d = new Date(); d.setMonth(d.getMonth() - 1);
+        var lmPeriod = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+        return fetch("/api/dialpad/sales?action=performance&period=" + lmPeriod).then(function(r) { return r.json(); });
+      })(),
     ]).then(function(results) {
       // Merge profitability from current month + last month
       // API returns: {success:true, records:[], period:"2026-04"}
@@ -172,6 +178,7 @@ export default function ScheduleTab({ selectedStore }) {
       if (results[3].status === "fulfilled") setStoredCallData(results[3].value);
       if (results[4].status === "fulfilled" && results[4].value.shifts) setAllStoredShifts(results[4].value.shifts);
       if (results[5].status === "fulfilled") setSalesData(results[5].value);
+      if (results[6].status === "fulfilled") setLastMonthSalesData(results[6].value);
     });
   }, []);
 
@@ -370,58 +377,66 @@ export default function ScheduleTab({ selectedStore }) {
     return Object.values(byEmp).sort(function(a,b) { return b.total - a.total; });
   }, [storedShifts]);
 
-  // ═══ Employee Productivity (from scorecard + shifts) ═══
+  // ═══ Employee Productivity (from scorecard + shifts + sales) ═══
+  var [prodPeriod, setProdPeriod] = useState("mtd"); // "mtd" or "last"
+
+  // Compute hours per period from allStoredShifts
+  function getHoursForPeriod(periodStr, shifts) {
+    var monthStart = periodStr + "-01";
+    var parts = periodStr.split("-");
+    var nextMonth = new Date(parseInt(parts[0]), parseInt(parts[1]), 1);
+    var monthEnd = nextMonth.getFullYear() + "-" + String(nextMonth.getMonth() + 1).padStart(2, "0") + "-01";
+    var byEmp = {};
+    shifts.forEach(function(s) {
+      var sDate = s.shift_date || s.date || "";
+      if (sDate < monthStart || sDate >= monthEnd) return;
+      var name = s.employee_name || "Unknown";
+      if (!byEmp[name]) byEmp[name] = 0;
+      byEmp[name] += parseFloat(s.hours) || 0;
+    });
+    return byEmp;
+  }
+
+  // Build revenue map from sales data
+  function buildRevMap(sd) {
+    var map = {};
+    if (!sd || !sd.phones) return map;
+    (sd.phones || []).forEach(function(r) { if (!r.employee) return; if (!map[r.employee]) map[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 }; map[r.employee].phoneRev = r.repair_total || 0; });
+    (sd.others || []).forEach(function(r) { if (!r.employee) return; if (!map[r.employee]) map[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 }; map[r.employee].otherRev = r.repair_total || 0; });
+    (sd.accessories || []).forEach(function(r) { if (!r.employee) return; if (!map[r.employee]) map[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 }; map[r.employee].accyGP = r.accy_gp || 0; });
+    (sd.cleanings || []).forEach(function(r) { if (!r.employee) return; if (!map[r.employee]) map[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 }; map[r.employee].cleanRev = r.clean_total || 0; });
+    (sd.cleaningSales || []).forEach(function(r) { if (!r.employee) return; if (!map[r.employee]) map[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 }; map[r.employee].clnRev = r.gross_sales || r.discounted_sales || 0; });
+    return map;
+  }
+
+  // Name matching helper — case-insensitive, handles "Luke Stirling" vs "Luke  Stirling"
+  function findHours(name, hoursMap) {
+    if (hoursMap[name]) return hoursMap[name];
+    var lower = name.toLowerCase().trim();
+    var match = Object.keys(hoursMap).find(function(k) { return k.toLowerCase().trim() === lower; });
+    return match ? hoursMap[match] : 0;
+  }
+
   var productivity = useMemo(function() {
     if (!scorecardData) return [];
     var empScores = scorecardData.employeeScores || [];
 
-    // Build per-employee actual revenue from sales data
-    // Sales route returns: {phones: [{employee, repair_tickets, repair_total, avg_repair}],
-    //   others: [{employee, repair_count, repair_total}],
-    //   accessories: [{employee, accy_gp, accy_count}],
-    //   cleanings: [{employee, clean_count, clean_total}],
-    //   cleaningSales: [{employee, gross_sales}]}
-    var empRevMap = {};
-    if (salesData && salesData.phones) {
-      // Initialize from phone repairs
-      (salesData.phones || []).forEach(function(r) {
-        if (!r.employee) return;
-        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
-        empRevMap[r.employee].phoneRev = r.repair_total || 0;
-      });
-      // Add other repairs
-      (salesData.others || []).forEach(function(r) {
-        if (!r.employee) return;
-        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
-        empRevMap[r.employee].otherRev = r.repair_total || 0;
-      });
-      // Add accessories (GP, not revenue)
-      (salesData.accessories || []).forEach(function(r) {
-        if (!r.employee) return;
-        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
-        empRevMap[r.employee].accyGP = r.accy_gp || 0;
-      });
-      // Add cleanings
-      (salesData.cleanings || []).forEach(function(r) {
-        if (!r.employee) return;
-        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
-        empRevMap[r.employee].cleanRev = r.clean_total || 0;
-      });
-      // Add cleaning sales (CLN)
-      (salesData.cleaningSales || []).forEach(function(r) {
-        if (!r.employee) return;
-        if (!empRevMap[r.employee]) empRevMap[r.employee] = { phoneRev: 0, otherRev: 0, accyGP: 0, cleanRev: 0, clnRev: 0 };
-        empRevMap[r.employee].clnRev = r.gross_sales || r.discounted_sales || 0;
-      });
-    }
+    var now = new Date();
+    var curPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+    var lastPeriodDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    var lastPeriod = lastPeriodDate.getFullYear() + "-" + String(lastPeriodDate.getMonth() + 1).padStart(2, "0");
+
+    var activePeriod = prodPeriod === "mtd" ? curPeriod : lastPeriod;
+    var activeSales = prodPeriod === "mtd" ? salesData : lastMonthSalesData;
+    var empRevMap = buildRevMap(activeSales);
+    var periodHours = getHoursForPeriod(activePeriod, allStoredShifts);
+
+    var daysInPeriod = prodPeriod === "mtd" ? now.getDate() : new Date(lastPeriodDate.getFullYear(), lastPeriodDate.getMonth() + 1, 0).getDate();
 
     // Fallback: store avg ticket from profitability
     var storeAvgTicket = {};
-    var now = new Date();
-    var curPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-    var lastPeriod = (function() { var d = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"); })();
     STORE_KEYS.forEach(function(sk) {
-      var record = profitData.find(function(r) { return r.store === sk && r.period === curPeriod; }) ||
+      var record = profitData.find(function(r) { return r.store === sk && r.period === activePeriod; }) ||
                    profitData.find(function(r) { return r.store === sk && r.period === lastPeriod; });
       if (!record) return;
       var repairRev = record.repair_revenue || 0;
@@ -434,13 +449,11 @@ export default function ScheduleTab({ selectedStore }) {
       if (!emp.name || !emp.hasData) return;
       var name = emp.name;
       var sk = emp.store || "unknown";
-      var hrs = hoursByEmployee.find(function(h) { return h.name === name; });
-      var totalHrs = hrs ? hrs.total : 0;
+      var totalHrs = Math.round(findHours(name, periodHours) * 10) / 10;
       var totalRepairs = emp.repairs?.total_repairs || ((emp.repairs?.phone_tickets || 0) + (emp.repairs?.other_tickets || 0));
       var accyGP = emp.repairs?.accy_gp || 0;
       var cleanCount = emp.repairs?.clean_count || 0;
 
-      // Use ACTUAL per-employee revenue from sales if available
       var sales = empRevMap[name];
       var totalRev;
       var revenueSource;
@@ -449,7 +462,6 @@ export default function ScheduleTab({ selectedStore }) {
         revenueSource = totalRev > 0 ? "actual" : "estimated";
       }
       if (!sales || totalRev === 0) {
-        // Fallback to store avg ticket estimate
         var avgTicket = storeAvgTicket[sk] || 175;
         totalRev = totalRepairs * avgTicket + accyGP + cleanCount * 10;
         revenueSource = "estimated";
@@ -467,7 +479,7 @@ export default function ScheduleTab({ selectedStore }) {
       });
     });
     return allEmps.sort(function(a, b) { return b.revPerHour - a.revPerHour; });
-  }, [scorecardData, hoursByEmployee, profitData, salesData]);
+  }, [scorecardData, profitData, salesData, lastMonthSalesData, allStoredShifts, prodPeriod]);
 
   // ═══ Labor Economics (from profitability data + stored shifts for hours) ═══
   var [econPeriod, setEconPeriod] = useState("last"); // "last" or "mtd"
@@ -783,7 +795,19 @@ export default function ScheduleTab({ selectedStore }) {
       {/* ══════════════════════════════════════════════════ */}
       {subTab === "productivity" && (
         <div>
-          <div style={sectionTitle}>REVENUE PER LABOR HOUR — WHO EARNS THEIR KEEP</div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={sectionTitle}>REVENUE PER LABOR HOUR — WHO EARNS THEIR KEEP</div>
+            <div style={{ display: "flex", gap: 2, background: "#1A1D23", borderRadius: 8, padding: 2 }}>
+              <button onClick={function(){setProdPeriod("mtd");}} style={{
+                padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                background: prodPeriod === "mtd" ? "#FF2D95" : "transparent", color: prodPeriod === "mtd" ? "#fff" : "#8B8F98",
+              }}>This Month</button>
+              <button onClick={function(){setProdPeriod("last");}} style={{
+                padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                background: prodPeriod === "last" ? "#7B2FFF" : "transparent", color: prodPeriod === "last" ? "#fff" : "#8B8F98",
+              }}>Last Month</button>
+            </div>
+          </div>
           {/* Top 3 */}
           {productivity.length > 0 && (
             <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
