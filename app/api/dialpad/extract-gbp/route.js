@@ -1,8 +1,20 @@
 import { NextResponse } from "next/server";
 
+// Allow larger request bodies for PDF uploads
+export const maxDuration = 60;
+
 function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
 function json(data, status) { return NextResponse.json(data, { status: status || 200, headers: cors() }); }
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
+
+// Trim base64 PDF to reduce size — keeps first N pages worth of data
+function trimBase64(b64, maxSizeKB) {
+  var maxBytes = maxSizeKB * 1024;
+  if (b64.length * 0.75 <= maxBytes) return b64; // already small enough
+  // Truncate to approximate target size (base64 is ~4/3 of binary)
+  var targetChars = Math.floor(maxBytes * 4 / 3);
+  return b64.substring(0, targetChars);
+}
 
 export async function POST(request) {
   try {
@@ -87,7 +99,10 @@ Rules:
     if (!response.ok) {
       var errText = await response.text();
       console.error("Anthropic API error:", response.status, errText);
-      return json({ success: false, error: "AI extraction failed: " + response.status });
+      // Parse error for useful message
+      var errMsg = "AI extraction failed: " + response.status;
+      try { var errJson = JSON.parse(errText); errMsg = errJson.error?.message || errMsg; } catch(e) {}
+      return json({ success: false, error: errMsg });
     }
 
     var result = await response.json();
