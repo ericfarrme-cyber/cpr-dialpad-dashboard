@@ -545,87 +545,63 @@ function StoreDashboard() {
     try {
       var buffer = await file.arrayBuffer();
       var bytes = new Uint8Array(buffer);
-      var pages = [];
 
       var isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+      var d; // extracted data
 
       if (isPdf) {
-        // For PDFs: render pages to JPEG images using pdf.js
-        // This converts a 5MB+ PDF into ~300KB of page images
-        setMsg({ type: "success", text: "Rendering PDF pages..." });
+        // Extract text from PDF using pdf.js — works for ANY size PDF
+        setMsg({ type: "success", text: "Extracting text from PDF..." });
 
-        // Load pdf.js from CDN if not already loaded
         if (!window.pdfjsLib) {
           await new Promise(function(resolve, reject) {
             var script = document.createElement("script");
             script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
             script.onload = resolve;
-            script.onerror = function() { reject(new Error("Failed to load PDF renderer")); };
+            script.onerror = function() { reject(new Error("Failed to load PDF library")); };
             document.head.appendChild(script);
           });
           window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
         }
 
         var pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
-        var maxPages = Math.min(pdf.numPages, 3); // First 3 pages — stats, keywords, competitors — covers all GBP report data
-
-        for (var i = 1; i <= maxPages; i++) {
-          setMsg({ type: "success", text: "Rendering page " + i + " of " + maxPages + "..." });
+        var allText = "";
+        for (var i = 1; i <= pdf.numPages; i++) {
+          setMsg({ type: "success", text: "Reading page " + i + " of " + pdf.numPages + "..." });
           var page = await pdf.getPage(i);
-          var scale = 1.5; // Balance quality vs size
-          var viewport = page.getViewport({ scale: scale });
-
-          // Cap dimensions to prevent oversized images
-          var maxDim = 1600;
-          if (viewport.width > maxDim || viewport.height > maxDim) {
-            var ratio = Math.min(maxDim / viewport.width, maxDim / viewport.height);
-            viewport = page.getViewport({ scale: scale * ratio });
-          }
-
-          var canvas = document.createElement("canvas");
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          var ctx = canvas.getContext("2d");
-
-          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-
-          // Convert to JPEG (much smaller than PNG)
-          var dataUrl = canvas.toDataURL("image/jpeg", 0.65);
-          var imgBase64 = dataUrl.split(",")[1];
-          pages.push({ data: imgBase64, media_type: "image/jpeg" });
+          var textContent = await page.getTextContent();
+          var pageText = textContent.items.map(function(item) { return item.str; }).join(" ");
+          allText += "\n--- Page " + i + " ---\n" + pageText;
         }
+
+        setMsg({ type: "success", text: "Analyzing report with AI..." });
+
+        var res = await fetch("/api/dialpad/extract-gbp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: allText }),
+        });
+        var json = await res.json();
+        if (!json.success) { setMsg({ type: "error", text: "Extraction failed: " + (json.error || "Unknown error") }); setGbpImporting(false); return; }
+        d = json.data;
       } else {
-        // For direct image uploads, just base64 encode
+        // Image upload — base64 encode and send
         var binary = "";
         for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
         var base64 = btoa(binary);
         var mediaType = "image/" + file.name.split(".").pop().toLowerCase().replace("jpg", "jpeg");
-        pages.push({ data: base64, media_type: mediaType });
+
+        setMsg({ type: "success", text: "Extracting data with AI..." });
+
+        var res = await fetch("/api/dialpad/extract-gbp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pages: [{ data: base64, media_type: mediaType }] }),
+        });
+        var json = await res.json();
+        if (!json.success) { setMsg({ type: "error", text: "Extraction failed: " + (json.error || "Unknown error") }); setGbpImporting(false); return; }
+        d = json.data;
       }
-
-      setMsg({ type: "success", text: "Extracting data with AI..." });
-
-      // Check total payload size — Vercel limit is ~4.5MB
-      var totalB64 = pages.reduce(function(s, p) { return s + p.data.length; }, 0);
-      if (totalB64 > 3500000) {
-        // Too large even after rendering — reduce to 2 pages
-        pages = pages.slice(0, 2);
-      }
-
-      var res = await fetch("/api/dialpad/extract-gbp", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ pages: pages }),
-      });
-
-      var json = await res.json();
-      if (!json.success) {
-        setMsg({ type: "error", text: "Extraction failed: " + (json.error || "Unknown error") });
-        setGbpImporting(false);
-        return;
-      }
-
-      var d = json.data;
 
       // Build keywords array
       var keywords = (d.keywords || []).map(function(kw) {
