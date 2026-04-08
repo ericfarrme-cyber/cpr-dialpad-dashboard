@@ -534,6 +534,7 @@ function StoreDashboard() {
   };
 
   // ═══ GBP PDF IMPORT ═══
+  // Renders PDF pages to images client-side to avoid Vercel body size limits
   var handleGbpImport = async function(e) {
     var file = e.target.files[0];
     if (!file) return;
@@ -544,22 +545,63 @@ function StoreDashboard() {
     try {
       var buffer = await file.arrayBuffer();
       var bytes = new Uint8Array(buffer);
-      var binary = "";
-      for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-      var base64 = btoa(binary);
+      var pages = [];
 
-      var mediaType = file.type || "application/pdf";
-      if (file.name.toLowerCase().endsWith(".pdf")) mediaType = "application/pdf";
-      else if (file.name.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)) mediaType = "image/" + file.name.split(".").pop().toLowerCase().replace("jpg", "jpeg");
+      var isPdf = file.name.toLowerCase().endsWith(".pdf") || file.type === "application/pdf";
+
+      if (isPdf) {
+        // For PDFs: render pages to JPEG images using pdf.js
+        // This converts a 5MB+ PDF into ~300KB of page images
+        setMsg({ type: "success", text: "Rendering PDF pages..." });
+
+        // Load pdf.js from CDN if not already loaded
+        if (!window.pdfjsLib) {
+          await new Promise(function(resolve, reject) {
+            var script = document.createElement("script");
+            script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+            script.onload = resolve;
+            script.onerror = function() { reject(new Error("Failed to load PDF renderer")); };
+            document.head.appendChild(script);
+          });
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        }
+
+        var pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+        var maxPages = Math.min(pdf.numPages, 4); // First 4 pages max — covers all GBP report data
+
+        for (var i = 1; i <= maxPages; i++) {
+          setMsg({ type: "success", text: "Rendering page " + i + " of " + maxPages + "..." });
+          var page = await pdf.getPage(i);
+          var scale = 2; // Good quality for text extraction
+          var viewport = page.getViewport({ scale: scale });
+
+          var canvas = document.createElement("canvas");
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+          var ctx = canvas.getContext("2d");
+
+          await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+          // Convert to JPEG (much smaller than PNG)
+          var dataUrl = canvas.toDataURL("image/jpeg", 0.85);
+          var imgBase64 = dataUrl.split(",")[1];
+          pages.push({ data: imgBase64, media_type: "image/jpeg" });
+        }
+      } else {
+        // For direct image uploads, just base64 encode
+        var binary = "";
+        for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        var base64 = btoa(binary);
+        var mediaType = "image/" + file.name.split(".").pop().toLowerCase().replace("jpg", "jpeg");
+        pages.push({ data: base64, media_type: mediaType });
+      }
 
       setMsg({ type: "success", text: "Extracting data with AI..." });
 
       var res = await fetch("/api/dialpad/extract-gbp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          pages: [{ data: base64, media_type: mediaType }],
-        }),
+        body: JSON.stringify({ pages: pages }),
       });
 
       var json = await res.json();
