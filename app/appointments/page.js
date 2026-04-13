@@ -346,6 +346,12 @@ function StoreDashboard() {
   }, [storeEmployees, apptStats]);
 
   var filteredAppointments = appointments;
+  // Filter by selected period (unless viewing "today" which is already date-filtered by the API)
+  if (apptView !== "today") {
+    filteredAppointments = filteredAppointments.filter(function(a) {
+      return a.date_of_appt && a.date_of_appt.substring(0, 7) === selectedPeriod;
+    });
+  }
   if (searchQuery.trim()) {
     var q = searchQuery.toLowerCase().trim();
     filteredAppointments = appointments.filter(function(a) {
@@ -354,7 +360,9 @@ function StoreDashboard() {
         (a.scheduled_by||"").toLowerCase().includes(q) || (a.notes||"").toLowerCase().includes(q);
     });
   }
-  var followUps = appointments.filter(function(a) { return a.follow_up_needed && !a.follow_up_done; });
+  var followUps = appointments.filter(function(a) {
+    return a.follow_up_needed && !a.follow_up_done && a.date_of_appt && a.date_of_appt.substring(0, 7) === selectedPeriod;
+  });
   var rosterFiltered = roster.filter(function(r) { return (r.store||"").toLowerCase() === store.toLowerCase(); });
   if (rosterFiltered.length === 0) rosterFiltered = roster;
 
