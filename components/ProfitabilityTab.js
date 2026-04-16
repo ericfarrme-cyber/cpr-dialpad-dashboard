@@ -30,6 +30,7 @@ function compute(r) {
   // Expenses
   var rent = g("rent");
   var payroll = g("payroll");
+  var corporateOverhead = g("corporate_overhead");
   var internet = g("internet_security"), electric = g("electric"), gas = g("gas_parking"), voip = g("voip");
   var utilities = internet + electric + gas + voip;
   var mktDigital = g("marketing_digital"), mktLocal = g("marketing_local");
@@ -39,7 +40,7 @@ function compute(r) {
   var controllables = damaged + shrinkage + voided;
   var kbb = g("kbb_charges"), tips = g("tips"), lcd = g("lcd_credits"), ccFee = g("cc_fee_diff");
   var otherExpenses = kbb + tips + lcd + ccFee + storeBudget;
-  var totalExpenses = rent + payroll + utilities + marketing + storeBudget + controllables + kbb + tips + lcd + ccFee;
+  var totalExpenses = rent + payroll + corporateOverhead + utilities + marketing + storeBudget + controllables + kbb + tips + lcd + ccFee;
 
   // Fees
   var royaltyRate = g("royalty_rate") || 0.05;
@@ -64,7 +65,7 @@ function compute(r) {
     promoRev: promoRev, promoCogs: promoCogs,
     repProfit: repRev - repCogs, repGpm: repRev > 0 ? (repRev - repCogs) / repRev : 0,
     grossRev: grossRev, totalCogs: totalCogs, grossProfit: grossProfit, gpm: gpm,
-    rent: rent, payroll: payroll, utilities: utilities, marketing: marketing,
+    rent: rent, payroll: payroll, corporateOverhead: corporateOverhead, utilities: utilities, marketing: marketing,
     controllables: controllables, otherExpenses: otherExpenses, totalExpenses: totalExpenses,
     royalties: royalties, adFee: adFee, techFee: techFee, totalFees: totalFees,
     profitLessFees: profitLessFees, netProfit: netProfit, netMargin: netMargin,
@@ -164,17 +165,22 @@ export default function ProfitabilityTab() {
     if (!payrollResult || !payrollResult.distribution) return;
     setSaving(true);
     var d = payrollResult.distribution;
-    // Save payroll to each store
+    // Split corporate overhead evenly across stores
+    var corporatePerStore = d.corporate > 0 ? Math.round(d.corporate / STORE_KEYS.length * 100) / 100 : 0;
+    // Save payroll + corporate overhead to each store
     for (var i = 0; i < STORE_KEYS.length; i++) {
       var sk = STORE_KEYS[i];
       var existing = records[sk] || {};
-      var payload = Object.assign({ action: "save", period: period, store: sk }, existing, { payroll: d[sk] || 0 });
+      var payload = Object.assign({ action: "save", period: period, store: sk }, existing, {
+        payroll: d[sk] || 0,
+        corporate_overhead: corporatePerStore,
+      });
       await fetch("/api/dialpad/profitability", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
     }
-    setMsg({ type: "success", text: "Payroll applied — Fishers: $" + (d.fishers || 0).toLocaleString() + " | Bloomington: $" + (d.bloomington || 0).toLocaleString() + " | Indianapolis: $" + (d.indianapolis || 0).toLocaleString() + (d.corporate > 0 ? " | Corporate: $" + d.corporate.toLocaleString() : "") });
+    setMsg({ type: "success", text: "Payroll applied — Fishers: $" + (d.fishers || 0).toLocaleString() + " | Bloomington: $" + (d.bloomington || 0).toLocaleString() + " | Indianapolis: $" + (d.indianapolis || 0).toLocaleString() + (d.corporate > 0 ? " | Corporate OH: $" + d.corporate.toLocaleString() + " ($" + corporatePerStore.toLocaleString() + "/store)" : "") });
     setPayrollResult(null);
     loadData();
     setSaving(false);
@@ -411,6 +417,7 @@ export default function ProfitabilityTab() {
             <SectionRow label="Operating Expenses" color="#F87171" />
             <Row label="Rent" values={vals("rent")} indent color="#F87171" />
             <Row label="Payroll" values={vals("payroll")} indent color="#F87171" />
+            <Row label="Corporate Overhead" values={vals("corporateOverhead")} indent color="#7B2FFF" />
             <Row label="Utilities" values={vals("utilities")} indent color="#F87171" />
             <Row label="Marketing" values={vals("marketing")} indent color="#F87171" />
             <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" />
@@ -618,7 +625,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
         <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Expenses</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
-            { l: "Rent", k: "rent" }, { l: "Payroll", k: "payroll" },
+            { l: "Rent", k: "rent" }, { l: "Payroll", k: "payroll" }, { l: "Corporate OH", k: "corporate_overhead" },
             { l: "Internet/Security/Dialpad", k: "internet_security" }, { l: "Electric", k: "electric" },
             { l: "Gas/Parking", k: "gas_parking" }, { l: "VOIP", k: "voip" },
             { l: "Marketing Digital", k: "marketing_digital" }, { l: "Marketing Local", k: "marketing_local" },
