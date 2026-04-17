@@ -31,6 +31,7 @@ function compute(r) {
   var rent = g("rent");
   var payroll = g("payroll");
   var corporateOverhead = g("corporate_overhead");
+  var areaMgrExpenses = g("area_manager_expenses");
   var internet = g("internet_security"), electric = g("electric"), gas = g("gas_parking"), voip = g("voip");
   var utilities = internet + electric + gas + voip;
   var mktDigital = g("marketing_digital"), mktLocal = g("marketing_local");
@@ -40,7 +41,7 @@ function compute(r) {
   var controllables = damaged + shrinkage + voided;
   var kbb = g("kbb_charges"), tips = g("tips"), lcd = g("lcd_credits"), ccFee = g("cc_fee_diff");
   var otherExpenses = kbb + tips + lcd + ccFee + storeBudget;
-  var totalExpenses = rent + payroll + corporateOverhead + utilities + marketing + storeBudget + controllables + kbb + tips + lcd + ccFee;
+  var totalExpenses = rent + payroll + corporateOverhead + areaMgrExpenses + utilities + marketing + storeBudget + controllables + kbb + tips + lcd + ccFee;
 
   // Fees
   var royaltyRate = g("royalty_rate") || 0.05;
@@ -65,7 +66,7 @@ function compute(r) {
     promoRev: promoRev, promoCogs: promoCogs,
     repProfit: repRev - repCogs, repGpm: repRev > 0 ? (repRev - repCogs) / repRev : 0,
     grossRev: grossRev, totalCogs: totalCogs, grossProfit: grossProfit, gpm: gpm,
-    rent: rent, payroll: payroll, corporateOverhead: corporateOverhead, utilities: utilities, marketing: marketing,
+    rent: rent, payroll: payroll, corporateOverhead: corporateOverhead, areaMgrExpenses: areaMgrExpenses, utilities: utilities, marketing: marketing,
     controllables: controllables, otherExpenses: otherExpenses, totalExpenses: totalExpenses,
     royalties: royalties, adFee: adFee, techFee: techFee, totalFees: totalFees,
     profitLessFees: profitLessFees, netProfit: netProfit, netMargin: netMargin,
@@ -88,6 +89,8 @@ export default function ProfitabilityTab() {
   var [editStore, setEditStore] = useState(null);
   var [payrollResult, setPayrollResult] = useState(null);
   var [payrollImporting, setPayrollImporting] = useState(false);
+  var [amexResult, setAmexResult] = useState(null);
+  var [amexImporting, setAmexImporting] = useState(false);
 
   var loadData = async function() {
     setLoading(true);
@@ -186,6 +189,78 @@ export default function ProfitabilityTab() {
     setSaving(false);
   };
 
+  // ═══ AMEX STATEMENT IMPORT ═══
+  var handleAmexImport = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    setAmexImporting(true); setAmexResult(null);
+    setMsg({ type: "success", text: "Reading Amex statement..." });
+    try {
+      var buffer = await file.arrayBuffer();
+      // Use pdf.js to extract text
+      if (!window.pdfjsLib) {
+        await new Promise(function(resolve, reject) {
+          var script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+          script.onload = resolve;
+          script.onerror = function() { reject(new Error("Failed to load PDF library")); };
+          document.head.appendChild(script);
+        });
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+      }
+      var pdf = await window.pdfjsLib.getDocument({ data: buffer }).promise;
+      var allText = "";
+      for (var i = 1; i <= pdf.numPages; i++) {
+        setMsg({ type: "success", text: "Reading page " + i + " of " + pdf.numPages + "..." });
+        var page = await pdf.getPage(i);
+        var tc = await page.getTextContent();
+        allText += "\n--- Page " + i + " ---\n" + tc.items.map(function(item) { return item.str; }).join(" ");
+      }
+      setMsg({ type: "success", text: "Analyzing Matt's charges..." });
+      var res = await fetch("/api/dialpad/extract-amex", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: allText }),
+      });
+      var json = await res.json();
+      if (json.success) {
+        setAmexResult(json.data);
+        setMsg({ type: "success", text: "Found " + json.data.non_parts_count + " non-parts charges ($" + json.data.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + ") and " + json.data.parts_count + " parts charges ($" + json.data.parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + " — already in COGS)" });
+      } else {
+        setMsg({ type: "error", text: json.error || "Amex import failed" });
+      }
+    } catch (err) { setMsg({ type: "error", text: err.message }); }
+    setAmexImporting(false); e.target.value = "";
+  };
+
+  var applyAmex = async function() {
+    if (!amexResult) return;
+    setSaving(true);
+    // Build category breakdown for storage
+    var breakdown = {};
+    Object.entries(amexResult.by_category || {}).forEach(function(entry) {
+      breakdown[entry[0]] = Math.round(entry[1].total * 100) / 100;
+    });
+    // Split non-parts evenly across stores (area manager expense benefits all stores)
+    var perStore = Math.round(amexResult.non_parts_total / STORE_KEYS.length * 100) / 100;
+    for (var i = 0; i < STORE_KEYS.length; i++) {
+      var sk = STORE_KEYS[i];
+      var existing = records[sk] || {};
+      var payload = Object.assign({ action: "save", period: period, store: sk }, existing, {
+        area_manager_expenses: perStore,
+        area_manager_breakdown: JSON.stringify(breakdown),
+      });
+      await fetch("/api/dialpad/profitability", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    }
+    setMsg({ type: "success", text: "Area manager expenses applied — $" + perStore.toLocaleString(undefined, { minimumFractionDigits: 2 }) + "/store ($" + amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + " total)" });
+    setAmexResult(null);
+    loadData();
+    setSaving(false);
+  };
+
   // Computed data per store
   var sd = {};
   STORE_KEYS.forEach(function(k) { sd[k] = compute(records[k]); });
@@ -263,6 +338,10 @@ export default function ProfitabilityTab() {
           <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #00D4FF33", background: "#00D4FF08", color: "#00D4FF", fontSize: 11, cursor: payrollImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             {payrollImporting ? "Processing payroll..." : "\uD83D\uDCCB Import Payroll PDF"}
             <input type="file" accept=".pdf" onChange={handlePayrollImport} disabled={payrollImporting} style={{ display: "none" }} />
+          </label>
+          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "#7B2FFF08", color: "#7B2FFF", fontSize: 11, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {amexImporting ? "Processing Amex..." : "\uD83D\uDCB3 Import Amex PDF"}
+            <input type="file" accept=".pdf" onChange={handleAmexImport} disabled={amexImporting} style={{ display: "none" }} />
           </label>
           <button onClick={copyForward} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#1A1D23", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>
             Copy Last Month's Expenses
@@ -351,6 +430,78 @@ export default function ProfitabilityTab() {
         </div>
       )}
 
+      {/* ═══ AMEX EXPENSE REVIEW ═══ */}
+      {amexResult && (
+        <div style={{ padding: 20, background: "#1A1D23", borderRadius: 12, border: "1px solid #7B2FFF33", marginBottom: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+            <div style={{ color: "#7B2FFF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCB3"} Matt Slade — Non-Parts Expenses</div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button onClick={function() { setAmexResult(null); }}
+                style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #F8717133", background: "transparent", color: "#F87171", fontSize: 10, cursor: "pointer" }}>Cancel</button>
+              <button onClick={applyAmex} disabled={saving}
+                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#7B2FFF", color: "#fff", fontSize: 11, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}>
+                {saving ? "Saving..." : "Apply $" + amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + " to P&L"}
+              </button>
+            </div>
+          </div>
+
+          {/* Summary by category */}
+          <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+            {Object.entries(amexResult.by_category || {}).sort(function(a,b) { return b[1].total - a[1].total; }).map(function(entry) {
+              var cat = entry[0], data = entry[1];
+              var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
+              var c = catColors[cat] || "#8B8F98";
+              return (
+                <div key={cat} style={{ padding: "8px 14px", borderRadius: 8, background: c + "12", border: "1px solid " + c + "33" }}>
+                  <div style={{ fontSize: 10, color: c, textTransform: "uppercase", fontWeight: 700 }}>{cat}</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#F0F1F3" }}>{"$" + data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: 9, color: "#8B8F98" }}>{data.count} charges</div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Transaction table */}
+          <div style={{ maxHeight: 300, overflow: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Date</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Vendor</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Location</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Category</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", color: "#6B7280", fontSize: 10 }}>Amount</th>
+              </tr></thead>
+              <tbody>
+                {(amexResult.non_parts || []).map(function(t, i) {
+                  var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
+                  var c = catColors[t.category] || "#8B8F98";
+                  return (
+                    <tr key={i} style={{ borderBottom: "1px solid #1A1D23" }}>
+                      <td style={{ padding: "4px 8px", color: "#9CA3AF" }}>{t.date}</td>
+                      <td style={{ padding: "4px 8px", color: "#F0F1F3" }}>{t.vendor}</td>
+                      <td style={{ padding: "4px 8px", color: "#9CA3AF" }}>{t.location}</td>
+                      <td style={{ padding: "4px 8px" }}><span style={{ padding: "2px 6px", borderRadius: 4, background: c + "18", color: c, fontSize: 9, fontWeight: 600 }}>{t.category}</span></td>
+                      <td style={{ padding: "4px 8px", textAlign: "right", color: "#F0F1F3", fontWeight: 600 }}>{"$" + (t.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Parts excluded info */}
+          {amexResult.parts_count > 0 && (
+            <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#6B7280", fontSize: 10 }}>
+              {"\u2705"} {amexResult.parts_count} parts charges (${amexResult.parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}) excluded — already in COGS via RepairQ
+            </div>
+          )}
+
+          <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#7B2FFF08", border: "1px solid #7B2FFF22", color: "#9CA3AF", fontSize: 10 }}>
+            Non-parts total (${amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}) will be split evenly across 3 stores as "Area Mgr Expenses" on the P&L
+          </div>
+        </div>
+      )}
+
       {/* Store entry buttons */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         {STORE_KEYS.map(function(k) {
@@ -418,6 +569,27 @@ export default function ProfitabilityTab() {
             <Row label="Rent" values={vals("rent")} indent color="#F87171" />
             <Row label="Payroll" values={vals("payroll")} indent color="#F87171" />
             <Row label="Corporate Overhead" values={vals("corporateOverhead")} indent color="#7B2FFF" />
+            <Row label="Area Mgr Expenses" values={vals("areaMgrExpenses")} indent color="#7B2FFF" />
+            {/* Category breakdown for Area Mgr Expenses */}
+            {(function() {
+              var raw = (records[STORE_KEYS[0]] || {}).area_manager_breakdown;
+              if (!raw) return null;
+              var breakdown;
+              try { breakdown = typeof raw === "string" ? JSON.parse(raw) : raw; } catch(e) { return null; }
+              if (!breakdown || Object.keys(breakdown).length === 0) return null;
+              var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
+              var entries = Object.entries(breakdown).sort(function(a,b) { return b[1] - a[1]; });
+              return (
+                <tr><td colSpan={2 + STORE_KEYS.length} style={{ padding: "2px 12px 8px 28px" }}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {entries.map(function(e) {
+                      var c = catColors[e[0]] || "#8B8F98";
+                      return <span key={e[0]} style={{ fontSize: 9, color: c, fontWeight: 600 }}>{e[0]} ${e[1].toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>;
+                    })}
+                  </div>
+                </td></tr>
+              );
+            })()}
             <Row label="Utilities" values={vals("utilities")} indent color="#F87171" />
             <Row label="Marketing" values={vals("marketing")} indent color="#F87171" />
             <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" />
@@ -625,7 +797,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
         <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Expenses</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
-            { l: "Rent", k: "rent" }, { l: "Payroll", k: "payroll" }, { l: "Corporate OH", k: "corporate_overhead" },
+            { l: "Rent", k: "rent" }, { l: "Payroll", k: "payroll" }, { l: "Corporate OH", k: "corporate_overhead" }, { l: "Area Mgr Exp", k: "area_manager_expenses" },
             { l: "Internet/Security/Dialpad", k: "internet_security" }, { l: "Electric", k: "electric" },
             { l: "Gas/Parking", k: "gas_parking" }, { l: "VOIP", k: "voip" },
             { l: "Marketing Digital", k: "marketing_digital" }, { l: "Marketing Local", k: "marketing_local" },
