@@ -216,16 +216,42 @@ export default function ProfitabilityTab() {
         var tc = await page.getTextContent();
         allText += "\n--- Page " + i + " ---\n" + tc.items.map(function(item) { return item.str; }).join(" ");
       }
-      setMsg({ type: "success", text: "Analyzing Matt's charges..." });
+      setMsg({ type: "success", text: "Analyzing Matt's charges for " + periodLabel + "..." });
       var res = await fetch("/api/dialpad/extract-amex", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: allText }),
+        body: JSON.stringify({ text: allText, period: period }),
       });
       var json = await res.json();
       if (json.success) {
-        setAmexResult(json.data);
-        setMsg({ type: "success", text: "Found " + json.data.non_parts_count + " non-parts charges ($" + json.data.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + ") and " + json.data.parts_count + " parts charges ($" + json.data.parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + " — already in COGS)" });
+        var newData = json.data;
+        // If there's already a result, merge (user importing second statement for same month)
+        if (amexResult) {
+          var merged = Object.assign({}, amexResult);
+          merged.non_parts = (merged.non_parts || []).concat(newData.non_parts || []);
+          merged.parts = (merged.parts || []).concat(newData.parts || []);
+          merged.non_parts_total = Math.round((merged.non_parts_total + newData.non_parts_total) * 100) / 100;
+          merged.parts_total = Math.round((merged.parts_total + newData.parts_total) * 100) / 100;
+          merged.non_parts_count = (merged.non_parts_count || 0) + (newData.non_parts_count || 0);
+          merged.parts_count = (merged.parts_count || 0) + (newData.parts_count || 0);
+          merged.statements_imported = (merged.statements_imported || 1) + 1;
+          // Rebuild by_category
+          var byCat = {};
+          merged.non_parts.forEach(function(t) {
+            var cat = t.category || "other";
+            if (!byCat[cat]) byCat[cat] = { total: 0, count: 0, items: [] };
+            byCat[cat].total += t.amount || 0;
+            byCat[cat].count++;
+            byCat[cat].items.push(t);
+          });
+          merged.by_category = byCat;
+          setAmexResult(merged);
+          setMsg({ type: "success", text: "Statement #" + merged.statements_imported + " merged — " + merged.non_parts_count + " non-parts charges total ($" + merged.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + ")" });
+        } else {
+          newData.statements_imported = 1;
+          setAmexResult(newData);
+          setMsg({ type: "success", text: "Found " + newData.non_parts_count + " non-parts charges ($" + newData.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + ") for " + periodLabel + (newData.excluded_count > 0 ? " — " + newData.excluded_count + " charges from other months excluded" : "") + ". Import another statement to add more, or click Apply." });
+        }
       } else {
         setMsg({ type: "error", text: json.error || "Amex import failed" });
       }
@@ -434,7 +460,7 @@ export default function ProfitabilityTab() {
       {amexResult && (
         <div style={{ padding: 20, background: "#1A1D23", borderRadius: 12, border: "1px solid #7B2FFF33", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ color: "#7B2FFF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCB3"} Matt Slade — Non-Parts Expenses</div>
+            <div style={{ color: "#7B2FFF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCB3"} Matt Slade — Non-Parts Expenses {amexResult.statements_imported > 1 ? "(" + amexResult.statements_imported + " statements merged)" : ""}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={function() { setAmexResult(null); }}
                 style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #F8717133", background: "transparent", color: "#F87171", fontSize: 10, cursor: "pointer" }}>Cancel</button>
@@ -498,6 +524,14 @@ export default function ProfitabilityTab() {
 
           <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#7B2FFF08", border: "1px solid #7B2FFF22", color: "#9CA3AF", fontSize: 10 }}>
             Non-parts total (${amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}) will be split evenly across 3 stores as "Area Mgr Expenses" on the P&L
+          </div>
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+            <label style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "transparent", color: "#7B2FFF", fontSize: 10, fontWeight: 600, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+              {amexImporting ? "Processing..." : "+ Import Another Statement"}
+              <input type="file" accept=".pdf" onChange={handleAmexImport} disabled={amexImporting} style={{ display: "none" }} />
+            </label>
+            <span style={{ fontSize: 9, color: "#6B7280" }}>Need charges from a second billing cycle for this month?</span>
           </div>
         </div>
       )}
