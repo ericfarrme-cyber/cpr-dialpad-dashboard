@@ -6,10 +6,10 @@ function json(data, status) { return NextResponse.json(data, { status: status ||
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
 
 var REVENUE_FIELDS = ["accessory_revenue","accessory_cogs","device_revenue","device_cogs","repair_revenue","repair_cogs","parts_revenue","parts_cogs","services_revenue","services_cogs","promotions_revenue","promotions_cogs"];
-var EXPENSE_FIELDS = ["rent","payroll","corporate_overhead","internet_security","electric","gas_parking","voip","marketing_digital","marketing_local","store_budget","damaged","shrinkage","voided","kbb_charges","tips","lcd_credits","cc_fee_diff"];
+var EXPENSE_FIELDS = ["rent","payroll","corporate_overhead","area_manager_expenses","internet_security","electric","gas_parking","voip","marketing_digital","marketing_local","store_budget","damaged","shrinkage","voided","kbb_charges","tips","lcd_credits","cc_fee_diff"];
 var FEE_FIELDS = ["royalty_rate","cpr_ad_fee","cpr_tech_fee"];
 var LABOR_FIELDS = ["hours_worked","revenue_per_hour_goal","profit_per_hour_goal"];
-var ALL_FIELDS = REVENUE_FIELDS.concat(EXPENSE_FIELDS).concat(FEE_FIELDS).concat(LABOR_FIELDS).concat(["notes"]);
+var ALL_FIELDS = REVENUE_FIELDS.concat(EXPENSE_FIELDS).concat(FEE_FIELDS).concat(LABOR_FIELDS).concat(["notes", "area_manager_breakdown"]);
 
 export async function GET(request) {
   if (!supabase) return json({ success: false, error: "Supabase not configured" });
@@ -63,7 +63,7 @@ export async function POST(request) {
     var record = { period: period, store: store, updated_at: new Date().toISOString() };
     ALL_FIELDS.forEach(function(f) {
       if (body[f] !== undefined) {
-        record[f] = f === "notes" ? body[f] : parseFloat(body[f]) || 0;
+        record[f] = (f === "notes" || f === "area_manager_breakdown") ? body[f] : parseFloat(body[f]) || 0;
       }
     });
 
