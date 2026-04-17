@@ -19,6 +19,7 @@ export async function POST(request) {
   try {
     var body = await request.json();
     var text = body.text;
+    var targetPeriod = body.period; // "2026-03" format — only count charges in this month
 
     if (!text) return json({ success: false, error: "No text provided" });
 
@@ -90,13 +91,32 @@ All amounts should be positive numbers (charges). Return ONLY the JSON.` }
       return json({ success: false, error: "Could not parse AI response. Raw: " + responseText.substring(0, 300) });
     }
 
-    // Post-process: separate parts vs non-parts
+    // Post-process: filter by target month if specified, then separate parts vs non-parts
+    var allTransactions = extracted.transactions || [];
+
+    if (targetPeriod) {
+      var parts2 = targetPeriod.split("-");
+      var targetYear = parseInt(parts2[0]);
+      var targetMonth = parseInt(parts2[1]);
+
+      allTransactions = allTransactions.filter(function(t) {
+        if (!t.date) return false;
+        // Parse MM/DD/YY or MM/DD/YYYY
+        var dp = t.date.split("/");
+        if (dp.length < 3) return false;
+        var m = parseInt(dp[0]);
+        var y = parseInt(dp[2]);
+        if (y < 100) y += 2000;
+        return m === targetMonth && y === targetYear;
+      });
+    }
+
     var parts = [];
     var nonParts = [];
     var partsTotal = 0;
     var nonPartsTotal = 0;
 
-    (extracted.transactions || []).forEach(function(t) {
+    allTransactions.forEach(function(t) {
       // Double-check categorization using our vendor list
       if (t.category === "parts" || isPartsVendor(t.vendor)) {
         t.category = "parts";
@@ -122,11 +142,15 @@ All amounts should be positive numbers (charges). Return ONLY the JSON.` }
       success: true,
       data: {
         statement_period: extracted.statement_period || "",
+        target_period: targetPeriod || "",
         matt_total: extracted.matt_total || 0,
         parts_total: Math.round(partsTotal * 100) / 100,
         non_parts_total: Math.round(nonPartsTotal * 100) / 100,
         parts_count: parts.length,
         non_parts_count: nonParts.length,
+        total_extracted: (extracted.transactions || []).length,
+        filtered_count: allTransactions.length,
+        excluded_count: (extracted.transactions || []).length - allTransactions.length,
         by_category: byCategory,
         non_parts: nonParts,
         parts: parts,
