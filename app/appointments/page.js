@@ -120,6 +120,7 @@ function StoreDashboard() {
   var [msg, setMsg] = useState(null);
   var [matchedCall, setMatchedCall] = useState(null);
   var [repeatInfo, setRepeatInfo] = useState(null);
+  var [expandedAppt, setExpandedAppt] = useState(null);
   var [searchQuery, setSearchQuery] = useState("");
   var [importing, setImporting] = useState(false);
   var [apptView, setApptView] = useState("today");
@@ -1362,25 +1363,84 @@ function StoreDashboard() {
               ) : (
                 filteredAppointments.length > 0 ? filteredAppointments.map(function(a) {
                   var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var pending=!a.did_arrive||a.did_arrive==="";var sc=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var st=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
-                  return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid #1E2028" }}>
-                    <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
-                      <div style={{ flex:1 }}>
-                        <div style={{ display:"flex",alignItems:"center",gap:6,marginBottom:3 }}>
-                          <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{a.customer_name}</span>
-                          {a.customer_phone && <span style={{ color:"#6B6F78",fontSize:10 }}>{fmtPhone(a.customer_phone)}</span>}
-                          <span style={{ padding:"1px 6px",borderRadius:3,fontSize:8,fontWeight:700,background:sc+"18",color:sc }}>{st}</span>
+                  var isExpanded = expandedAppt === a.id;
+                  // Status-based card background
+                  var cardBg = isConverted ? "#4ADE8010" : arrived ? "#FBBF2410" : noShow ? "#F8717110" : "transparent";
+                  var cardBorder = isConverted ? "#4ADE8025" : arrived ? "#FBBF2425" : noShow ? "#F8717125" : "#1E2028";
+                  return <div key={a.id}>
+                    <div onClick={function(){ setExpandedAppt(isExpanded ? null : a.id); }}
+                      style={{ padding:"14px 20px",borderBottom:"1px solid "+cardBorder,background:cardBg,cursor:"pointer",transition:"background 0.2s",borderLeft:"3px solid "+(pending?"transparent":sc) }}>
+                      <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
+                        <div style={{ flex:1 }}>
+                          <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
+                            <span style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{a.customer_name}</span>
+                            {a.customer_phone && <a href={"tel:"+a.customer_phone} onClick={function(e){e.stopPropagation();}} style={{ color:"#00D4FF",fontSize:12,textDecoration:"none" }}>{fmtPhone(a.customer_phone)}</a>}
+                            <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:sc+"22",color:sc }}>{st}</span>
+                          </div>
+                          <div style={{ color:"#C8CAD0",fontSize:13 }}>{a.reason}</div>
+                          <div style={{ color:"#8B8F98",fontSize:11,marginTop:3 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}{a.appt_time?" at "+a.appt_time:""}{a.scheduled_by?" — "+a.scheduled_by:""}</div>
                         </div>
-                        <div style={{ color:"#8B8F98",fontSize:11 }}>{a.reason}</div>
-                        <div style={{ color:"#6B6F78",fontSize:9,marginTop:2 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}{a.appt_time?" at "+a.appt_time:""}{a.scheduled_by?" — "+a.scheduled_by:""}</div>
-                      </div>
-                      <div style={{ display:"flex",gap:3 }}>
-                        {pending && <><button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"4px 8px",borderRadius:3,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:9,cursor:"pointer" }}>Arrived</button><button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"4px 8px",borderRadius:3,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>No-Show</button></>}
-                        <button onClick={function(){startEdit(a);}} style={{ padding:"4px 8px",borderRadius:3,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:9,cursor:"pointer" }}>Edit</button>
-                        <button onClick={function(){deleteAppt(a.id);}} style={{ padding:"4px 8px",borderRadius:3,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>Del</button>
+                        <div style={{ display:"flex",gap:4 }} onClick={function(e){e.stopPropagation();}}>
+                          {pending && <><button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:10,fontWeight:600,cursor:"pointer" }}>Arrived</button><button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,fontWeight:600,cursor:"pointer" }}>No-Show</button></>}
+                          <button onClick={function(){startEdit(a);}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer" }}>Edit</button>
+                          <button onClick={function(){deleteAppt(a.id);}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Del</button>
+                        </div>
                       </div>
                     </div>
+                    {/* Expanded detail card — inline right under the clicked appointment */}
+                    {isExpanded && (
+                      <div style={{ padding:"16px 24px",background:"#12141A",borderBottom:"1px solid #2A2D35",borderLeft:"3px solid "+sc }}>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:12 }}>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Customer</div>
+                            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:600 }}>{a.customer_name}</div>
+                            {a.customer_phone && <a href={"tel:"+a.customer_phone} style={{ color:"#00D4FF",fontSize:12 }}>{fmtPhone(a.customer_phone)}</a>}
+                          </div>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Appointment</div>
+                            <div style={{ color:"#F0F1F3",fontSize:13 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"long",month:"short",day:"numeric",year:"numeric"})}</div>
+                            {a.appt_time && <div style={{ color:"#9CA3AF",fontSize:12 }}>at {a.appt_time}</div>}
+                          </div>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Status</div>
+                            <div style={{ display:"flex",alignItems:"center",gap:6 }}>
+                              <span style={{ width:8,height:8,borderRadius:"50%",background:sc }} />
+                              <span style={{ color:sc,fontSize:14,fontWeight:700 }}>{st}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16 }}>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Reason / Service</div>
+                            <div style={{ color:"#C8CAD0",fontSize:13 }}>{a.reason || "—"}</div>
+                          </div>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Price Quoted</div>
+                            <div style={{ color:a.price_quoted?"#4ADE80":"#6B7280",fontSize:14,fontWeight:600 }}>{a.price_quoted ? "$"+a.price_quoted : "—"}</div>
+                          </div>
+                          <div>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Scheduled By</div>
+                            <div style={{ color:"#C8CAD0",fontSize:13 }}>{a.scheduled_by || "—"}</div>
+                          </div>
+                        </div>
+                        {a.notes && (
+                          <div style={{ marginTop:12 }}>
+                            <div style={{ color:"#6B7280",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Notes</div>
+                            <div style={{ color:"#9CA3AF",fontSize:12 }}>{a.notes}</div>
+                          </div>
+                        )}
+                        {/* Quick actions inside expanded card */}
+                        <div style={{ marginTop:14,display:"flex",gap:8 }}>
+                          {pending && <>
+                            <button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"#4ADE80",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Mark Arrived</button>
+                            <button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"#F87171",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>No-Show</button>
+                          </>}
+                          <button onClick={function(){startEdit(a);}} style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Edit Details</button>
+                        </div>
+                      </div>
+                    )}
                   </div>;
-                }) : <div style={{ padding:30,textAlign:"center",color:"#6B6F78",fontSize:12 }}>{searchQuery?"No results for \""+searchQuery+"\"":apptView==="today"?"No appointments today":"No appointments"}</div>
+                }) : <div style={{ padding:30,textAlign:"center",color:"#6B6F78",fontSize:13 }}>{searchQuery?"No results for \""+searchQuery+"\"":apptView==="today"?"No appointments today":"No appointments"}</div>
               )}
             </div>
           </div>
