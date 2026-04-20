@@ -22,23 +22,37 @@ export async function GET(request) {
     cutoff.setDate(cutoff.getDate() - days);
     var cutoffStr = cutoff.toISOString().split("T")[0];
 
-    // Get all "Arrived" appointments that haven't been verified yet
+    // Get "Arrived" AND "Pending" appointments — pending ones get converted directly if ticket exists
     var query = supabase.from("appointments")
       .select("id, customer_phone, date_of_appt, did_arrive, store")
-      .eq("did_arrive", "Yes")
+      .in("did_arrive", ["Yes", "", null])
       .gte("date_of_appt", cutoffStr);
 
     if (store) query = query.eq("store", store);
 
     var { data: arrivedAppts, error: apptErr } = await query;
-    if (apptErr) return json({ success: false, error: apptErr.message });
-    if (!arrivedAppts || arrivedAppts.length === 0) return json({ success: true, verified: 0, checked: 0 });
 
-    var withPhone = arrivedAppts.filter(function(a) {
+    // Also get appointments with no did_arrive set (Supabase treats null differently from empty string)
+    var query2 = supabase.from("appointments")
+      .select("id, customer_phone, date_of_appt, did_arrive, store")
+      .is("did_arrive", null)
+      .gte("date_of_appt", cutoffStr);
+    if (store) query2 = query2.eq("store", store);
+    var { data: nullAppts } = await query2;
+
+    // Merge and deduplicate
+    var allAppts = (arrivedAppts || []).concat(nullAppts || []);
+    var seenIds = {};
+    allAppts = allAppts.filter(function(a) { if (seenIds[a.id]) return false; seenIds[a.id] = true; return true; });
+
+    if (apptErr) return json({ success: false, error: apptErr.message });
+    if (!allAppts || allAppts.length === 0) return json({ success: true, verified: 0, checked: 0 });
+
+    var withPhone = allAppts.filter(function(a) {
       return normPhone(a.customer_phone).length === 10;
     });
 
-    if (withPhone.length === 0) return json({ success: true, verified: 0, checked: 0, message: "No arrived appointments with phone numbers" });
+    if (withPhone.length === 0) return json({ success: true, verified: 0, checked: 0, message: "No appointments with phone numbers" });
 
     // Get ticket_grades from the relevant date range
     var { data: tickets, error: ticketErr } = await supabase.from("ticket_grades")
@@ -80,7 +94,7 @@ export async function GET(request) {
     var ticketPhoneCount = Object.keys(ticketLookup).length;
     if (ticketPhoneCount === 0) return json({ success: true, verified: 0, checked: withPhone.length, message: "No ticket phone data found" });
 
-    // Match: appointment phone in tickets within ±2 days
+    // Match: appointment phone in tickets within 14 days after appointment
     var toUpdate = [];
     withPhone.forEach(function(appt) {
       var apptPhone = normPhone(appt.customer_phone);
@@ -91,11 +105,11 @@ export async function GET(request) {
       var hasMatch = dates.some(function(td) {
         var ticketDate = new Date(td);
         if (isNaN(ticketDate.getTime())) return false;
-        // Ticket must be ON or AFTER appointment date (customer arrived then ticket created)
-        // Allow up to 2 days after, but NEVER before the appointment
+        // Ticket must be ON or AFTER appointment date, within 14 days
+        // Handles parts orders, multi-day repairs, etc.
         var diffMs = ticketDate - apptDate;
         var diffDays = diffMs / (1000 * 60 * 60 * 24);
-        return diffDays >= -0.5 && diffDays <= 2.5; // small buffer for same-day timezone edge
+        return diffDays >= -0.5 && diffDays <= 14.5;
       });
 
       if (hasMatch) toUpdate.push(appt.id);
@@ -137,7 +151,7 @@ export async function GET(request) {
           var ticketDate = new Date(td);
           if (isNaN(ticketDate.getTime())) return false;
           var diffDays = (ticketDate - apptDate) / (1000 * 60 * 60 * 24);
-          return diffDays >= -0.5 && diffDays <= 2.5;
+          return diffDays >= -0.5 && diffDays <= 14.5;
         });
         if (!stillValid) toRevert.push(appt.id);
       });
@@ -158,7 +172,7 @@ export async function GET(request) {
       checked: withPhone.length,
       ticketPhones: ticketPhoneCount,
       totalTickets: tickets.length,
-      message: (verified > 0 ? verified + " appointments verified as Converted. " : "No new conversions. ") +
+      message: (verified > 0 ? verified + " appointments verified as Converted (including pending). " : "No new conversions. ") +
                (reverted > 0 ? reverted + " false conversions reverted." : ""),
     });
 
