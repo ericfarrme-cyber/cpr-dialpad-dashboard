@@ -198,7 +198,8 @@ export async function GET(request) {
   }
 
   if (action === "stats") {
-    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score");
+    var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score, ticket_type")
+      .or("ticket_type.is.null,ticket_type.neq.Sale"); // Exclude sale tickets from compliance stats
     if (store) query = query.eq("store", store);
     var { data, error } = await query;
     if (error) return jsonResponse({ success: false, error: error.message });
