@@ -318,6 +318,7 @@ export async function POST(request) {
     ticketContext += "Employee Added: " + (ticket.employee_added || "Unknown") + "\n";
     ticketContext += "Employee Repaired: " + (ticket.employee_repaired || "Unknown") + "\n";
     ticketContext += "Device: " + (ticket.device || "Unknown") + "\n";
+    ticketContext += "Device Type: " + (ticket.device_category || "Unknown") + " | Brand: " + (ticket.device_brand || "Unknown") + "\n";
     ticketContext += "Date Created (Intake): " + (ticket.date_created || "Unknown") + "\n";
     ticketContext += "Date Closed: " + (ticket.date_closed || "Unknown") + "\n\n";
     ticketContext += "CUSTOMER CONTACT INFO:\n";
@@ -327,6 +328,18 @@ export async function POST(request) {
     ticketContext += "Email: " + (ticket.customer_email || "(not found)") + "\n\n";
     ticketContext += "INITIAL DIAGNOSTICS:\n" + (ticket.raw_diagnostics || "(none)") + "\n\n";
     ticketContext += "TICKET ITEMS:\n" + (ticket.raw_items || "(none)") + "\n\n";
+    if (ticket.structured_items && ticket.structured_items.length > 0) {
+      ticketContext += "STRUCTURED ITEMS:\n";
+      ticket.structured_items.forEach(function(item, idx) {
+        ticketContext += (idx + 1) + ". " + (item.catalog_item || "Unknown") + " [" + (item.category || "?") + "]";
+        if (item.repaired_by) ticketContext += " — Repaired by: " + item.repaired_by;
+        if (item.added_by) ticketContext += " — Added by: " + item.added_by;
+        if (item.unit_price) ticketContext += " — $" + item.unit_price;
+        if (item.discount) ticketContext += " (discount: $" + item.discount + ")";
+        ticketContext += "\n";
+      });
+      ticketContext += "\n";
+    }
     ticketContext += "TICKET NOTES:\n" + (ticket.raw_notes || "(none)") + "\n\n";
     ticketContext += "TRANSACTIONS/PAYMENTS:\n" + (ticket.raw_transactions || "(none)") + "\n";
 
@@ -362,10 +375,18 @@ export async function POST(request) {
         customer_phone: ticket.customer_phone ? ticket.customer_phone.replace(/\D/g, "").slice(-10) : "",
         customer_phones_all: ticket.customer_phones_all || [],
         device: ticket.device || "",
+        device_category: ticket.device_category || "",
+        device_brand: ticket.device_brand || "",
         date_closed: parseSafeDate(ticket.date_closed),
         gross_sales: parseFloat(ticket.gross_sales || 0),
         gross_profit: parseFloat(ticket.gross_profit || 0),
         gpm_pct: parseFloat(ticket.gpm_pct || 0),
+        discount_amount: parseFloat(ticket.discount_amount || 0),
+        total_cost: parseFloat(ticket.total_cost || 0),
+        total_collected: parseFloat(ticket.total_collected || 0),
+        payment_method: (ticket.payment_method || "").substring(0, 50),
+        turnaround_hours: parseFloat(ticket.turnaround_hours || 0),
+        item_details: ticket.structured_items || [],
         overall_score: grade.overall_score || 0,
         // Section 1: Intake/Diagnostics
         diagnostics_score: grade.diagnostics_score || 0,
