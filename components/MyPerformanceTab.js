@@ -27,9 +27,30 @@ function getNextLevel(score) {
 function fmt(n) { return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function sc(v, g, w) { return v >= g ? "#4ADE80" : v >= w ? "#FBBF24" : "#F87171"; }
 
+// Fuzzy name matching — handles "Alyssa Parent" vs "Parent, Alyssa" vs "Alyssa"
+function matchName(empName, candidateName) {
+  if (!empName || !candidateName) return false;
+  var a = empName.toLowerCase().trim();
+  var b = candidateName.toLowerCase().trim();
+  if (a === b) return true;
+  // Check if one contains the other
+  if (a.includes(b) || b.includes(a)) return true;
+  // Split into parts and check first/last name crossover
+  var aParts = a.replace(",", " ").split(/\s+/).filter(Boolean);
+  var bParts = b.replace(",", " ").split(/\s+/).filter(Boolean);
+  // Check if first name matches
+  if (aParts.length > 0 && bParts.length > 0 && aParts[0] === bParts[0]) return true;
+  // Check "Last, First" vs "First Last"
+  if (aParts.length >= 2 && bParts.length >= 2) {
+    if (aParts[0] === bParts[1] && aParts[1] === bParts[0]) return true;
+  }
+  return false;
+}
+
 export default function MyPerformanceTab({ auth, store }) {
   var [subTab, setSubTab] = useState("dashboard");
   var [loading, setLoading] = useState(true);
+  var [loadErrors, setLoadErrors] = useState({});
   var [empScore, setEmpScore] = useState(null);
   var [salesData, setSalesData] = useState(null);
   var [commConfig, setCommConfig] = useState({ rates: {}, config: {} });
@@ -38,7 +59,13 @@ export default function MyPerformanceTab({ auth, store }) {
   var [weeklyGoal, setWeeklyGoal] = useState(null);
   var [storeScore, setStoreScore] = useState(null);
   var [allEmployees, setAllEmployees] = useState([]);
-  var [callData, setCallData] = useState(null);
+  var [auditData, setAuditData] = useState([]);
+  var [reviewData, setReviewData] = useState(null);
+  var [coachingInsight, setCoachingInsight] = useState(null);
+  var [coachingLoading, setCoachingLoading] = useState(false);
+  var [coachingError, setCoachingError] = useState(null);
+  var [scheduleWeek, setScheduleWeek] = useState("this");
+  var [ticketPeriod, setTicketPeriod] = useState("mtd");
 
   var empName = auth?.userInfo?.name || "";
   var empStore = store || auth?.userInfo?.store || "";
@@ -50,11 +77,12 @@ export default function MyPerformanceTab({ auth, store }) {
 
   var loadData = async function() {
     setLoading(true);
+    setLoadErrors({});
+    var errors = {};
     try {
       var now = new Date();
-      var monthStart = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01";
-      var shiftEnd = now.toISOString().split("T")[0];
-      // Go back 90 days for shifts
+      var shiftEnd = new Date(); shiftEnd.setDate(shiftEnd.getDate() + 14); // include next 2 weeks
+      var shiftEndStr = shiftEnd.toISOString().split("T")[0];
       var shiftStartDate = new Date(); shiftStartDate.setDate(shiftStartDate.getDate() - 90);
       var shiftStart = shiftStartDate.toISOString().split("T")[0];
 
@@ -62,38 +90,39 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/sales?action=performance").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/sales?action=commission_config").then(function(r) { return r.json(); }),
-        fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEnd).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=60").then(function(r) { return r.json(); }),
+        fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEndStr).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=90").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/weekly-goal?store=" + empStore).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/stored").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/audit?employee=" + encodeURIComponent(empName) + "&limit=100&daysBack=30").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
       ]);
 
-      // Scorecard — find this employee
+      // Scorecard — find this employee with fuzzy matching
       if (results[0].status === "fulfilled" && results[0].value) {
         var scData = results[0].value;
         var emps = scData.employeeScores || [];
         setAllEmployees(emps);
-        var me = emps.find(function(e) { return e.name && e.name.toLowerCase() === empName.toLowerCase(); });
+        var me = emps.find(function(e) { return matchName(empName, e.name); });
         if (me) setEmpScore(me);
-        // Store score
         if (scData.scores && scData.scores[empStore]) setStoreScore(scData.scores[empStore]);
-      }
+      } else { errors.scorecard = true; }
 
-      if (results[1].status === "fulfilled") setSalesData(results[1].value);
+      if (results[1].status === "fulfilled") setSalesData(results[1].value); else errors.sales = true;
       if (results[2].status === "fulfilled" && results[2].value.rates) setCommConfig(results[2].value);
 
-      // Shifts — filter to this employee
       if (results[3].status === "fulfilled" && results[3].value.shifts) {
         var myShifts = results[3].value.shifts.filter(function(s) {
-          return s.employee_name && s.employee_name.toLowerCase() === empName.toLowerCase();
+          return matchName(empName, s.employee_name);
         });
         setShifts(myShifts);
-      }
+      } else { errors.shifts = true; }
 
-      if (results[4].status === "fulfilled" && results[4].value.tickets) setTickets(results[4].value.tickets);
+      if (results[4].status === "fulfilled" && results[4].value.tickets) setTickets(results[4].value.tickets); else errors.tickets = true;
       if (results[5].status === "fulfilled" && results[5].value.goal) setWeeklyGoal(results[5].value.goal);
-      if (results[6].status === "fulfilled") setCallData(results[6].value);
-    } catch(e) { console.error("MyPerformanceTab load error:", e); }
+      if (results[6].status === "fulfilled" && results[6].value.audits) setAuditData(results[6].value.audits); else errors.calls = true;
+      if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
+    } catch(e) { console.error("MyPerformanceTab load error:", e); errors.general = true; }
+    setLoadErrors(errors);
     setLoading(false);
   };
 
@@ -106,9 +135,8 @@ export default function MyPerformanceTab({ auth, store }) {
     var config = commConfig.config || {};
     function isEnabled(key) { return config[key] !== false; }
 
-    // Find employee in each sales array
     var findEmp = function(arr) {
-      return (arr || []).find(function(e) { return e.employee && e.employee.toLowerCase() === empName.toLowerCase(); });
+      return (arr || []).find(function(e) { return matchName(empName, e.employee); });
     };
 
     var phone = findEmp(salesData.phones);
@@ -133,6 +161,7 @@ export default function MyPerformanceTab({ auth, store }) {
     var commClean = isEnabled("cleaning_rate") ? cleanTotal * (rates.cleaning_rate || 0.10) : 0;
     var commCS = isEnabled("cleaning_sales_rate") ? csDiscounted * (rates.cleaning_sales_rate || 0.10) : 0;
     var total = commPhone + commOther + commAccy + commClean + commCS;
+    var hasData = phoneTickets > 0 || otherCount > 0 || accyCount > 0 || cleanCount > 0 || csDiscounted > 0;
 
     return {
       phoneTickets: phoneTickets, phoneTotal: phoneTotal, commPhone: commPhone,
@@ -141,7 +170,7 @@ export default function MyPerformanceTab({ auth, store }) {
       cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean,
       csDiscounted: csDiscounted, commCS: commCS,
       total: total, totalRevenue: phoneTotal + otherTotal + accyGP + cleanTotal + csDiscounted,
-      rates: rates,
+      rates: rates, hasData: hasData,
     };
   }, [salesData, commConfig, empName]);
 
@@ -159,20 +188,32 @@ export default function MyPerformanceTab({ auth, store }) {
     return Math.round(monthShifts.reduce(function(s, sh) { return s + (parseFloat(sh.hours) || 0); }, 0) * 10) / 10;
   }, [monthShifts]);
 
-  // This week's shifts
-  var weekShifts = useMemo(function() {
+  // This week's shifts (Monday start)
+  function getWeekBounds(offset) {
     var now = new Date();
+    var dayOfWeek = now.getDay(); // 0=Sun
+    var mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek; // adjust to Monday
     var weekStart = new Date(now);
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    var weekStartStr = weekStart.toISOString().split("T")[0];
+    weekStart.setDate(weekStart.getDate() + mondayOffset + (offset * 7));
     var weekEnd = new Date(weekStart);
     weekEnd.setDate(weekEnd.getDate() + 7);
-    var weekEndStr = weekEnd.toISOString().split("T")[0];
+    return {
+      start: weekStart.toISOString().split("T")[0],
+      end: weekEnd.toISOString().split("T")[0],
+      label: weekStart.toLocaleDateString([], { month: "short", day: "numeric" }) + " - " + new Date(weekEnd.getTime() - 86400000).toLocaleDateString([], { month: "short", day: "numeric" }),
+    };
+  }
+
+  var thisWeekBounds = useMemo(function() { return getWeekBounds(0); }, []);
+  var nextWeekBounds = useMemo(function() { return getWeekBounds(1); }, []);
+  var activeWeekBounds = scheduleWeek === "next" ? nextWeekBounds : thisWeekBounds;
+
+  var weekShifts = useMemo(function() {
     return shifts.filter(function(s) {
       var d = s.shift_date || s.date || "";
-      return d >= weekStartStr && d < weekEndStr;
+      return d >= activeWeekBounds.start && d < activeWeekBounds.end;
     }).sort(function(a, b) { return (a.shift_date || a.date || "").localeCompare(b.shift_date || b.date || ""); });
-  }, [shifts]);
+  }, [shifts, activeWeekBounds]);
 
   var weekHours = useMemo(function() {
     return Math.round(weekShifts.reduce(function(s, sh) { return s + (parseFloat(sh.hours) || 0); }, 0) * 10) / 10;
@@ -182,9 +223,115 @@ export default function MyPerformanceTab({ auth, store }) {
   var myRank = useMemo(function() {
     if (!empScore || !allEmployees.length) return null;
     var sorted = allEmployees.filter(function(e) { return e.hasData; }).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); });
-    var idx = sorted.findIndex(function(e) { return e.name && e.name.toLowerCase() === empName.toLowerCase(); });
+    var idx = sorted.findIndex(function(e) { return matchName(empName, e.name); });
     return idx >= 0 ? { rank: idx + 1, total: sorted.length } : null;
   }, [empScore, allEmployees, empName]);
+
+  // Call audit stats
+  var callStats = useMemo(function() {
+    if (!auditData || auditData.length === 0) return null;
+    var total = auditData.length;
+    var totalScore = 0;
+    var apptOffered = 0;
+    var warrantyMentioned = 0;
+    var pricingGiven = 0;
+    var turnaroundGiven = 0;
+    var categories = {};
+
+    auditData.forEach(function(a) {
+      totalScore += a.overall_score || 0;
+      if (a.appointment_offered) apptOffered++;
+      if (a.warranty_mentioned) warrantyMentioned++;
+      if (a.pricing_given || (a.criteria && a.criteria.pricing)) pricingGiven++;
+      if (a.turnaround_given || (a.criteria && a.criteria.turnaround)) turnaroundGiven++;
+      var cat = a.call_type || a.category || "unknown";
+      if (!categories[cat]) categories[cat] = 0;
+      categories[cat]++;
+    });
+
+    return {
+      total: total,
+      avgScore: Math.round(totalScore / total),
+      apptOfferedRate: Math.round(apptOffered / total * 100),
+      warrantyRate: Math.round(warrantyMentioned / total * 100),
+      pricingRate: Math.round(pricingGiven / total * 100),
+      turnaroundRate: Math.round(turnaroundGiven / total * 100),
+      categories: categories,
+      recent: auditData.slice(0, 10),
+    };
+  }, [auditData]);
+
+  // Review bonus calculation
+  var reviewBonus = useMemo(function() {
+    if (!reviewData || !reviewData.current) return null;
+    var data = reviewData.current;
+    var totalReviews = data.total_reviews || 0;
+    var photoReviews = data.photo_reviews || 0;
+    var employeeCount = data.employee_count || 1;
+    var minimum = 10;
+
+    // $5/employee per review above 10, $5/employee per photo review
+    var aboveMin = Math.max(0, totalReviews - minimum);
+    var reviewPayout = aboveMin * 5 * employeeCount;
+    var photoPayout = photoReviews * 5 * employeeCount;
+    var perEmployee = employeeCount > 0 ? Math.round((reviewPayout + photoPayout) / employeeCount * 100) / 100 : 0;
+
+    return {
+      totalReviews: totalReviews,
+      photoReviews: photoReviews,
+      aboveMin: aboveMin,
+      minimum: minimum,
+      reviewPayout: reviewPayout,
+      photoPayout: photoPayout,
+      totalPayout: reviewPayout + photoPayout,
+      perEmployee: perEmployee,
+      employeeCount: employeeCount,
+      history: reviewData.history || [],
+    };
+  }, [reviewData]);
+
+  // AI Coaching generator
+  var generateCoaching = async function() {
+    if (!empScore) return;
+    setCoachingLoading(true);
+    try {
+      var context = "Employee: " + empName + " at CPR " + empStore + "\n";
+      context += "Overall Score: " + (empScore.overall || 0) + "/100\n";
+      context += "Repairs: " + (empScore.repairs?.total_repairs || 0) + " (score: " + (empScore.repairs?.score || 0) + ")\n";
+      context += "Phone Audit: " + (empScore.audit?.avg_pct || 0) + "% avg (score: " + (empScore.audit?.score || 0) + ")\n";
+      context += "Compliance: " + (empScore.compliance?.score || 0) + " (" + (empScore.compliance?.total_tickets || 0) + " tickets graded)\n";
+      context += "Hours This Month: " + totalHoursMonth + "\n";
+      if (commission) context += "Commission: $" + commission.total.toFixed(2) + " (" + commission.phoneTickets + " phone repairs, " + commission.accyCount + " accessories)\n";
+      if (callStats) context += "Call Audit: " + callStats.avgScore + "/100 avg, " + callStats.total + " calls audited, appt offered " + callStats.apptOfferedRate + "%\n";
+      if (tickets.length > 0) {
+        var lowTickets = tickets.filter(function(t) { return t.overall_score < 50; }).slice(0, 3);
+        if (lowTickets.length > 0) {
+          context += "Low-scoring tickets: " + lowTickets.map(function(t) { return "#" + t.ticket_number + " (" + t.overall_score + " - " + (t.device || "unknown device") + ")"; }).join(", ") + "\n";
+        }
+      }
+      context += "Level: " + level.name + ", " + (nextLevel ? (nextLevel.min - overallScore) + " points to " + nextLevel.name : "MAX LEVEL") + "\n";
+      if (myRank) context += "Ranked #" + myRank.rank + " of " + myRank.total + " employees\n";
+
+      var res = await fetch("/api/dialpad/ai-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: [{ role: "user", content: "Generate a personalized weekly coaching plan for this CPR Cell Phone Repair employee. Be specific with actionable items based on their actual data. Focus on the 2-3 highest-impact improvements. Use an encouraging but direct tone. Include specific numbers from their data. Format with clear sections: WINS THIS PERIOD, FOCUS AREAS, ACTION ITEMS (3 specific things to do this week), and GOAL (one measurable target for next week). Keep it under 300 words.\n\nEmployee Data:\n" + context }],
+        }),
+      });
+      var json = await res.json();
+      if (json.reply) {
+        setCoachingInsight(json.reply);
+        setCoachingError(null);
+      } else {
+        setCoachingError("Could not generate coaching plan. Please try again.");
+      }
+    } catch(e) {
+      console.error("Coaching generation error:", e);
+      setCoachingError("Failed to connect to AI coach: " + e.message);
+    }
+    setCoachingLoading(false);
+  };
 
   // ═══ STYLES ═══
   var card = { background: "var(--bg-card)", borderRadius: 14, padding: 20, border: "1px solid var(--border)" };
@@ -198,7 +345,9 @@ export default function MyPerformanceTab({ auth, store }) {
     { id: "scorecard", label: "Scorecard", icon: "\uD83D\uDCCA" },
     { id: "schedule", label: "Schedule", icon: "\uD83D\uDCC5" },
     { id: "tickets", label: "My Tickets", icon: "\uD83C\uDFAB" },
-    { id: "coaching", label: "Coaching", icon: "\uD83C\uDFAF" },
+    { id: "calls", label: "My Calls", icon: "\uD83D\uDCDE" },
+    { id: "reviews", label: "Reviews", icon: "\u2B50" },
+    { id: "coaching", label: "Coaching", icon: "\uD83D\uDE80" },
   ];
 
   if (loading) {
@@ -212,14 +361,18 @@ export default function MyPerformanceTab({ auth, store }) {
   return (
     <div>
       {/* Sub-tab nav */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         {tabs.map(function(t) {
           var active = subTab === t.id;
+          var hasError = loadErrors[t.id === "paycheck" ? "sales" : t.id === "scorecard" ? "scorecard" : t.id];
           return <button key={t.id} onClick={function() { setSubTab(t.id); }}
-            style={{ padding: "8px 14px", borderRadius: 8, border: active ? "1px solid #7B2FFF" : "1px solid var(--border)", background: active ? "#7B2FFF18" : "transparent", color: active ? "#7B2FFF" : "var(--text-secondary)", fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            style={{ padding: "8px 14px", borderRadius: 8, border: active ? "1px solid #7B2FFF" : hasError ? "1px solid #F8717133" : "1px solid var(--border)", background: active ? "#7B2FFF18" : "transparent", color: active ? "#7B2FFF" : "var(--text-secondary)", fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
             {t.icon} {t.label}
           </button>;
         })}
+        <button onClick={loadData} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+          {"\u21BB"} Refresh
+        </button>
       </div>
 
       {/* ═══════════════════════════════════════════════ */}
@@ -344,7 +497,7 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
 
             {/* Commission breakdown */}
-            {commission && (
+            {commission && commission.hasData && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 12, textTransform: "uppercase" }}>Breakdown</div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -382,8 +535,10 @@ export default function MyPerformanceTab({ auth, store }) {
               </div>
             )}
 
-            {!commission && (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Sales data not yet imported for this period.</div>
+            {(!commission || !commission.hasData) && (
+              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                {loadErrors.sales ? "Failed to load sales data. Tap Refresh to retry." : "Sales data hasn't been imported for this period yet. Your commission will appear here once data is uploaded."}
+              </div>
             )}
           </div>
         </div>
@@ -437,7 +592,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 );
               })}
 
-              {/* Peer comparison */}
+              {/* Peer comparison — same store shown by name, other stores anonymized */}
               <div style={{ ...card, marginBottom: 16 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Peer Comparison</div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -451,15 +606,17 @@ export default function MyPerformanceTab({ auth, store }) {
                   </tr></thead>
                   <tbody>
                     {allEmployees.filter(function(e) { return e.hasData; }).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); }).map(function(e, i) {
-                      var isMe = e.name && e.name.toLowerCase() === empName.toLowerCase();
+                      var isMe = matchName(empName, e.name);
+                      var sameStore = e.store === empStore;
+                      var displayName = isMe ? e.name + " (you)" : sameStore ? e.name : "Employee at " + (e.store ? "CPR " + e.store.charAt(0).toUpperCase() + e.store.slice(1) : "other");
                       return (
-                        <tr key={e.name} style={{ borderBottom: "1px solid var(--border)", background: isMe ? "#7B2FFF12" : "transparent" }}>
+                        <tr key={e.name || i} style={{ borderBottom: "1px solid var(--border)", background: isMe ? "#7B2FFF12" : "transparent" }}>
                           <td style={{ padding: "8px 10px", color: "var(--text-muted)", fontSize: 12 }}>{i + 1}</td>
-                          <td style={{ padding: "8px 10px", color: isMe ? "#7B2FFF" : "var(--text-primary)", fontSize: 13, fontWeight: isMe ? 700 : 500 }}>{isMe ? e.name + " (you)" : e.name}</td>
+                          <td style={{ padding: "8px 10px", color: isMe ? "#7B2FFF" : sameStore ? "var(--text-primary)" : "var(--text-muted)", fontSize: 13, fontWeight: isMe ? 700 : 500, fontStyle: sameStore ? "normal" : "italic" }}>{displayName}</td>
                           <td style={{ padding: "8px 10px", textAlign: "center", color: sc(e.overall || 0, 70, 50), fontSize: 14, fontWeight: 700 }}>{e.overall || 0}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{e.repairs?.total_repairs || 0}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{e.audit?.avg_pct || e.audit?.score || 0}</td>
-                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{e.compliance?.score || 0}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{sameStore || isMe ? e.repairs?.total_repairs || 0 : "—"}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{sameStore || isMe ? e.audit?.avg_pct || e.audit?.score || 0 : "—"}</td>
+                          <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{sameStore || isMe ? e.compliance?.score || 0 : "—"}</td>
                         </tr>
                       );
                     })}
@@ -495,9 +652,21 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
           </div>
 
-          {/* This week's shifts */}
+          {/* Week schedule with toggle */}
           <div style={{ ...card, marginBottom: 20 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>This Week's Schedule</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Schedule — {activeWeekBounds.label}</div>
+              <div style={{ display: "flex", gap: 2, background: "var(--bg-card-inner)", borderRadius: 8, padding: 2 }}>
+                <button onClick={function(){setScheduleWeek("this");}} style={{
+                  padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                  background: scheduleWeek === "this" ? "#7B2FFF" : "transparent", color: scheduleWeek === "this" ? "#fff" : "var(--text-muted)",
+                }}>This Week</button>
+                <button onClick={function(){setScheduleWeek("next");}} style={{
+                  padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
+                  background: scheduleWeek === "next" ? "#FF2D95" : "transparent", color: scheduleWeek === "next" ? "#fff" : "var(--text-muted)",
+                }}>Next Week</button>
+              </div>
+            </div>
             {weekShifts.length > 0 ? (
               <div>
                 {weekShifts.map(function(s, i) {
@@ -515,7 +684,9 @@ export default function MyPerformanceTab({ auth, store }) {
                 })}
               </div>
             ) : (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No shifts scheduled this week.</div>
+              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                {loadErrors.shifts ? "Failed to load schedule. Tap Refresh to retry." : "No shifts scheduled for " + (scheduleWeek === "next" ? "next week" : "this week") + "."}
+              </div>
             )}
           </div>
         </div>
@@ -526,43 +697,67 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* ═══════════════════════════════════════════════ */}
       {subTab === "tickets" && (
         <div>
+          {/* Period toggle */}
+          <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <div style={{ display: "flex", gap: 2, background: "var(--bg-card)", borderRadius: 8, padding: 2 }}>
+              {[
+                { id: "mtd", label: "This Month" },
+                { id: "30", label: "30 Days" },
+                { id: "60", label: "60 Days" },
+                { id: "90", label: "All" },
+              ].map(function(p) {
+                return <button key={p.id} onClick={function(){setTicketPeriod(p.id);}} style={{
+                  padding: "5px 10px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700,
+                  background: ticketPeriod === p.id ? "#7B2FFF" : "transparent", color: ticketPeriod === p.id ? "#fff" : "var(--text-muted)",
+                }}>{p.label}</button>;
+              })}
+            </div>
+          </div>
+
+          {(function() {
+            var now = new Date();
+            var filteredTickets = tickets;
+            if (ticketPeriod === "mtd") {
+              var mtdStr = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
+              filteredTickets = tickets.filter(function(t) { return t.date_closed && t.date_closed.substring(0, 7) === mtdStr; });
+            } else if (ticketPeriod !== "90") {
+              var cutoff = new Date(); cutoff.setDate(cutoff.getDate() - parseInt(ticketPeriod));
+              var cutoffStr = cutoff.toISOString();
+              filteredTickets = tickets.filter(function(t) { return t.date_closed && t.date_closed >= cutoffStr; });
+            }
+
+            var avgScore = filteredTickets.length > 0 ? Math.round(filteredTickets.reduce(function(s, t) { return s + (t.overall_score || 0); }, 0) / filteredTickets.length) : 0;
+            var withTA = filteredTickets.filter(function(t) { return t.turnaround_hours > 0; });
+            var avgTA = withTA.length > 0 ? Math.round(withTA.reduce(function(s, t) { return s + t.turnaround_hours; }, 0) / withTA.length * 10) / 10 : 0;
+            var withGPM = filteredTickets.filter(function(t) { return t.gpm_pct > 0; });
+            var avgGPM = withGPM.length > 0 ? Math.round(withGPM.reduce(function(s, t) { return s + t.gpm_pct; }, 0) / withGPM.length) : 0;
+
+            return (<>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
             <div style={card}>
               <div style={metricLabel}>Tickets Graded</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "var(--text-primary)" }}>{tickets.length}</div>
+              <div style={{ ...metricBig, fontSize: 28, color: "var(--text-primary)" }}>{filteredTickets.length}</div>
             </div>
             <div style={card}>
               <div style={metricLabel}>Avg Score</div>
-              <div style={{ ...metricBig, fontSize: 28, color: sc(tickets.length > 0 ? Math.round(tickets.reduce(function(s, t) { return s + (t.overall_score || 0); }, 0) / tickets.length) : 0, 70, 50) }}>
-                {tickets.length > 0 ? Math.round(tickets.reduce(function(s, t) { return s + (t.overall_score || 0); }, 0) / tickets.length) : 0}
-              </div>
+              <div style={{ ...metricBig, fontSize: 28, color: sc(avgScore, 70, 50) }}>{avgScore}</div>
             </div>
             <div style={card}>
               <div style={metricLabel}>Avg Turnaround</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "#00D4FF" }}>
-                {(function() {
-                  var withTA = tickets.filter(function(t) { return t.turnaround_hours > 0; });
-                  return withTA.length > 0 ? (Math.round(withTA.reduce(function(s, t) { return s + t.turnaround_hours; }, 0) / withTA.length * 10) / 10) + "h" : "—";
-                })()}
-              </div>
+              <div style={{ ...metricBig, fontSize: 28, color: "#00D4FF" }}>{avgTA > 0 ? avgTA + "h" : "\u2014"}</div>
             </div>
             <div style={card}>
               <div style={metricLabel}>Avg GPM</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "#4ADE80" }}>
-                {(function() {
-                  var withGPM = tickets.filter(function(t) { return t.gpm_pct > 0; });
-                  return withGPM.length > 0 ? Math.round(withGPM.reduce(function(s, t) { return s + t.gpm_pct; }, 0) / withGPM.length) + "%" : "—";
-                })()}
-              </div>
+              <div style={{ ...metricBig, fontSize: 28, color: "#4ADE80" }}>{avgGPM > 0 ? avgGPM + "%" : "\u2014"}</div>
             </div>
           </div>
 
           {/* Ticket list */}
           <div style={card}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Recent Tickets</div>
-            {tickets.length > 0 ? (
+            {filteredTickets.length > 0 ? (
               <div style={{ maxHeight: 500, overflow: "auto" }}>
-                {tickets.slice(0, 50).map(function(t) {
+                {filteredTickets.slice(0, 50).map(function(t) {
                   var scoreColor = sc(t.overall_score || 0, 70, 50);
                   return (
                     <div key={t.ticket_number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
@@ -581,58 +776,340 @@ export default function MyPerformanceTab({ auth, store }) {
                 })}
               </div>
             ) : (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>No ticket data available yet.</div>
+              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
+                {loadErrors.tickets ? "Failed to load tickets. Tap Refresh to retry." : "No tickets found for this period."}
+              </div>
             )}
           </div>
+            </>);
+          })()}
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════ */}
-      {/* ═══ COACHING ═══ */}
+      {/* ═══ MY CALLS ═══ */}
+      {/* ═══════════════════════════════════════════════ */}
+      {subTab === "calls" && (
+        <div>
+          {callStats ? (
+            <div>
+              {/* Call summary cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
+                <div style={card}>
+                  <div style={metricLabel}>Calls Audited</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: "var(--text-primary)" }}>{callStats.total}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Last 30 days</div>
+                </div>
+                <div style={card}>
+                  <div style={metricLabel}>Avg Audit Score</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.avgScore, 80, 60) }}>{callStats.avgScore}</div>
+                </div>
+                <div style={card}>
+                  <div style={metricLabel}>Appt Offered</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.apptOfferedRate, 80, 50) }}>{callStats.apptOfferedRate}%</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>of opportunity calls</div>
+                </div>
+                <div style={card}>
+                  <div style={metricLabel}>Warranty Mentioned</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.warrantyRate, 80, 50) }}>{callStats.warrantyRate}%</div>
+                </div>
+              </div>
+
+              {/* Call criteria breakdown */}
+              <div style={{ ...card, marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Call Quality Breakdown</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {[
+                    { label: "Pricing Given", rate: callStats.pricingRate, target: 90, tip: "Quote a price range on every call" },
+                    { label: "Turnaround Given", rate: callStats.turnaroundRate, target: 90, tip: "Tell them how long the repair takes" },
+                    { label: "Appointment Offered", rate: callStats.apptOfferedRate, target: 80, tip: "Ask to book an appointment" },
+                    { label: "Warranty Mentioned", rate: callStats.warrantyRate, target: 70, tip: "Mention your repair warranty" },
+                  ].map(function(item) {
+                    var color = sc(item.rate, item.target - 10, item.target - 30);
+                    return (
+                      <div key={item.label} style={cardInner}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                          <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{item.label}</span>
+                          <span style={{ color: color, fontSize: 18, fontWeight: 800 }}>{item.rate}%</span>
+                        </div>
+                        <div style={{ background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 6 }}>
+                          <div style={{ width: item.rate + "%", height: "100%", borderRadius: 4, background: color }} />
+                        </div>
+                        {item.rate < item.target && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.tip}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Recent audits */}
+              <div style={card}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Recent Call Audits</div>
+                {callStats.recent.map(function(audit, i) {
+                  var asc = sc(audit.overall_score || 0, 80, 60);
+                  return (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: "var(--text-primary)", fontSize: 13 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
+                          {audit.date ? new Date(audit.date).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
+                          {audit.call_type ? " \u00B7 " + audit.call_type : ""}
+                          {audit.appointment_offered ? " \u00B7 Appt offered" : ""}
+                        </div>
+                      </div>
+                      <div style={{ padding: "4px 10px", borderRadius: 6, background: asc + "18", color: asc, fontSize: 14, fontWeight: 800 }}>{audit.overall_score || 0}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...card, padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>{"\uD83D\uDCDE"}</div>
+              <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>No Call Audits Yet</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
+                {loadErrors.calls ? "Failed to load call data. Tap Refresh to retry." : "Your call audits will appear here once calls are reviewed. Keep answering the phone with a great greeting!"}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════ */}
+      {/* ═══ MY REVIEWS ═══ */}
+      {/* ═══════════════════════════════════════════════ */}
+      {subTab === "reviews" && (
+        <div>
+          {reviewBonus ? (
+            <div>
+              {/* Review bonus summary */}
+              <div style={{ ...card, marginBottom: 20, background: "linear-gradient(135deg, var(--bg-card) 0%, #FBBF2408 100%)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Per Employee Bonus This Month</div>
+                    <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{fmt(reviewBonus.perEmployee)}</div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Store Total Payout</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "#4ADE80" }}>{fmt(reviewBonus.totalPayout)}</div>
+                  </div>
+                </div>
+
+                {/* Progress to minimum */}
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
+                    <span>Reviews: {reviewBonus.totalReviews}</span>
+                    <span>Minimum: {reviewBonus.minimum}</span>
+                  </div>
+                  <div style={{ background: "var(--bg-card-inner)", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                    <div style={{ width: Math.min(100, reviewBonus.totalReviews / reviewBonus.minimum * 100) + "%", height: "100%", borderRadius: 4, background: reviewBonus.totalReviews >= reviewBonus.minimum ? "#4ADE80" : "#FBBF24" }} />
+                  </div>
+                  {reviewBonus.totalReviews < reviewBonus.minimum && (
+                    <div style={{ fontSize: 11, color: "#FBBF24", marginTop: 4 }}>{reviewBonus.minimum - reviewBonus.totalReviews} more reviews needed to unlock bonuses</div>
+                  )}
+                </div>
+
+                {/* Breakdown */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                  <div style={cardInner}>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Reviews Above Min</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.aboveMin > 0 ? "#4ADE80" : "var(--text-muted)" }}>{reviewBonus.aboveMin}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.reviewPayout)}</div>
+                  </div>
+                  <div style={cardInner}>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Photo Reviews</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.photoReviews > 0 ? "#FF2D95" : "var(--text-muted)" }}>{reviewBonus.photoReviews}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.photoPayout)}</div>
+                  </div>
+                  <div style={cardInner}>
+                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Team Size</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)" }}>{reviewBonus.employeeCount}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>employees sharing bonus</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* How to earn more */}
+              <div style={{ ...card, marginBottom: 20 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>How to Earn More Review Bonuses</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {[
+                    { icon: "\u2B50", title: "Ask Every Customer", tip: "After completing a repair, ask: 'Would you mind leaving us a quick Google review? It really helps us out.'" },
+                    { icon: "\uD83D\uDCF8", title: "Request Photos", tip: "Photo reviews are worth $5 each regardless of minimum. Ask: 'If you could include a photo, that would be amazing!'" },
+                    { icon: "\uD83D\uDCF1", title: "Make It Easy", tip: "Have a QR code at the counter or text them the direct review link right after the repair." },
+                    { icon: "\uD83D\uDCAC", title: "Timing Matters", tip: "Ask for the review while the customer is still happy — right when they see their fixed device working perfectly." },
+                  ].map(function(item) {
+                    return (
+                      <div key={item.title} style={cardInner}>
+                        <div style={{ fontSize: 20, marginBottom: 6 }}>{item.icon}</div>
+                        <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700, marginBottom: 4 }}>{item.title}</div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>{item.tip}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Review history trend */}
+              {reviewBonus.history && reviewBonus.history.length > 1 && (
+                <div style={card}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Monthly Review History</div>
+                  {reviewBonus.history.slice(0, 6).map(function(h) {
+                    return (
+                      <div key={h.period} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ color: "var(--text-primary)", fontSize: 13 }}>{h.period}</span>
+                        <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
+                          <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{h.total_reviews || 0} reviews</span>
+                          <span style={{ color: "#FF2D95", fontSize: 12 }}>{h.photo_reviews || 0} photos</span>
+                          <span style={{ color: "#FBBF24", fontSize: 13, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                            {(function() {
+                              var above = Math.max(0, (h.total_reviews || 0) - 10);
+                              var bonus = above * 5 + (h.photo_reviews || 0) * 5;
+                              return fmt(bonus / Math.max(h.employee_count || 1, 1));
+                            })()}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ ...card, padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>{"\u2B50"}</div>
+              <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Review Data Not Available</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Google review tracking hasn't been set up for your store yet.</div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════ */}
+      {/* ═══ COACHING (AI-POWERED) ═══ */}
       {/* ═══════════════════════════════════════════════ */}
       {subTab === "coaching" && (
         <div>
           <div style={card}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-              <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{"\uD83C\uDFAF"}</div>
-              <div>
-                <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>Your Growth Path</div>
-                <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Personalized coaching based on your performance data</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{"\uD83D\uDE80"}</div>
+                <div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>AI Performance Coach</div>
+                  <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Personalized insights based on your actual performance data</div>
+                </div>
               </div>
+              <button onClick={generateCoaching} disabled={coachingLoading || !empScore}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: coachingLoading ? "var(--bg-card-inner)" : "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: coachingLoading ? "wait" : "pointer" }}>
+                {coachingLoading ? "Analyzing..." : coachingInsight ? "Refresh Coaching" : "Generate My Plan"}
+              </button>
             </div>
 
+            {/* Quick data-driven insights (always visible) */}
             {empScore && (
-              <div>
-                {/* Identify weakest area */}
-                {(function() {
-                  var areas = [
-                    { name: "Repairs", score: empScore.repairs?.score || 0, tip: "Focus on upselling accessories with every repair. Each accessory adds to your GP and commission. Target: offer a screen protector or case with every screen repair." },
-                    { name: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, tip: "When answering calls, follow the script: greet, identify the device & issue, quote a price, give turnaround time, and offer to book an appointment. Every missed element costs points." },
-                    { name: "Compliance", score: empScore.compliance?.score || 0, tip: "Before closing any ticket, check: (1) Is the issue + price + turnaround documented in diagnostics? (2) Did you add repair notes describing what was done? (3) Was the customer notified about completion?" },
-                  ];
-                  var weakest = areas.sort(function(a, b) { return a.score - b.score; })[0];
-                  var strongest = areas.sort(function(a, b) { return b.score - a.score; })[0];
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 12, textTransform: "uppercase" }}>Your Data At a Glance</div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+                  {(function() {
+                    var areas = [
+                      { name: "Repairs", score: empScore.repairs?.score || 0, color: "#00D4FF" },
+                      { name: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, color: "#7B2FFF" },
+                      { name: "Compliance", score: empScore.compliance?.score || 0, color: "#FF2D95" },
+                    ].sort(function(a, b) { return a.score - b.score; });
 
-                  return (
-                    <div>
-                      <div style={{ ...cardInner, marginBottom: 12, borderLeft: "3px solid #F87171" }}>
-                        <div style={{ fontSize: 10, color: "#F87171", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Focus Area: {weakest.name} ({weakest.score}/100)</div>
-                        <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.6 }}>{weakest.tip}</div>
-                      </div>
-                      <div style={{ ...cardInner, borderLeft: "3px solid #4ADE80" }}>
-                        <div style={{ fontSize: 10, color: "#4ADE80", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Your Strength: {strongest.name} ({strongest.score}/100)</div>
-                        <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.6 }}>Keep it up! You're performing well in {strongest.name}. Share your approach with teammates to help the whole store improve.</div>
-                      </div>
+                    return areas.map(function(area) {
+                      var isWeakest = area === areas[0];
+                      var isStrongest = area === areas[areas.length - 1];
+                      return (
+                        <div key={area.name} style={{ ...cardInner, borderLeft: "3px solid " + (isWeakest ? "#F87171" : isStrongest ? "#4ADE80" : area.color) }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{area.name}</span>
+                            <span style={{ fontSize: 16, fontWeight: 800, color: sc(area.score, 70, 50) }}>{Math.round(area.score)}</span>
+                          </div>
+                          {isWeakest && <div style={{ fontSize: 9, color: "#F87171", fontWeight: 600 }}>Biggest opportunity</div>}
+                          {isStrongest && <div style={{ fontSize: 9, color: "#4ADE80", fontWeight: 600 }}>Your strength</div>}
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+
+                {/* Level progress */}
+                {nextLevel && (
+                  <div style={{ ...cardInner, marginTop: 10 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{level.icon} {level.name} → {nextLevel.icon} {nextLevel.name}</span>
+                      <span style={{ color: nextLevel.color, fontSize: 13, fontWeight: 800 }}>{nextLevel.min - overallScore} pts needed</span>
                     </div>
-                  );
-                })()}
+                    <div style={{ background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden", marginTop: 6 }}>
+                      <div style={{ width: Math.min(100, (overallScore - level.min) / (nextLevel.min - level.min) * 100) + "%", height: "100%", borderRadius: 4, background: "linear-gradient(90deg, " + level.color + ", " + nextLevel.color + ")" }} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
-            {!empScore && (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Performance data needed to generate coaching recommendations.</div>
+            {/* AI-generated coaching plan */}
+            {coachingInsight && (
+              <div style={{ ...cardInner, borderLeft: "3px solid #7B2FFF" }}>
+                <div style={{ fontSize: 10, color: "#7B2FFF", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Your Personalized Coaching Plan</div>
+                <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{coachingInsight}</div>
+              </div>
+            )}
+
+            {!coachingInsight && !coachingLoading && (
+              <div style={{ ...cardInner, textAlign: "center", padding: 30 }}>
+                <div style={{ fontSize: 30, marginBottom: 10 }}>{"\uD83D\uDE80"}</div>
+                <div style={{ color: "var(--text-primary)", fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Ready for Your Weekly Game Plan?</div>
+                <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 16 }}>Our AI coach analyzes your repairs, calls, tickets, and scores to create a personalized improvement plan just for you.</div>
+                <button onClick={generateCoaching} disabled={!empScore}
+                  style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: empScore ? "pointer" : "not-allowed" }}>
+                  Generate My Coaching Plan
+                </button>
+              </div>
+            )}
+
+            {coachingLoading && (
+              <div style={{ ...cardInner, textAlign: "center", padding: 30 }}>
+                <div style={{ width: 30, height: 30, margin: "0 auto 12px", border: "3px solid #7B2FFF", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>Analyzing your performance data and generating insights...</div>
+                <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
+              </div>
+            )}
+
+            {coachingError && !coachingLoading && (
+              <div style={{ ...cardInner, borderLeft: "3px solid #F87171", marginTop: 12 }}>
+                <div style={{ color: "#F87171", fontSize: 12, fontWeight: 600 }}>{coachingError}</div>
+              </div>
             )}
           </div>
+
+          {/* Static coaching tips based on data (always visible below AI section) */}
+          {empScore && (
+            <div style={{ ...card, marginTop: 20 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Quick Reference — Scoring Criteria</div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                {[
+                  { title: "Diagnostics (Ticket)", items: ["Document the issue clearly", "Include quoted price", "Include turnaround time"], weight: "35-45%" },
+                  { title: "Repair Notes (Ticket)", items: ["Describe what was done", "Document outcome", "Note customer was contacted"], weight: "40-55%" },
+                  { title: "Phone Audit", items: ["Greet professionally", "Identify device + issue", "Quote price + turnaround", "Offer appointment"], weight: "35% of overall" },
+                  { title: "Repairs Score", items: ["Phone repairs (25%)", "Accessory GP (50%)", "Cleanings (25%)"], weight: "35% of overall" },
+                ].map(function(section) {
+                  return (
+                    <div key={section.title} style={cardInner}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                        <span style={{ color: "var(--text-primary)", fontSize: 12, fontWeight: 700 }}>{section.title}</span>
+                        <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{section.weight}</span>
+                      </div>
+                      {section.items.map(function(item) {
+                        return <div key={item} style={{ color: "var(--text-secondary)", fontSize: 11, padding: "3px 0", paddingLeft: 10, borderLeft: "2px solid var(--border)" }}>{item}</div>;
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
