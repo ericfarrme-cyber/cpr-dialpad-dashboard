@@ -4,6 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import AuthProvider, { useAuth } from "@/components/AuthProvider";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ThemeProvider, { useTheme, ThemeToggle } from "@/components/ThemeProvider";
+import MyPerformanceTab from "@/components/MyPerformanceTab";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -704,7 +705,7 @@ function StoreDashboard() {
 
         {/* Section nav */}
         <div style={{ display:"flex",gap:4,marginBottom:24 }}>
-          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews & SEO"},{id:"analytics",label:"\uD83D\uDCCA Analytics"}].map(function(v) {
+          {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews & SEO"},{id:"analytics",label:"\uD83D\uDCCA Analytics"},{id:"performance",label:"\uD83C\uDFAF My Performance"}].map(function(v) {
             return <button key={v.id} onClick={function(){setSection(v.id);}} style={{ padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",background:section===v.id?"#7B2FFF22":"var(--bg-card)",color:section===v.id?"#7B2FFF":"var(--text-secondary)",fontSize:13,fontWeight:600 }}>{v.label}</button>;
           })}
         </div>
@@ -1994,6 +1995,11 @@ function StoreDashboard() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ═══ MY PERFORMANCE ═══ */}
+        {section === "performance" && (
+          <MyPerformanceTab auth={auth} store={store} />
         )}
 
       </div>
