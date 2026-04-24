@@ -197,6 +197,26 @@ export async function GET(request) {
     return jsonResponse({ success: true, tickets: data || [] });
   }
 
+  if (action === "employee_tickets") {
+    var employee = searchParams.get("employee") || "";
+    var days = parseInt(searchParams.get("days")) || 60;
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    var cutoffStr = cutoff.toISOString();
+
+    if (!employee) return jsonResponse({ success: false, error: "Employee name required" });
+
+    var { data, error } = await supabase.from("ticket_grades")
+      .select("ticket_number, ticket_type, store, employee_added, employee_repaired, customer_name, device, device_category, device_brand, date_closed, gross_sales, gross_profit, gpm_pct, discount_amount, turnaround_hours, overall_score, diagnostics_score, notes_score, payment_score")
+      .or("employee_added.ilike.%" + employee + "%,employee_repaired.ilike.%" + employee + "%")
+      .gte("date_closed", cutoffStr)
+      .order("date_closed", { ascending: false })
+      .limit(200);
+
+    if (error) return jsonResponse({ success: false, error: error.message });
+    return jsonResponse({ success: true, tickets: data || [] });
+  }
+
   if (action === "stats") {
     var query = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, payment_score, notes_score, categorization_score, ticket_type")
       .or("ticket_type.is.null,ticket_type.neq.Sale"); // Exclude sale tickets from compliance stats
