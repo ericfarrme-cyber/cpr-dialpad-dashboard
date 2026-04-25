@@ -476,6 +476,127 @@ export default function MyPerformanceTab({ auth, store }) {
               <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.6 }}>{weeklyGoal.description || weeklyGoal.body || ""}</div>
             </div>
           )}
+
+          {/* Streaks + Performance Trend */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 20 }}>
+            {/* Streaks */}
+            <div style={card}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Streaks & Milestones</div>
+              {(function() {
+                // Compute streaks from ticket data
+                var repairTickets = tickets.filter(function(t) { return t.ticket_type !== "Sale"; });
+                var highScoreStreak = 0;
+                var currentStreak = 0;
+                repairTickets.sort(function(a, b) { return (b.date_closed || "").localeCompare(a.date_closed || ""); });
+                for (var si = 0; si < repairTickets.length; si++) {
+                  if ((repairTickets[si].overall_score || 0) >= 70) { currentStreak++; } else break;
+                }
+                highScoreStreak = currentStreak;
+
+                // Perfect tickets (90+)
+                var perfectCount = repairTickets.filter(function(t) { return t.overall_score >= 90; }).length;
+                // Consecutive days worked
+                var workDays = {};
+                monthShifts.forEach(function(s) { workDays[s.shift_date || s.date] = true; });
+                var sortedDays = Object.keys(workDays).sort().reverse();
+                var dayStreak = 0;
+                for (var di = 0; di < sortedDays.length; di++) {
+                  if (di === 0) { dayStreak = 1; continue; }
+                  var prev = new Date(sortedDays[di - 1] + "T12:00:00");
+                  var curr = new Date(sortedDays[di] + "T12:00:00");
+                  var diff = (prev - curr) / (1000 * 60 * 60 * 24);
+                  if (diff <= 2) dayStreak++; else break; // allow weekends
+                }
+
+                var streaks = [
+                  { icon: "\uD83D\uDD25", label: "Quality Streak", value: highScoreStreak + " tickets", sub: "consecutive 70+ scores", color: highScoreStreak >= 5 ? "#4ADE80" : highScoreStreak >= 3 ? "#FBBF24" : "var(--text-muted)" },
+                  { icon: "\u2B50", label: "Perfect Tickets", value: perfectCount, sub: "scored 90+", color: perfectCount > 0 ? "#FFD700" : "var(--text-muted)" },
+                  { icon: "\uD83D\uDCAA", label: "Work Streak", value: dayStreak + " days", sub: "consecutive days", color: dayStreak >= 5 ? "#00D4FF" : "var(--text-muted)" },
+                  { icon: "\uD83C\uDFAF", label: "Repairs This Month", value: empScore?.repairs?.total_repairs || 0, sub: totalHoursMonth > 0 ? (Math.round((empScore?.repairs?.total_repairs || 0) / totalHoursMonth * 80) / 10) + " per day avg" : "", color: "#00D4FF" },
+                ];
+
+                return streaks.map(function(s) {
+                  return (
+                    <div key={s.label} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                      <span style={{ fontSize: 18 }}>{s.icon}</span>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ color: "var(--text-primary)", fontSize: 12, fontWeight: 600 }}>{s.label}</div>
+                        <div style={{ color: "var(--text-muted)", fontSize: 10 }}>{s.sub}</div>
+                      </div>
+                      <div style={{ color: s.color, fontSize: 16, fontWeight: 800 }}>{s.value}</div>
+                    </div>
+                  );
+                });
+              })()}
+            </div>
+
+            {/* Performance Trend Mini Chart */}
+            <div style={card}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>How Am I Trending?</div>
+              {(function() {
+                // Group tickets by week for trend
+                var repairTickets = tickets.filter(function(t) { return t.ticket_type !== "Sale" && t.overall_score > 0 && t.date_closed; });
+                if (repairTickets.length < 3) return <div style={{ color: "var(--text-muted)", fontSize: 12, padding: 20, textAlign: "center" }}>Need more graded tickets to show trends</div>;
+
+                var weekBuckets = {};
+                repairTickets.forEach(function(t) {
+                  var d = new Date(t.date_closed);
+                  var weekStart = new Date(d);
+                  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+                  var key = weekStart.toISOString().split("T")[0];
+                  if (!weekBuckets[key]) weekBuckets[key] = { scores: [], count: 0 };
+                  weekBuckets[key].scores.push(t.overall_score);
+                  weekBuckets[key].count++;
+                });
+
+                var weeks = Object.keys(weekBuckets).sort().slice(-8); // last 8 weeks
+                var dataPoints = weeks.map(function(w) {
+                  var b = weekBuckets[w];
+                  return { week: w, avg: Math.round(b.scores.reduce(function(s, v) { return s + v; }, 0) / b.scores.length), count: b.count };
+                });
+
+                if (dataPoints.length < 2) return <div style={{ color: "var(--text-muted)", fontSize: 12, padding: 20, textAlign: "center" }}>Need more weeks of data</div>;
+
+                var maxAvg = Math.max.apply(null, dataPoints.map(function(d) { return d.avg; }));
+                var minAvg = Math.min.apply(null, dataPoints.map(function(d) { return d.avg; }));
+                var range = Math.max(maxAvg - minAvg, 20);
+                var chartH = 100;
+                var chartW = 260;
+                var stepX = chartW / (dataPoints.length - 1);
+
+                var points = dataPoints.map(function(d, i) {
+                  var x = i * stepX;
+                  var y = chartH - ((d.avg - minAvg) / range) * (chartH - 10);
+                  return { x: x, y: y, avg: d.avg, count: d.count, week: d.week };
+                });
+
+                var pathD = "M " + points.map(function(p) { return p.x + " " + p.y; }).join(" L ");
+                var trend = dataPoints[dataPoints.length - 1].avg - dataPoints[0].avg;
+                var trendColor = trend >= 0 ? "#4ADE80" : "#F87171";
+
+                return (
+                  <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Avg ticket score by week</span>
+                      <span style={{ fontSize: 12, color: trendColor, fontWeight: 700 }}>{trend >= 0 ? "\u2191" : "\u2193"} {Math.abs(trend)} pts</span>
+                    </div>
+                    <svg viewBox={"-10 -5 " + (chartW + 20) + " " + (chartH + 20)} style={{ width: "100%", height: 120 }}>
+                      <path d={pathD} fill="none" stroke={trendColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      {points.map(function(p, i) {
+                        return <g key={i}>
+                          <circle cx={p.x} cy={p.y} r="4" fill={trendColor} />
+                          <text x={p.x} y={p.y - 8} textAnchor="middle" fill="var(--text-muted)" fontSize="8">{p.avg}</text>
+                          <text x={p.x} y={chartH + 12} textAnchor="middle" fill="var(--text-muted)" fontSize="7">
+                            {new Date(p.week + "T12:00:00").toLocaleDateString([], { month: "short", day: "numeric" })}
+                          </text>
+                        </g>;
+                      })}
+                    </svg>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
         </div>
       )}
 
@@ -541,6 +662,34 @@ export default function MyPerformanceTab({ auth, store }) {
               </div>
             )}
           </div>
+
+          {/* Commission Projector */}
+          {commission && commission.hasData && (
+            <div style={{ ...card, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>{"\uD83D\uDCC8"} What If? Commission Projector</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>See how additional repairs and sales would grow your paycheck</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+                {[
+                  { label: "+3 Phone Repairs", extra: 3 * (commission.rates.phone_repair_standard || 1), detail: "3 more repairs this week" },
+                  { label: "+5 Phone Repairs", extra: 5 * (commission.rates.phone_repair_standard || 1), detail: "Push to 5 more" },
+                  { label: "+$100 Accessory GP", extra: 100 * (commission.rates.accessory_gp_rate || 0.15), detail: "Upsell cases + screen protectors" },
+                  { label: "+5 Cleanings", extra: 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "5 cleanings at $25 avg" },
+                  { label: "+10 Phone Repairs", extra: 10 * (commission.rates.phone_repair_standard || 1), detail: "Strong push to month end" },
+                  { label: "All of the above", extra: 10 * (commission.rates.phone_repair_standard || 1) + 100 * (commission.rates.accessory_gp_rate || 0.15) + 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "Maximum effort scenario" },
+                ].map(function(scenario) {
+                  var projected = commission.total + scenario.extra;
+                  return (
+                    <div key={scenario.label} style={cardInner}>
+                      <div style={{ fontSize: 11, color: "#7B2FFF", fontWeight: 700, marginBottom: 4 }}>{scenario.label}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: "#FBBF24" }}>{fmt(projected)}</div>
+                      <div style={{ fontSize: 10, color: "#4ADE80", marginTop: 2 }}>+{fmt(scenario.extra)}</div>
+                      <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>{scenario.detail}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -623,6 +772,52 @@ export default function MyPerformanceTab({ auth, store }) {
                   </tbody>
                 </table>
               </div>
+
+              {/* Ticket-Level Compliance Drill-Down */}
+              {tickets.length > 0 && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Compliance Drill-Down</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>See exactly where you gained or lost points on each ticket</div>
+                  <div style={{ maxHeight: 400, overflow: "auto" }}>
+                    {tickets.filter(function(t) { return t.ticket_type !== "Sale" && t.overall_score !== undefined; }).slice(0, 25).map(function(t) {
+                      var scoreColor = sc(t.overall_score || 0, 70, 50);
+                      var scores = [
+                        { label: "Diagnostics", val: t.diagnostics_score, max: 45, color: sc(t.diagnostics_score || 0, 35, 20) },
+                        { label: "Notes", val: t.notes_score, max: 55, color: sc(t.notes_score || 0, 40, 25) },
+                        { label: "Payment", val: t.payment_score, max: 25, color: sc(t.payment_score || 0, 20, 10) },
+                      ];
+                      return (
+                        <div key={t.ticket_number} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
+                              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t.device || ""}</span>
+                              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{t.date_closed ? new Date(t.date_closed).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}</span>
+                            </div>
+                            <span style={{ padding: "3px 8px", borderRadius: 6, background: scoreColor + "18", color: scoreColor, fontSize: 14, fontWeight: 800 }}>{t.overall_score}</span>
+                          </div>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            {scores.map(function(s) {
+                              var pct = s.max > 0 ? Math.round((s.val || 0) / s.max * 100) : 0;
+                              return (
+                                <div key={s.label} style={{ flex: 1 }}>
+                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginBottom: 2 }}>
+                                    <span>{s.label}</span>
+                                    <span style={{ color: s.color, fontWeight: 700 }}>{s.val || 0}/{s.max}</span>
+                                  </div>
+                                  <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 4, overflow: "hidden" }}>
+                                    <div style={{ width: pct + "%", height: "100%", borderRadius: 3, background: s.color }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           ) : (
             <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>No scorecard data available for your account.</div>
@@ -752,6 +947,120 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
           </div>
 
+          {/* Device Breakdown + Fastest/Slowest + Repair Roles */}
+          {filteredTickets.length > 3 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 16, marginBottom: 20 }}>
+
+              {/* Device Category Breakdown */}
+              <div style={card}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Device Breakdown</div>
+                {(function() {
+                  var cats = {};
+                  filteredTickets.forEach(function(t) {
+                    var cat = t.device_category || "unknown";
+                    if (!cats[cat]) cats[cat] = { count: 0, totalTA: 0, taCount: 0 };
+                    cats[cat].count++;
+                    if (t.turnaround_hours > 0) { cats[cat].totalTA += t.turnaround_hours; cats[cat].taCount++; }
+                  });
+                  var catIcons = { phone: "\uD83D\uDCF1", tablet: "\uD83D\uDCF1", laptop: "\uD83D\uDCBB", computer: "\uD83D\uDDA5", game_console: "\uD83C\uDFAE", watch: "\u231A", audio: "\uD83C\uDFA7", other: "\uD83D\uDD27" };
+                  return Object.entries(cats).sort(function(a, b) { return b[1].count - a[1].count; }).map(function(entry) {
+                    var cat = entry[0], data = entry[1];
+                    var avgTA = data.taCount > 0 ? Math.round(data.totalTA / data.taCount * 10) / 10 : 0;
+                    return (
+                      <div key={cat} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--border)" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 14 }}>{catIcons[cat] || "\uD83D\uDD27"}</span>
+                          <span style={{ color: "var(--text-primary)", fontSize: 12, fontWeight: 500 }}>{cat.replace("_", " ")}</span>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ color: "#00D4FF", fontSize: 14, fontWeight: 700 }}>{data.count}</span>
+                          {avgTA > 0 && <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: 6 }}>{avgTA}h avg</span>}
+                        </div>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+
+              {/* Fastest & Slowest Repairs */}
+              <div style={card}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Turnaround Records</div>
+                {(function() {
+                  var withTA = filteredTickets.filter(function(t) { return t.turnaround_hours > 0 && t.ticket_type !== "Sale"; });
+                  if (withTA.length < 2) return <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Need more repair data</div>;
+                  var sorted = withTA.sort(function(a, b) { return a.turnaround_hours - b.turnaround_hours; });
+                  var fastest = sorted.slice(0, 3);
+                  var slowest = sorted.slice(-3).reverse();
+                  return (
+                    <div>
+                      <div style={{ fontSize: 10, color: "#4ADE80", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Fastest</div>
+                      {fastest.map(function(t) {
+                        return (
+                          <div key={t.ticket_number + "f"} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
+                            <span style={{ color: "var(--text-body)" }}>{(t.device || "#" + t.ticket_number).substring(0, 30)}</span>
+                            <span style={{ color: "#4ADE80", fontWeight: 700 }}>{t.turnaround_hours}h</span>
+                          </div>
+                        );
+                      })}
+                      <div style={{ fontSize: 10, color: "#F87171", fontWeight: 700, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>Slowest</div>
+                      {slowest.map(function(t) {
+                        return (
+                          <div key={t.ticket_number + "s"} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
+                            <span style={{ color: "var(--text-body)" }}>{(t.device || "#" + t.ticket_number).substring(0, 30)}</span>
+                            <span style={{ color: "#F87171", fontWeight: 700 }}>{t.turnaround_hours}h</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Repair Role Stats — repaired by vs added by */}
+              <div style={card}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Your Role on Tickets</div>
+                {(function() {
+                  var repairedCount = 0;
+                  var addedCount = 0;
+                  var bothCount = 0;
+                  filteredTickets.forEach(function(t) {
+                    var isRepairer = matchName(empName, t.employee_repaired || "");
+                    var isAdder = matchName(empName, t.employee_added || "");
+                    if (isRepairer && isAdder) bothCount++;
+                    else if (isRepairer) repairedCount++;
+                    else if (isAdder) addedCount++;
+                  });
+                  var total = repairedCount + addedCount + bothCount;
+                  if (total === 0) return <div style={{ color: "var(--text-muted)", fontSize: 12 }}>Role data not yet captured</div>;
+
+                  return (
+                    <div>
+                      {[
+                        { label: "Checked In + Repaired", count: bothCount, color: "#4ADE80", desc: "Full ticket ownership" },
+                        { label: "Repaired Only", count: repairedCount, color: "#00D4FF", desc: "Someone else checked in" },
+                        { label: "Added Only", count: addedCount, color: "#FBBF24", desc: "Someone else repaired" },
+                      ].map(function(role) {
+                        var pct = total > 0 ? Math.round(role.count / total * 100) : 0;
+                        return (
+                          <div key={role.label} style={{ marginBottom: 10 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+                              <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{role.label}</span>
+                              <span style={{ color: role.color, fontWeight: 700 }}>{role.count} ({pct}%)</span>
+                            </div>
+                            <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 5, overflow: "hidden" }}>
+                              <div style={{ width: pct + "%", height: "100%", borderRadius: 3, background: role.color }} />
+                            </div>
+                            <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>{role.desc}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* Ticket list */}
           <div style={card}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Recent Tickets</div>
@@ -763,7 +1072,7 @@ export default function MyPerformanceTab({ auth, store }) {
                     <div key={t.ticket_number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>#{t.ticket_number}</span>
+                          <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
                           {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: t.ticket_type === "Sale" ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: t.ticket_type === "Sale" ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
                           {t.device_category && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t.device_category}</span>}
                         </div>
