@@ -66,12 +66,16 @@ export default function MyPerformanceTab({ auth, store }) {
   var [coachingError, setCoachingError] = useState(null);
   var [scheduleWeek, setScheduleWeek] = useState("this");
   var [ticketPeriod, setTicketPeriod] = useState("mtd");
+  var [viewAsEmployee, setViewAsEmployee] = useState("");
 
-  var empName = auth?.userInfo?.name || "";
+  var isAdmin = auth?.userInfo?.role === "admin";
+  var empName = viewAsEmployee || auth?.userInfo?.name || "";
   var empStore = store || auth?.userInfo?.store || "";
 
   useEffect(function() {
     if (!empName) return;
+    setCoachingInsight(null);
+    setCoachingError(null);
     loadData();
   }, [empName, empStore]);
 
@@ -360,6 +364,29 @@ export default function MyPerformanceTab({ auth, store }) {
 
   return (
     <div>
+      {/* Admin: employee selector */}
+      {isAdmin && allEmployees.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "10px 16px", background: "var(--bg-card)", borderRadius: 10, border: "1px solid #7B2FFF33" }}>
+          <span style={{ fontSize: 12, color: "#7B2FFF", fontWeight: 700 }}>{"\uD83D\uDC41"} View as:</span>
+          <select value={viewAsEmployee} onChange={function(e) { setViewAsEmployee(e.target.value); }}
+            style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card-inner)", color: "var(--text-primary)", fontSize: 13, cursor: "pointer", maxWidth: 250 }}>
+            <option value="">Myself ({auth?.userInfo?.name || ""})</option>
+            {allEmployees.filter(function(e) { return e.hasData && e.name; }).sort(function(a, b) { return (a.name || "").localeCompare(b.name || ""); }).map(function(e) {
+              return <option key={e.name} value={e.name}>{e.name} — {e.store ? "CPR " + e.store.charAt(0).toUpperCase() + e.store.slice(1) : ""} ({e.overall || 0}pts)</option>;
+            })}
+          </select>
+          {viewAsEmployee && <button onClick={function() { setViewAsEmployee(""); }}
+            style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 10, cursor: "pointer" }}>Back to mine</button>}
+        </div>
+      )}
+
+      {/* Viewing banner */}
+      {viewAsEmployee && (
+        <div style={{ padding: "8px 14px", background: "#7B2FFF12", border: "1px solid #7B2FFF33", borderRadius: 8, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "#7B2FFF" }}>Viewing as <strong>{viewAsEmployee}</strong> — this is exactly what they see when logged in</span>
+        </div>
+      )}
+
       {/* Sub-tab nav */}
       <div style={{ display: "flex", gap: 4, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
         {tabs.map(function(t) {
