@@ -403,7 +403,8 @@ function StoreDashboard() {
       }
     } catch(e) { console.error("Follow-up verification error:", e); }
   };
-  var startEdit = function(appt) { setForm({customer_name:appt.customer_name||"",customer_phone:appt.customer_phone||"",date_of_appt:appt.date_of_appt||"",appt_time:appt.appt_time||"",reason:appt.reason||"",price_quoted:appt.price_quoted||"",scheduled_by:appt.scheduled_by||"",did_arrive:appt.did_arrive||"",notes:appt.notes||""}); setEditingId(appt.id); setShowForm(true); };
+  var startEdit = function(appt) { setForm({customer_name:appt.customer_name||"",customer_phone:appt.customer_phone||"",date_of_appt:appt.date_of_appt||"",appt_time:appt.appt_time||"",reason:appt.reason||"",price_quoted:appt.price_quoted||"",scheduled_by:appt.scheduled_by||"",did_arrive:appt.did_arrive||"",notes:appt.notes||""}); setEditingId(appt.id); setShowForm(false); setExpandedAppt(null); setMatchedCall(null); setRepeatInfo(null); };
+  var cancelEdit = function() { setEditingId(null); setForm(emptyForm); setMatchedCall(null); setRepeatInfo(null); };
   var checkPhone = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setMatchedCall(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=match_call&phone="+n); var j = await r.json(); setMatchedCall(j.success && j.calls && j.calls.length > 0 ? j.calls[0] : null); } catch(e) { setMatchedCall(null); } };
   var checkRepeatCustomer = async function(phone) { var n = normPhone(phone); if (n.length !== 10) { setRepeatInfo(null); return; } try { var r = await fetch("/api/dialpad/appointments?action=list&days=365"); var j = await r.json(); if (j.success) { var m = (j.appointments||[]).filter(function(a){return normPhone(a.customer_phone)===n;}); if (m.length > 0) { var arr = m.filter(function(a){return a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");}); var ns = m.filter(function(a){return a.did_arrive&&a.did_arrive.toLowerCase().includes("no");}); setRepeatInfo({total:m.length,arrived:arr.length,noShow:ns.length,lastVisit:m[0].date_of_appt,lastReason:m[0].reason,name:m[0].customer_name}); } else setRepeatInfo(null); } } catch(e) { setRepeatInfo(null); } };
 
@@ -1281,9 +1282,9 @@ function StoreDashboard() {
             {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
 
             {/* New appointment form */}
-            {showForm && (
+            {showForm && !editingId && (
               <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #7B2FFF33" }}>
-                <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,marginBottom:12 }}>{editingId ? "Edit" : "New Appointment"}</div>
+                <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,marginBottom:12 }}>New Appointment</div>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Customer Name *</label><input value={form.customer_name} onChange={function(e){setForm(Object.assign({},form,{customer_name:e.target.value}));}} style={inputStyle} /></div>
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Phone</label><input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}} onBlur={function(e){checkPhone(e.target.value);checkRepeatCustomer(e.target.value);}} placeholder="(317) 555-1234" style={inputStyle} /></div>
@@ -1301,7 +1302,7 @@ function StoreDashboard() {
                 </div>
                 {matchedCall && <div style={{ padding:10,borderRadius:6,background:"#00D4FF08",border:"1px solid #00D4FF33",marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDCDE"} <strong style={{color:"#00D4FF"}}>Call match:</strong> {matchedCall.employee} scored {parseFloat(matchedCall.score||0).toFixed(1)}/4 | {matchedCall.appt_offered?"\u2705":"\u274C"} Appt | {matchedCall.discount_mentioned?"\u2705":"\u274C"} Discount</div>}
                 {repeatInfo && <div style={{ padding:10,borderRadius:6,background:repeatInfo.noShow>0?"#FBBF2408":"#4ADE8008",border:"1px solid "+(repeatInfo.noShow>0?"#FBBF2433":"#4ADE8033"),marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDD01"} <strong style={{color:repeatInfo.noShow>0?"#FBBF24":"#4ADE80"}}>Repeat customer:</strong> {repeatInfo.total} prev appts, {repeatInfo.arrived} arrived, {repeatInfo.noShow} no-shows{repeatInfo.noShow>0?" — \u26A0\uFE0F confirm day-of":""}</div>}
-                <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>{editingId?"Save":"Add Appointment"}</button>
+                <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Add Appointment</button>
               </div>
             )}
 
@@ -1390,8 +1391,36 @@ function StoreDashboard() {
                         </div>
                       </div>
                     </div>
+                    {/* Inline edit form — rendered when this card's Edit button was clicked */}
+                    {editingId === a.id && (
+                      <div style={{ padding:"16px 20px",background:"var(--bg-card-inner)",borderBottom:"1px solid #7B2FFF44",borderLeft:"3px solid #7B2FFF" }}>
+                        <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12 }}>
+                          <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px" }}>{"\u270F\uFE0F"} Editing Appointment</div>
+                          <button onClick={cancelEdit} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>{"\u2715"} Cancel</button>
+                        </div>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Customer Name *</label><input value={form.customer_name} onChange={function(e){setForm(Object.assign({},form,{customer_name:e.target.value}));}} style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Phone</label><input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}} placeholder="(317) 555-1234" style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Scheduled By</label><input list="emp-list" value={form.scheduled_by} onChange={function(e){setForm(Object.assign({},form,{scheduled_by:e.target.value}));}} style={inputStyle} /></div>
+                        </div>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr 1fr",gap:10,marginBottom:10 }}>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Date</label><input type="date" value={form.date_of_appt} onChange={function(e){setForm(Object.assign({},form,{date_of_appt:e.target.value}));}} style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Time</label><input type="time" value={form.appt_time} onChange={function(e){setForm(Object.assign({},form,{appt_time:e.target.value}));}} style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Price</label><input value={form.price_quoted} onChange={function(e){setForm(Object.assign({},form,{price_quoted:e.target.value}));}} placeholder="$150" style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Status</label><select value={form.did_arrive} onChange={function(e){setForm(Object.assign({},form,{did_arrive:e.target.value}));}} style={inputStyle}><option value="">Pending</option><option value="Converted">Converted (Arrived + Sale)</option><option value="Yes">Arrived (No Sale)</option><option value="No">No-Show</option><option value="No/VM">No/VM</option><option value="Rescheduled">Rescheduled</option></select></div>
+                        </div>
+                        <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Reason / Quote</label><input value={form.reason} onChange={function(e){setForm(Object.assign({},form,{reason:e.target.value}));}} style={inputStyle} /></div>
+                          <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Notes</label><input value={form.notes} onChange={function(e){setForm(Object.assign({},form,{notes:e.target.value}));}} style={inputStyle} /></div>
+                        </div>
+                        <div style={{ display:"flex",gap:8 }}>
+                          <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>{"\uD83D\uDCBE"} Save Changes</button>
+                          <button onClick={cancelEdit} style={{ padding:"8px 16px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:12,cursor:"pointer" }}>Discard</button>
+                        </div>
+                      </div>
+                    )}
                     {/* Expanded detail card — inline right under the clicked appointment */}
-                    {isExpanded && (
+                    {isExpanded && editingId !== a.id && (
                       <div style={{ padding:"16px 24px",background:"var(--bg-card-inner)",borderBottom:"1px solid var(--border)",borderLeft:"3px solid "+sc }}>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:16,marginBottom:12 }}>
                           <div>
