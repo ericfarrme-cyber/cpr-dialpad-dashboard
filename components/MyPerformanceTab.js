@@ -110,27 +110,27 @@ function normalizeAudit(a) {
   var maxScore = a.max_score != null ? parseFloat(a.max_score) : 4;
   var rawScore = a.score != null ? parseFloat(a.score) : 0;
   var derivedPct = maxScore > 0 ? Math.round((rawScore / maxScore) * 100) : 0;
-  var crit = a.criteria || {};
-  // criteria can come as object {appt_offered: true} or {appt_offered: {met: true}}
-  function critBool(key1, key2, key3) {
-    var keys = [key1, key2, key3].filter(Boolean);
-    for (var i = 0; i < keys.length; i++) {
-      var v = crit[keys[i]];
-      if (v == null) continue;
-      if (typeof v === "boolean") return v;
-      if (typeof v === "object" && v && (v.met === true || v.passed === true || v.value === true)) return true;
-      if (typeof v === "string") return v.toLowerCase() === "true" || v.toLowerCase() === "yes";
-    }
-    return false;
-  }
+  // The audit_results table stores criteria as flat boolean columns (not JSONB).
+  // Different call types use different columns:
+  //   opportunity:      appt_offered, discount_mentioned, warranty_mentioned, faster_turnaround
+  //   current_customer: status_update_given, eta_communicated, professional_tone, next_steps_explained
   return Object.assign({}, a, {
-    overall_score: a.overall_score != null ? a.overall_score : derivedPct,
-    appointment_offered: a.appointment_offered === true || critBool("appt_offered", "appointment_offered", "appt"),
-    warranty_mentioned: a.warranty_mentioned === true || critBool("warranty_mentioned", "warranty"),
-    pricing_given: a.pricing_given === true || critBool("pricing", "pricing_given", "price_given"),
-    turnaround_given: a.turnaround_given === true || critBool("turnaround", "turnaround_given", "turnaround_time"),
-    caller_name: a.caller_name || a.customer_name || "",
-    phone_number: a.phone_number || a.phone || "",
+    overall_score: derivedPct,
+    overall_pct: derivedPct,
+    // Opportunity-call criteria
+    appt_offered: a.appt_offered === true,
+    discount_mentioned: a.discount_mentioned === true,
+    warranty_mentioned: a.warranty_mentioned === true,
+    faster_turnaround: a.faster_turnaround === true,
+    // Current-customer-call criteria
+    status_update_given: a.status_update_given === true,
+    eta_communicated: a.eta_communicated === true,
+    professional_tone: a.professional_tone === true,
+    next_steps_explained: a.next_steps_explained === true,
+    // Convenience aliases for older code paths
+    appointment_offered: a.appt_offered === true,
+    caller_name: a.customer_name || "",
+    phone_number: a.phone || "",
   });
 }
 
@@ -207,6 +207,8 @@ export default function MyPerformanceTab({ auth, store }) {
   var [auditData, setAuditData] = useState([]);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
+  var [expandedCall, setExpandedCall] = useState(null);
+  var [expandedTicket, setExpandedTicket] = useState(null);
   var [coachingInsight, setCoachingInsight] = useState(null);
   var [coachingLoading, setCoachingLoading] = useState(false);
   var [coachingError, setCoachingError] = useState(null);
@@ -406,36 +408,60 @@ export default function MyPerformanceTab({ auth, store }) {
     return idx >= 0 ? { rank: idx + 1, total: sorted.length } : null;
   }, [empScore, allEmployees, empName]);
 
-  // Call audit stats
+  // Call audit stats — split by call_type since opportunity & current_customer
+  // calls use entirely different rubrics. Aggregating across both produces
+  // nonsense (e.g. "0% pricing given" when pricing isn't even a criterion).
   var callStats = useMemo(function() {
     if (!auditData || auditData.length === 0) return null;
     var total = auditData.length;
     var totalScore = 0;
-    var apptOffered = 0;
-    var warrantyMentioned = 0;
-    var pricingGiven = 0;
-    var turnaroundGiven = 0;
+
+    // Opportunity-only counters
+    var oppCalls = 0, apptOffered = 0, discountMentioned = 0, warrantyMentioned = 0, fasterTurnaround = 0;
+    // Current-customer-only counters
+    var ccCalls = 0, statusGiven = 0, etaGiven = 0, professional = 0, nextSteps = 0;
+
     var categories = {};
 
     auditData.forEach(function(a) {
       totalScore += a.overall_score || 0;
-      if (a.appointment_offered) apptOffered++;
-      if (a.warranty_mentioned) warrantyMentioned++;
-      if (a.pricing_given || (a.criteria && a.criteria.pricing)) pricingGiven++;
-      if (a.turnaround_given || (a.criteria && a.criteria.turnaround)) turnaroundGiven++;
-      var cat = a.call_type || a.category || "unknown";
+      var cat = a.call_type || "unknown";
       if (!categories[cat]) categories[cat] = 0;
       categories[cat]++;
+
+      if (cat === "opportunity") {
+        oppCalls++;
+        if (a.appt_offered) apptOffered++;
+        if (a.discount_mentioned) discountMentioned++;
+        if (a.warranty_mentioned) warrantyMentioned++;
+        if (a.faster_turnaround) fasterTurnaround++;
+      } else if (cat === "current_customer") {
+        ccCalls++;
+        if (a.status_update_given) statusGiven++;
+        if (a.eta_communicated) etaGiven++;
+        if (a.professional_tone) professional++;
+        if (a.next_steps_explained) nextSteps++;
+      }
     });
+
+    function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : null; }
 
     return {
       total: total,
       avgScore: Math.round(totalScore / total),
-      apptOfferedRate: Math.round(apptOffered / total * 100),
-      warrantyRate: Math.round(warrantyMentioned / total * 100),
-      pricingRate: Math.round(pricingGiven / total * 100),
-      turnaroundRate: Math.round(turnaroundGiven / total * 100),
       categories: categories,
+      // Opportunity rates (denominator = oppCalls)
+      oppCalls: oppCalls,
+      apptOfferedRate: pct(apptOffered, oppCalls),
+      discountRate: pct(discountMentioned, oppCalls),
+      warrantyRate: pct(warrantyMentioned, oppCalls),
+      fasterTurnaroundRate: pct(fasterTurnaround, oppCalls),
+      // Current-customer rates (denominator = ccCalls)
+      ccCalls: ccCalls,
+      statusRate: pct(statusGiven, ccCalls),
+      etaRate: pct(etaGiven, ccCalls),
+      professionalRate: pct(professional, ccCalls),
+      nextStepsRate: pct(nextSteps, ccCalls),
       recent: auditData.slice(0, 10),
     };
   }, [auditData]);
@@ -474,28 +500,155 @@ export default function MyPerformanceTab({ auth, store }) {
     if (!empScore) return;
     setCoachingLoading(true);
     try {
-      var context = "Employee: " + empName + " at CPR " + empStore + "\n";
-      context += "Overall Score: " + (empScore.overall || 0) + "/100\n";
-      context += "Repairs: " + (empScore.repairs?.total_repairs || 0) + " (score: " + (empScore.repairs?.score || 0) + ")\n";
-      context += "Phone Audit: " + (empScore.audit?.avg_pct || 0) + "% avg (score: " + (empScore.audit?.score || 0) + ")\n";
-      context += "Compliance: " + (empScore.compliance?.score || 0) + " (" + (empScore.compliance?.total_tickets || 0) + " tickets graded)\n";
-      context += "Hours This Month: " + totalHoursMonth + "\n";
-      if (commission) context += "Commission: $" + commission.total.toFixed(2) + " (" + commission.phoneTickets + " phone repairs, " + commission.accyCount + " accessories)\n";
-      if (callStats) context += "Call Audit: " + callStats.avgScore + "/100 avg, " + callStats.total + " calls audited, appt offered " + callStats.apptOfferedRate + "%\n";
-      if (tickets.length > 0) {
-        var lowTickets = tickets.filter(function(t) { return t.overall_score < 50; }).slice(0, 3);
-        if (lowTickets.length > 0) {
-          context += "Low-scoring tickets: " + lowTickets.map(function(t) { return "#" + t.ticket_number + " (" + t.overall_score + " - " + (t.device || "unknown device") + ")"; }).join(", ") + "\n";
+      // ── Build dense, evidence-grounded context ──
+      var lines = [];
+      lines.push("EMPLOYEE: " + empName + " at CPR " + empStore);
+      lines.push("OVERALL SCORE: " + Math.round(empScore.overall || 0) + "/100");
+
+      // Tier + multiplier (the dollar lever)
+      var tierInfo = commission ? {
+        tier: commission.tier,
+        multiplier: commission.tierMultiplier,
+        baseMonthly: commission.baseTotal,
+      } : null;
+      if (tierInfo) {
+        lines.push("CURRENT TIER: " + tierInfo.tier + " (" + tierInfo.multiplier + "x multiplier)");
+        lines.push("BASE MONTHLY COMMISSION: $" + tierInfo.baseMonthly.toFixed(2));
+      }
+      // Next tier dollar value
+      if (nextLevel && tierInfo) {
+        var nextMult = (nextLevel.name === "Gold" ? 1.25 : nextLevel.name === "Platinum" ? 1.50 : nextLevel.name === "Diamond" ? 1.50 : 1.00);
+        var nextMonthly = tierInfo.baseMonthly * nextMult;
+        var deltaMonthly = nextMonthly - (tierInfo.baseMonthly * tierInfo.multiplier);
+        var deltaAnnual = deltaMonthly * 12;
+        lines.push("NEXT TIER: " + nextLevel.name + " at " + nextLevel.min + " pts (" + (nextLevel.min - Math.round(empScore.overall || 0)) + " pts away)");
+        lines.push("NEXT TIER DOLLAR VALUE: +$" + deltaMonthly.toFixed(0) + "/month, +$" + deltaAnnual.toFixed(0) + "/year vs current tier");
+        if (nextLevel.name === "Diamond") lines.push("  Diamond also adds 1 PTO day/month (12 PTO days/year)");
+      }
+
+      // Peer context — named, ranked
+      if (myRank && allEmployees.length > 0) {
+        lines.push("RANK: #" + myRank.rank + " of " + myRank.total + " employees with full data");
+        var rosterPeers = allEmployees.filter(isRosterMember).sort(function(a,b){return (b.overall||0)-(a.overall||0);});
+        var meIdx = rosterPeers.findIndex(function(e){ return matchName(empName, e.name); });
+        // Find named peer just above (or top performer if at #1)
+        var peerComp = null;
+        if (meIdx > 0) {
+          peerComp = rosterPeers[meIdx - 1];
+        } else if (meIdx === 0 && rosterPeers.length > 1) {
+          peerComp = rosterPeers[1]; // person right behind them
+        }
+        if (peerComp && peerComp.name) {
+          lines.push("CLOSEST PEER: " + peerComp.name + " (" + Math.round(peerComp.overall) + " overall, " + Math.round(peerComp.repairs||0) + " repairs / " + Math.round(peerComp.audit||0) + " audit / " + Math.round(peerComp.compliance||0) + " compliance)");
         }
       }
-      context += "Level: " + level.name + ", " + (nextLevel ? (nextLevel.min - overallScore) + " points to " + nextLevel.name : "MAX LEVEL") + "\n";
-      if (myRank) context += "Ranked #" + myRank.rank + " of " + myRank.total + " employees\n";
+
+      // Repair production
+      lines.push("");
+      lines.push("REPAIRS: " + (empScore.repairs?.total_repairs || 0) + " total (score " + (empScore.repairs?.score || 0) + ")");
+      lines.push("ACCESSORY GP: $" + (empScore.repairs?.accy_gp || 0).toFixed(2));
+
+      // Call audit — split by type with real numbers
+      lines.push("");
+      lines.push("CALL AUDIT (last 30 days):");
+      if (callStats) {
+        lines.push("  Total: " + callStats.total + " calls (" + callStats.oppCalls + " opportunity, " + callStats.ccCalls + " repeat customer)");
+        lines.push("  Average score: " + callStats.avgScore + "/100");
+        if (callStats.oppCalls > 0) {
+          lines.push("  OPPORTUNITY CALL CRITERIA (rate / " + callStats.oppCalls + " calls):");
+          lines.push("    - Appointment offered: " + (callStats.apptOfferedRate || 0) + "%");
+          lines.push("    - Discount mentioned: " + (callStats.discountRate || 0) + "%");
+          lines.push("    - Lifetime warranty mentioned: " + (callStats.warrantyRate || 0) + "%");
+          lines.push("    - Faster-with-appointment pitch: " + (callStats.fasterTurnaroundRate || 0) + "%");
+        }
+        if (callStats.ccCalls > 0) {
+          lines.push("  REPEAT CUSTOMER CRITERIA (rate / " + callStats.ccCalls + " calls):");
+          lines.push("    - Clear status update: " + (callStats.statusRate || 0) + "%");
+          lines.push("    - ETA communicated: " + (callStats.etaRate || 0) + "%");
+          lines.push("    - Professional tone: " + (callStats.professionalRate || 0) + "%");
+          lines.push("    - Next steps explained: " + (callStats.nextStepsRate || 0) + "%");
+        }
+      }
+
+      // Per-call evidence — actual zero-score opportunity calls (most teachable)
+      var zeroCalls = (auditData || []).filter(function(a) {
+        return a.call_type === "opportunity" && (a.score === 0 || parseFloat(a.score) === 0);
+      }).slice(0, 4);
+      if (zeroCalls.length > 0) {
+        lines.push("");
+        lines.push("ZERO-SCORE OPPORTUNITY CALLS (all 4 criteria missed) — cite using the EXACT markdown link format shown:");
+        zeroCalls.forEach(function(a) {
+          var cid = a.call_id || "?";
+          // Internal anchor — clicking jumps to My Calls tab and expands this call
+          var anchor = "#call:" + cid;
+          lines.push("  - [Call " + String(cid).slice(-6) + "](" + anchor + "): " + (a.inquiry || "no inquiry") + " | Outcome: " + (a.outcome || "?"));
+        });
+      }
+      // High-scoring calls — what's working
+      var topCalls = (auditData || []).filter(function(a) {
+        return a.call_type === "opportunity" && parseFloat(a.score) >= 3;
+      }).slice(0, 2);
+      if (topCalls.length > 0) {
+        lines.push("");
+        lines.push("HIGH-SCORE OPPORTUNITY CALLS (most criteria met) — cite using the EXACT markdown link format shown:");
+        topCalls.forEach(function(a) {
+          var cid = a.call_id || "?";
+          var anchor = "#call:" + cid;
+          var hits = [];
+          if (a.appt_offered) hits.push("appt");
+          if (a.discount_mentioned) hits.push("discount");
+          if (a.warranty_mentioned) hits.push("warranty");
+          if (a.faster_turnaround) hits.push("faster");
+          lines.push("  - [Call " + String(cid).slice(-6) + "](" + anchor + ") (hit: " + hits.join(",") + "): " + (a.inquiry || "?"));
+        });
+      }
+
+      // Compliance / tickets — external RepairQ link
+      lines.push("");
+      lines.push("COMPLIANCE: " + (empScore.compliance?.score || 0) + "/100 across " + (empScore.compliance?.total_tickets || 0) + " tickets");
+      var lowTix = (tickets || []).filter(function(t) { return t.ticket_type !== "Sale" && t.overall_score != null && t.overall_score < 60; }).slice(0, 3);
+      if (lowTix.length > 0) {
+        lines.push("LOW-SCORING TICKETS — cite using the EXACT markdown link format shown:");
+        lowTix.forEach(function(t) {
+          var url = "https://cpr.repairq.io/admin/tickets/" + t.ticket_number;
+          lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + t.overall_score + ") " + (t.device || "?") + " | Diag " + (t.diagnostics_score || 0) + "/45, Notes " + (t.notes_score || 0) + "/55, Pmt " + (t.payment_score || 0) + "/25");
+        });
+      }
+
+      var context = lines.join("\n");
+
+      // ── New prompt: evidence-grounded, no flattery, ranked by impact ──
+      var promptText = [
+        "You are coaching a retail technician at CPR Cell Phone Repair. Output a coaching plan in markdown with EXACTLY these four sections, no others:",
+        "",
+        "## 🎯 Biggest Unlock",
+        "ONE specific behavior change with the highest dollar impact. Cite actual call/ticket references using the EXACT markdown link format shown in the data — calls use `[Call XXXXXX](#call:FULL_ID)` (internal — keeps the employee inside the dashboard), tickets use `[Ticket #XXXX](https://cpr.repairq.io/...)` (external RepairQ link). Quantify: what % does this move? What does that mean for their tier?",
+        "",
+        "## 📜 The One Sentence",
+        "ONE specific sentence (in quotes) the employee can say verbatim on every relevant call/intake to fix the unlock. Must cover multiple rubric criteria at once. Make it short enough to memorize.",
+        "",
+        "## 💰 Tier Dollars",
+        "Connect the unlock to specific dollars. Use the NEXT TIER DOLLAR VALUE from the data. Format: 'Move to [tier] = +$X/month, +$Y/year, every year you sustain it.' If they're at Platinum, show Diamond. If Diamond, show streak bonus impact.",
+        "",
+        "## 📅 This Week's Goal",
+        "ONE measurable target with a specific number, not a range. e.g. 'Hit 60% appointment-offer rate on opportunity calls by Friday.' No multi-part goals.",
+        "",
+        "RULES:",
+        "- NO 'wins this period' section, NO 'outstanding work' opener, NO motivational closer.",
+        "- NEVER invent peer behaviors. Use ONLY the CLOSEST PEER stats provided. If you don't have peer data, skip peer comparison.",
+        "- ALWAYS cite call/ticket references using the EXACT markdown link syntax shown — calls use `(#call:...)` so the dashboard can route the click internally; tickets use the full RepairQ URL.",
+        "- 'Study X' / 'review Y guides' are forbidden — every action must be a thing they say or do during a call/intake, executable in <30 seconds.",
+        "- Total length: 200 words max. Density over warmth.",
+        "",
+        "EMPLOYEE DATA:",
+        context,
+      ].join("\n");
 
       var res = await fetch("/api/dialpad/ai-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: [{ role: "user", content: "Generate a personalized weekly coaching plan for this CPR Cell Phone Repair employee. Be specific with actionable items based on their actual data. Focus on the 2-3 highest-impact improvements. Use an encouraging but direct tone. Include specific numbers from their data. Format with clear sections: WINS THIS PERIOD, FOCUS AREAS, ACTION ITEMS (3 specific things to do this week), and GOAL (one measurable target for next week). Keep it under 300 words.\n\nEmployee Data:\n" + context }],
+          messages: [{ role: "user", content: promptText }],
         }),
       });
       var json = await res.json();
@@ -1209,51 +1362,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 </table>
               </div>
 
-              {/* Ticket-Level Compliance Drill-Down */}
-              {tickets.length > 0 && (
-                <div style={{ ...card, marginBottom: 16 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Compliance Drill-Down</div>
-                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>See exactly where you gained or lost points on each ticket</div>
-                  <div style={{ maxHeight: 400, overflow: "auto" }}>
-                    {tickets.filter(function(t) { return t.ticket_type !== "Sale" && t.overall_score !== undefined; }).slice(0, 25).map(function(t) {
-                      var scoreColor = sc(t.overall_score || 0, 70, 50);
-                      var scores = [
-                        { label: "Diagnostics", val: t.diagnostics_score, max: 45, color: sc(t.diagnostics_score || 0, 35, 20) },
-                        { label: "Notes", val: t.notes_score, max: 55, color: sc(t.notes_score || 0, 40, 25) },
-                        { label: "Payment", val: t.payment_score, max: 25, color: sc(t.payment_score || 0, 20, 10) },
-                      ];
-                      return (
-                        <div key={t.ticket_number} style={{ padding: "12px 0", borderBottom: "1px solid var(--border)" }}>
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
-                              <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{t.device || ""}</span>
-                              <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{t.date_closed ? new Date(t.date_closed).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}</span>
-                            </div>
-                            <span style={{ padding: "3px 8px", borderRadius: 6, background: scoreColor + "18", color: scoreColor, fontSize: 14, fontWeight: 800 }}>{t.overall_score}</span>
-                          </div>
-                          <div style={{ display: "flex", gap: 8 }}>
-                            {scores.map(function(s) {
-                              var pct = s.max > 0 ? Math.round((s.val || 0) / s.max * 100) : 0;
-                              return (
-                                <div key={s.label} style={{ flex: 1 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-muted)", marginBottom: 2 }}>
-                                    <span>{s.label}</span>
-                                    <span style={{ color: s.color, fontWeight: 700 }}>{s.val || 0}/{s.max}</span>
-                                  </div>
-                                  <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 4, overflow: "hidden" }}>
-                                    <div style={{ width: pct + "%", height: "100%", borderRadius: 3, background: s.color }} />
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
+              {/* Compliance Drill-Down moved to My Tickets tab — click any ticket there to see per-criterion scoring */}
             </div>
           ) : (
             <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>No scorecard data available for your account.</div>
@@ -1557,23 +1666,98 @@ export default function MyPerformanceTab({ auth, store }) {
 
           {/* Ticket list */}
           <div style={card}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Recent Tickets</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Recent Tickets</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>Click any ticket to see exactly where you gained or lost points.</div>
             {filteredTickets.length > 0 ? (
-              <div style={{ maxHeight: 500, overflow: "auto" }}>
+              <div style={{ maxHeight: 600, overflow: "auto" }}>
                 {filteredTickets.slice(0, 50).map(function(t) {
                   var scoreColor = sc(t.overall_score || 0, 70, 50);
+                  var isExpanded = expandedTicket === t.ticket_number;
+                  var isSale = t.ticket_type === "Sale";
+                  // Determine if payment criterion applies (only when parts were ordered → typically present on tickets)
+                  // The compliance scoring uses payment_score on standard tickets; sales tickets are excluded above.
+                  var diagPct = t.diagnostics_score != null ? Math.round((t.diagnostics_score / 45) * 100) : null;
+                  var notesPct = t.notes_score != null ? Math.round((t.notes_score / 55) * 100) : null;
+                  var payPct = t.payment_score != null ? Math.round((t.payment_score / 25) * 100) : null;
                   return (
-                    <div key={t.ticket_number} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid var(--border)" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
-                          {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: t.ticket_type === "Sale" ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: t.ticket_type === "Sale" ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
-                          {t.device_category && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t.device_category}</span>}
+                    <div key={t.ticket_number} style={{ borderBottom: "1px solid var(--border)" }}>
+                      <div onClick={function(){ if (isSale) return; setExpandedTicket(isExpanded ? null : t.ticket_number); }}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: isSale ? "default" : "pointer" }}>
+                        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
+                          {!isSale && <span style={{ fontSize: 11, color: "var(--text-muted)", width: 12 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>}
+                          {isSale && <span style={{ width: 12 }} />}
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
+                              {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: isSale ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: isSale ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
+                              {t.device_category && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t.device_category}</span>}
+                            </div>
+                            <div style={{ color: "var(--text-body)", fontSize: 12, marginTop: 2 }}>{t.device || t.customer_name || ""}</div>
+                            <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>{t.date_closed ? new Date(t.date_closed).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}{t.turnaround_hours > 0 ? " \u00B7 " + t.turnaround_hours + "h turnaround" : ""}{t.gross_profit > 0 ? " \u00B7 " + fmt(t.gross_profit) + " profit" : ""}</div>
+                          </div>
                         </div>
-                        <div style={{ color: "var(--text-body)", fontSize: 12, marginTop: 2 }}>{t.device || t.customer_name || ""}</div>
-                        <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>{t.date_closed ? new Date(t.date_closed).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}{t.turnaround_hours > 0 ? " \u00B7 " + t.turnaround_hours + "h turnaround" : ""}{t.gross_profit > 0 ? " \u00B7 " + fmt(t.gross_profit) + " profit" : ""}</div>
+                        <div style={{ padding: "4px 10px", borderRadius: 6, background: isSale ? "var(--bg-card-inner)" : scoreColor + "18", color: isSale ? "var(--text-muted)" : scoreColor, fontSize: 14, fontWeight: 800, minWidth: 45, textAlign: "center" }}>
+                          {isSale ? "\u2014" : (t.overall_score || 0)}
+                        </div>
                       </div>
-                      <div style={{ padding: "4px 10px", borderRadius: 6, background: scoreColor + "18", color: scoreColor, fontSize: 14, fontWeight: 800, minWidth: 45, textAlign: "center" }}>{t.overall_score || 0}</div>
+
+                      {/* Expanded ticket detail */}
+                      {isExpanded && !isSale && (
+                        <div style={{ padding: "14px 22px 18px", background: "var(--bg-card-inner)", borderRadius: 8, marginBottom: 8 }}>
+                          <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Compliance Score Breakdown</div>
+                          {[
+                            { label: "Diagnostics", val: t.diagnostics_score, max: 45, pct: diagPct, what: "Issue documented + Price quoted + Turnaround time noted on intake" },
+                            { label: "Notes", val: t.notes_score, max: 55, pct: notesPct, what: "Repair outcome logged + Customer notified when complete" },
+                            { label: "Payment", val: t.payment_score, max: 25, pct: payPct, what: "If parts were ordered, payment was collected within 2 hours of intake" },
+                          ].map(function(s) {
+                            if (s.val == null) return null;
+                            var color = sc(s.pct || 0, 75, 50);
+                            return (
+                              <div key={s.label} style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, background: "var(--bg-card)", borderLeft: "3px solid " + color }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                                  <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700 }}>{s.label}</span>
+                                  <span style={{ color: color, fontSize: 14, fontWeight: 800 }}>{s.val}/{s.max} <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>({s.pct}%)</span></span>
+                                </div>
+                                <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 5, overflow: "hidden", marginBottom: 5 }}>
+                                  <div style={{ width: (s.pct || 0) + "%", height: "100%", borderRadius: 3, background: color }} />
+                                </div>
+                                <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>{s.what}</div>
+                              </div>
+                            );
+                          })}
+
+                          {/* Financials */}
+                          {(t.total_collected != null || t.total_cost != null || t.gross_profit != null || t.payment_method) && (
+                            <div style={{ marginTop: 14, padding: 10, background: "var(--bg-card)", borderRadius: 6 }}>
+                              <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>Ticket Financials</div>
+                              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
+                                {t.total_collected != null && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Total Collected</div><div style={{ fontSize: 13, fontWeight: 700, color: "#00D4FF" }}>{fmt(t.total_collected)}</div></div>
+                                )}
+                                {t.total_cost != null && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Cost of Parts</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>{fmt(t.total_cost)}</div></div>
+                                )}
+                                {t.gross_profit != null && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Gross Profit</div><div style={{ fontSize: 13, fontWeight: 700, color: "#4ADE80" }}>{fmt(t.gross_profit)}</div></div>
+                                )}
+                                {t.discount_amount > 0 && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Discount</div><div style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24" }}>-{fmt(t.discount_amount)}</div></div>
+                                )}
+                                {t.payment_method && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Payment Method</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{t.payment_method}</div></div>
+                                )}
+                                {t.turnaround_hours > 0 && (
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Turnaround</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{t.turnaround_hours}h</div></div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
+                            <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", textDecoration: "none" }}>Open ticket #{t.ticket_number} in RepairQ \u2197</a>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1596,71 +1780,217 @@ export default function MyPerformanceTab({ auth, store }) {
         <div>
           {callStats ? (
             <div>
-              {/* Call summary cards */}
+              {/* Call summary cards — denominators clearly labeled */}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
-                <div style={card}>
+                <div style={{ ...card, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 12, right: 12 }}>
+                    <MetricTooltip title="Calls Audited"
+                      what="Total inbound calls you took in the last 30 days that were scored by the AI auditor."
+                      source="Dialpad transcripts run through the AI audit pipeline. Excludes inter-store calls, vendor calls, hangups, and other non-scorable audio."
+                      howTo="Pick up the phone — every call you take is a chance to score." />
+                  </div>
                   <div style={metricLabel}>Calls Audited</div>
                   <div style={{ ...metricBig, fontSize: 28, color: "var(--text-primary)" }}>{callStats.total}</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>Last 30 days</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                    {callStats.oppCalls} opportunity &middot; {callStats.ccCalls} repeat customer
+                  </div>
                 </div>
-                <div style={card}>
+                <div style={{ ...card, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 12, right: 12 }}>
+                    <MetricTooltip title="Avg Audit Score"
+                      what="Your average score across all audited calls, on a 0–100 scale."
+                      source="Each call gets scored against its rubric (opportunity calls: 4 criteria, repeat customer calls: 4 different criteria). Score is converted to a percentage."
+                      howTo="Both rubrics are graded fairly — opportunity calls reward sales effort (offer the appointment, mention the warranty), repeat customer calls reward service quality (clear status, ETA, professionalism)." />
+                  </div>
                   <div style={metricLabel}>Avg Audit Score</div>
                   <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.avgScore, 80, 60) }}>{callStats.avgScore}</div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>across both call types</div>
                 </div>
-                <div style={card}>
+                <div style={{ ...card, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 12, right: 12 }}>
+                    <MetricTooltip title="Appointment Offered"
+                      what="Percentage of opportunity calls (new customers asking about a repair) where you offered to schedule them an appointment."
+                      source={"Calculated only on " + callStats.oppCalls + " opportunity calls. Repeat customer calls are excluded since the appointment criterion doesn't apply to them."}
+                      howTo="On every call where someone's asking about a NEW repair, end with: 'Want me to book you in today? I have an opening at [time].' One sentence, every time." />
+                  </div>
                   <div style={metricLabel}>Appt Offered</div>
-                  <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.apptOfferedRate, 80, 50) }}>{callStats.apptOfferedRate}%</div>
-                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>of opportunity calls</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: callStats.apptOfferedRate == null ? "var(--text-muted)" : sc(callStats.apptOfferedRate, 80, 50) }}>
+                    {callStats.apptOfferedRate == null ? "\u2014" : callStats.apptOfferedRate + "%"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                    {callStats.oppCalls > 0 ? "of " + callStats.oppCalls + " opportunity calls" : "no opportunity calls yet"}
+                  </div>
                 </div>
-                <div style={card}>
+                <div style={{ ...card, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 12, right: 12 }}>
+                    <MetricTooltip title="Warranty Mentioned"
+                      what="Percentage of opportunity calls where you mentioned CPR's lifetime warranty."
+                      source={"Calculated only on " + callStats.oppCalls + " opportunity calls."}
+                      howTo="Add this line after every quote: 'And our repair carries a lifetime warranty on the part — if anything goes wrong, bring it back, no charge.' Converts skeptics, every time." />
+                  </div>
                   <div style={metricLabel}>Warranty Mentioned</div>
-                  <div style={{ ...metricBig, fontSize: 28, color: sc(callStats.warrantyRate, 80, 50) }}>{callStats.warrantyRate}%</div>
+                  <div style={{ ...metricBig, fontSize: 28, color: callStats.warrantyRate == null ? "var(--text-muted)" : sc(callStats.warrantyRate, 70, 40) }}>
+                    {callStats.warrantyRate == null ? "\u2014" : callStats.warrantyRate + "%"}
+                  </div>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                    {callStats.oppCalls > 0 ? "of " + callStats.oppCalls + " opportunity calls" : "no opportunity calls yet"}
+                  </div>
                 </div>
               </div>
 
-              {/* Call criteria breakdown */}
-              <div style={{ ...card, marginBottom: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Call Quality Breakdown</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {[
-                    { label: "Pricing Given", rate: callStats.pricingRate, target: 90, tip: "Quote a price range on every call" },
-                    { label: "Turnaround Given", rate: callStats.turnaroundRate, target: 90, tip: "Tell them how long the repair takes" },
-                    { label: "Appointment Offered", rate: callStats.apptOfferedRate, target: 80, tip: "Ask to book an appointment" },
-                    { label: "Warranty Mentioned", rate: callStats.warrantyRate, target: 70, tip: "Mention your repair warranty" },
-                  ].map(function(item) {
-                    var color = sc(item.rate, item.target - 10, item.target - 30);
-                    return (
-                      <div key={item.label} style={cardInner}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                          <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{item.label}</span>
-                          <span style={{ color: color, fontSize: 18, fontWeight: 800 }}>{item.rate}%</span>
+              {/* Opportunity calls breakdown */}
+              {callStats.oppCalls > 0 && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{"\uD83D\uDCDE"} Opportunity Call Rubric</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>For new customers asking about a repair ({callStats.oppCalls} calls)</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {[
+                      { label: "Appointment Offered", rate: callStats.apptOfferedRate, target: 80, tip: "Offer to schedule on every call: 'Want me to book you in today?'" },
+                      { label: "Discount for Scheduling", rate: callStats.discountRate, target: 60, tip: "Mention any deal/discount tied to booking the appointment" },
+                      { label: "Lifetime Warranty Mentioned", rate: callStats.warrantyRate, target: 70, tip: "Reference 'lifetime warranty' or 'warranty for life' explicitly" },
+                      { label: "Faster w/ Appointment", rate: callStats.fasterTurnaroundRate, target: 60, tip: "Tell them booking = priority service: 'we can have it ready faster if you schedule'" },
+                    ].map(function(item) {
+                      var color = sc(item.rate || 0, item.target - 10, item.target - 30);
+                      return (
+                        <div key={item.label} style={cardInner}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{item.label}</span>
+                            <span style={{ color: color, fontSize: 18, fontWeight: 800 }}>{item.rate == null ? "\u2014" : item.rate + "%"}</span>
+                          </div>
+                          <div style={{ background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 6 }}>
+                            <div style={{ width: (item.rate || 0) + "%", height: "100%", borderRadius: 4, background: color }} />
+                          </div>
+                          {(item.rate || 0) < item.target && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.tip}</div>}
                         </div>
-                        <div style={{ background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 6 }}>
-                          <div style={{ width: item.rate + "%", height: "100%", borderRadius: 4, background: color }} />
-                        </div>
-                        {item.rate < item.target && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.tip}</div>}
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              )}
 
-              {/* Recent audits */}
+              {/* Current customer calls breakdown */}
+              {callStats.ccCalls > 0 && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{"\uD83D\uDD04"} Repeat Customer Call Rubric</div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>For customers calling about an existing repair ({callStats.ccCalls} calls)</div>
+                    </div>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {[
+                      { label: "Clear Status Update", rate: callStats.statusRate, target: 85, tip: "Don't say 'let me check' — actually communicate where the repair stands" },
+                      { label: "ETA Communicated", rate: callStats.etaRate, target: 80, tip: "Give a specific time: 'about an hour' or 'ready by 3pm', not 'soon'" },
+                      { label: "Professional & Empathetic", rate: callStats.professionalRate, target: 90, tip: "Patient and courteous, even if the customer is frustrated" },
+                      { label: "Next Steps Explained", rate: callStats.nextStepsRate, target: 85, tip: "Tell them what happens next: 'We'll call when ready' or 'Come in after 3pm'" },
+                    ].map(function(item) {
+                      var color = sc(item.rate || 0, item.target - 10, item.target - 30);
+                      return (
+                        <div key={item.label} style={cardInner}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{item.label}</span>
+                            <span style={{ color: color, fontSize: 18, fontWeight: 800 }}>{item.rate == null ? "\u2014" : item.rate + "%"}</span>
+                          </div>
+                          <div style={{ background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden", marginBottom: 6 }}>
+                            <div style={{ width: (item.rate || 0) + "%", height: "100%", borderRadius: 4, background: color }} />
+                          </div>
+                          {(item.rate || 0) < item.target && <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{item.tip}</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Recent audits — click to expand */}
               <div style={card}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 16 }}>Recent Call Audits</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>Recent Call Audits</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>Click any call to see the AI's per-criterion notes — exactly where points were earned or lost.</div>
                 {callStats.recent.map(function(audit, i) {
                   var asc = sc(audit.overall_score || 0, 80, 60);
+                  var isExpanded = expandedCall === (audit.call_id || i);
+                  var isOpp = audit.call_type === "opportunity";
+                  var isCC = audit.call_type === "current_customer";
+
                   return (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ color: "var(--text-primary)", fontSize: 13 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</div>
-                        <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
-                          {audit.date ? new Date(audit.date).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
-                          {audit.call_type ? " \u00B7 " + audit.call_type : ""}
-                          {audit.appointment_offered ? " \u00B7 Appt offered" : ""}
+                    <div key={audit.call_id || i} data-call-anchor={audit.call_id || ""} style={{ borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none" }}>
+                      <div onClick={function(){ setExpandedCall(isExpanded ? null : (audit.call_id || i)); }}
+                        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: "pointer" }}>
+                        <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
+                          <span style={{ fontSize: 11, color: "var(--text-muted)", width: 12 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>
+                          <div>
+                            <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</div>
+                            <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
+                              {audit.date_started ? new Date(audit.date_started).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
+                              {audit.call_type ? " \u00B7 " + (isOpp ? "Opportunity" : isCC ? "Repeat Customer" : audit.call_type) : ""}
+                              {audit.device_type && audit.device_type !== "Not mentioned" ? " \u00B7 " + audit.device_type : ""}
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ padding: "4px 10px", borderRadius: 6, background: asc + "18", color: asc, fontSize: 14, fontWeight: 800 }}>
+                          {audit.overall_score || 0}
                         </div>
                       </div>
-                      <div style={{ padding: "4px 10px", borderRadius: 6, background: asc + "18", color: asc, fontSize: 14, fontWeight: 800 }}>{audit.overall_score || 0}</div>
+
+                      {/* Expanded detail */}
+                      {isExpanded && (
+                        <div style={{ padding: "12px 22px 16px", background: "var(--bg-card-inner)", borderRadius: 8, marginBottom: 8 }}>
+                          {audit.inquiry && (
+                            <div style={{ marginBottom: 10 }}>
+                              <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Inquiry</div>
+                              <div style={{ fontSize: 12, color: "var(--text-body)" }}>{audit.inquiry}</div>
+                            </div>
+                          )}
+                          {audit.outcome && (
+                            <div style={{ marginBottom: 10 }}>
+                              <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 3 }}>Outcome</div>
+                              <div style={{ fontSize: 12, color: "var(--text-body)" }}>{audit.outcome}</div>
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>Scoring Criteria</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 6 }}>
+                            {(isOpp ? [
+                              { label: "Appointment Offered", passed: audit.appt_offered, notes: audit.appt_notes },
+                              { label: "Discount for Scheduling", passed: audit.discount_mentioned, notes: audit.discount_notes },
+                              { label: "Lifetime Warranty Mentioned", passed: audit.warranty_mentioned, notes: audit.warranty_notes },
+                              { label: "Faster w/ Appointment", passed: audit.faster_turnaround, notes: audit.turnaround_notes },
+                            ] : isCC ? [
+                              { label: "Clear Status Update", passed: audit.status_update_given, notes: audit.status_notes },
+                              { label: "ETA Communicated", passed: audit.eta_communicated, notes: audit.eta_notes },
+                              { label: "Professional & Empathetic", passed: audit.professional_tone, notes: audit.tone_notes },
+                              { label: "Next Steps Explained", passed: audit.next_steps_explained, notes: audit.next_steps_notes },
+                            ] : []).map(function(crit, ci) {
+                              return (
+                                <div key={ci} style={{
+                                  padding: "8px 12px", borderRadius: 6,
+                                  background: crit.passed ? "#4ADE8010" : "#F8717110",
+                                  borderLeft: "3px solid " + (crit.passed ? "#4ADE80" : "#F87171"),
+                                }}>
+                                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+                                    <span style={{ fontSize: 14, color: crit.passed ? "#4ADE80" : "#F87171", fontWeight: 800 }}>{crit.passed ? "\u2713" : "\u2715"}</span>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{crit.label}</div>
+                                      {crit.notes && <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4, fontStyle: "italic" }}>"{crit.notes}"</div>}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {audit.confidence != null && (
+                            <div style={{ marginTop: 12, padding: 8, background: "var(--bg-card)", borderRadius: 6, fontSize: 11, color: "var(--text-muted)" }}>
+                              <strong>Confidence:</strong> {audit.confidence}/100
+                              {audit.confidence_reason && <span> &mdash; {audit.confidence_reason}</span>}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1858,7 +2188,71 @@ export default function MyPerformanceTab({ auth, store }) {
             {coachingInsight && (
               <div style={{ ...cardInner, borderLeft: "3px solid #7B2FFF" }}>
                 <div style={{ fontSize: 10, color: "#7B2FFF", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Your Personalized Coaching Plan</div>
-                <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.8, whiteSpace: "pre-wrap" }}>{coachingInsight}</div>
+                <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.75 }}>
+                  {(function() {
+                    // Inline parser for **bold** and [text](url) links.
+                    // Internal links use #call:CALL_ID — clicking jumps to My Calls and expands.
+                    function inline(str, lineKey) {
+                      var nodes = [];
+                      var rest = str;
+                      var i = 0;
+                      while (rest.length > 0) {
+                        var linkM = rest.match(/^\[([^\]]+)\]\(([^)]+)\)/);
+                        var boldM = !linkM ? rest.match(/^\*\*([^*]+)\*\*/) : null;
+                        if (linkM) {
+                          var label = linkM[1], target = linkM[2];
+                          if (target.indexOf("#call:") === 0) {
+                            var callId = target.substring(6);
+                            nodes.push(
+                              <button key={lineKey + "-" + (i++)}
+                                onClick={function(){ setSubTab("calls"); setExpandedCall(callId); setTimeout(function(){
+                                  var el = document.querySelector("[data-call-anchor='" + callId + "']");
+                                  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                }, 150); }}
+                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #00D4FF55", background: "#00D4FF14", color: "#00D4FF", fontSize: 12, fontWeight: 700, cursor: "pointer", margin: "0 1px" }}>
+                                {"\uD83D\uDCDE "}{label}
+                              </button>
+                            );
+                          } else {
+                            nodes.push(
+                              <a key={lineKey + "-" + (i++)} href={target} target="_blank" rel="noopener"
+                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #FBBF2455", background: "#FBBF2414", color: "#FBBF24", fontSize: 12, fontWeight: 700, textDecoration: "none", margin: "0 1px" }}>
+                                {"\uD83C\uDFAB "}{label}{" \u2197"}
+                              </a>
+                            );
+                          }
+                          rest = rest.substring(linkM[0].length);
+                        } else if (boldM) {
+                          nodes.push(<strong key={lineKey + "-" + (i++)} style={{ color: "var(--text-primary)" }}>{boldM[1]}</strong>);
+                          rest = rest.substring(boldM[0].length);
+                        } else {
+                          // Take everything up to the next [ or **
+                          var nextSpecial = rest.search(/\[|\*\*/);
+                          if (nextSpecial < 0) { nodes.push(<span key={lineKey + "-" + (i++)}>{rest}</span>); break; }
+                          if (nextSpecial === 0) { nodes.push(<span key={lineKey + "-" + (i++)}>{rest.charAt(0)}</span>); rest = rest.substring(1); }
+                          else { nodes.push(<span key={lineKey + "-" + (i++)}>{rest.substring(0, nextSpecial)}</span>); rest = rest.substring(nextSpecial); }
+                        }
+                      }
+                      return nodes;
+                    }
+
+                    var lines = String(coachingInsight).split("\n");
+                    return lines.map(function(line, idx) {
+                      var trimmed = line.trim();
+                      if (!trimmed) return <div key={"l" + idx} style={{ height: 8 }} />;
+                      if (trimmed.indexOf("## ") === 0) {
+                        return <div key={"l" + idx} style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", marginTop: 14, marginBottom: 6 }}>{inline(trimmed.substring(3), "l" + idx)}</div>;
+                      }
+                      if (trimmed.indexOf("# ") === 0) {
+                        return <div key={"l" + idx} style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)", marginTop: 12, marginBottom: 6 }}>{inline(trimmed.substring(2), "l" + idx)}</div>;
+                      }
+                      return <div key={"l" + idx} style={{ marginBottom: 4 }}>{inline(line, "l" + idx)}</div>;
+                    });
+                  })()}
+                </div>
+                <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid var(--border)", fontSize: 10, color: "var(--text-muted)" }}>
+                  {"\uD83D\uDCA1"} Click any <span style={{ color: "#00D4FF", fontWeight: 700 }}>📞 Call</span> link to jump to that audit on the My Calls tab. <span style={{ color: "#FBBF24", fontWeight: 700 }}>🎫 Ticket</span> links open RepairQ.
+                </div>
               </div>
             )}
 
