@@ -4,11 +4,37 @@ import { useState, useEffect, useMemo } from "react";
 
 var LEVEL_THRESHOLDS = [
   { name: "Bronze", min: 0, color: "#CD7F32", icon: "\uD83E\uDD49" },
-  { name: "Silver", min: 30, color: "#C0C0C0", icon: "\uD83E\uDD48" },
-  { name: "Gold", min: 50, color: "#FFD700", icon: "\uD83E\uDD47" },
+  { name: "Silver", min: 40, color: "#C0C0C0", icon: "\uD83E\uDD48" },
+  { name: "Gold", min: 55, color: "#FFD700", icon: "\uD83E\uDD47" },
   { name: "Platinum", min: 70, color: "#E0B0FF", icon: "\uD83D\uDC8E" },
-  { name: "Diamond", min: 90, color: "#00D4FF", icon: "\u2B50" },
+  { name: "Diamond", min: 85, color: "#00D4FF", icon: "\u2B50" },
 ];
+
+// ── Tier-based commission multipliers + Diamond PTO benefit ──
+// Defaults below; can be overridden via commission_config table keys:
+//   tier_gold_multiplier, tier_platinum_multiplier, tier_diamond_multiplier, tier_diamond_pto_per_month
+var TIER_DEFAULTS = {
+  Bronze:   { multiplier: 1.00, ptoPerMonth: 0 },
+  Silver:   { multiplier: 1.00, ptoPerMonth: 0 },
+  Gold:     { multiplier: 1.25, ptoPerMonth: 0 },
+  Platinum: { multiplier: 1.50, ptoPerMonth: 0 },
+  Diamond:  { multiplier: 1.50, ptoPerMonth: 1 },
+};
+
+function getTierBenefits(score, rates) {
+  var lvl = getLevel(score || 0);
+  var def = TIER_DEFAULTS[lvl.name] || TIER_DEFAULTS.Bronze;
+  rates = rates || {};
+  var mKey = "tier_" + lvl.name.toLowerCase() + "_multiplier";
+  var pKey = "tier_" + lvl.name.toLowerCase() + "_pto_per_month";
+  return {
+    tier: lvl.name,
+    color: lvl.color,
+    icon: lvl.icon,
+    multiplier: rates[mKey] != null ? rates[mKey] : def.multiplier,
+    ptoPerMonth: rates[pKey] != null ? rates[pKey] : def.ptoPerMonth,
+  };
+}
 
 function getLevel(score) {
   for (var i = LEVEL_THRESHOLDS.length - 1; i >= 0; i--) {
@@ -268,7 +294,7 @@ export default function MyPerformanceTab({ auth, store }) {
 
   // ═══ COMPUTED DATA ═══
 
-  // Commission calculation (mirrors SalesTab logic)
+  // Commission calculation (mirrors SalesTab logic) — now with tier multiplier
   var commission = useMemo(function() {
     if (!salesData || !empName) return null;
     var rates = commConfig.rates || {};
@@ -300,8 +326,14 @@ export default function MyPerformanceTab({ auth, store }) {
     var commAccy = isEnabled("accessory_gp_rate") ? accyGP * (rates.accessory_gp_rate || 0.15) : 0;
     var commClean = isEnabled("cleaning_rate") ? cleanTotal * (rates.cleaning_rate || 0.10) : 0;
     var commCS = isEnabled("cleaning_sales_rate") ? csDiscounted * (rates.cleaning_sales_rate || 0.10) : 0;
-    var total = commPhone + commOther + commAccy + commClean + commCS;
+    var baseTotal = commPhone + commOther + commAccy + commClean + commCS;
     var hasData = phoneTickets > 0 || otherCount > 0 || accyCount > 0 || cleanCount > 0 || csDiscounted > 0;
+
+    // Tier multiplier — derived from current overall scorecard score
+    var currentScore = empScore?.overall || 0;
+    var tierInfo = getTierBenefits(currentScore, rates);
+    var tierBonus = baseTotal * (tierInfo.multiplier - 1);
+    var totalWithTier = baseTotal * tierInfo.multiplier;
 
     return {
       phoneTickets: phoneTickets, phoneTotal: phoneTotal, commPhone: commPhone,
@@ -309,10 +341,14 @@ export default function MyPerformanceTab({ auth, store }) {
       accyGP: accyGP, accyCount: accyCount, commAccy: commAccy,
       cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean,
       csDiscounted: csDiscounted, commCS: commCS,
-      total: total, totalRevenue: phoneTotal + otherTotal + accyGP + cleanTotal + csDiscounted,
+      baseTotal: baseTotal,
+      tier: tierInfo.tier, tierMultiplier: tierInfo.multiplier, tierBonus: tierBonus,
+      tierColor: tierInfo.color, tierIcon: tierInfo.icon, ptoPerMonth: tierInfo.ptoPerMonth,
+      total: totalWithTier, // Keep `total` as the headline number — now includes multiplier
+      totalRevenue: phoneTotal + otherTotal + accyGP + cleanTotal + csDiscounted,
       rates: rates, hasData: hasData,
     };
-  }, [salesData, commConfig, empName]);
+  }, [salesData, commConfig, empName, empScore]);
 
   // Shifts this month
   var monthShifts = useMemo(function() {
@@ -659,12 +695,15 @@ export default function MyPerformanceTab({ auth, store }) {
             <div style={{ ...cardInner, position: "relative" }}>
               <div style={{ position: "absolute", top: 8, right: 8 }}>
                 <MetricTooltip title="Commission Estimate"
-                  what="Estimated commission earnings this month, before tier multiplier. Final paycheck commission is calculated on payday by your manager."
-                  source="Calculated from your repair count, accessory GP, cleanings, and other sales using the configured commission rates."
-                  howTo="See the Paycheck tab for a full breakdown by category and the What-If Projector to see how more repairs or accessory sales grow your check." />
+                  what="Estimated commission earnings this month, with your tier multiplier already applied. Final paycheck commission is calculated on payday by your manager."
+                  source="Calculated from your repair count, accessory GP, cleanings, and other sales using the configured commission rates, then multiplied by your current tier (Gold 1.25x / Platinum 1.50x / Diamond 1.50x)."
+                  howTo="See the Paycheck tab for a full breakdown by category, the tier bonus line, and the What-If Projector showing annual impact." />
               </div>
               <div style={metricLabel}>Commission (est.)</div>
               <div style={{ ...metricBig, fontSize: 22, color: "#FBBF24" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
+              {commission && commission.hasData && commission.tierMultiplier > 1 && (
+                <div style={{ fontSize: 10, color: commission.tierColor, fontWeight: 700, marginTop: 2 }}>{commission.tierMultiplier}x {commission.tier} tier</div>
+              )}
             </div>
           </div>
 
@@ -811,16 +850,59 @@ export default function MyPerformanceTab({ auth, store }) {
       {subTab === "paycheck" && (
         <div>
           <div style={{ ...card, marginBottom: 20 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Estimated Commission This Period</div>
                 <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
+                {commission && commission.hasData && commission.tierMultiplier > 1 && (
+                  <div style={{ fontSize: 11, color: "#4ADE80", fontWeight: 700, marginTop: 4 }}>
+                    {"\u2728"} Includes {commission.tierMultiplier}x {commission.tier} multiplier (+{fmt(commission.tierBonus)})
+                  </div>
+                )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Revenue Generated</div>
                 <div style={{ fontSize: 24, fontWeight: 700, color: "#00D4FF" }}>{commission ? fmt(commission.totalRevenue) : "$0.00"}</div>
               </div>
             </div>
+
+            {/* Tier status callout — shows the multiplier they're earning + path to next tier */}
+            {commission && commission.hasData && (
+              <div style={{
+                padding: 16, borderRadius: 12, marginBottom: 20,
+                background: "linear-gradient(135deg, " + commission.tierColor + "12, " + commission.tierColor + "06)",
+                border: "1px solid " + commission.tierColor + "40",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ fontSize: 32 }}>{commission.tierIcon}</div>
+                    <div>
+                      <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", fontWeight: 700 }}>Current Tier</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, color: commission.tierColor }}>{commission.tier} Level</div>
+                      <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                        Score: {Math.round(empScore?.overall || 0)} pts &middot; Multiplier: <strong style={{ color: commission.tierColor }}>{commission.tierMultiplier}x</strong>
+                        {commission.ptoPerMonth > 0 && <span style={{ color: "#00D4FF", fontWeight: 700 }}> &middot; +{commission.ptoPerMonth} PTO day/mo</span>}
+                      </div>
+                    </div>
+                  </div>
+                  {nextLevel && (
+                    <div style={{ textAlign: "right", minWidth: 200 }}>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 2 }}>Next: {nextLevel.icon} {nextLevel.name}</div>
+                      {(function() {
+                        var nextMult = (TIER_DEFAULTS[nextLevel.name] || {}).multiplier || 1;
+                        var deltaPerMonth = commission.baseTotal * (nextMult - commission.tierMultiplier);
+                        return (
+                          <div>
+                            <div style={{ fontSize: 16, fontWeight: 800, color: nextLevel.color }}>+{fmt(deltaPerMonth)}/mo</div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{nextLevel.min - (empScore?.overall || 0)} pts to {nextLevel.name} ({nextMult}x)</div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Commission breakdown */}
             {commission && commission.hasData && (
@@ -840,7 +922,7 @@ export default function MyPerformanceTab({ auth, store }) {
                       { cat: "Other Repairs", qty: commission.otherCount, rev: commission.otherTotal, rate: fmt(commission.rates.other_repair_rate || 2.5) + "/ea", comm: commission.commOther },
                       { cat: "Accessory GP", qty: commission.accyCount, rev: commission.accyGP, rate: Math.round((commission.rates.accessory_gp_rate || 0.15) * 100) + "%", comm: commission.commAccy },
                       { cat: "Cleanings", qty: commission.cleanCount, rev: commission.cleanTotal, rate: Math.round((commission.rates.cleaning_rate || 0.10) * 100) + "%", comm: commission.commClean },
-                      { cat: "CLN Sales", qty: "—", rev: commission.csDiscounted, rate: Math.round((commission.rates.cleaning_sales_rate || 0.10) * 100) + "%", comm: commission.commCS },
+                      { cat: "CLN Sales", qty: "\u2014", rev: commission.csDiscounted, rate: Math.round((commission.rates.cleaning_sales_rate || 0.10) * 100) + "%", comm: commission.commCS },
                     ].map(function(row) {
                       return (
                         <tr key={row.cat} style={{ borderBottom: "1px solid var(--border)" }}>
@@ -852,6 +934,25 @@ export default function MyPerformanceTab({ auth, store }) {
                         </tr>
                       );
                     })}
+                    <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                      <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600 }}>Base Commission</td>
+                      <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-secondary)", fontSize: 14, fontWeight: 700 }}>{fmt(commission.baseTotal)}</td>
+                    </tr>
+                    {commission.tierMultiplier > 1 ? (
+                      <tr style={{ borderBottom: "1px solid var(--border)", background: commission.tierColor + "08" }}>
+                        <td colSpan={4} style={{ padding: "10px 12px", color: commission.tierColor, fontSize: 13, fontWeight: 700 }}>
+                          {commission.tierIcon} {commission.tier} Tier Bonus ({commission.tierMultiplier}x multiplier)
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: commission.tierColor, fontSize: 14, fontWeight: 800 }}>+{fmt(commission.tierBonus)}</td>
+                      </tr>
+                    ) : (
+                      <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                        <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12, fontStyle: "italic" }}>
+                          {"\uD83D\uDD12"} Tier multiplier unlocks at Gold (55+ pts) &mdash; {Math.max(0, 55 - (empScore?.overall || 0))} pts to go
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-muted)", fontSize: 13 }}>$0.00</td>
+                      </tr>
+                    )}
                     <tr style={{ background: "var(--bg-card-inner)" }}>
                       <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>Total Commission</td>
                       <td style={{ padding: "12px", textAlign: "right", color: "#FBBF24", fontSize: 18, fontWeight: 900 }}>{fmt(commission.total)}</td>
@@ -868,26 +969,73 @@ export default function MyPerformanceTab({ auth, store }) {
             )}
           </div>
 
-          {/* Commission Projector */}
+          {/* Annual Tier Earnings Projection — the headline view */}
           {commission && commission.hasData && (
             <div style={{ ...card, marginBottom: 20 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>{"\uD83D\uDCC8"} What If? Commission Projector</div>
-              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>See how additional repairs and sales would grow your paycheck</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>{"\uD83D\uDCB0"} Annual Earnings by Tier</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>What sustaining each tier all year is worth — based on your current monthly base of {fmt(commission.baseTotal)}</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
                 {[
-                  { label: "+3 Phone Repairs", extra: 3 * (commission.rates.phone_repair_standard || 1), detail: "3 more repairs this week" },
-                  { label: "+5 Phone Repairs", extra: 5 * (commission.rates.phone_repair_standard || 1), detail: "Push to 5 more" },
-                  { label: "+$100 Accessory GP", extra: 100 * (commission.rates.accessory_gp_rate || 0.15), detail: "Upsell cases + screen protectors" },
-                  { label: "+5 Cleanings", extra: 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "5 cleanings at $25 avg" },
-                  { label: "+10 Phone Repairs", extra: 10 * (commission.rates.phone_repair_standard || 1), detail: "Strong push to month end" },
-                  { label: "All of the above", extra: 10 * (commission.rates.phone_repair_standard || 1) + 100 * (commission.rates.accessory_gp_rate || 0.15) + 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "Maximum effort scenario" },
+                  { tier: "Silver", color: "#C0C0C0", icon: "\uD83E\uDD48", note: "Base rate (no multiplier)" },
+                  { tier: "Gold", color: "#FFD700", icon: "\uD83E\uDD47", note: "1.25x multiplier" },
+                  { tier: "Platinum", color: "#E0B0FF", icon: "\uD83D\uDC8E", note: "1.50x multiplier" },
+                  { tier: "Diamond", color: "#00D4FF", icon: "\u2B50", note: "1.50x + 12 PTO days/yr" },
+                ].map(function(t) {
+                  var def = TIER_DEFAULTS[t.tier];
+                  var monthly = commission.baseTotal * def.multiplier;
+                  var annual = monthly * 12;
+                  var deltaVsBase = (commission.baseTotal * def.multiplier - commission.baseTotal) * 12;
+                  var isCurrent = commission.tier === t.tier;
+                  return (
+                    <div key={t.tier} style={{
+                      ...cardInner, position: "relative",
+                      border: isCurrent ? "2px solid " + t.color : "1px solid var(--border)",
+                      background: isCurrent ? t.color + "10" : "var(--bg-card-inner)",
+                    }}>
+                      {isCurrent && <div style={{ position: "absolute", top: -8, left: 12, background: t.color, color: "#000", fontSize: 9, fontWeight: 800, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase" }}>You are here</div>}
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                        <span style={{ fontSize: 18 }}>{t.icon}</span>
+                        <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{t.tier}</span>
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#FBBF24" }}>{fmt(annual)}</div>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>per year &middot; {fmt(monthly)}/mo</div>
+                      {deltaVsBase > 0 && (
+                        <div style={{ fontSize: 10, color: "#4ADE80", fontWeight: 700, marginTop: 6 }}>+{fmt(deltaVsBase)}/yr vs. Silver</div>
+                      )}
+                      <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4, fontStyle: "italic" }}>{t.note}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div style={{ marginTop: 16, padding: 12, background: "#7B2FFF08", borderRadius: 8, border: "1px solid #7B2FFF22", fontSize: 11, color: "var(--text-body)", lineHeight: 1.5 }}>
+                {"\uD83D\uDCA1"} <strong style={{ color: "#7B2FFF" }}>Streak bonuses on top:</strong> 3 consecutive months at Gold or higher = <strong>$100 cash</strong>. 3 consecutive at Platinum or higher = <strong>1 PTO day</strong>. 6 Diamond months in a calendar year = <strong>permanent wall plaque</strong>.
+              </div>
+            </div>
+          )}
+
+          {/* What If? Commission Projector — annual framing */}
+          {commission && commission.hasData && (
+            <div style={{ ...card, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>{"\uD83D\uDCC8"} What If? Commission Projector</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>Annual impact of pushing your numbers up &mdash; multiplier baked in at your current {commission.tierMultiplier}x tier</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
+                {[
+                  { label: "+3 Phone Repairs / wk", weeklyExtra: 3 * (commission.rates.phone_repair_standard || 1), detail: "About 12 more repairs a month" },
+                  { label: "+5 Phone Repairs / wk", weeklyExtra: 5 * (commission.rates.phone_repair_standard || 1), detail: "Push to 5 more per week" },
+                  { label: "+$100 Accessory GP / wk", weeklyExtra: 100 * (commission.rates.accessory_gp_rate || 0.15), detail: "Upsell cases + screen protectors" },
+                  { label: "+5 Cleanings / wk", weeklyExtra: 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "5 cleanings at $25 avg" },
+                  { label: "+10 Phone Repairs / wk", weeklyExtra: 10 * (commission.rates.phone_repair_standard || 1), detail: "Strong push" },
+                  { label: "All of the above", weeklyExtra: 10 * (commission.rates.phone_repair_standard || 1) + 100 * (commission.rates.accessory_gp_rate || 0.15) + 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "Maximum effort scenario" },
                 ].map(function(scenario) {
-                  var projected = commission.total + scenario.extra;
+                  // Scale weekly extra to annual, apply tier multiplier
+                  var annualExtra = scenario.weeklyExtra * 52 * commission.tierMultiplier;
+                  var weeklyExtraWithMult = scenario.weeklyExtra * commission.tierMultiplier;
                   return (
                     <div key={scenario.label} style={cardInner}>
                       <div style={{ fontSize: 11, color: "#7B2FFF", fontWeight: 700, marginBottom: 4 }}>{scenario.label}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, color: "#FBBF24" }}>{fmt(projected)}</div>
-                      <div style={{ fontSize: 10, color: "#4ADE80", marginTop: 2 }}>+{fmt(scenario.extra)}</div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "#FBBF24" }}>+{fmt(annualExtra)}</div>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>per year</div>
+                      <div style={{ fontSize: 10, color: "#4ADE80", marginTop: 6, fontWeight: 700 }}>+{fmt(weeklyExtraWithMult)}/wk &middot; +{fmt(weeklyExtraWithMult * 4.33)}/mo</div>
                       <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>{scenario.detail}</div>
                     </div>
                   );
