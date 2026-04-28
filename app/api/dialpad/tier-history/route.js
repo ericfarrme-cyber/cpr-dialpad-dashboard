@@ -333,7 +333,45 @@ export async function GET(request) {
     return NextResponse.json({ success: true, history: hist || [] });
   }
 
-  return NextResponse.json({ success: false, error: "Invalid action. Use: streaks, celebration_queue, history" });
+  // ── Browser-friendly snapshot/backfill triggers (no curl needed) ──
+  // These mirror the POST actions so admins can hit them from a URL bar.
+  // Protected by SECRET param matching CRON_SECRET env var if set.
+  var origin = new URL(request.url).origin;
+  function checkSecret() {
+    var expected = process.env.CRON_SECRET;
+    if (!expected) return true; // No secret configured = open
+    return searchParams.get("secret") === expected;
+  }
+
+  if (action === "snapshot_current_month") {
+    if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
+    var cur = currentPeriod();
+    var rCur = await snapshotPeriod(cur, { origin: origin });
+    return NextResponse.json(rCur);
+  }
+
+  if (action === "snapshot") {
+    if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
+    var pParam = searchParams.get("period");
+    if (!pParam) return NextResponse.json({ success: false, error: "period required (YYYY-MM)" });
+    var rPer = await snapshotPeriod(pParam, { origin: origin });
+    return NextResponse.json(rPer);
+  }
+
+  if (action === "backfill") {
+    if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
+    var months = parseInt(searchParams.get("months") || "6");
+    var resultsBf = [];
+    var curBf = currentPeriod();
+    for (var i = 0; i < months; i++) {
+      var p = priorPeriod(curBf, i);
+      var r = await snapshotPeriod(p, { origin: origin });
+      resultsBf.push({ period: p, written: r.written || 0, events: r.events_created || 0, error: r.error || null });
+    }
+    return NextResponse.json({ success: true, periods: resultsBf });
+  }
+
+  return NextResponse.json({ success: false, error: "Invalid action. Use: streaks, celebration_queue, history, snapshot_current_month, snapshot, backfill" });
 }
 
 // ────────────────────────────────────────────────────────────────────────────
