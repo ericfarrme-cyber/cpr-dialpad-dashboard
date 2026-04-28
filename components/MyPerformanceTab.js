@@ -206,6 +206,7 @@ export default function MyPerformanceTab({ auth, store }) {
   var [allEmployees, setAllEmployees] = useState([]);
   var [auditData, setAuditData] = useState([]);
   var [reviewData, setReviewData] = useState(null);
+  var [streakData, setStreakData] = useState(null);
   var [coachingInsight, setCoachingInsight] = useState(null);
   var [coachingLoading, setCoachingLoading] = useState(false);
   var [coachingError, setCoachingError] = useState(null);
@@ -246,6 +247,7 @@ export default function MyPerformanceTab({ auth, store }) {
         // We filter client-side with matchName so we catch "Alyssa", "Parent, Alyssa", etc.
         fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=300&days=30").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -287,6 +289,7 @@ export default function MyPerformanceTab({ auth, store }) {
         setAuditData(mine);
       } else { errors.calls = true; }
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
+      if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
     } catch(e) { console.error("MyPerformanceTab load error:", e); errors.general = true; }
     setLoadErrors(errors);
     setLoading(false);
@@ -1010,6 +1013,86 @@ export default function MyPerformanceTab({ auth, store }) {
               <div style={{ marginTop: 16, padding: 12, background: "#7B2FFF08", borderRadius: 8, border: "1px solid #7B2FFF22", fontSize: 11, color: "var(--text-body)", lineHeight: 1.5 }}>
                 {"\uD83D\uDCA1"} <strong style={{ color: "#7B2FFF" }}>Streak bonuses on top:</strong> 3 consecutive months at Gold or higher = <strong>$100 cash</strong>. 3 consecutive at Platinum or higher = <strong>1 PTO day</strong>. 6 Diamond months in a calendar year = <strong>permanent wall plaque</strong>.
               </div>
+            </div>
+          )}
+
+          {/* Streak Progress — live tracking from tier history */}
+          {streakData && (
+            <div style={{ ...card, marginBottom: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>{"\uD83D\uDD25"} Streak Progress</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>Earn bonuses for consecutive months at Gold, Platinum, or Diamond</div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
+                {[
+                  { name: "Gold", color: "#FFD700", icon: "\uD83E\uDD47", count: streakData.streaks.gold, target: 3, reward: "$100 cash", recurring: true },
+                  { name: "Platinum", color: "#E0B0FF", icon: "\uD83D\uDC8E", count: streakData.streaks.platinum, target: 3, reward: "1 PTO day", recurring: true },
+                  { name: "Diamond Plaque", color: "#00D4FF", icon: "\u2B50", count: streakData.diamond_plaque.diamond_months, target: 6, reward: "Wall plaque", recurring: false, year: streakData.diamond_plaque.this_year },
+                ].map(function(s) {
+                  var progress = Math.min(100, (s.count / s.target) * 100);
+                  var inStreak = s.count % s.target;
+                  var earned = s.recurring ? Math.floor(s.count / s.target) : (s.count >= s.target ? 1 : 0);
+                  var displayCount = s.recurring ? inStreak : s.count;
+                  return (
+                    <div key={s.name} style={{
+                      ...cardInner,
+                      border: "1px solid " + (s.count > 0 ? s.color + "55" : "var(--border)"),
+                      background: s.count >= s.target ? s.color + "10" : "var(--bg-card-inner)",
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 16 }}>{s.icon}</span>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: s.color }}>{s.name}</span>
+                        </div>
+                        {earned > 0 && s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "#4ADE80" }}>{earned}x earned</span>}
+                        {earned > 0 && !s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "#4ADE80" }}>{"\u2705"} Earned</span>}
+                      </div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)" }}>
+                        {s.recurring ? displayCount : s.count} <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>/ {s.target}</span>
+                      </div>
+                      <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                        {s.recurring
+                          ? (inStreak === 0 && s.count > 0 ? "Bonus earned! Keep it going for the next one." : (s.target - displayCount) + " more month" + ((s.target - displayCount) === 1 ? "" : "s") + " for next bonus")
+                          : (s.count >= s.target ? "Plaque earned for " + s.year : (s.target - s.count) + " more Diamond months in " + s.year)}
+                      </div>
+                      <div style={{ marginTop: 8, background: "var(--bg-card)", borderRadius: 4, height: 6, overflow: "hidden" }}>
+                        <div style={{ width: progress + "%", height: "100%", borderRadius: 4, background: s.color, transition: "width 0.3s" }} />
+                      </div>
+                      <div style={{ fontSize: 10, color: s.color, marginTop: 6, fontWeight: 700 }}>Reward: {s.reward}{s.recurring ? " every " + s.target + " months" : ""}</div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Last 6 months tier strip */}
+              {streakData.history && streakData.history.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Last 6 months</div>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {streakData.history.slice(0, 6).reverse().map(function(h, idx) {
+                      var t = TIER_DEFAULTS[h.tier] ? h.tier : "Bronze";
+                      var color = (LEVEL_THRESHOLDS.find(function(L) { return L.name === t; }) || {}).color || "#999";
+                      var icon = (LEVEL_THRESHOLDS.find(function(L) { return L.name === t; }) || {}).icon || "";
+                      var monthLabel = h.period ? new Date(h.period + "-15T12:00:00").toLocaleDateString([], { month: "short", year: "2-digit" }) : "";
+                      return (
+                        <div key={idx} style={{
+                          flex: 1, minWidth: 80, padding: "10px 8px", borderRadius: 8, textAlign: "center",
+                          background: color + "12", border: "1px solid " + color + "33",
+                        }}>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>{monthLabel}</div>
+                          <div style={{ fontSize: 18, marginTop: 2 }}>{icon}</div>
+                          <div style={{ fontSize: 11, fontWeight: 800, color: color, marginTop: 2 }}>{h.tier}</div>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 1 }}>{h.overall_score} pts</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              {(!streakData.history || streakData.history.length === 0) && (
+                <div style={{ padding: 12, background: "var(--bg-card-inner)", borderRadius: 8, fontSize: 11, color: "var(--text-muted)", textAlign: "center" }}>
+                  No tier history yet. Your streak starts building this month.
+                </div>
+              )}
             </div>
           )}
 
