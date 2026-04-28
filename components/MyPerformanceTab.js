@@ -611,7 +611,7 @@ export default function MyPerformanceTab({ auth, store }) {
         lines.push("LOW-SCORING TICKETS — cite using the EXACT markdown link format shown:");
         lowTix.forEach(function(t) {
           var url = "https://cpr.repairq.io/admin/tickets/" + t.ticket_number;
-          lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + t.overall_score + ") " + (t.device || "?") + " | Diag " + (t.diagnostics_score || 0) + "/45, Notes " + (t.notes_score || 0) + "/55, Pmt " + (t.payment_score || 0) + "/25");
+          lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + t.overall_score + ") " + (t.device || "?") + " | Intake " + (t.diagnostics_score || 0) + ", Repair Notes " + (t.notes_score || 0) + ", Pickup " + (t.categorization_score || 0) + ", Payment " + (t.payment_score || 0) + ", Contact " + (t.contact_score || 0) + " (all 0-100)");
         });
       }
 
@@ -1674,11 +1674,13 @@ export default function MyPerformanceTab({ auth, store }) {
                   var scoreColor = sc(t.overall_score || 0, 70, 50);
                   var isExpanded = expandedTicket === t.ticket_number;
                   var isSale = t.ticket_type === "Sale";
-                  // Determine if payment criterion applies (only when parts were ordered → typically present on tickets)
-                  // The compliance scoring uses payment_score on standard tickets; sales tickets are excluded above.
-                  var diagPct = t.diagnostics_score != null ? Math.round((t.diagnostics_score / 45) * 100) : null;
-                  var notesPct = t.notes_score != null ? Math.round((t.notes_score / 55) * 100) : null;
-                  var payPct = t.payment_score != null ? Math.round((t.payment_score / 25) * 100) : null;
+                  // All score columns are 0-100 percentages (set by the AI grader).
+                  // overall_score is a weighted blend:
+                  //   If payment applies: Intake 30% + Repair Notes 25% + Pickup 20% + Payment 20% + Contact 5%
+                  //   If payment N/A:     Intake 30% + Repair Notes 40% + Pickup 25% +              Contact 5%
+                  // Source: app/api/dialpad/tickets/route.js GRADE_PROMPT.
+                  var paymentNA = t.payment_score === 100 && (t.payment_notes || "").toLowerCase().indexOf("not applicable") >= 0;
+                  // Heuristic — if payment_notes wasn't returned, treat 100 with N/A wording as default applies
                   return (
                     <div key={t.ticket_number} style={{ borderBottom: "1px solid var(--border)" }}>
                       <div onClick={function(){ if (isSale) return; setExpandedTicket(isExpanded ? null : t.ticket_number); }}
@@ -1701,30 +1703,46 @@ export default function MyPerformanceTab({ auth, store }) {
                         </div>
                       </div>
 
-                      {/* Expanded ticket detail */}
+                      {/* Expanded ticket detail — five categories, 0-100 scale, weights shown */}
                       {isExpanded && !isSale && (
                         <div style={{ padding: "14px 22px 18px", background: "var(--bg-card-inner)", borderRadius: 8, marginBottom: 8 }}>
-                          <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 8 }}>Compliance Score Breakdown</div>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700 }}>Compliance Score Breakdown</div>
+                            <div style={{ fontSize: 9, color: "var(--text-muted)" }}>Each score is 0–100 &middot; weighted into your overall</div>
+                          </div>
                           {[
-                            { label: "Diagnostics", val: t.diagnostics_score, max: 45, pct: diagPct, what: "Issue documented + Price quoted + Turnaround time noted on intake" },
-                            { label: "Notes", val: t.notes_score, max: 55, pct: notesPct, what: "Repair outcome logged + Customer notified when complete" },
-                            { label: "Payment", val: t.payment_score, max: 25, pct: payPct, what: "If parts were ordered, payment was collected within 2 hours of intake" },
-                          ].map(function(s) {
-                            if (s.val == null) return null;
-                            var color = sc(s.pct || 0, 75, 50);
+                            { label: "Intake / Diagnostics", val: t.diagnostics_score, weight: 30, notes: t.diagnostics_notes, what: "Issue documented, price quoted, turnaround estimate, history noted, liquid/warranty checks, planned service." },
+                            { label: "Repair Notes", val: t.notes_score, weight: paymentNA ? 40 : 25, notes: t.notes_detail || t.notes_notes, what: "Pre-test, service performed, findings, communication, and post-test all documented in the repair notes." },
+                            { label: "Pickup", val: t.categorization_score, weight: paymentNA ? 25 : 20, notes: t.categorization_notes, what: "Customer was contacted when ready, informed of pickup window, and the timing was logged." },
+                            { label: "Payment", val: t.payment_score, weight: paymentNA ? null : 20, notes: t.payment_notes, what: paymentNA ? "Not applicable — no parts ordered or insurance claim. Auto-100." : "If parts were ordered, the down payment was collected at intake (within ~2 hrs).", skipIfNA: true },
+                            { label: "Contact Info", val: t.contact_score, weight: 5, notes: t.contact_notes, what: "Full name, phone, real email; bonus for an alternate phone number." },
+                          ].filter(function(s) {
+                            if (s.skipIfNA && paymentNA) return false;
+                            return s.val != null;
+                          }).map(function(s) {
+                            var color = sc(s.val || 0, 75, 50);
                             return (
-                              <div key={s.label} style={{ marginBottom: 12, padding: "10px 12px", borderRadius: 6, background: "var(--bg-card)", borderLeft: "3px solid " + color }}>
+                              <div key={s.label} style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 6, background: "var(--bg-card)", borderLeft: "3px solid " + color }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
-                                  <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700 }}>{s.label}</span>
-                                  <span style={{ color: color, fontSize: 14, fontWeight: 800 }}>{s.val}/{s.max} <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>({s.pct}%)</span></span>
+                                  <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700 }}>
+                                    {s.label}
+                                    {s.weight != null && <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500, marginLeft: 6 }}>({s.weight}% of overall)</span>}
+                                  </span>
+                                  <span style={{ color: color, fontSize: 16, fontWeight: 800 }}>{s.val}<span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>/100</span></span>
                                 </div>
                                 <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 5, overflow: "hidden", marginBottom: 5 }}>
-                                  <div style={{ width: (s.pct || 0) + "%", height: "100%", borderRadius: 3, background: color }} />
+                                  <div style={{ width: (s.val || 0) + "%", height: "100%", borderRadius: 3, background: color }} />
                                 </div>
                                 <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>{s.what}</div>
+                                {s.notes && <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 5, lineHeight: 1.4, fontStyle: "italic" }}>"{s.notes}"</div>}
                               </div>
                             );
                           })}
+                          {paymentNA && (
+                            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 6, background: "var(--bg-card)", fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
+                              Payment criterion N/A — auto-100. Repair Notes & Pickup carry slightly more weight on this ticket (40% / 25% instead of 25% / 20%).
+                            </div>
+                          )}
 
                           {/* Financials */}
                           {(t.total_collected != null || t.total_cost != null || t.gross_profit != null || t.payment_method) && (
