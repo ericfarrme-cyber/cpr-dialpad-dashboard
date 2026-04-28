@@ -47,6 +47,125 @@ function matchName(empName, candidateName) {
   return false;
 }
 
+// ── Roster validation: only count employees resolved to a known store ──
+var KNOWN_STORES = ["fishers", "bloomington", "indianapolis"];
+function isRosterMember(e) {
+  if (!e || !e.hasData) return false;
+  if (!e.store) return false;
+  return KNOWN_STORES.indexOf(String(e.store).toLowerCase()) >= 0;
+}
+
+// ── Eastern-time shift formatter ── outputs e.g. "9:00a-4:00p"
+function formatShiftTime(startISO, endISO) {
+  function fmt(iso) {
+    if (!iso) return "";
+    try {
+      var d = new Date(iso);
+      var s = d.toLocaleTimeString("en-US", {
+        timeZone: "America/Indiana/Indianapolis",
+        hour: "numeric", minute: "2-digit", hour12: true,
+      });
+      // "9:00 AM" -> "9:00a", "12:30 PM" -> "12:30p"
+      s = s.replace(":00 AM", "a").replace(":00 PM", "p")
+           .replace(" AM", "a").replace(" PM", "p")
+           .replace(/\s+/g, "");
+      return s;
+    } catch(e) { return ""; }
+  }
+  var s1 = fmt(startISO);
+  var s2 = fmt(endISO);
+  if (!s1 && !s2) return "";
+  return s1 + "-" + s2;
+}
+
+// ── Audit row normalizer ── handles legacy field names + criteria JSONB ──
+function normalizeAudit(a) {
+  if (!a) return a;
+  var maxScore = a.max_score != null ? parseFloat(a.max_score) : 4;
+  var rawScore = a.score != null ? parseFloat(a.score) : 0;
+  var derivedPct = maxScore > 0 ? Math.round((rawScore / maxScore) * 100) : 0;
+  var crit = a.criteria || {};
+  // criteria can come as object {appt_offered: true} or {appt_offered: {met: true}}
+  function critBool(key1, key2, key3) {
+    var keys = [key1, key2, key3].filter(Boolean);
+    for (var i = 0; i < keys.length; i++) {
+      var v = crit[keys[i]];
+      if (v == null) continue;
+      if (typeof v === "boolean") return v;
+      if (typeof v === "object" && v && (v.met === true || v.passed === true || v.value === true)) return true;
+      if (typeof v === "string") return v.toLowerCase() === "true" || v.toLowerCase() === "yes";
+    }
+    return false;
+  }
+  return Object.assign({}, a, {
+    overall_score: a.overall_score != null ? a.overall_score : derivedPct,
+    appointment_offered: a.appointment_offered === true || critBool("appt_offered", "appointment_offered", "appt"),
+    warranty_mentioned: a.warranty_mentioned === true || critBool("warranty_mentioned", "warranty"),
+    pricing_given: a.pricing_given === true || critBool("pricing", "pricing_given", "price_given"),
+    turnaround_given: a.turnaround_given === true || critBool("turnaround", "turnaround_given", "turnaround_time"),
+    caller_name: a.caller_name || a.customer_name || "",
+    phone_number: a.phone_number || a.phone || "",
+  });
+}
+
+// ── Reusable info tooltip for metric cards ──
+function MetricTooltip(props) {
+  var [open, setOpen] = useState(false);
+  var title = props.title || "";
+  var what = props.what || "";
+  var source = props.source || "";
+  var howTo = props.howTo || "";
+  return (
+    <span style={{ position: "relative", display: "inline-block" }}>
+      <button
+        onClick={function(e){ e.stopPropagation(); setOpen(!open); }}
+        aria-label={"What is " + title + "?"}
+        style={{
+          width: 16, height: 16, borderRadius: "50%", border: "none",
+          background: open ? "#7B2FFF" : "var(--bg-card-inner)",
+          color: open ? "#fff" : "var(--text-muted)",
+          fontSize: 10, fontWeight: 800, cursor: "pointer",
+          display: "inline-flex", alignItems: "center", justifyContent: "center",
+          transition: "all 0.15s",
+        }}
+      >?</button>
+      {open && (
+        <>
+          <div onClick={function(){ setOpen(false); }} style={{
+            position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 99,
+          }} />
+          <div style={{
+            position: "absolute", top: 22, right: -8, zIndex: 100,
+            width: 280, background: "var(--bg-card)", border: "1px solid #7B2FFF44",
+            borderRadius: 10, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+            textAlign: "left",
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "#7B2FFF", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
+            {what && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>What this measures</div>
+                <div style={{ fontSize: 12, color: "var(--text-body)", lineHeight: 1.5 }}>{what}</div>
+              </div>
+            )}
+            {source && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>Where it comes from</div>
+                <div style={{ fontSize: 12, color: "var(--text-body)", lineHeight: 1.5 }}>{source}</div>
+              </div>
+            )}
+            {howTo && (
+              <div>
+                <div style={{ fontSize: 9, color: "#4ADE80", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>How to improve</div>
+                <div style={{ fontSize: 12, color: "var(--text-body)", lineHeight: 1.5 }}>{howTo}</div>
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 export default function MyPerformanceTab({ auth, store }) {
   var [subTab, setSubTab] = useState("dashboard");
   var [loading, setLoading] = useState(true);
@@ -97,7 +216,9 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEndStr).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=90").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/weekly-goal?store=" + empStore).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/audit?employee=" + encodeURIComponent(empName) + "&limit=100&daysBack=30").then(function(r) { return r.json(); }),
+        // Query audits by store (not employee name) — names are inconsistent in audit table.
+        // We filter client-side with matchName so we catch "Alyssa", "Parent, Alyssa", etc.
+        fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=300&days=30").then(function(r) { return r.json(); }),
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
       ]);
 
@@ -123,7 +244,22 @@ export default function MyPerformanceTab({ auth, store }) {
 
       if (results[4].status === "fulfilled" && results[4].value.tickets) setTickets(results[4].value.tickets); else errors.tickets = true;
       if (results[5].status === "fulfilled" && results[5].value.goal) setWeeklyGoal(results[5].value.goal);
-      if (results[6].status === "fulfilled" && results[6].value.audits) setAuditData(results[6].value.audits); else errors.calls = true;
+      if (results[6].status === "fulfilled" && results[6].value.audits) {
+        // Filter to this employee with fuzzy name match, exclude excluded/non-scorable, normalize fields
+        var raw = results[6].value.audits || [];
+        var mine = raw.filter(function(a) {
+          if (a.excluded) return false;
+          if (a.call_type === "non_scorable") return false;
+          return matchName(empName, a.employee || "");
+        }).map(normalizeAudit);
+        // Sort newest first
+        mine.sort(function(x, y) {
+          var dx = new Date(x.date || 0).getTime();
+          var dy = new Date(y.date || 0).getTime();
+          return dy - dx;
+        });
+        setAuditData(mine);
+      } else { errors.calls = true; }
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
     } catch(e) { console.error("MyPerformanceTab load error:", e); errors.general = true; }
     setLoadErrors(errors);
@@ -223,10 +359,10 @@ export default function MyPerformanceTab({ auth, store }) {
     return Math.round(weekShifts.reduce(function(s, sh) { return s + (parseFloat(sh.hours) || 0); }, 0) * 10) / 10;
   }, [weekShifts]);
 
-  // Peer ranking
+  // Peer ranking — only count employees resolved to a known store roster
   var myRank = useMemo(function() {
     if (!empScore || !allEmployees.length) return null;
-    var sorted = allEmployees.filter(function(e) { return e.hasData; }).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); });
+    var sorted = allEmployees.filter(isRosterMember).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); });
     var idx = sorted.findIndex(function(e) { return matchName(empName, e.name); });
     return idx >= 0 ? { rank: idx + 1, total: sorted.length } : null;
   }, [empScore, allEmployees, empName]);
@@ -450,14 +586,32 @@ export default function MyPerformanceTab({ auth, store }) {
           {/* Category scores */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 20 }}>
             {[
-              { label: "Repairs", score: empScore?.repairs?.score || 0, detail: (empScore?.repairs?.total_repairs || 0) + " repairs" },
-              { label: "Phone Audit", score: empScore?.audit?.avg_pct || empScore?.audit?.score || 0, detail: (empScore?.audit?.opp_audits || 0) + " audited" },
-              { label: "Calls", score: empScore?.calls?.score || storeScore?.categories?.calls?.score || 0, detail: "Store avg" },
-              { label: "CX", score: storeScore?.categories?.cx?.score || 0, detail: "Store avg" },
-              { label: "Compliance", score: empScore?.compliance?.score || 0, detail: (empScore?.compliance?.total_tickets || 0) + " tickets" },
+              { label: "Repairs", score: empScore?.repairs?.score || 0, detail: (empScore?.repairs?.total_repairs || 0) + " repairs",
+                what: "Your repair performance score, based on phone repairs, other repairs, accessory gross profit, and cleanings.",
+                source: "Calculated from phone_repairs and accessory sales imported from RepairQ each month.",
+                howTo: "Close more tickets, attach accessories (cases, screen protectors, chargers), and offer cleanings on every repair." },
+              { label: "Phone Audit", score: empScore?.audit?.avg_pct || empScore?.audit?.score || 0, detail: (empScore?.audit?.opp_audits || 0) + " audited",
+                what: "Average score of your audited phone calls. Higher means stronger call handling.",
+                source: "Pulled from Dialpad transcripts that the AI auditor scored against the call rubric.",
+                howTo: "On every opportunity call, quote a price range, give a turnaround estimate, mention the warranty, and offer to book an appointment." },
+              { label: "Calls", score: empScore?.calls?.score || storeScore?.categories?.calls?.score || 0, detail: empScore?.calls?.score ? "Your score" : "Store avg",
+                what: "Score for answering inbound calls quickly and consistently. Right now this shows your store's average — individual call attribution to employees is in development.",
+                source: "Dialpad call records: answered vs. missed, ring time, and answer rate at the store level.",
+                howTo: "Pick up the phone within 3 rings whenever you're not actively with a customer. Missed calls hurt the whole team." },
+              { label: "CX", score: storeScore?.categories?.cx?.score || 0, detail: "Store avg",
+                what: "Customer experience score for your store, driven by Google review volume, ratings, and photo reviews.",
+                source: "Google Business Profile data imported from weekly GBP reports.",
+                howTo: "Ask every happy customer for a Google review at checkout — especially ones who'll add a photo of their repair." },
+              { label: "Compliance", score: empScore?.compliance?.score || 0, detail: (empScore?.compliance?.total_tickets || 0) + " tickets",
+                what: "How thoroughly you document your tickets. Audited on Diagnostics, Notes, and Payment criteria.",
+                source: "Each closed ticket is graded by the AI auditor against the compliance rubric in RepairQ.",
+                howTo: "On intake: document the issue, quote a price, and note turnaround. On completion: log the repair outcome and that you notified the customer. If parts were ordered, take payment within 2 hours of intake." },
             ].map(function(cat) {
               return (
-                <div key={cat.label} style={cardInner}>
+                <div key={cat.label} style={{ ...cardInner, position: "relative" }}>
+                  <div style={{ position: "absolute", top: 8, right: 8 }}>
+                    <MetricTooltip title={cat.label} what={cat.what} source={cat.source} howTo={cat.howTo} />
+                  </div>
                   <div style={{ textAlign: "center" }}>
                     <div style={{ fontSize: 28, fontWeight: 800, color: sc(cat.score, 70, 50) }}>{Math.round(cat.score)}</div>
                     <div style={{ fontSize: 10, color: "var(--text-secondary)", fontWeight: 600, marginTop: 2 }}>{cat.label}</div>
@@ -470,21 +624,45 @@ export default function MyPerformanceTab({ auth, store }) {
 
           {/* Quick stats row */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 20 }}>
-            <div style={cardInner}>
+            <div style={{ ...cardInner, position: "relative" }}>
+              <div style={{ position: "absolute", top: 8, right: 8 }}>
+                <MetricTooltip title="Hours This Month"
+                  what="Total scheduled hours from your shifts this calendar month."
+                  source="Pulled from WhenIWork shifts that have been synced to your roster profile."
+                  howTo="If hours look wrong, check that your WhenIWork name matches your roster. Talk to your manager if you need shifts adjusted." />
+              </div>
               <div style={metricLabel}>Hours This Month</div>
               <div style={{ ...metricBig, fontSize: 22, color: totalHoursMonth > 160 ? "#F87171" : "var(--text-primary)" }}>{totalHoursMonth}h</div>
               {weekHours > 0 && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{weekHours}h this week</div>}
             </div>
-            <div style={cardInner}>
+            <div style={{ ...cardInner, position: "relative" }}>
+              <div style={{ position: "absolute", top: 8, right: 8 }}>
+                <MetricTooltip title="Repairs This Month"
+                  what="Count of repair tickets you closed this month, split into phone repairs and other device types (laptops, tablets, game consoles, etc.)."
+                  source="phone_repairs table imported from RepairQ Sales Staff Summary CSVs."
+                  howTo="Phone repairs pay the highest commission. Push to close 5+ phone tickets per shift on busy days." />
+              </div>
               <div style={metricLabel}>Repairs This Month</div>
               <div style={{ ...metricBig, fontSize: 22, color: "#00D4FF" }}>{empScore?.repairs?.total_repairs || 0}</div>
               <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{empScore?.repairs?.phone_tickets || 0} phone / {empScore?.repairs?.other_tickets || 0} other</div>
             </div>
-            <div style={cardInner}>
+            <div style={{ ...cardInner, position: "relative" }}>
+              <div style={{ position: "absolute", top: 8, right: 8 }}>
+                <MetricTooltip title="Accessory GP"
+                  what="Gross profit on accessories you sold this month — cases, screen protectors, chargers, cables. This is the profit margin, not the sale price."
+                  source="Calculated from RepairQ accessory sales: revenue minus cost."
+                  howTo="Attach a case + screen protector to every phone repair. The combo bundle pays the highest commission and protects the customer's investment." />
+              </div>
               <div style={metricLabel}>Accessory GP</div>
               <div style={{ ...metricBig, fontSize: 22, color: "#4ADE80" }}>{fmt(empScore?.repairs?.accy_gp || 0)}</div>
             </div>
-            <div style={cardInner}>
+            <div style={{ ...cardInner, position: "relative" }}>
+              <div style={{ position: "absolute", top: 8, right: 8 }}>
+                <MetricTooltip title="Commission Estimate"
+                  what="Estimated commission earnings this month, before tier multiplier. Final paycheck commission is calculated on payday by your manager."
+                  source="Calculated from your repair count, accessory GP, cleanings, and other sales using the configured commission rates."
+                  howTo="See the Paycheck tab for a full breakdown by category and the What-If Projector to see how more repairs or accessory sales grow your check." />
+              </div>
               <div style={metricLabel}>Commission (est.)</div>
               <div style={{ ...metricBig, fontSize: 22, color: "#FBBF24" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
             </div>
@@ -781,7 +959,7 @@ export default function MyPerformanceTab({ auth, store }) {
                     <th style={{ padding: "6px 10px", textAlign: "center", color: "var(--text-muted)", fontSize: 10 }}>Compliance</th>
                   </tr></thead>
                   <tbody>
-                    {allEmployees.filter(function(e) { return e.hasData; }).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); }).map(function(e, i) {
+                    {allEmployees.filter(isRosterMember).sort(function(a, b) { return (b.overall || 0) - (a.overall || 0); }).map(function(e, i) {
                       var isMe = matchName(empName, e.name);
                       var sameStore = e.store === empStore;
                       var displayName = isMe ? e.name + " (you)" : sameStore ? e.name : "Employee at " + (e.store ? "CPR " + e.store.charAt(0).toUpperCase() + e.store.slice(1) : "other");
@@ -859,25 +1037,43 @@ export default function MyPerformanceTab({ auth, store }) {
         <div>
           {/* Hours summary */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12, marginBottom: 20 }}>
-            <div style={card}>
+            <div style={{ ...card, position: "relative" }}>
+              <div style={{ position: "absolute", top: 12, right: 12 }}>
+                <MetricTooltip title="This Week"
+                  what="Total hours scheduled for the current week (Monday through Sunday)."
+                  source="WhenIWork shifts assigned to you, synced nightly to the dashboard."
+                  howTo="Pick up extra shifts to grow your paycheck, or pass on a shift in WhenIWork if you can't make it." />
+              </div>
               <div style={metricLabel}>This Week</div>
               <div style={{ ...metricBig, fontSize: 28, color: weekHours > 40 ? "#F87171" : "var(--text-primary)" }}>{weekHours}h</div>
               {weekHours > 40 && <div style={{ fontSize: 10, color: "#F87171", fontWeight: 600, marginTop: 4 }}>OT Alert: {Math.round((weekHours - 40) * 10) / 10}h overtime</div>}
             </div>
-            <div style={card}>
+            <div style={{ ...card, position: "relative" }}>
+              <div style={{ position: "absolute", top: 12, right: 12 }}>
+                <MetricTooltip title="This Month"
+                  what="Total scheduled hours for the current calendar month."
+                  source="WhenIWork shift data summed across all dates in this month."
+                  howTo="Track your month-to-date pace. If you're under target, ask your manager about open shifts." />
+              </div>
               <div style={metricLabel}>This Month</div>
               <div style={{ ...metricBig, fontSize: 28, color: "var(--text-primary)" }}>{totalHoursMonth}h</div>
             </div>
-            <div style={card}>
+            <div style={{ ...card, position: "relative" }}>
+              <div style={{ position: "absolute", top: 12, right: 12 }}>
+                <MetricTooltip title="Shifts This Week"
+                  what="Number of separate shifts scheduled for you this week."
+                  source="WhenIWork shifts on your roster."
+                  howTo="Two short shifts vs one long shift can mean different productivity — ask about consolidating if your scores are slipping mid-shift." />
+              </div>
               <div style={metricLabel}>Shifts This Week</div>
               <div style={{ ...metricBig, fontSize: 28, color: "#00D4FF" }}>{weekShifts.length}</div>
             </div>
           </div>
 
-          {/* Week schedule with toggle */}
+          {/* Week schedule — day cards */}
           <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Schedule — {activeWeekBounds.label}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>{"\uD83D\uDCC5"} Schedule — {activeWeekBounds.label}</div>
               <div style={{ display: "flex", gap: 2, background: "var(--bg-card-inner)", borderRadius: 8, padding: 2 }}>
                 <button onClick={function(){setScheduleWeek("this");}} style={{
                   padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
@@ -889,25 +1085,65 @@ export default function MyPerformanceTab({ auth, store }) {
                 }}>Next Week</button>
               </div>
             </div>
-            {weekShifts.length > 0 ? (
-              <div>
-                {weekShifts.map(function(s, i) {
-                  var d = s.shift_date || s.date || "";
-                  var dayName = d ? new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) : "";
-                  return (
-                    <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: i < weekShifts.length - 1 ? "1px solid var(--border)" : "none" }}>
-                      <div>
-                        <div style={{ color: "var(--text-primary)", fontSize: 14, fontWeight: 600 }}>{dayName}</div>
-                        <div style={{ color: "var(--text-muted)", fontSize: 12 }}>{s.start_time || ""} - {s.end_time || ""}</div>
+            {loadErrors.shifts ? (
+              <div style={{ padding: 20, textAlign: "center", color: "#F87171", fontSize: 13 }}>Failed to load schedule. Tap Refresh to retry.</div>
+            ) : (() => {
+              // Build 7 cards for the active week (Monday → Sunday)
+              var todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" }); // YYYY-MM-DD
+              var startDate = new Date(activeWeekBounds.start + "T12:00:00");
+              var DAYS = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+              var dayCards = [];
+              for (var i = 0; i < 7; i++) {
+                var dt = new Date(startDate);
+                dt.setDate(dt.getDate() + i);
+                var iso = dt.toISOString().split("T")[0];
+                var shift = weekShifts.find(function(s) {
+                  return (s.shift_date || s.date || "") === iso;
+                });
+                var isToday = iso === todayStr;
+                dayCards.push({
+                  iso: iso, dayLabel: DAYS[i],
+                  dateNum: dt.getDate(), monthLabel: dt.toLocaleDateString([], { month: "short" }),
+                  shift: shift, isToday: isToday,
+                });
+              }
+              return (
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 8 }}>
+                  {dayCards.map(function(d) {
+                    var hasShift = !!d.shift;
+                    var timeRange = hasShift ? formatShiftTime(d.shift.start_time, d.shift.end_time) : "";
+                    var hours = hasShift ? parseFloat(d.shift.hours || 0).toFixed(1) : "";
+                    var bg = d.isToday ? "linear-gradient(135deg, #7B2FFF18, #00D4FF12)" : hasShift ? "var(--bg-card-inner)" : "transparent";
+                    var border = d.isToday ? "2px solid #7B2FFF" : hasShift ? "1px solid var(--border)" : "1px dashed var(--border)";
+                    return (
+                      <div key={d.iso} style={{
+                        background: bg, border: border, borderRadius: 10, padding: "12px 8px",
+                        textAlign: "center", minHeight: 110,
+                        display: "flex", flexDirection: "column", justifyContent: "space-between",
+                        position: "relative",
+                      }}>
+                        {d.isToday && <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", background: "#7B2FFF", color: "#fff", fontSize: 8, fontWeight: 800, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Today</div>}
+                        <div>
+                          <div style={{ fontSize: 10, fontWeight: 700, color: hasShift ? "var(--text-secondary)" : "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{d.dayLabel}</div>
+                          <div style={{ fontSize: 20, fontWeight: 800, color: hasShift ? "var(--text-primary)" : "var(--text-muted)", marginTop: 2 }}>{d.dateNum}</div>
+                        </div>
+                        {hasShift ? (
+                          <div style={{ marginTop: 6 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "#00D4FF" }}>{timeRange}</div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{hours}h</div>
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: 11, color: "var(--text-faint)", fontStyle: "italic", marginTop: 6 }}>Off</div>
+                        )}
                       </div>
-                      <div style={{ color: "var(--text-secondary)", fontSize: 14, fontWeight: 700 }}>{parseFloat(s.hours || 0).toFixed(1)}h</div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <div style={{ padding: 20, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>
-                {loadErrors.shifts ? "Failed to load schedule. Tap Refresh to retry." : "No shifts scheduled for " + (scheduleWeek === "next" ? "next week" : "this week") + "."}
+                    );
+                  })}
+                </div>
+              );
+            })()}
+            {weekShifts.length === 0 && !loadErrors.shifts && (
+              <div style={{ marginTop: 14, padding: 12, textAlign: "center", color: "var(--text-muted)", fontSize: 12, background: "var(--bg-card-inner)", borderRadius: 8 }}>
+                No shifts scheduled for {scheduleWeek === "next" ? "next week" : "this week"}. If this looks wrong, ask your manager to check your WhenIWork roster.
               </div>
             )}
           </div>
@@ -1203,8 +1439,10 @@ export default function MyPerformanceTab({ auth, store }) {
             <div style={{ ...card, padding: 40, textAlign: "center" }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>{"\uD83D\uDCDE"}</div>
               <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>No Call Audits Yet</div>
-              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>
-                {loadErrors.calls ? "Failed to load call data. Tap Refresh to retry." : "Your call audits will appear here once calls are reviewed. Keep answering the phone with a great greeting!"}
+              <div style={{ color: "var(--text-muted)", fontSize: 13, maxWidth: 480, margin: "0 auto", lineHeight: 1.5 }}>
+                {loadErrors.calls
+                  ? "Failed to load call data. Tap Refresh to retry."
+                  : "Call audits show up here once the AI has reviewed your inbound calls. New audits typically appear within a few hours of taking the call. If you've taken calls recently and nothing is appearing, check with your manager — your name in Dialpad may not match your roster name."}
               </div>
             </div>
           )}
