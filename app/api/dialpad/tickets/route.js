@@ -207,7 +207,7 @@ export async function GET(request) {
     if (!employee) return jsonResponse({ success: false, error: "Employee name required" });
 
     var { data, error } = await supabase.from("ticket_grades")
-      .select("ticket_number, ticket_type, store, employee_added, employee_repaired, customer_name, device, device_category, device_brand, date_closed, gross_sales, gross_profit, gpm_pct, discount_amount, turnaround_hours, overall_score, diagnostics_score, notes_score, payment_score")
+      .select("ticket_number, ticket_type, store, employee_added, employee_repaired, customer_name, device, device_category, device_brand, date_closed, gross_sales, gross_profit, gpm_pct, discount_amount, turnaround_hours, total_collected, total_cost, payment_method, item_details, overall_score, diagnostics_score, diagnostics_notes, notes_score, notes_detail, categorization_score, categorization_notes, payment_score, payment_notes, contact_score, contact_notes")
       .or("employee_added.ilike.%" + employee + "%,employee_repaired.ilike.%" + employee + "%")
       .gte("date_closed", cutoffStr)
       .order("date_closed", { ascending: false })
