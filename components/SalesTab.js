@@ -48,6 +48,11 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   var [cleaningSales, setCleaningSales] = useState([]);
   var [rates, setRates] = useState({});
   var [config, setConfig] = useState([]);
+  // Roster + stray-row management
+  var [roster, setRoster] = useState([]); // [{ first_name, last_name, store, active, aliases }]
+  var [empFilter, setEmpFilter] = useState("roster"); // "all" | "roster" | "strays"
+  var [actionEmp, setActionEmp] = useState(null); // employee name currently being acted on (for spinner state)
+  var [remapTarget, setRemapTarget] = useState({}); // { [empName]: targetName } — selected target in the dropdown
   var [uploadMsg, setUploadMsg] = useState(null);
   var [uploading, setUploading] = useState(false);
   var [editingRate, setEditingRate] = useState(null);
@@ -91,6 +96,68 @@ export default function SalesTab({ viewAs, viewEmployee }) {
 
   useEffect(function() { loadData(currentPeriod); }, []);
 
+  // Fetch roster once for matching
+  useEffect(function() {
+    fetch("/api/employees").then(function(r) { return r.json(); }).then(function(json) {
+      if (json && (json.success !== false) && Array.isArray(json.employees)) {
+        setRoster(json.employees);
+      } else if (json && Array.isArray(json)) {
+        setRoster(json);
+      }
+    }).catch(function() { /* roster optional — fall back to category-only filter */ });
+  }, []);
+
+  // Build a flat list of all roster names + aliases for fast lookup, plus formatted "Display Name" list for the remap dropdown
+  var rosterMatchSet = useMemo(function() {
+    var s = new Set();
+    (roster || []).forEach(function(r) {
+      if (r.first_name) s.add(String(r.first_name).toLowerCase().trim());
+      if (r.last_name) s.add(String(r.last_name).toLowerCase().trim());
+      if (r.first_name && r.last_name) {
+        s.add((r.first_name + " " + r.last_name).toLowerCase().trim());
+        s.add((r.last_name + ", " + r.first_name).toLowerCase().trim());
+      }
+      if (Array.isArray(r.aliases)) r.aliases.forEach(function(a) { if (a) s.add(String(a).toLowerCase().trim()); });
+    });
+    return s;
+  }, [roster]);
+
+  // Display-name list for the remap dropdown (active roster only)
+  var rosterDisplayNames = useMemo(function() {
+    var names = [];
+    (roster || []).forEach(function(r) {
+      if (r.active === false) return;
+      if (r.first_name && r.last_name) names.push(r.first_name + " " + r.last_name);
+      else if (r.first_name) names.push(r.first_name);
+    });
+    return names.sort();
+  }, [roster]);
+
+  // Classify an "employee" name as roster / unmatched / category
+  function classifyName(name) {
+    if (!name) return "category";
+    var n = String(name).toLowerCase().trim();
+    if (rosterMatchSet.has(n)) return "roster";
+    // Fuzzy: try first-name-only or "First L." style
+    var parts = n.replace(",", " ").split(/\s+/).filter(Boolean);
+    if (parts.length > 0) {
+      // Check if any roster entry's first name matches
+      for (var i = 0; i < (roster || []).length; i++) {
+        var rr = roster[i];
+        var rfn = (rr.first_name || "").toLowerCase().trim();
+        var rln = (rr.last_name || "").toLowerCase().trim();
+        if (rfn && parts[0] === rfn) return "roster";
+        if (rln && parts[0] === rln) return "roster";
+      }
+    }
+    // Strong category-row signal: contains " - " (e.g. "Part - Phone", "Accessory - Case")
+    if (/\s-\s/.test(name)) return "category";
+    // Other obvious system rows: API tokens, all caps short codes, "Unknown"
+    if (/^(API|UNKNOWN|TOTAL|TOTALS|N\/A)$/i.test(name.trim())) return "category";
+    if (/\bAPI\b/.test(name) || /ServiceNetwork/i.test(name)) return "category";
+    return "unmatched";
+  }
+
   // Build unified employee performance
   var employees = useMemo(function() {
     var map = {};
@@ -108,6 +175,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     return Object.values(map).map(function(e) {
       e.total_revenue = e.phone_total + e.other_total + e.accy_total + e.clean_total;
       e.total_tickets = e.phone_tickets + e.other_count + e.accy_count + e.clean_count;
+      // Classify against roster
+      e.matchType = classifyName(e.name);
       // Commission calculation — respect enabled flags from config
       var configMap = {};
       (config || []).forEach(function(c) { configMap[c.config_key] = c; });
@@ -121,7 +190,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean + e.comm_cs;
       return e;
     }).sort(function(a, b) { return b.total_revenue - a.total_revenue; });
-  }, [phones, others, accessories, cleanings, cleaningSales, rates, config]);
+  }, [phones, others, accessories, cleanings, cleaningSales, rates, config, rosterMatchSet, roster]);
 
   var totals = useMemo(function() {
     return employees.reduce(function(t, e) {
@@ -220,7 +289,80 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   // Filter to single employee for employee view
   var displayEmployees = isEmployeeView
     ? employees.filter(function(e) { return e.name.toLowerCase() === viewEmployee.toLowerCase(); })
-    : employees;
+    : (function() {
+        if (empFilter === "all") return employees;
+        if (empFilter === "strays") return employees.filter(function(e) { return e.matchType !== "roster"; });
+        // Default: roster only — also keep "unmatched" so manager sees real employees with name typos
+        return employees.filter(function(e) { return e.matchType !== "category"; });
+      })();
+
+  // Counts for filter pills
+  var filterCounts = useMemo(function() {
+    var rosterC = 0, unmatchedC = 0, categoryC = 0;
+    employees.forEach(function(e) {
+      if (e.matchType === "roster") rosterC++;
+      else if (e.matchType === "unmatched") unmatchedC++;
+      else categoryC++;
+    });
+    return { roster: rosterC, unmatched: unmatchedC, category: categoryC, all: employees.length };
+  }, [employees]);
+
+  // Delete a stray "employee" name from all 5 sales tables for the current period
+  var deleteEmployee = async function(empName) {
+    if (!confirm("Delete \"" + empName + "\" from this period (" + period + ")?\n\nThis removes the row from all five sales tables (phone repairs, other repairs, accessories, cleanings, cleaning sales) for this period only. Historical periods are not affected.\n\nProceed?")) return;
+    setActionEmp(empName);
+    try {
+      var res = await fetch("/api/dialpad/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete_employee", employee: empName, period: period })
+      });
+      var json = await res.json();
+      if (json.success) {
+        var totalDeleted = 0;
+        Object.keys(json.deleted || {}).forEach(function(k) {
+          var v = json.deleted[k];
+          if (typeof v === "number") totalDeleted += v;
+        });
+        setUploadMsg({ type: "success", text: "Removed \"" + empName + "\" — " + totalDeleted + " row(s) deleted across sales tables" });
+        // Optimistically strip from local arrays
+        var matches = function(r) { return r.employee !== empName; };
+        setPhones(function(p) { return p.filter(matches); });
+        setOthers(function(p) { return p.filter(matches); });
+        setAccessories(function(p) { return p.filter(matches); });
+        setCleanings(function(p) { return p.filter(matches); });
+        setCleaningSales(function(p) { return p.filter(matches); });
+      } else {
+        setUploadMsg({ type: "error", text: json.error || "Delete failed" });
+      }
+    } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
+    setActionEmp(null);
+    setTimeout(function() { setUploadMsg(null); }, 5000);
+  };
+
+  // Remap a stray name to a real roster employee
+  var remapEmployee = async function(fromName, toName) {
+    if (!toName) { setUploadMsg({ type: "error", text: "Pick a target employee from the dropdown first" }); return; }
+    if (!confirm("Remap \"" + fromName + "\" → \"" + toName + "\" for " + period + "?\n\nIf " + toName + " already has rows in this period, the values will be summed together. The \"" + fromName + "\" rows will be removed.\n\nProceed?")) return;
+    setActionEmp(fromName);
+    try {
+      var res = await fetch("/api/dialpad/sales", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "remap_employee", from: fromName, to: toName, period: period })
+      });
+      var json = await res.json();
+      if (json.success) {
+        setUploadMsg({ type: "success", text: "Remapped \"" + fromName + "\" → \"" + toName + "\"" });
+        // Reload to see merged numbers
+        loadData(period);
+      } else {
+        setUploadMsg({ type: "error", text: json.error || "Remap failed" });
+      }
+    } catch(e) { setUploadMsg({ type: "error", text: e.message }); }
+    setActionEmp(null);
+    setTimeout(function() { setUploadMsg(null); }, 5000);
+  };
 
   var displayTotals = isEmployeeView
     ? displayEmployees.reduce(function(t, e) {
@@ -302,7 +444,43 @@ export default function SalesTab({ viewAs, viewEmployee }) {
 
               {/* Employee table */}
               <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-                <SectionHeader title={isEmployeeView?"My Performance Breakdown":"Employee Performance"} subtitle={periodLabel + " — MTD"} icon="\uD83C\uDFC6" />
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:12 }}>
+                  <SectionHeader title={isEmployeeView?"My Performance Breakdown":"Employee Performance"} subtitle={periodLabel + " — MTD"} icon="\uD83C\uDFC6" />
+                  {!isEmployeeView && (
+                    <div>
+                      <div style={{ color:"#6B6F78",fontSize:9,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700,marginBottom:4,textAlign:"right" }}>Filter</div>
+                      <div style={{ display:"flex",gap:4,background:"#12141A",borderRadius:8,padding:4 }}>
+                        {[
+                          { v: "roster", l: "Real Employees", c: filterCounts.roster + filterCounts.unmatched, color: "#7B2FFF" },
+                          { v: "strays", l: "Strays Only", c: filterCounts.category + filterCounts.unmatched, color: "#FF2D95" },
+                          { v: "all", l: "Show All", c: filterCounts.all, color: "#8B8F98" },
+                        ].map(function(opt) {
+                          var active = empFilter === opt.v;
+                          return (
+                            <button key={opt.v} onClick={function(){setEmpFilter(opt.v);}} style={{
+                              padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
+                              background: active ? opt.color : "transparent",
+                              color: active ? "#fff" : "#8B8F98",
+                              display:"flex",alignItems:"center",gap:5,
+                            }}>
+                              <span>{opt.l}</span>
+                              <span style={{
+                                background: active ? "rgba(255,255,255,0.25)" : "#1A1D23",
+                                color: active ? "#fff" : "#6B6F78",
+                                padding:"1px 6px",borderRadius:10,fontSize:10,fontWeight:800,
+                              }}>{opt.c}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {filterCounts.category > 0 && empFilter === "roster" && (
+                        <div style={{ marginTop:6,color:"#6B6F78",fontSize:10,textAlign:"right" }}>
+                          {"\uD83D\uDC41\uFE0F"} {filterCounts.category} stray row{filterCounts.category===1?"":"s"} hidden &middot; <button onClick={function(){setEmpFilter("strays");}} style={{ background:"none",border:"none",color:"#FF2D95",cursor:"pointer",fontSize:10,textDecoration:"underline",padding:0 }}>review</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <div style={{ overflowX:"auto" }}>
                   <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
                     <thead>
@@ -310,15 +488,33 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]).map(function(h,i) {
                           return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                         })}
+                        {!isEmployeeView && (empFilter !== "roster" || filterCounts.unmatched > 0) && (
+                          <th style={{ textAlign:"center",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",width:240 }}>Actions</th>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
                       {displayEmployees.map(function(emp, i) {
                         var medal = i===0?"\uD83E\uDD47":i===1?"\uD83E\uDD48":i===2?"\uD83E\uDD49":"#"+(i+1);
+                        var isStray = emp.matchType !== "roster";
+                        var isCategory = emp.matchType === "category";
+                        var rowBg = isCategory ? "#FF2D9508" : isStray ? "#FBBF2408" : "transparent";
+                        var rowBorder = isCategory ? "1px solid #FF2D9522" : "1px solid #1E2028";
                         return (
-                          <tr key={emp.name} style={{ borderBottom:"1px solid #1E2028" }}>
-                            {!isEmployeeView && <td style={{ padding:"12px",fontSize:16,textAlign:"center",width:40 }}>{medal}</td>}
-                            <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
+                          <tr key={emp.name} style={{ borderBottom: rowBorder, background: rowBg }}>
+                            {!isEmployeeView && <td style={{ padding:"12px",fontSize:16,textAlign:"center",width:40 }}>{isStray ? (isCategory ? "\u26A0\uFE0F" : "\u2753") : medal}</td>}
+                            <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>
+                              <div>{emp.name}</div>
+                              {!isEmployeeView && isStray && (
+                                <div style={{ marginTop:4 }}>
+                                  <span style={{
+                                    fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,textTransform:"uppercase",letterSpacing:"0.05em",
+                                    background: isCategory ? "#FF2D9522" : "#FBBF2422",
+                                    color: isCategory ? "#FF2D95" : "#FBBF24",
+                                  }}>{isCategory ? "Category Row" : "No roster match"}</span>
+                                </div>
+                              )}
+                            </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.phone_tickets}</div>
                               <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.phone_total)}</div>
@@ -348,6 +544,51 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                                 {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
                               </div>
                             </td>
+                            {/* Actions cell — only for stray rows when the column is visible */}
+                            {!isEmployeeView && (empFilter !== "roster" || filterCounts.unmatched > 0) && (
+                              <td style={{ padding:"12px",textAlign:"center",width:240 }}>
+                                {isStray ? (
+                                  <div style={{ display:"flex",flexDirection:"column",gap:6,alignItems:"stretch" }}>
+                                    {rosterDisplayNames.length > 0 && (
+                                      <div style={{ display:"flex",gap:4 }}>
+                                        <select
+                                          value={remapTarget[emp.name] || ""}
+                                          onChange={function(e) {
+                                            var v = e.target.value;
+                                            setRemapTarget(function(prev) { var n = Object.assign({}, prev); n[emp.name] = v; return n; });
+                                          }}
+                                          style={{ flex:1,padding:"5px 6px",borderRadius:5,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:10,minWidth:0 }}>
+                                          <option value="">Map to...</option>
+                                          {rosterDisplayNames.map(function(n) { return <option key={n} value={n}>{n}</option>; })}
+                                        </select>
+                                        <button
+                                          onClick={function(){ remapEmployee(emp.name, remapTarget[emp.name]); }}
+                                          disabled={!remapTarget[emp.name] || actionEmp === emp.name}
+                                          style={{
+                                            padding:"5px 8px",borderRadius:5,border:"1px solid #00D4FF55",
+                                            background: remapTarget[emp.name] ? "#00D4FF22" : "#00D4FF11",
+                                            color:"#00D4FF",fontSize:10,fontWeight:700,
+                                            cursor: remapTarget[emp.name] ? "pointer" : "not-allowed",
+                                            opacity: actionEmp === emp.name ? 0.4 : 1,
+                                          }}>{"\uD83D\uDD17"}</button>
+                                      </div>
+                                    )}
+                                    <button
+                                      onClick={function(){ deleteEmployee(emp.name); }}
+                                      disabled={actionEmp === emp.name}
+                                      style={{
+                                        padding:"5px 8px",borderRadius:5,border:"1px solid #F8717155",
+                                        background:"#F8717118",color:"#F87171",fontSize:10,fontWeight:700,cursor:"pointer",
+                                        opacity: actionEmp === emp.name ? 0.4 : 1,
+                                      }}>
+                                      {actionEmp === emp.name ? "..." : "\uD83D\uDDD1\uFE0F Delete"}
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span style={{ color:"#4ADE80",fontSize:10,fontWeight:700 }}>{"\u2713 Roster"}</span>
+                                )}
+                              </td>
+                            )}
                           </tr>
                         );
                       })}
@@ -362,6 +603,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{fmt(displayTotals.cs_discounted)}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
+                        {(empFilter !== "roster" || filterCounts.unmatched > 0) && <td />}
                       </tr>
                       )}
                     </tbody>
