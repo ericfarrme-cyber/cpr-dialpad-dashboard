@@ -208,6 +208,7 @@ export default function MyPerformanceTab({ auth, store }) {
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
   var [expandedCall, setExpandedCall] = useState(null);
+  var [highlightedCalls, setHighlightedCalls] = useState([]); // call IDs cited by AI coaching
   var [expandedTicket, setExpandedTicket] = useState(null);
   var [coachingInsight, setCoachingInsight] = useState(null);
   var [coachingLoading, setCoachingLoading] = useState(false);
@@ -446,6 +447,24 @@ export default function MyPerformanceTab({ auth, store }) {
 
     function pct(n, d) { return d > 0 ? Math.round((n / d) * 100) : null; }
 
+    // Build recent list — pin highlighted (coaching-cited) calls at the top, then fill with most recent
+    var highlightedRows = [];
+    var recentRows = [];
+    var seenIds = {};
+    if (highlightedCalls && highlightedCalls.length > 0) {
+      highlightedCalls.forEach(function(cid) {
+        if (seenIds[cid]) return;
+        var row = (auditData || []).find(function(a) { return String(a.call_id) === String(cid); });
+        if (row) { highlightedRows.push(Object.assign({}, row, { _highlighted: true })); seenIds[cid] = true; }
+      });
+    }
+    (auditData || []).forEach(function(a) {
+      if (recentRows.length >= 10) return;
+      if (seenIds[a.call_id]) return;
+      recentRows.push(a);
+      seenIds[a.call_id] = true;
+    });
+
     return {
       total: total,
       avgScore: Math.round(totalScore / total),
@@ -462,9 +481,10 @@ export default function MyPerformanceTab({ auth, store }) {
       etaRate: pct(etaGiven, ccCalls),
       professionalRate: pct(professional, ccCalls),
       nextStepsRate: pct(nextSteps, ccCalls),
-      recent: auditData.slice(0, 10),
+      recent: highlightedRows.concat(recentRows),
+      highlightedCount: highlightedRows.length,
     };
-  }, [auditData]);
+  }, [auditData, highlightedCalls]);
 
   // Review bonus calculation
   var reviewBonus = useMemo(function() {
@@ -1926,22 +1946,47 @@ export default function MyPerformanceTab({ auth, store }) {
 
               {/* Recent audits — click to expand */}
               <div style={card}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 8 }}>Recent Call Audits</div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>Click any call to see the AI's per-criterion notes — exactly where points were earned or lost.</div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, flexWrap: "wrap", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Recent Call Audits</div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>Click any call to see the AI's per-criterion notes — exactly where points were earned or lost.</div>
+                  </div>
+                  {callStats.highlightedCount > 0 && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 11, color: "#7B2FFF", fontWeight: 700 }}>
+                        {"\u2728"} {callStats.highlightedCount} pinned from coaching
+                      </span>
+                      <button onClick={function(){ setHighlightedCalls([]); }}
+                        style={{ padding: "3px 8px", borderRadius: 4, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 10, cursor: "pointer" }}>
+                        Clear pins
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {loadErrors.coachingCallNotFound && (
+                  <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: 8, background: "#F8717115", border: "1px solid #F8717155", color: "#F87171", fontSize: 12 }}>
+                    {"\u26A0\uFE0F"} Call <strong>{loadErrors.coachingCallNotFound}</strong> isn't in your last 30 days of audit data. The AI cited it but it may be older than the data we currently fetch.
+                  </div>
+                )}
                 {callStats.recent.map(function(audit, i) {
                   var asc = sc(audit.overall_score || 0, 80, 60);
                   var isExpanded = expandedCall === (audit.call_id || i);
                   var isOpp = audit.call_type === "opportunity";
                   var isCC = audit.call_type === "current_customer";
+                  var isHighlighted = audit._highlighted === true;
 
                   return (
-                    <div key={audit.call_id || i} data-call-anchor={audit.call_id || ""} style={{ borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none" }}>
+                    <div key={audit.call_id || i} data-call-anchor={audit.call_id || ""}
+                      style={{ borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none", background: isHighlighted ? "#7B2FFF08" : "transparent", marginLeft: isHighlighted ? -8 : 0, marginRight: isHighlighted ? -8 : 0, paddingLeft: isHighlighted ? 8 : 0, paddingRight: isHighlighted ? 8 : 0, borderLeft: isHighlighted ? "3px solid #7B2FFF" : "none" }}>
                       <div onClick={function(){ setExpandedCall(isExpanded ? null : (audit.call_id || i)); }}
                         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: "pointer" }}>
                         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
                           <span style={{ fontSize: 11, color: "var(--text-muted)", width: 12 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>
-                          <div>
-                            <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                              <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</span>
+                              {isHighlighted && <span style={{ fontSize: 9, fontWeight: 700, color: "#7B2FFF", background: "#7B2FFF22", padding: "2px 6px", borderRadius: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>{"\u2728"} From Coaching</span>}
+                            </div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                               {audit.date_started ? new Date(audit.date_started).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
                               {audit.call_type ? " \u00B7 " + (isOpp ? "Opportunity" : isCC ? "Repeat Customer" : audit.call_type) : ""}
@@ -2223,10 +2268,33 @@ export default function MyPerformanceTab({ auth, store }) {
                             var callId = target.substring(6);
                             nodes.push(
                               <button key={lineKey + "-" + (i++)}
-                                onClick={function(){ setSubTab("calls"); setExpandedCall(callId); setTimeout(function(){
-                                  var el = document.querySelector("[data-call-anchor='" + callId + "']");
-                                  if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
-                                }, 150); }}
+                                onClick={function(){
+                                  // The AI may cite either the full call_id or the last-6 short form.
+                                  // Match against both so clicks resolve either way.
+                                  var found = (auditData || []).find(function(a) {
+                                    var fid = String(a.call_id || "");
+                                    return fid === String(callId) || fid.slice(-6) === String(callId).slice(-6);
+                                  });
+                                  if (!found) {
+                                    setLoadErrors(function(prev) { return Object.assign({}, prev, { coachingCallNotFound: callId }); });
+                                    setTimeout(function(){
+                                      setLoadErrors(function(prev) { var n = Object.assign({}, prev); delete n.coachingCallNotFound; return n; });
+                                    }, 5000);
+                                    return;
+                                  }
+                                  var resolvedId = found.call_id;
+                                  // Pin this call to the top of My Calls (so it's always visible) and expand it
+                                  setHighlightedCalls(function(prev) {
+                                    if (prev.indexOf(resolvedId) >= 0) return prev;
+                                    return [resolvedId].concat(prev);
+                                  });
+                                  setSubTab("calls");
+                                  setExpandedCall(resolvedId);
+                                  setTimeout(function(){
+                                    var el = document.querySelector("[data-call-anchor='" + resolvedId + "']");
+                                    if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                  }, 200);
+                                }}
                                 style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #00D4FF55", background: "#00D4FF14", color: "#00D4FF", fontSize: 12, fontWeight: 700, cursor: "pointer", margin: "0 1px" }}>
                                 {"\uD83D\uDCDE "}{label}
                               </button>
