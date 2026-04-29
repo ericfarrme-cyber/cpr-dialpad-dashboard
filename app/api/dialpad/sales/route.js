@@ -164,6 +164,94 @@ export async function POST(request) {
       return NextResponse.json({ success: true, deleted: deleted, period: dp });
     }
 
+    // ── Delete a single "employee" name (typically a stray category row) from one period ──
+    // Removes that name from all five sales tables for the given period only. Historical data untouched.
+    if (body.action === "delete_employee") {
+      var delName = body.employee;
+      var delPeriod = body.period;
+      if (!delName) return NextResponse.json({ success: false, error: "employee required" });
+      if (!delPeriod) return NextResponse.json({ success: false, error: "period required" });
+      var deletedCounts = {};
+      var allTables = ["repair_phone", "repair_other", "sales_accessory", "repair_cleaning", "cleaning_sales"];
+      for (var di = 0; di < allTables.length; di++) {
+        var t = allTables[di];
+        var { data: dRows, error: dErr } = await supabase.from(t)
+          .delete()
+          .eq("employee", delName)
+          .eq("import_period", delPeriod)
+          .select();
+        if (dErr) { deletedCounts[t] = "error: " + dErr.message; }
+        else { deletedCounts[t] = dRows ? dRows.length : 0; }
+      }
+      return NextResponse.json({ success: true, deleted: deletedCounts, employee: delName, period: delPeriod });
+    }
+
+    // ── Remap an "employee" name to a different employee name ──
+    // Useful when RepairQ has the wrong name format for someone (e.g. "Alyssa P." → "Alyssa Parent").
+    // Updates the employee column in all five sales tables for the given period.
+    // If the target name already has rows in a table for that period, sums the values into the target row,
+    // then deletes the source row (so the upsert constraint isn't violated).
+    if (body.action === "remap_employee") {
+      var fromName = body.from;
+      var toName = body.to;
+      var rePeriod = body.period;
+      if (!fromName || !toName) return NextResponse.json({ success: false, error: "from and to required" });
+      if (!rePeriod) return NextResponse.json({ success: false, error: "period required" });
+      if (fromName === toName) return NextResponse.json({ success: false, error: "from and to are the same" });
+
+      var summary = {};
+      var tablesToRemap = [
+        { name: "repair_phone",    sumKeys: ["repair_tickets", "repair_total"], avgKeys: ["avg_repair"] },
+        { name: "repair_other",    sumKeys: ["repair_count", "repair_total"],   avgKeys: ["avg_repair"] },
+        { name: "sales_accessory", sumKeys: ["accy_total", "accy_gp", "accy_count"], avgKeys: [] },
+        { name: "repair_cleaning", sumKeys: ["clean_count", "clean_total"],     avgKeys: ["clean_avg"] },
+        { name: "cleaning_sales",  sumKeys: ["ticket_count", "gross_sales", "discount", "discounted_sales"], avgKeys: [] },
+      ];
+
+      for (var ri = 0; ri < tablesToRemap.length; ri++) {
+        var tbl = tablesToRemap[ri].name;
+        var sumKeys = tablesToRemap[ri].sumKeys;
+        // Fetch source row
+        var { data: srcRows } = await supabase.from(tbl)
+          .select("*").eq("employee", fromName).eq("import_period", rePeriod);
+        if (!srcRows || srcRows.length === 0) { summary[tbl] = "no source row"; continue; }
+        var src = srcRows[0];
+        // Fetch existing target row (if any)
+        var { data: dstRows } = await supabase.from(tbl)
+          .select("*").eq("employee", toName).eq("import_period", rePeriod);
+
+        if (!dstRows || dstRows.length === 0) {
+          // No target row — just rename source
+          var renameSet = { employee: toName, updated_at: new Date().toISOString() };
+          var { error: rErr } = await supabase.from(tbl)
+            .update(renameSet)
+            .eq("employee", fromName)
+            .eq("import_period", rePeriod);
+          summary[tbl] = rErr ? ("error: " + rErr.message) : "renamed";
+        } else {
+          // Target exists — sum source into target, delete source
+          var dst = dstRows[0];
+          var merged = Object.assign({}, dst);
+          sumKeys.forEach(function(k) {
+            merged[k] = (parseFloat(dst[k]) || 0) + (parseFloat(src[k]) || 0);
+          });
+          merged.updated_at = new Date().toISOString();
+          var { error: uErr } = await supabase.from(tbl)
+            .update(merged)
+            .eq("employee", toName)
+            .eq("import_period", rePeriod);
+          if (uErr) { summary[tbl] = "merge error: " + uErr.message; continue; }
+          var { error: dropErr } = await supabase.from(tbl)
+            .delete()
+            .eq("employee", fromName)
+            .eq("import_period", rePeriod);
+          summary[tbl] = dropErr ? ("merged but delete failed: " + dropErr.message) : "merged";
+        }
+      }
+
+      return NextResponse.json({ success: true, summary: summary, from: fromName, to: toName, period: rePeriod });
+    }
+
     return NextResponse.json({ success: false, error: "Invalid action" });
   }
 
