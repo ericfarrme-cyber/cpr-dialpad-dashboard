@@ -9,6 +9,34 @@ var STORE_KEYS = Object.keys(STORES);
 function scoreColor(s) { return s >= 80 ? "#4ADE80" : s >= 60 ? "#FBBF24" : s >= 40 ? "#FB923C" : "#F87171"; }
 function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
+// ── Role-split scoring helpers (April 2026) ──
+function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
+function isRoleSplitEra(dateStr) { if (!dateStr) return false; return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF(); }
+function paymentIsNA(t) {
+  if (t == null || parseFloat(t.payment_score) !== 100) return false;
+  var n = String(t.payment_notes || "").toLowerCase();
+  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
+}
+function computeIntakeRoleScore(t) {
+  if (!t) return null;
+  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
+  if (diag == null && contact == null) return null;
+  diag = diag == null ? 0 : parseFloat(diag);
+  contact = contact == null ? 0 : parseFloat(contact);
+  pay = pay == null ? 0 : parseFloat(pay);
+  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
+  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
+}
+function computeRepairRoleScore(t) {
+  if (!t) return null;
+  var notes = t.notes_score, pickup = t.categorization_score;
+  if (notes == null && pickup == null) return null;
+  notes = notes == null ? 0 : parseFloat(notes);
+  pickup = pickup == null ? 0 : parseFloat(pickup);
+  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
+  return Math.round((notes * 25 + pickup * 20) / 45);
+}
+
 function StatCard({ label, value, sub, accent }) {
   return (
     <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
@@ -172,6 +200,12 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                 var sc = scoreColor(t.overall_score);
                 var isExpanded = expandedTicket === t.id;
                 var store = STORES[t.store];
+                // Role-split for April 2026+ tickets
+                var roleSplitOn = isRoleSplitEra(t.date_closed);
+                var intakeRoleScore = roleSplitOn ? computeIntakeRoleScore(t) : null;
+                var repairRoleScore = roleSplitOn ? computeRepairRoleScore(t) : null;
+                if (!t.employee_added) intakeRoleScore = null;
+                if (!t.employee_repaired) repairRoleScore = null;
                 return (
                   <div key={t.id} style={{ borderBottom:"1px solid #1E2028" }}>
                     <div onClick={function(){ setExpandedTicket(isExpanded ? null : t.id); }}
@@ -185,21 +219,40 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                           <div style={{ color:"#6B6F78",fontSize:11 }}>
                             {t.ticket_type || "—"}
                             {store && <span style={{ marginLeft:8,color:store.color }}>{store.name.replace("CPR ","")}</span>}
-                            {t.employee_repaired && <span style={{ marginLeft:8 }}>{t.employee_repaired}</span>}
                           </div>
+                          {/* Role-split: show both employees with their per-role scores */}
+                          {roleSplitOn ? (
+                            <div style={{ color:"#8B8F98",fontSize:10,marginTop:3,display:"flex",gap:10,flexWrap:"wrap" }}>
+                              {t.employee_added && (
+                                <span><span style={{ color:"#00D4FF" }}>{"\uD83D\uDCDD Intake:"}</span> {t.employee_added}{intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontWeight:700,marginLeft:4 }}>{intakeRoleScore}</span>}</span>
+                              )}
+                              {t.employee_repaired && (
+                                <span><span style={{ color:"#7B2FFF" }}>{"\uD83D\uDD27 Repair:"}</span> {t.employee_repaired}{repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontWeight:700,marginLeft:4 }}>{repairRoleScore}</span>}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <div style={{ color:"#6B6F78",fontSize:11,marginTop:3 }}>
+                              {t.employee_repaired || t.employee_added || ""}
+                              <span style={{ marginLeft:6,fontSize:9,color:"#8B8F98",fontStyle:"italic" }}>(pre-April, shared score)</span>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div style={{ display:"flex",gap:10,alignItems:"center" }}>
                         {[
-                          { label:"Intake", score:t.diagnostics_score },
-                          { label:"Repair", score:t.notes_score },
-                          { label:"Pickup", score:t.categorization_score },
-                          { label:"Pay", score:t.payment_score },
-                          { label:"Contact", score:t.contact_score || 0 },
+                          { label:"Intake", score:t.diagnostics_score, role:"intake" },
+                          { label:"Repair", score:t.notes_score, role:"repair" },
+                          { label:"Pickup", score:t.categorization_score, role:"repair" },
+                          { label:"Pay", score:t.payment_score, role:"intake" },
+                          { label:"Contact", score:t.contact_score || 0, role:"intake" },
                         ].map(function(cat) {
+                          var dotColor = cat.role === "intake" ? "#00D4FF" : "#7B2FFF";
                           return (
                             <div key={cat.label} style={{ textAlign:"center" }}>
-                              <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>{cat.label}</div>
+                              <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:3 }}>
+                                {roleSplitOn && <span style={{ width:5,height:5,borderRadius:"50%",background:dotColor,display:"inline-block" }} />}
+                                {cat.label}
+                              </div>
                               <div style={{ color:scoreColor(cat.score),fontSize:13,fontWeight:700 }}>{cat.score}</div>
                             </div>
                           );
@@ -209,6 +262,27 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
                     {isExpanded && (
                       <div style={{ padding:"0 20px 20px",background:"#12141A" }}>
+                        {/* Role-split header — shows who's responsible for what + per-role overall scores */}
+                        {roleSplitOn && (intakeRoleScore != null || repairRoleScore != null) && (
+                          <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,paddingTop:14 }}>
+                            <div style={{ background:"#00D4FF11",border:"1px solid #00D4FF44",borderRadius:8,padding:"12px 14px" }}>
+                              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
+                                <span style={{ color:"#00D4FF",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDCDD Intake Role"}</span>
+                                {intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontSize:18,fontWeight:800 }}>{intakeRoleScore}<span style={{ color:"#6B6F78",fontSize:11,fontWeight:500 }}>/100</span></span>}
+                              </div>
+                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{t.employee_added || "—"}</div>
+                              <div style={{ color:"#8B8F98",fontSize:10,marginTop:2 }}>Diagnostics, Payment, Contact Info</div>
+                            </div>
+                            <div style={{ background:"#7B2FFF11",border:"1px solid #7B2FFF44",borderRadius:8,padding:"12px 14px" }}>
+                              <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
+                                <span style={{ color:"#7B2FFF",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDD27 Repair Role"}</span>
+                                {repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontSize:18,fontWeight:800 }}>{repairRoleScore}<span style={{ color:"#6B6F78",fontSize:11,fontWeight:500 }}>/100</span></span>}
+                              </div>
+                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{t.employee_repaired || "—"}</div>
+                              <div style={{ color:"#8B8F98",fontSize:10,marginTop:2 }}>Repair Notes, Pickup</div>
+                            </div>
+                          </div>
+                        )}
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
                           {[
                             { label:"Intake / Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"#7B2FFF" },
