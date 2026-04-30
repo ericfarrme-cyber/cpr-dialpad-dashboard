@@ -194,6 +194,15 @@ function MetricTooltip(props) {
 
 export default function MyPerformanceTab({ auth, store }) {
   var [subTab, setSubTab] = useState("dashboard");
+  var [showRoleSplitBanner, setShowRoleSplitBanner] = useState(function() {
+    if (typeof window === "undefined") return true;
+    try { return window.localStorage.getItem("cpr_dismissed_role_split_banner_v1") !== "1"; }
+    catch(e) { return true; }
+  });
+  var dismissRoleSplitBanner = function() {
+    setShowRoleSplitBanner(false);
+    try { window.localStorage.setItem("cpr_dismissed_role_split_banner_v1", "1"); } catch(e) {}
+  };
   var [loading, setLoading] = useState(true);
   var [loadErrors, setLoadErrors] = useState({});
   var [empScore, setEmpScore] = useState(null);
@@ -626,12 +635,57 @@ export default function MyPerformanceTab({ auth, store }) {
       // Compliance / tickets — external RepairQ link
       lines.push("");
       lines.push("COMPLIANCE: " + (empScore.compliance?.score || 0) + "/100 across " + (empScore.compliance?.total_tickets || 0) + " tickets");
-      var lowTix = (tickets || []).filter(function(t) { return t.ticket_type !== "Sale" && t.overall_score != null && t.overall_score < 60; }).slice(0, 3);
+
+      // Role-split breakdown — coaching focuses on the lower role
+      var compIntake = empScore.compliance?.intake_role;
+      var compRepair = empScore.compliance?.repair_role;
+      var weakerRole = null;
+      if (compIntake && compIntake.avg != null && compIntake.tickets > 0 && compRepair && compRepair.avg != null && compRepair.tickets > 0) {
+        lines.push("ROLE-SPLIT BREAKDOWN (April 2026+):");
+        lines.push("  Intake role (Diagnostics + Payment + Contact): " + compIntake.avg + "/100 across " + compIntake.tickets + " tickets you handled at intake");
+        lines.push("  Repair role (Repair Notes + Pickup): " + compRepair.avg + "/100 across " + compRepair.tickets + " tickets you handled as repair tech");
+        weakerRole = compIntake.avg <= compRepair.avg ? "intake" : "repair";
+        lines.push("  ** WEAKER ROLE: " + weakerRole.toUpperCase() + " — focus all coaching here, this is where the dollars are. **");
+      } else if (compIntake && compIntake.avg != null && compIntake.tickets > 0) {
+        lines.push("ROLE-SPLIT BREAKDOWN: This employee only has intake-role tickets in April. Their intake-role score is " + compIntake.avg + "/100.");
+        weakerRole = "intake";
+      } else if (compRepair && compRepair.avg != null && compRepair.tickets > 0) {
+        lines.push("ROLE-SPLIT BREAKDOWN: This employee only has repair-role tickets in April. Their repair-role score is " + compRepair.avg + "/100.");
+        weakerRole = "repair";
+      }
+
+      // Filter low-scoring tickets to the weaker role's domain so coaching examples are relevant
+      var lowTix = (tickets || []).filter(function(t) {
+        if (t.ticket_type === "Sale") return false;
+        if (weakerRole === "intake") {
+          if (t.your_role !== "intake" && t.your_role !== "both") return false;
+          var s = t.intake_role_score != null ? t.intake_role_score : t.overall_score;
+          return s != null && s < 60;
+        }
+        if (weakerRole === "repair") {
+          if (t.your_role !== "repair" && t.your_role !== "both") return false;
+          var s2 = t.repair_role_score != null ? t.repair_role_score : t.overall_score;
+          return s2 != null && s2 < 60;
+        }
+        // No weaker role identified — fall back to overall
+        return t.overall_score != null && t.overall_score < 60;
+      }).slice(0, 3);
       if (lowTix.length > 0) {
-        lines.push("LOW-SCORING TICKETS — cite using the EXACT markdown link format shown:");
+        var lowLabel = weakerRole === "intake" ? "LOW-SCORING INTAKE TICKETS" : weakerRole === "repair" ? "LOW-SCORING REPAIR TICKETS" : "LOW-SCORING TICKETS";
+        lines.push(lowLabel + " — cite using the EXACT markdown link format shown:");
         lowTix.forEach(function(t) {
           var url = "https://cpr.repairq.io/ticket/" + t.ticket_number;
-          lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + t.overall_score + ") " + (t.device || "?") + " | Intake " + (t.diagnostics_score || 0) + ", Repair Notes " + (t.notes_score || 0) + ", Pickup " + (t.categorization_score || 0) + ", Payment " + (t.payment_score || 0) + ", Contact " + (t.contact_score || 0) + " (all 0-100)");
+          // Show only the role-relevant categories
+          var details;
+          if (weakerRole === "intake") {
+            details = "Diagnostics " + (t.diagnostics_score || 0) + ", Payment " + (t.payment_score || 0) + ", Contact " + (t.contact_score || 0);
+          } else if (weakerRole === "repair") {
+            details = "Repair Notes " + (t.notes_score || 0) + ", Pickup " + (t.categorization_score || 0);
+          } else {
+            details = "Diagnostics " + (t.diagnostics_score || 0) + ", Notes " + (t.notes_score || 0) + ", Pickup " + (t.categorization_score || 0) + ", Payment " + (t.payment_score || 0) + ", Contact " + (t.contact_score || 0);
+          }
+          var roleScore = weakerRole === "intake" ? t.intake_role_score : weakerRole === "repair" ? t.repair_role_score : t.overall_score;
+          lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + (roleScore != null ? roleScore : t.overall_score) + ") " + (t.device || "?") + " | " + details + " (all 0-100)");
         });
       }
 
@@ -642,7 +696,7 @@ export default function MyPerformanceTab({ auth, store }) {
         "You are coaching a retail technician at CPR Cell Phone Repair. Output a coaching plan in markdown with EXACTLY these four sections, no others:",
         "",
         "## 🎯 Biggest Unlock",
-        "ONE specific behavior change with the highest dollar impact. Cite actual call/ticket references using the EXACT markdown link format shown in the data — calls use `[Call XXXXXX](#call:FULL_ID)` (internal — keeps the employee inside the dashboard), tickets use `[Ticket #XXXX](https://cpr.repairq.io/...)` (external RepairQ link). Quantify: what % does this move? What does that mean for their tier?",
+        "ONE specific behavior change with the highest dollar impact. If a WEAKER ROLE is identified in the data (intake or repair), the unlock MUST address that role — do not coach the stronger role. Cite actual call/ticket references using the EXACT markdown link format shown in the data — calls use `[Call XXXXXX](#call:FULL_ID)` (internal — keeps the employee inside the dashboard), tickets use `[Ticket #XXXX](https://cpr.repairq.io/...)` (external RepairQ link). Quantify: what % does this move? What does that mean for their tier?",
         "",
         "## 📜 The One Sentence",
         "ONE specific sentence (in quotes) the employee can say verbatim on every relevant call/intake to fix the unlock. Must cover multiple rubric criteria at once. Make it short enough to memorize.",
@@ -658,6 +712,7 @@ export default function MyPerformanceTab({ auth, store }) {
         "- NEVER invent peer behaviors. Use ONLY the CLOSEST PEER stats provided. If you don't have peer data, skip peer comparison.",
         "- ALWAYS cite call/ticket references using the EXACT markdown link syntax shown — calls use `(#call:...)` so the dashboard can route the click internally; tickets use the full RepairQ URL.",
         "- 'Study X' / 'review Y guides' are forbidden — every action must be a thing they say or do during a call/intake, executable in <30 seconds.",
+        "- ROLE FOCUS: If the data shows a WEAKER ROLE (intake or repair), the entire coaching plan must address that role. Don't mix roles. The cited tickets are pre-filtered to that role — use them.",
         "- Total length: 200 words max. Density over warmth.",
         "",
         "EMPLOYEE DATA:",
@@ -749,6 +804,29 @@ export default function MyPerformanceTab({ auth, store }) {
           {"\u21BB"} Refresh
         </button>
       </div>
+
+      {/* Role-split announcement banner — dismissible, persists in localStorage */}
+      {showRoleSplitBanner && (
+        <div style={{
+          marginBottom: 16, padding: "12px 16px", borderRadius: 8,
+          background: "linear-gradient(90deg, #7B2FFF0F 0%, #00D4FF0F 100%)",
+          borderLeft: "3px solid #7B2FFF",
+          display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between",
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--text-primary)", marginBottom: 4 }}>
+              {"\uD83D\uDCCA"} New for April 2026: your compliance score is now split by role
+            </div>
+            <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+              Tickets are now scored separately for the <strong style={{ color: "#00D4FF" }}>intake tech</strong> (diagnostics, payment collection, contact info) and the <strong style={{ color: "#7B2FFF" }}>repair tech</strong> (repair notes, pickup communication). You're only graded on the work you actually did — no more sharing scores with whoever else touched the ticket. Open any ticket below to see your role and the categories you control.
+            </div>
+          </div>
+          <button onClick={dismissRoleSplitBanner} style={{
+            padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border)",
+            background: "transparent", color: "var(--text-muted)", fontSize: 11, fontWeight: 700, cursor: "pointer", flexShrink: 0,
+          }}>Got it</button>
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════════ */}
       {/* ═══ DASHBOARD ═══ */}
@@ -1701,6 +1779,25 @@ export default function MyPerformanceTab({ auth, store }) {
                   // Source: app/api/dialpad/tickets/route.js GRADE_PROMPT.
                   var paymentNA = t.payment_score === 100 && (t.payment_notes || "").toLowerCase().indexOf("not applicable") >= 0;
                   // Heuristic — if payment_notes wasn't returned, treat 100 with N/A wording as default applies
+                  // Determine role badge + which score to display
+                  // your_role is set by the API: "intake" / "repair" / "both" / null
+                  // If role-split era and a single role: show that role's score; otherwise show overall_score
+                  var roleSplit = t.role_split_era && t.your_role && t.your_role !== "both";
+                  var displayScore = (function() {
+                    if (isSale) return null;
+                    if (roleSplit && t.your_role === "intake" && t.intake_role_score != null) return t.intake_role_score;
+                    if (roleSplit && t.your_role === "repair" && t.repair_role_score != null) return t.repair_role_score;
+                    return t.overall_score || 0;
+                  })();
+                  var displayScoreColor = displayScore == null ? "var(--text-muted)" : sc(displayScore || 0, 70, 50);
+                  var roleBadge = (function() {
+                    if (isSale) return null;
+                    if (!t.your_role) return null;
+                    if (t.your_role === "intake") return { label: "Intake", color: "#00D4FF", icon: "\uD83D\uDCDD" };
+                    if (t.your_role === "repair") return { label: "Repair", color: "#7B2FFF", icon: "\uD83D\uDD27" };
+                    if (t.your_role === "both") return { label: "Both Roles", color: "#FBBF24", icon: "\u2728" };
+                    return null;
+                  })();
                   return (
                     <div key={t.ticket_number} style={{ borderBottom: "1px solid var(--border)" }}>
                       <div onClick={function(){ if (isSale) return; setExpandedTicket(isExpanded ? null : t.ticket_number); }}
@@ -1709,17 +1806,22 @@ export default function MyPerformanceTab({ auth, store }) {
                           {!isSale && <span style={{ fontSize: 11, color: "var(--text-muted)", width: 12 }}>{isExpanded ? "\u25BC" : "\u25B6"}</span>}
                           {isSale && <span style={{ width: 12 }} />}
                           <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                               <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
                               {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: isSale ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: isSale ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
+                              {roleBadge && (
+                                <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: roleBadge.color + "22", color: roleBadge.color, display: "inline-flex", alignItems: "center", gap: 3 }}>
+                                  <span>{roleBadge.icon}</span><span>Your role: {roleBadge.label}</span>
+                                </span>
+                              )}
                               {t.device_category && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t.device_category}</span>}
                             </div>
                             <div style={{ color: "var(--text-body)", fontSize: 12, marginTop: 2 }}>{t.device || t.customer_name || ""}</div>
                             <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 1 }}>{t.date_closed ? new Date(t.date_closed).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}{t.turnaround_hours > 0 ? " \u00B7 " + t.turnaround_hours + "h turnaround" : ""}{t.gross_profit > 0 ? " \u00B7 " + fmt(t.gross_profit) + " profit" : ""}</div>
                           </div>
                         </div>
-                        <div style={{ padding: "4px 10px", borderRadius: 6, background: isSale ? "var(--bg-card-inner)" : scoreColor + "18", color: isSale ? "var(--text-muted)" : scoreColor, fontSize: 14, fontWeight: 800, minWidth: 45, textAlign: "center" }}>
-                          {isSale ? "\u2014" : (t.overall_score || 0)}
+                        <div style={{ padding: "4px 10px", borderRadius: 6, background: isSale ? "var(--bg-card-inner)" : displayScoreColor + "18", color: isSale ? "var(--text-muted)" : displayScoreColor, fontSize: 14, fontWeight: 800, minWidth: 45, textAlign: "center" }}>
+                          {isSale ? "\u2014" : displayScore}
                         </div>
                       </div>
 
@@ -1731,33 +1833,41 @@ export default function MyPerformanceTab({ auth, store }) {
                             <div style={{ fontSize: 9, color: "var(--text-muted)" }}>Each score is 0–100 &middot; weighted into your overall</div>
                           </div>
                           {[
-                            { label: "Intake / Diagnostics", val: t.diagnostics_score, weight: 30, notes: t.diagnostics_notes, what: "Issue documented, price quoted, turnaround estimate, history noted, liquid/warranty checks, planned service." },
-                            { label: "Repair Notes", val: t.notes_score, weight: paymentNA ? 40 : 25, notes: t.notes_detail || t.notes_notes, what: "Pre-test, service performed, findings, communication, and post-test all documented in the repair notes." },
-                            { label: "Pickup", val: t.categorization_score, weight: paymentNA ? 25 : 20, notes: t.categorization_notes, what: "Customer was contacted when ready, informed of pickup window, and the timing was logged." },
-                            { label: "Payment", val: t.payment_score, weight: paymentNA ? null : 20, notes: t.payment_notes, what: paymentNA ? "Not applicable — no parts ordered or insurance claim. Auto-100." : "If parts were ordered, the down payment was collected at intake (within ~2 hrs).", skipIfNA: true },
-                            { label: "Contact Info", val: t.contact_score, weight: 5, notes: t.contact_notes, what: "Full name, phone, real email; bonus for an alternate phone number." },
+                            { label: "Intake / Diagnostics", val: t.diagnostics_score, weight: 30, notes: t.diagnostics_notes, what: "Issue documented, price quoted, turnaround estimate, history noted, liquid/warranty checks, planned service.", roleBucket: "intake" },
+                            { label: "Repair Notes", val: t.notes_score, weight: paymentNA ? 40 : 25, notes: t.notes_detail || t.notes_notes, what: "Pre-test, service performed, findings, communication, and post-test all documented in the repair notes.", roleBucket: "repair" },
+                            { label: "Pickup", val: t.categorization_score, weight: paymentNA ? 25 : 20, notes: t.categorization_notes, what: "Customer was contacted when ready, informed of pickup window, and the timing was logged.", roleBucket: "repair" },
+                            { label: "Payment", val: t.payment_score, weight: paymentNA ? null : 20, notes: t.payment_notes, what: paymentNA ? "Not applicable — no parts ordered or insurance claim. Auto-100." : "If parts were ordered, the down payment was collected at intake (within ~2 hrs).", skipIfNA: true, roleBucket: "intake" },
+                            { label: "Contact Info", val: t.contact_score, weight: 5, notes: t.contact_notes, what: "Full name, phone, real email; bonus for an alternate phone number.", roleBucket: "intake" },
                           ].filter(function(s) {
                             if (s.skipIfNA && paymentNA) return false;
                             return s.val != null;
                           }).map(function(s) {
                             var color = sc(s.val || 0, 75, 50);
+                            // In role-split era: dim categories not owned by the user's role
+                            var notMyRole = roleSplit && t.your_role && s.roleBucket !== t.your_role;
                             return (
-                              <div key={s.label} style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 6, background: "var(--bg-card)", borderLeft: "3px solid " + color }}>
+                              <div key={s.label} style={{ marginBottom: 10, padding: "10px 12px", borderRadius: 6, background: "var(--bg-card)", borderLeft: "3px solid " + (notMyRole ? "var(--border)" : color), opacity: notMyRole ? 0.55 : 1 }}>
                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                                   <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700 }}>
                                     {s.label}
                                     {s.weight != null && <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500, marginLeft: 6 }}>({s.weight}% of overall)</span>}
+                                    {notMyRole && <span style={{ color: "var(--text-muted)", fontSize: 9, fontWeight: 600, marginLeft: 6, fontStyle: "italic" }}>(not your role)</span>}
                                   </span>
-                                  <span style={{ color: color, fontSize: 16, fontWeight: 800 }}>{s.val}<span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>/100</span></span>
+                                  <span style={{ color: notMyRole ? "var(--text-muted)" : color, fontSize: 16, fontWeight: 800 }}>{s.val}<span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>/100</span></span>
                                 </div>
                                 <div style={{ background: "var(--bg-card-inner)", borderRadius: 3, height: 5, overflow: "hidden", marginBottom: 5 }}>
-                                  <div style={{ width: (s.val || 0) + "%", height: "100%", borderRadius: 3, background: color }} />
+                                  <div style={{ width: (s.val || 0) + "%", height: "100%", borderRadius: 3, background: notMyRole ? "var(--text-muted)" : color }} />
                                 </div>
                                 <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.4 }}>{s.what}</div>
                                 {s.notes && <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 5, lineHeight: 1.4, fontStyle: "italic" }}>"{s.notes}"</div>}
                               </div>
                             );
                           })}
+                          {roleSplit && (
+                            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 6, background: "#7B2FFF11", borderLeft: "3px solid #7B2FFF", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                              {"\u2728"} <strong>Your role on this ticket: {t.your_role === "intake" ? "Intake" : "Repair"}</strong> — your score reflects only the categories you control. Dimmed rows above are scored against the other tech who handled them.
+                            </div>
+                          )}
                           {paymentNA && (
                             <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 6, background: "var(--bg-card)", fontSize: 11, color: "var(--text-muted)", fontStyle: "italic" }}>
                               Payment criterion N/A — auto-100. Repair Notes & Pickup carry slightly more weight on this ticket (40% / 25% instead of 25% / 20%).
