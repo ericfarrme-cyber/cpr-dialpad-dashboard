@@ -630,7 +630,7 @@ export default function MyPerformanceTab({ auth, store }) {
       if (lowTix.length > 0) {
         lines.push("LOW-SCORING TICKETS — cite using the EXACT markdown link format shown:");
         lowTix.forEach(function(t) {
-          var url = "https://cpr.repairq.io/admin/tickets/" + t.ticket_number;
+          var url = "https://cpr.repairq.io/ticket/" + t.ticket_number;
           lines.push("  - [Ticket #" + t.ticket_number + "](" + url + ") (" + t.overall_score + ") " + (t.device || "?") + " | Intake " + (t.diagnostics_score || 0) + ", Repair Notes " + (t.notes_score || 0) + ", Pickup " + (t.categorization_score || 0) + ", Payment " + (t.payment_score || 0) + ", Contact " + (t.contact_score || 0) + " (all 0-100)");
         });
       }
@@ -1710,7 +1710,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           {isSale && <span style={{ width: 12 }} />}
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                              <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
+                              <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
                               {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: isSale ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: isSale ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
                               {t.device_category && <span style={{ fontSize: 9, color: "var(--text-muted)" }}>{t.device_category}</span>}
                             </div>
@@ -1792,7 +1792,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           )}
 
                           <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
-                            <a href={"https://cpr.repairq.io/admin/tickets/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", textDecoration: "none" }}>Open ticket #{t.ticket_number} in RepairQ \u2197</a>
+                            <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", textDecoration: "none" }}>Open ticket #{t.ticket_number} in RepairQ \u2197</a>
                           </div>
                         </div>
                       )}
