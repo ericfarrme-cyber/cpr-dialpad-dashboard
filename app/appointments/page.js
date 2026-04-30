@@ -128,16 +128,24 @@ function StoreDashboard() {
   var [apptView, setApptView] = useState("today");
   var [expandedEmp, setExpandedEmp] = useState(null);
 
-  // Period selector for historical scorecard data
+  // Period selector — current + 12 past months + 3 future months (so future appointments are selectable)
   var periodOptions = [];
   var nowDate = new Date();
+  // Future months first (descending by future-ness, so newest at top of "future")
+  for (var fi = 3; fi >= 1; fi--) {
+    var fpd = new Date(nowDate.getFullYear(), nowDate.getMonth() + fi, 1);
+    var fpVal = fpd.getFullYear() + "-" + String(fpd.getMonth() + 1).padStart(2, "0");
+    var fpLabel = fpd.toLocaleDateString(undefined, { month: "long", year: "numeric" }) + " (upcoming)";
+    periodOptions.push({ value: fpVal, label: fpLabel });
+  }
   for (var mi = 0; mi < 12; mi++) {
     var pd = new Date(nowDate.getFullYear(), nowDate.getMonth() - mi, 1);
     var pVal = pd.getFullYear() + "-" + String(pd.getMonth() + 1).padStart(2, "0");
     var pLabel = pd.toLocaleDateString(undefined, { month: "long", year: "numeric" });
     periodOptions.push({ value: pVal, label: pLabel });
   }
-  var currentPeriod = periodOptions[0].value;
+  // Current month is at index 3 (after the 3 future months)
+  var currentPeriod = periodOptions[3].value;
   var [selectedPeriod, setSelectedPeriod] = useState(currentPeriod);
 
   // Review + GBP states
@@ -376,9 +384,29 @@ function StoreDashboard() {
     if (editingId) payload.id = editingId;
     var res = await fetch("/api/dialpad/appointments", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
     var json = await res.json();
-    if (json.success) { setMsg({type:"success",text:editingId?"Updated":"Appointment added"}); setShowForm(false); setEditingId(null); setForm(emptyForm); setMatchedCall(null); setRepeatInfo(null); loadData(); }
+    if (json.success) {
+      // Auto-switch period to match the appointment's date so the user sees their new appointment immediately
+      // (without this, a May appointment created in April silently disappears from the April-filtered list)
+      var apptPeriod = (form.date_of_appt || "").substring(0, 7);
+      var jumpedPeriods = false;
+      if (apptPeriod && apptPeriod !== selectedPeriod) {
+        // Make sure that period exists in our dropdown options; if not, the appointment is too far out
+        var inOptions = periodOptions.some(function(o) { return o.value === apptPeriod; });
+        if (inOptions) {
+          setSelectedPeriod(apptPeriod);
+          jumpedPeriods = true;
+        }
+      }
+      var successMsg = editingId ? "Updated" : "Appointment added";
+      if (jumpedPeriods) {
+        var apptLabel = new Date(parseInt(apptPeriod.split("-")[0]), parseInt(apptPeriod.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
+        successMsg += " — switched view to " + apptLabel + " so you can see it";
+      }
+      setMsg({ type:"success", text: successMsg });
+      setShowForm(false); setEditingId(null); setForm(emptyForm); setMatchedCall(null); setRepeatInfo(null); loadData();
+    }
     else setMsg({type:"error",text:json.error});
-    setTimeout(function(){setMsg(null);}, 4000);
+    setTimeout(function(){setMsg(null);}, 5000);
   };
   var deleteAppt = async function(id) { if (!confirm("Delete?")) return; await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:id})}); loadData(); };
   var updateArrival = async function(id, val) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,did_arrive:val})}); loadData(); };
