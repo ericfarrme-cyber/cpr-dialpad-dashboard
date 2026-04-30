@@ -2,6 +2,38 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
 
+// ── Role-split scoring helpers (April 2026) ──
+function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
+function isRoleSplitEra(dateStr) {
+  if (!dateStr) return false;
+  return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF();
+}
+function paymentIsNA(t) {
+  if (t == null) return false;
+  if (parseFloat(t.payment_score) !== 100) return false;
+  var n = String(t.payment_notes || "").toLowerCase();
+  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
+}
+function computeIntakeRoleScore(t) {
+  if (!t) return null;
+  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
+  if (diag == null && contact == null) return null;
+  diag = diag == null ? 0 : parseFloat(diag);
+  contact = contact == null ? 0 : parseFloat(contact);
+  pay = pay == null ? 0 : parseFloat(pay);
+  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
+  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
+}
+function computeRepairRoleScore(t) {
+  if (!t) return null;
+  var notes = t.notes_score, pickup = t.categorization_score;
+  if (notes == null && pickup == null) return null;
+  notes = notes == null ? 0 : parseFloat(notes);
+  pickup = pickup == null ? 0 : parseFloat(pickup);
+  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
+  return Math.round((notes * 25 + pickup * 20) / 45);
+}
+
 var STORE_KEYS = Object.keys(STORES);
 
 function clamp(v) { return Math.max(0, Math.min(100, v)); }
@@ -52,7 +84,7 @@ export async function GET(request) {
       .eq("direction", "outbound").gte("date_started", since);
     if (until) obQ = obQ.lt("date_started", until);
 
-    var ticketQ = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, notes_outcome_documented, notes_customer_contacted, date_closed, ticket_type")
+    var ticketQ = supabase.from("ticket_grades").select("store, employee_added, employee_repaired, overall_score, diagnostics_score, notes_score, payment_score, payment_notes, categorization_score, contact_score, notes_outcome_documented, notes_customer_contacted, date_closed, ticket_type")
       .gte("date_closed", since)
       .or("ticket_type.is.null,ticket_type.neq.Sale"); // Exclude sale tickets from compliance scoring
     if (until) ticketQ = ticketQ.lt("date_closed", until);
@@ -326,8 +358,10 @@ export async function GET(request) {
           phone_tickets: 0, other_tickets: 0, accy_count: 0, accy_gp: 0, clean_count: 0,
           // Audit
           audit_scores: [], opp_audits: 0, appt_offered: 0, warranty_mentioned: 0,
-          // Compliance
-          compliance_scores: [],
+          // Compliance — role-split (April 2026 forward)
+          intake_compliance_scores: [],   // tickets where employee was employee_added
+          repair_compliance_scores: [],   // tickets where employee was employee_repaired
+          legacy_compliance_scores: [],   // pre-April tickets, single attribution (old behavior)
         };
       }
       return empMap[resolved];
@@ -353,11 +387,34 @@ export async function GET(request) {
       }
     });
 
-    // Fill compliance data (resolved ticket names)
+    // Fill compliance data — role-split for April 2026+ tickets, legacy single-attribution before that
     ticketGrades.forEach(function(t) {
-      if (!t.employee_resolved) return;
-      var e = ensureEmp(t.employee_resolved);
-      if (e) e.compliance_scores.push(t.overall_score || 0);
+      if (isRoleSplitEra(t.date_closed)) {
+        // April 2026+: split by role
+        var intakeScore = computeIntakeRoleScore(t);
+        var repairScore = computeRepairRoleScore(t);
+        // Attribute intake-role score to whoever was employee_added (if present)
+        if (t.employee_added && intakeScore != null) {
+          var intakeName = resolveTicketName(t.employee_added);
+          if (intakeName) {
+            var ie = ensureEmp(intakeName);
+            if (ie) ie.intake_compliance_scores.push(intakeScore);
+          }
+        }
+        // Attribute repair-role score to whoever was employee_repaired (if present)
+        if (t.employee_repaired && repairScore != null) {
+          var repairName = resolveTicketName(t.employee_repaired);
+          if (repairName) {
+            var re = ensureEmp(repairName);
+            if (re) re.repair_compliance_scores.push(repairScore);
+          }
+        }
+      } else {
+        // Pre-April: legacy single attribution (resolved name = repair_or_added)
+        if (!t.employee_resolved) return;
+        var le = ensureEmp(t.employee_resolved);
+        if (le) le.legacy_compliance_scores.push(t.overall_score || 0);
+      }
     });
 
     // Compute employee scores
@@ -401,13 +458,26 @@ export async function GET(request) {
         ? (avgAuditPct * empAuditAvgW) + (apptRate * empAuditApptW) + (warrantyRate * empAuditWarrW)
         : 0;
 
-      // Compliance score
-      var complianceAvg = e.compliance_scores.length > 0
-        ? e.compliance_scores.reduce(function(s, v) { return s + v; }, 0) / e.compliance_scores.length
-        : 0;
+      // Compliance score — volume-weighted blend of intake-role + repair-role + legacy
+      // Each ticket where you played a role contributes one score; multiple roles on same ticket = both contribute
+      var intakeBucket = e.intake_compliance_scores;
+      var repairBucket = e.repair_compliance_scores;
+      var legacyBucket = e.legacy_compliance_scores;
+      var totalCount = intakeBucket.length + repairBucket.length + legacyBucket.length;
+      var totalSum = intakeBucket.reduce(function(s, v){return s+v;}, 0)
+                   + repairBucket.reduce(function(s, v){return s+v;}, 0)
+                   + legacyBucket.reduce(function(s, v){return s+v;}, 0);
+      var complianceAvg = totalCount > 0 ? totalSum / totalCount : 0;
+      // Per-role averages for transparency
+      var intakeAvg = intakeBucket.length > 0
+        ? intakeBucket.reduce(function(s, v){return s+v;}, 0) / intakeBucket.length
+        : null;
+      var repairAvg = repairBucket.length > 0
+        ? repairBucket.reduce(function(s, v){return s+v;}, 0) / repairBucket.length
+        : null;
 
       var overall = clamp((repairScore * empWeightRepairs) + (auditScore * empWeightAudit) + (complianceAvg * empWeightCompliance));
-      var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0 || e.compliance_scores.length > 0;
+      var hasData = totalRepairs > 0 || e.accy_count > 0 || e.audit_scores.length > 0 || totalCount > 0;
 
       return {
         name: e.name,
@@ -435,7 +505,19 @@ export async function GET(request) {
         },
         compliance: {
           score: Math.round(complianceAvg),
-          tickets_graded: e.compliance_scores.length,
+          tickets_graded: totalCount,
+          intake_role: {
+            avg: intakeAvg != null ? Math.round(intakeAvg) : null,
+            tickets: intakeBucket.length,
+          },
+          repair_role: {
+            avg: repairAvg != null ? Math.round(repairAvg) : null,
+            tickets: repairBucket.length,
+          },
+          legacy_pre_april: {
+            tickets: legacyBucket.length,
+          },
+          role_split_active: isRoleSplitEra(new Date().toISOString()),
         },
       };
     }).filter(function(e) { return e.hasData; }).sort(function(a, b) { return b.overall - a.overall; });
