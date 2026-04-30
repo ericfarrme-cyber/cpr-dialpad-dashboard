@@ -1,6 +1,46 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+// ── Role-split scoring helpers (April 2026) ──
+// Splits the 5-category ticket grade into intake-role and repair-role scores.
+//   Intake (employee_added):    Diagnostics 30%, Payment 20%, Contact 5%   (55% of overall)
+//   Repair (employee_repaired): Repair Notes 25%, Pickup 20%                (45% of overall)
+// When payment is N/A, intake = Diag 30 + Contact 5 (35); repair = Notes 40 + Pickup 25 (65).
+function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
+function isRoleSplitEra(dateStr) {
+  if (!dateStr) return false;
+  return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF();
+}
+function paymentIsNA(t) {
+  if (t == null) return false;
+  if (parseFloat(t.payment_score) !== 100) return false;
+  var n = String(t.payment_notes || "").toLowerCase();
+  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
+}
+function computeIntakeRoleScore(t) {
+  if (!t) return null;
+  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
+  if (diag == null && contact == null) return null;
+  diag = diag == null ? 0 : parseFloat(diag);
+  contact = contact == null ? 0 : parseFloat(contact);
+  pay = pay == null ? 0 : parseFloat(pay);
+  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
+  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
+}
+function computeRepairRoleScore(t) {
+  if (!t) return null;
+  var notes = t.notes_score, pickup = t.categorization_score;
+  if (notes == null && pickup == null) return null;
+  notes = notes == null ? 0 : parseFloat(notes);
+  pickup = pickup == null ? 0 : parseFloat(pickup);
+  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
+  return Math.round((notes * 25 + pickup * 20) / 45);
+}
+function nameMatches(needle, hay) {
+  if (!needle || !hay) return false;
+  return String(hay).toLowerCase().indexOf(String(needle).toLowerCase()) >= 0;
+}
+
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
@@ -214,7 +254,32 @@ export async function GET(request) {
       .limit(200);
 
     if (error) return jsonResponse({ success: false, error: error.message });
-    return jsonResponse({ success: true, tickets: data || [] });
+
+    // Enrich each ticket with role-split scores and the requesting employee's role on this ticket
+    var enriched = (data || []).map(function(t) {
+      var roleEra = isRoleSplitEra(t.date_closed);
+      var intakeMatch = nameMatches(employee, t.employee_added);
+      var repairMatch = nameMatches(employee, t.employee_repaired);
+      var yourRole;
+      if (intakeMatch && repairMatch) yourRole = "both";
+      else if (intakeMatch) yourRole = "intake";
+      else if (repairMatch) yourRole = "repair";
+      else yourRole = null;
+      // Role-split scores only computed for April 2026+ tickets — pre-April keep shared overall_score
+      var intakeScore = roleEra ? computeIntakeRoleScore(t) : null;
+      var repairScore = roleEra ? computeRepairRoleScore(t) : null;
+      // role-split null if the corresponding role's tech is null on the ticket (Sale tickets, walk-outs, etc.)
+      if (!t.employee_added) intakeScore = null;
+      if (!t.employee_repaired) repairScore = null;
+      return Object.assign({}, t, {
+        intake_role_score: intakeScore,
+        repair_role_score: repairScore,
+        your_role: yourRole,
+        role_split_era: roleEra,
+      });
+    });
+
+    return jsonResponse({ success: true, tickets: enriched, role_split_cutoff: ROLE_SPLIT_CUTOFF() });
   }
 
   if (action === "stats") {
