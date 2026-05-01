@@ -464,6 +464,17 @@ async function runDetection(secret) {
           var avg21 = avg(prior21.map(function(t) { return t.overall_score || 0; }));
           var drop = avg21 - avg7;
           if (drop >= COMPLIANCE_DROP) {
+            // Build per-ticket evidence so detail view can show what slipped
+            var recentTixDetail = e.all_tickets_7d.slice().sort(function(a, b) { return String(b.date_closed).localeCompare(String(a.date_closed)); }).slice(0, 8).map(function(t) {
+              return {
+                ticket_number: t.ticket_number,
+                date_closed: t.date_closed,
+                overall_score: t.overall_score,
+                notes_score: t.notes_score,
+                diagnostics_score: t.diagnostics_score,
+                categorization_score: t.categorization_score,
+              };
+            });
             candidates.push({
               flag_type: "regression", rule_key: "compliance_regression", severity: 4,
               employee_name: name, store: e.store, category: "compliance",
@@ -471,7 +482,13 @@ async function runDetection(secret) {
               metric_current: Math.round(avg7), metric_baseline: Math.round(avg21),
               delta: -Math.round(drop),
               headline: name + " compliance dropped " + Math.round(drop) + " pts (was " + Math.round(avg21) + ", now " + Math.round(avg7) + ")",
-              evidence: { tickets_7d: e.all_tickets_7d.length, tickets_prior21: prior21.length },
+              evidence: {
+                tickets_7d: e.all_tickets_7d.length,
+                tickets_prior21: prior21.length,
+                avg_recent: Math.round(avg7),
+                avg_prior: Math.round(avg21),
+                recent_ticket_details: recentTixDetail,
+              },
             });
           }
         }
@@ -486,6 +503,14 @@ async function runDetection(secret) {
         var ratePrior = pct(oppPrior.filter(function(a) { return a.appt_offered; }).length, oppPrior.length);
         var rateDrop = ratePrior - rateNow;
         if (rateDrop >= APPT_DROP) {
+          // Per-call breakdown: which calls offered, which didn't
+          var callBreakdown = oppCurrent.slice().sort(function(a, b) { return String(b.date_started).localeCompare(String(a.date_started)); }).slice(0, 10).map(function(a) {
+            return {
+              date: a.date_started,
+              offered: !!a.appt_offered,
+              warranty_mentioned: !!a.warranty_mentioned,
+            };
+          });
           candidates.push({
             flag_type: "regression", rule_key: "appt_collapse", severity: 5,
             employee_name: name, store: e.store, category: "audit",
@@ -493,7 +518,13 @@ async function runDetection(secret) {
             metric_current: Math.round(rateNow), metric_baseline: Math.round(ratePrior),
             delta: -Math.round(rateDrop),
             headline: name + " appointment offers dropped to " + Math.round(rateNow) + "% this week (was " + Math.round(ratePrior) + "%)",
-            evidence: { opps_current_week: oppCurrent.length, opps_prior_week: oppPrior.length },
+            evidence: {
+              opps_current_week: oppCurrent.length,
+              opps_prior_week: oppPrior.length,
+              offers_current: oppCurrent.filter(function(a) { return a.appt_offered; }).length,
+              offers_prior: oppPrior.filter(function(a) { return a.appt_offered; }).length,
+              call_breakdown: callBreakdown,
+            },
           });
         }
       }
@@ -507,6 +538,16 @@ async function runDetection(secret) {
           var avgToday = avg(todaysAudits.map(function(a) { return a.max_score > 0 ? (a.score / a.max_score) * 100 : 0; }));
           var avgPrior = avg(prior30.map(function(a) { return a.max_score > 0 ? (a.score / a.max_score) * 100 : 0; }));
           if (avgPrior - avgToday >= ACTIVE_DIP_PCT) {
+            // Today's calls in detail — what's actually happening on shift right now
+            var todayCallsDetail = todaysAudits.slice().sort(function(a, b) { return String(a.date_started).localeCompare(String(b.date_started)); }).map(function(a) {
+              return {
+                date: a.date_started,
+                call_type: a.call_type,
+                score: a.max_score > 0 ? Math.round((a.score / a.max_score) * 100) : null,
+                appt_offered: !!a.appt_offered,
+                warranty_mentioned: !!a.warranty_mentioned,
+              };
+            });
             candidates.push({
               flag_type: "opportunity", rule_key: "active_shift_dip", severity: 5,
               employee_name: name, store: e.store, category: "audit",
@@ -514,7 +555,13 @@ async function runDetection(secret) {
               metric_current: Math.round(avgToday), metric_baseline: Math.round(avgPrior),
               delta: -Math.round(avgPrior - avgToday),
               headline: name + " is on shift now and " + Math.round(avgPrior - avgToday) + " pts below their normal — coachable today",
-              evidence: { audits_today: todaysAudits.length, audits_baseline: prior30.length },
+              evidence: {
+                audits_today: todaysAudits.length,
+                audits_baseline: prior30.length,
+                avg_today: Math.round(avgToday),
+                avg_baseline: Math.round(avgPrior),
+                today_calls: todayCallsDetail,
+              },
             });
           }
         }
@@ -526,10 +573,10 @@ async function runDetection(secret) {
       e.repair_tickets_28d.forEach(function(t) {
         if (!t.device_category || !t.turnaround_hours || t.turnaround_hours <= 0) return;
         var cat = t.device_category;
-        if (!deviceCats[cat]) deviceCats[cat] = { recent: [], prior: [] };
+        if (!deviceCats[cat]) deviceCats[cat] = { recent: [], prior: [], recent_tix: [], prior_tix: [] };
         var dc = isoToDate(t.date_closed);
-        if (dc >= isoToDate(d14)) deviceCats[cat].recent.push(t.turnaround_hours);
-        else deviceCats[cat].prior.push(t.turnaround_hours);
+        if (dc >= isoToDate(d14)) { deviceCats[cat].recent.push(t.turnaround_hours); deviceCats[cat].recent_tix.push(t); }
+        else { deviceCats[cat].prior.push(t.turnaround_hours); deviceCats[cat].prior_tix.push(t); }
       });
       Object.keys(deviceCats).forEach(function(cat) {
         var dc = deviceCats[cat];
@@ -539,6 +586,11 @@ async function runDetection(secret) {
         if (avgPrior <= 0) return;
         var pctImprove = (avgPrior - avgRecent) / avgPrior;
         if (pctImprove >= TURNAROUND_DROP_PCT) {
+          // Sample tickets — fastest 3 from recent, slowest 2 from prior, for visual contrast
+          var recentSorted = dc.recent_tix.slice().sort(function(a, b) { return a.turnaround_hours - b.turnaround_hours; });
+          var priorSorted = dc.prior_tix.slice().sort(function(a, b) { return b.turnaround_hours - a.turnaround_hours; });
+          var sampleRecent = recentSorted.slice(0, 5).map(function(t) { return { ticket_number: t.ticket_number, hours: round1(t.turnaround_hours), date_closed: t.date_closed }; });
+          var samplePrior = priorSorted.slice(0, 3).map(function(t) { return { ticket_number: t.ticket_number, hours: round1(t.turnaround_hours), date_closed: t.date_closed }; });
           candidates.push({
             flag_type: "win", rule_key: "turnaround_improvement", severity: 3,
             employee_name: name, store: e.store, category: "turnaround",
@@ -546,7 +598,16 @@ async function runDetection(secret) {
             metric_current: round1(avgRecent), metric_baseline: round1(avgPrior),
             delta: -round1(avgPrior - avgRecent),
             headline: name + " dropped " + cat + " turnaround from " + round1(avgPrior) + "h to " + round1(avgRecent) + "h",
-            evidence: { device_category: cat, recent_window_tix: dc.recent.length, prior_window_tix: dc.prior.length, pct_improvement: Math.round(pctImprove * 100) },
+            evidence: {
+              device_category: cat,
+              recent_window_tix: dc.recent.length,
+              prior_window_tix: dc.prior.length,
+              pct_improvement: Math.round(pctImprove * 100),
+              avg_recent_hours: round1(avgRecent),
+              avg_prior_hours: round1(avgPrior),
+              sample_recent: sampleRecent,
+              sample_prior: samplePrior,
+            },
           });
         }
       });
@@ -556,6 +617,14 @@ async function runDetection(secret) {
       if (e.appt_audits_recent.length >= APPT_STREAK_LEN) {
         var last5 = e.appt_audits_recent.slice(-APPT_STREAK_LEN);
         if (last5.every(function(a) { return a.appt_offered; })) {
+          // Capture the actual call list with dates so the win is verifiable
+          var streakCalls = last5.map(function(a) {
+            return {
+              date: a.date_started,
+              warranty_mentioned: !!a.warranty_mentioned,
+              score: a.max_score > 0 ? Math.round((a.score / a.max_score) * 100) : null,
+            };
+          });
           candidates.push({
             flag_type: "win", rule_key: "appt_streak", severity: 3,
             employee_name: name, store: e.store, category: "audit",
@@ -563,7 +632,7 @@ async function runDetection(secret) {
             metric_current: APPT_STREAK_LEN, metric_baseline: 0,
             delta: APPT_STREAK_LEN,
             headline: name + " offered appointments on " + APPT_STREAK_LEN + " opportunity calls in a row",
-            evidence: { streak_length: APPT_STREAK_LEN },
+            evidence: { streak_length: APPT_STREAK_LEN, streak_calls: streakCalls },
           });
         }
       }
@@ -573,14 +642,28 @@ async function runDetection(secret) {
       if (e.notes_recent_chrono.length >= NOTES_EXCELLENCE_LEN) {
         var last10 = e.notes_recent_chrono.slice(0, NOTES_EXCELLENCE_LEN);
         if (last10.every(function(t) { return t.notes_score != null && t.notes_score >= 90; })) {
+          var streakTixDetail = last10.map(function(t) {
+            return {
+              ticket_number: t.ticket_number,
+              date_closed: t.date_closed,
+              notes_score: t.notes_score,
+              device_category: t.device_category,
+            };
+          });
+          var avgStreakScore = Math.round(avg(last10.map(function(t) { return t.notes_score; })));
           candidates.push({
             flag_type: "win", rule_key: "notes_excellence", severity: 3,
             employee_name: name, store: e.store, category: "compliance",
             metric_label: "Consecutive 90+ notes scores",
             metric_current: NOTES_EXCELLENCE_LEN, metric_baseline: 0,
             delta: NOTES_EXCELLENCE_LEN,
-            headline: name + " has " + NOTES_EXCELLENCE_LEN + " consecutive tickets with 90+ notes scores",
-            evidence: { streak_length: NOTES_EXCELLENCE_LEN, ticket_numbers: last10.map(function(t) { return t.ticket_number; }) },
+            headline: name + " has " + NOTES_EXCELLENCE_LEN + " consecutive tickets with 90+ notes scores (avg " + avgStreakScore + "/100)",
+            evidence: {
+              streak_length: NOTES_EXCELLENCE_LEN,
+              avg_streak_score: avgStreakScore,
+              ticket_numbers: last10.map(function(t) { return t.ticket_number; }),
+              ticket_details: streakTixDetail,
+            },
           });
         }
       }
