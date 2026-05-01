@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { LineChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, ReferenceLine } from "recharts";
 import { STORES } from "@/lib/constants";
 
 // ─────────────────────────────────────────────────────────────────
@@ -423,10 +424,31 @@ function DetailModal(props) {
           {/* Metric snapshot — common to all rules */}
           {(flag.metric_current != null || flag.metric_baseline != null) && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
-              <Stat label={flag.metric_label || "Current"} value={flag.metric_current != null ? flag.metric_current : "—"} color="#F0F1F3" />
-              <Stat label="Baseline" value={flag.metric_baseline != null && flag.metric_baseline > 0 ? flag.metric_baseline : "—"} color="#8B8F98" />
+              <Stat label={flag.metric_label || "Current"} value={flag.metric_current != null ? flag.metric_current : "\u2014"} color="#F0F1F3" />
+              <Stat label="Baseline" value={flag.metric_baseline != null && flag.metric_baseline > 0 ? flag.metric_baseline : "\u2014"} color="#8B8F98" />
               {flag.delta != null && <Stat label="Delta" value={(flag.delta > 0 ? "+" : "") + flag.delta} color={flag.delta < 0 ? "#F87171" : "#4ADE80"} />}
             </div>
+          )}
+
+          {/* ─── UNIVERSAL: Trend sparkline (4-week) ─── */}
+          {ev.sparkline && ev.sparkline.data && ev.sparkline.data.length > 0 && (
+            <Section title={"Trend \u2014 " + (ev.sparkline.metric_label || "")}>
+              <Sparkline data={ev.sparkline.data} unit={ev.sparkline.unit || ""} lowerIsBetter={!!ev.sparkline.lower_is_better} highlightLast={true} />
+            </Section>
+          )}
+
+          {/* ─── UNIVERSAL: Peer comparison ─── */}
+          {ev.peer_compare && ev.peer_compare.employee_value != null && (
+            <Section title="Peer Context">
+              <PeerCompare data={ev.peer_compare} employeeName={flag.employee_name} storeName={store ? store.name.replace("CPR ", "") : "store"} />
+            </Section>
+          )}
+
+          {/* ─── UNIVERSAL: Dollar stake (only when projection is meaningful) ─── */}
+          {ev.dollar_stake && (ev.dollar_stake.tier_changed || ev.dollar_stake.delta_per_month > 0) && (
+            <Section title={flag.flag_type === "win" ? "What This Tier Is Worth" : "What's At Stake"}>
+              <DollarStake stake={ev.dollar_stake} employeeName={flag.employee_name} isWin={flag.flag_type === "win"} />
+            </Section>
           )}
 
           {/* ─── Rule-specific evidence renders ─── */}
@@ -712,4 +734,161 @@ function TicketLink(props) {
 }
 function Empty(props) {
   return <div style={{ padding: 16, color: "#6B6F78", fontSize: 12, textAlign: "center", background: "#12141A", borderRadius: 6 }}>{props.children}</div>;
+}
+
+// ─── Sparkline: 4-week weekly trend chart with last-week highlighted ───
+function Sparkline(props) {
+  var data = (props.data || []).map(function(d) {
+    return { label: d.label, value: d.value, count: d.count };
+  });
+  var unit = props.unit || "";
+  var lowerBetter = !!props.lowerIsBetter;
+  // Compute last data point for highlight emphasis
+  var lastIdx = data.length - 1;
+  var lastVal = data[lastIdx] ? data[lastIdx].value : null;
+  var lastValColor = "#7B2FFF";
+  if (data.length >= 2 && lastVal != null) {
+    var priorIdx = lastIdx - 1; var priorVal = null;
+    while (priorIdx >= 0) { if (data[priorIdx].value != null) { priorVal = data[priorIdx].value; break; } priorIdx--; }
+    if (priorVal != null) {
+      var improving = lowerBetter ? lastVal < priorVal : lastVal > priorVal;
+      lastValColor = improving ? "#4ADE80" : "#F87171";
+    }
+  }
+  // recharts doesn't render nulls great; replace with undefined to make Line skip them
+  var chartData = data.map(function(d) { return { label: d.label, value: d.value, count: d.count }; });
+  return (
+    <div style={{ background: "#12141A", borderRadius: 8, padding: "16px 12px", border: "1px solid #1E2028" }}>
+      <div style={{ width: "100%", height: 110 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 5, right: 12, left: 0, bottom: 5 }}>
+            <YAxis hide={true} />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6B6F78" }} axisLine={{ stroke: "#1E2028" }} tickLine={false} />
+            <Tooltip
+              contentStyle={{ background: "#0F1117", border: "1px solid #2A2D36", borderRadius: 6, fontSize: 11 }}
+              labelStyle={{ color: "#8B8F98" }}
+              itemStyle={{ color: "#F0F1F3" }}
+              formatter={function(v, n, p) { return [v == null ? "no data" : v + unit + (p && p.payload && p.payload.count != null ? " (n=" + p.payload.count + ")" : ""), ""]; }}
+            />
+            <Line type="monotone" dataKey="value" stroke="#7B2FFF" strokeWidth={2}
+              dot={function(d) {
+                var isLast = d.index === lastIdx;
+                return <circle cx={d.cx} cy={d.cy} r={isLast ? 5 : 3} fill={isLast ? lastValColor : "#7B2FFF"} stroke={isLast ? lastValColor : "none"} strokeWidth={isLast ? 2 : 0} key={"dot-" + d.index} />;
+              }}
+              connectNulls={true}
+              isAnimationActive={false}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Below the chart: explicit current value with arrow trend */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 6, paddingTop: 6, borderTop: "1px solid #1E2028", fontSize: 11, color: "#8B8F98" }}>
+        <span>This week: <strong style={{ color: lastValColor, fontSize: 13 }}>{lastVal != null ? lastVal + unit : "no data"}</strong></span>
+        {data.length >= 2 && data[0] && data[0].value != null && lastVal != null && (
+          <span>4-week change: <strong style={{ color: lastValColor }}>
+            {(function() {
+              var first = data[0].value; var diff = lastVal - first;
+              var direction = (lowerBetter ? diff < 0 : diff > 0) ? "\u2197" : (lowerBetter ? diff > 0 : diff < 0) ? "\u2198" : "\u2192";
+              return direction + " " + (diff > 0 ? "+" : "") + Math.round(diff * 10) / 10 + unit;
+            })()}
+          </strong></span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── PeerCompare: single-row callout with employee vs store-avg vs role-avg ───
+function PeerCompare(props) {
+  var d = props.data || {};
+  var lowerBetter = !!d.lower_is_better;
+  var unit = d.unit || "";
+  var empVal = d.employee_value;
+  var storeVal = d.store_avg;
+  var roleVal = d.role_avg;
+  // Color the employee value based on whether it's outperforming or underperforming peers
+  var compareTarget = storeVal != null ? storeVal : roleVal;
+  var empColor = "#F0F1F3";
+  if (compareTarget != null && empVal != null) {
+    var better = lowerBetter ? empVal < compareTarget : empVal > compareTarget;
+    var equal = Math.abs(empVal - compareTarget) < (lowerBetter ? 0.5 : 3);
+    empColor = equal ? "#FBBF24" : (better ? "#4ADE80" : "#F87171");
+  }
+  return (
+    <div style={{ background: "#12141A", borderRadius: 8, padding: 14, border: "1px solid #1E2028" }}>
+      <div style={{ fontSize: 10, color: "#6B6F78", marginBottom: 10 }}>{d.metric_label || "Comparison"}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+        <PeerCell label={props.employeeName} value={empVal} unit={unit} color={empColor} bold={true} />
+        <PeerCell label={props.storeName + " avg"} value={storeVal} unit={unit} color="#8B8F98" />
+        <PeerCell label={(d.role_label || "All techs") + " avg"} value={roleVal} unit={unit} color="#8B8F98" />
+      </div>
+      {compareTarget != null && empVal != null && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #1E2028", fontSize: 11, color: "#8B8F98", textAlign: "center" }}>
+          {(function() {
+            var diff = empVal - compareTarget;
+            var absDiff = Math.abs(Math.round(diff * 10) / 10);
+            if (absDiff < (lowerBetter ? 0.5 : 3)) return "On par with peers";
+            var better = lowerBetter ? diff < 0 : diff > 0;
+            return better
+              ? <span><strong style={{ color: "#4ADE80" }}>{absDiff + unit} {lowerBetter ? "faster" : "above"}</strong> peer average</span>
+              : <span><strong style={{ color: "#F87171" }}>{absDiff + unit} {lowerBetter ? "slower" : "below"}</strong> peer average</span>;
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+function PeerCell(props) {
+  return (
+    <div style={{ textAlign: "center", padding: "8px 4px" }}>
+      <div style={{ fontSize: 9, color: "#6B6F78", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{props.label}</div>
+      <div style={{ fontSize: props.bold ? 22 : 18, fontWeight: props.bold ? 800 : 600, color: props.color || "#F0F1F3" }}>
+        {props.value != null ? props.value + (props.unit || "") : "\u2014"}
+      </div>
+    </div>
+  );
+}
+
+// ─── DollarStake: shows tier impact + monthly $ delta ───
+function DollarStake(props) {
+  var s = props.stake || {};
+  var isWin = !!props.isWin;
+  var tierColors = { "Bronze": "#CD7F32", "Silver": "#C0C0C0", "Gold": "#FBBF24", "Platinum": "#00D4FF", "Diamond": "#FF2D95" };
+  var fromColor = tierColors[s.current_tier] || "#8B8F98";
+  var toColor = tierColors[s.projected_tier] || "#8B8F98";
+  var delta = s.delta_per_month || 0;
+  return (
+    <div style={{ background: "linear-gradient(135deg, #7B2FFF11, #FF2D9511)", borderRadius: 8, padding: 16, border: "1px solid #7B2FFF33" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ fontSize: 11, color: "#8B8F98", marginBottom: 6 }}>
+            {isWin
+              ? "By staying at this level, " + props.employeeName + " keeps:"
+              : "If " + props.employeeName + " makes the change suggested above, projected impact:"}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: fromColor }}>{s.current_tier || "?"}</span>
+            <span style={{ fontSize: 16, color: "#6B6F78" }}>{"\u2192"}</span>
+            <span style={{ fontSize: 16, fontWeight: 800, color: toColor }}>{s.projected_tier || "?"}</span>
+            <span style={{ fontSize: 11, color: "#6B6F78" }}>({s.current_overall} {"\u2192"} {s.projected_overall} pts)</span>
+          </div>
+          {s.lift_source && (
+            <div style={{ fontSize: 10, color: "#6B6F78", fontStyle: "italic" }}>{"\u2014"} based on {s.lift_source}</div>
+          )}
+        </div>
+        <div style={{ textAlign: "center" }}>
+          <div style={{ fontSize: 9, color: "#6B6F78", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Per Month</div>
+          <div style={{ fontSize: 26, fontWeight: 800, color: delta > 0 ? "#4ADE80" : "#8B8F98" }}>
+            {delta > 0 ? "+$" + delta : "$0"}
+          </div>
+          <div style={{ fontSize: 10, color: "#6B6F78", marginTop: 2 }}>commission impact</div>
+        </div>
+      </div>
+      {s.diamond_bonus_added && (
+        <div style={{ marginTop: 10, padding: "6px 10px", background: "#FF2D9511", borderLeft: "3px solid #FF2D95", borderRadius: 4, fontSize: 11, color: "#FF2D95", fontWeight: 700 }}>
+          {"\u2728"} Plus 1 PTO day per month at Diamond tier
+        </div>
+      )}
+    </div>
+  );
 }
