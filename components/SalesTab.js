@@ -99,25 +99,93 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   // Fetch roster once for matching
   useEffect(function() {
     fetch("/api/employees").then(function(r) { return r.json(); }).then(function(json) {
-      if (json && (json.success !== false) && Array.isArray(json.employees)) {
-        setRoster(json.employees);
-      } else if (json && Array.isArray(json)) {
-        setRoster(json);
+      // Be tolerant of multiple response shapes:
+      //   { success: true, employees: [...] }
+      //   { employees: [...] }
+      //   { roster: [...] }
+      //   [...]  (raw array)
+      //   { data: [...] }
+      var list = null;
+      if (Array.isArray(json)) list = json;
+      else if (json && Array.isArray(json.employees)) list = json.employees;
+      else if (json && Array.isArray(json.roster)) list = json.roster;
+      else if (json && Array.isArray(json.data)) list = json.data;
+      if (list && list.length > 0) {
+        setRoster(list);
+        console.log("[SalesTab] Loaded " + list.length + " roster entries from /api/employees. Sample:", list[0]);
+      } else {
+        console.warn("[SalesTab] /api/employees returned unexpected shape — roster matching will be disabled. Response:", json);
       }
-    }).catch(function() { /* roster optional — fall back to category-only filter */ });
+    }).catch(function(err) {
+      console.warn("[SalesTab] /api/employees fetch failed:", err && err.message);
+    });
   }, []);
 
-  // Build a flat list of all roster names + aliases for fast lookup, plus formatted "Display Name" list for the remap dropdown
+  // Helper: extract every plausible "name" field from a roster entry, normalize for matching.
+  // Handles: first_name+last_name, name, full_name, display_name, employee_name, etc.
+  function rosterEntryNames(r) {
+    if (!r || typeof r !== "object") return [];
+    var names = [];
+    function add(s) {
+      if (s == null) return;
+      var v = String(s).trim();
+      if (v) names.push(v);
+    }
+    add(r.first_name);
+    add(r.last_name);
+    add(r.name);
+    add(r.full_name);
+    add(r.display_name);
+    add(r.employee_name);
+    add(r.firstName);
+    add(r.lastName);
+    add(r.fullName);
+    if (r.first_name && r.last_name) {
+      add(r.first_name + " " + r.last_name);
+      add(r.last_name + ", " + r.first_name);
+    }
+    if (r.firstName && r.lastName) {
+      add(r.firstName + " " + r.lastName);
+    }
+    if (Array.isArray(r.aliases)) r.aliases.forEach(add);
+    if (Array.isArray(r.alias_names)) r.alias_names.forEach(add);
+    return names;
+  }
+
+  // Helper: get a single human-readable display name for a roster entry (for the dropdown)
+  function rosterEntryDisplay(r) {
+    if (!r) return "";
+    if (r.name) return r.name;
+    if (r.full_name) return r.full_name;
+    if (r.display_name) return r.display_name;
+    if (r.first_name && r.last_name) return r.first_name + " " + r.last_name;
+    if (r.firstName && r.lastName) return r.firstName + " " + r.lastName;
+    if (r.first_name) return r.first_name;
+    if (r.firstName) return r.firstName;
+    if (r.employee_name) return r.employee_name;
+    return "";
+  }
+
+  // Build a flat lowercase set of every roster name/alias/first/last/full + first-token only,
+  // so partial matches like "Jordan" → "Jordan Ross" classify correctly.
   var rosterMatchSet = useMemo(function() {
     var s = new Set();
     (roster || []).forEach(function(r) {
-      if (r.first_name) s.add(String(r.first_name).toLowerCase().trim());
-      if (r.last_name) s.add(String(r.last_name).toLowerCase().trim());
-      if (r.first_name && r.last_name) {
-        s.add((r.first_name + " " + r.last_name).toLowerCase().trim());
-        s.add((r.last_name + ", " + r.first_name).toLowerCase().trim());
-      }
-      if (Array.isArray(r.aliases)) r.aliases.forEach(function(a) { if (a) s.add(String(a).toLowerCase().trim()); });
+      var names = rosterEntryNames(r);
+      names.forEach(function(n) {
+        var v = String(n).toLowerCase().trim();
+        if (!v) return;
+        s.add(v);
+        // Also add first token (e.g. "Jordan" from "Jordan Ross")
+        var firstTok = v.split(/\s+/)[0];
+        if (firstTok && firstTok.length >= 3) s.add(firstTok);
+        // Also add last token (e.g. "Ross")
+        var toks = v.split(/\s+/);
+        if (toks.length > 1) {
+          var lastTok = toks[toks.length - 1].replace(/,$/, "");
+          if (lastTok && lastTok.length >= 3) s.add(lastTok);
+        }
+      });
     });
     return s;
   }, [roster]);
@@ -127,8 +195,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     var names = [];
     (roster || []).forEach(function(r) {
       if (r.active === false) return;
-      if (r.first_name && r.last_name) names.push(r.first_name + " " + r.last_name);
-      else if (r.first_name) names.push(r.first_name);
+      var d = rosterEntryDisplay(r);
+      if (d) names.push(d);
     });
     return names.sort();
   }, [roster]);
@@ -138,25 +206,26 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     if (!name) return "category";
     var n = String(name).toLowerCase().trim();
     if (rosterMatchSet.has(n)) return "roster";
-    // Fuzzy: try first-name-only or "First L." style
+    // Try splitting on whitespace and comma — match if ANY token is a known roster token
     var parts = n.replace(",", " ").split(/\s+/).filter(Boolean);
-    if (parts.length > 0) {
-      // Check if any roster entry's first name matches
-      for (var i = 0; i < (roster || []).length; i++) {
-        var rr = roster[i];
-        var rfn = (rr.first_name || "").toLowerCase().trim();
-        var rln = (rr.last_name || "").toLowerCase().trim();
-        if (rfn && parts[0] === rfn) return "roster";
-        if (rln && parts[0] === rln) return "roster";
-      }
+    for (var p = 0; p < parts.length; p++) {
+      if (parts[p].length >= 3 && rosterMatchSet.has(parts[p])) return "roster";
     }
-    // Strong category-row signal: contains " - " (e.g. "Part - Phone", "Accessory - Case")
+    // Last try: substring match — does any roster name appear inside this string?
+    // (Handles "Alyssa P." matching "Alyssa")
+    var rosterArr = Array.from(rosterMatchSet);
+    for (var ri = 0; ri < rosterArr.length; ri++) {
+      var rn = rosterArr[ri];
+      if (rn.length < 4) continue; // skip too-short tokens to avoid false positives
+      if (n.indexOf(rn) >= 0) return "roster";
+    }
+    // Strong category-row signals: contains " - " (e.g. "Part - Phone", "Accessory - Case")
     if (/\s-\s/.test(name)) return "category";
-    // Other obvious system rows: API tokens, all caps short codes, "Unknown"
     if (/^(API|UNKNOWN|TOTAL|TOTALS|N\/A)$/i.test(name.trim())) return "category";
     if (/\bAPI\b/.test(name) || /ServiceNetwork/i.test(name)) return "category";
     return "unmatched";
   }
+
 
   // Build unified employee performance
   var employees = useMemo(function() {
