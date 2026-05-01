@@ -19,6 +19,7 @@ import AdminTab from "@/components/AdminTab";
 import AIAssistant from "@/components/AIAssistant";
 import ProfitabilityTab from "@/components/ProfitabilityTab";
 import CallPerformanceTab from "@/components/CallPerformanceTab";
+import CoachingTab from "@/components/CoachingTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import {
   fetchLiveStats,
@@ -1318,6 +1319,7 @@ export default function DialpadDashboard() {
         })}
         {isAdmin && !isPreviewing && (<>
           <button onClick={function(){setActiveTab("profitability");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="profitability"?"#4ADE80":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="profitability"?"2px solid #4ADE80":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Profitability</button>
+          <button onClick={function(){setActiveTab("coaching");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="coaching"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="coaching"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFAF"}</span>Coaching</button>
           <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
         </>)}
       </div>
@@ -1337,6 +1339,7 @@ export default function DialpadDashboard() {
         {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
         {activeTab==="profitability" && <ProfitabilityTab />}
+        {activeTab==="coaching" && <CoachingTab />}
         {activeTab==="admin" && <AdminTab onPreview={function(role, name, store){
           setPreviewRole(role === "admin" ? null : role);
           setPreviewEmployee(role === "employee" ? name : "");
