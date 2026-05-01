@@ -310,12 +310,43 @@ function FlagCard(props) {
               {flag.delta != null && <span style={{ color: flag.delta < 0 ? "#F87171" : "#4ADE80", marginLeft: 6, fontWeight: 700 }}>({flag.delta > 0 ? "+" : ""}{flag.delta})</span>}
             </div>
           )}
-          {ev.ticket_numbers && ev.ticket_numbers.length > 0 && (
+
+          {/* Surface specific gaps when present (notes_streak rule) so the manager sees what's actually wrong before clicking Coach */}
+          {ev.top_gaps && ev.top_gaps.length > 0 && (
+            <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 6, background: "#FB923C18", borderLeft: "3px solid #FB923C" }}>
+              <div style={{ fontSize: 10, color: "#FB923C", fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", marginBottom: 4 }}>{"\u26A0"} Specific gaps</div>
+              <div style={{ fontSize: 11, color: "#F0F1F3", lineHeight: 1.4 }}>
+                {ev.top_gaps.map(function(g, i) {
+                  return <span key={g}>{i > 0 ? " · " : ""}{g}</span>;
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Per-ticket evidence with gaps */}
+          {ev.ticket_details && ev.ticket_details.length > 0 ? (
+            <div style={{ fontSize: 10, color: "#8B8F98", marginTop: 8 }}>
+              {ev.ticket_details.slice(0, 4).map(function(td) {
+                return (
+                  <div key={td.ticket_number} style={{ padding: "4px 0", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+                    <a href={"https://cpr.repairq.io/ticket/" + td.ticket_number} target="_blank" rel="noopener noreferrer" style={{ color: "#00D4FF", textDecoration: "none", fontWeight: 700 }}>#{td.ticket_number}</a>
+                    {td.notes_score != null && <span style={{ color: td.notes_score < 30 ? "#F87171" : td.notes_score < 50 ? "#FB923C" : "#FBBF24", fontWeight: 700 }}>notes {td.notes_score}/100</span>}
+                    {td.gaps && td.gaps.length > 0 && <span style={{ color: "#6B6F78", fontStyle: "italic" }}>missing: {td.gaps.join(", ")}</span>}
+                  </div>
+                );
+              })}
+              {ev.ticket_details.length > 4 && <div style={{ marginTop: 4, color: "#6B6F78" }}>+ {ev.ticket_details.length - 4} more</div>}
+            </div>
+          ) : ev.ticket_numbers && ev.ticket_numbers.length > 0 ? (
             <div style={{ fontSize: 10, color: "#6B6F78", marginTop: 6 }}>
               Tickets: {ev.ticket_numbers.map(function(tn, i) {
                 return <span key={tn}>{i > 0 ? ", " : ""}<a href={"https://cpr.repairq.io/ticket/" + tn} target="_blank" rel="noopener noreferrer" style={{ color: "#00D4FF", textDecoration: "none" }}>#{tn}</a></span>;
               })}
             </div>
+          ) : null}
+
+          {ev.attribution_note && (
+            <div style={{ fontSize: 9, color: "#6B6F78", marginTop: 6, fontStyle: "italic" }}>{ev.attribution_note}</div>
           )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
