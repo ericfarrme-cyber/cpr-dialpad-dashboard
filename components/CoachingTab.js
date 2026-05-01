@@ -148,7 +148,7 @@ export default function CoachingTab() {
       {computeResult && (
         <div style={Object.assign({}, cardInner, { borderLeft: "3px solid " + (computeResult.success ? "#4ADE80" : "#F87171"), marginBottom: 16, fontSize: 12 })}>
           {computeResult.success ? (
-            <span style={{ color: "#4ADE80" }}>{"\u2713"} Detection ran in {Math.round((computeResult.duration_ms || 0) / 100) / 10}s — analyzed {computeResult.tickets_analyzed} tickets, {computeResult.audits_analyzed} audits across {computeResult.employees_evaluated} employees. Found {computeResult.candidates_evaluated} candidate flag{computeResult.candidates_evaluated === 1 ? "" : "s"}, persisted {computeResult.saved} new.</span>
+            <span style={{ color: "#4ADE80" }}>{"\u2713"} Detection ran in {Math.round((computeResult.duration_ms || 0) / 100) / 10}s — analyzed {computeResult.tickets_analyzed} tickets, {computeResult.audits_analyzed} audits across {computeResult.employees_evaluated} employees. Found {computeResult.candidates_evaluated} candidate flag{computeResult.candidates_evaluated === 1 ? "" : "s"}: {computeResult.saved || 0} new, {computeResult.updated || 0} refreshed{computeResult.skipped > 0 ? ", " + computeResult.skipped + " skipped (already actioned)" : ""}.</span>
           ) : (
             <span style={{ color: "#F87171" }}>{"\u2717"} {computeResult.error}</span>
           )}
