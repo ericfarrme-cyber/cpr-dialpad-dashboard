@@ -25,6 +25,7 @@ export default function CoachingTab() {
   var [computing, setComputing] = useState(false);
   var [computeResult, setComputeResult] = useState(null);
   var [activeModal, setActiveModal] = useState(null); // { flag, drafting, draft, deliveryMethod, sending, error }
+  var [detailFlag, setDetailFlag] = useState(null);    // flag being viewed in detail modal
 
   function loadFlags() {
     setLoading(true);
@@ -187,11 +188,22 @@ export default function CoachingTab() {
                 <div style={{ marginLeft: "auto", fontSize: 11, color: "#6B6F78" }}>{sectionFlags.length} active</div>
               </div>
               {sectionFlags.map(function(flag) {
-                return <FlagCard key={flag.id} flag={flag} onDismiss={dismissFlag} onCoach={openCoachModal} />;
+                return <FlagCard key={flag.id} flag={flag} onDismiss={dismissFlag} onCoach={openCoachModal} onOpen={setDetailFlag} />;
               })}
             </div>
           );
         })
+      )}
+
+      {/* ─── Detail Modal ─── */}
+      {detailFlag && (
+        <DetailModal
+          flag={detailFlag}
+          onClose={function() { setDetailFlag(null); }}
+          onCoach={function(f) { setDetailFlag(null); openCoachModal(f); }}
+          onDismiss={function(f) { setDetailFlag(null); dismissFlag(f); }}
+          onMark1on1={function(f) { setDetailFlag(null); markActed(f, "1on1", "Marked for 1:1 from detail view"); }}
+        />
       )}
 
       {/* ─── Coach Modal ─── */}
@@ -294,7 +306,10 @@ function FlagCard(props) {
   var sevColor = flag.severity >= 5 ? "#F87171" : flag.severity >= 4 ? "#FB923C" : flag.severity >= 3 ? "#FBBF24" : "#8B8F98";
   var ev = flag.evidence || {};
   return (
-    <div style={Object.assign({}, card, { marginBottom: 10, padding: 16 })}>
+    <div onClick={function() { if (props.onOpen) props.onOpen(flag); }}
+      style={Object.assign({}, card, { marginBottom: 10, padding: 16, cursor: "pointer", transition: "border-color 120ms" })}
+      onMouseEnter={function(e) { e.currentTarget.style.borderColor = "#7B2FFF55"; }}
+      onMouseLeave={function(e) { e.currentTarget.style.borderColor = "#1E2028"; }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
@@ -329,7 +344,7 @@ function FlagCard(props) {
               {ev.ticket_details.slice(0, 4).map(function(td) {
                 return (
                   <div key={td.ticket_number} style={{ padding: "4px 0", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                    <a href={"https://cpr.repairq.io/ticket/" + td.ticket_number} target="_blank" rel="noopener noreferrer" style={{ color: "#00D4FF", textDecoration: "none", fontWeight: 700 }}>#{td.ticket_number}</a>
+                    <a href={"https://cpr.repairq.io/ticket/" + td.ticket_number} target="_blank" rel="noopener noreferrer" onClick={function(e) { e.stopPropagation(); }} style={{ color: "#00D4FF", textDecoration: "none", fontWeight: 700 }}>#{td.ticket_number}</a>
                     {td.notes_score != null && <span style={{ color: td.notes_score < 30 ? "#F87171" : td.notes_score < 50 ? "#FB923C" : "#FBBF24", fontWeight: 700 }}>notes {td.notes_score}/100</span>}
                     {td.gaps && td.gaps.length > 0 && <span style={{ color: "#6B6F78", fontStyle: "italic" }}>missing: {td.gaps.join(", ")}</span>}
                   </div>
@@ -340,7 +355,7 @@ function FlagCard(props) {
           ) : ev.ticket_numbers && ev.ticket_numbers.length > 0 ? (
             <div style={{ fontSize: 10, color: "#6B6F78", marginTop: 6 }}>
               Tickets: {ev.ticket_numbers.map(function(tn, i) {
-                return <span key={tn}>{i > 0 ? ", " : ""}<a href={"https://cpr.repairq.io/ticket/" + tn} target="_blank" rel="noopener noreferrer" style={{ color: "#00D4FF", textDecoration: "none" }}>#{tn}</a></span>;
+                return <span key={tn}>{i > 0 ? ", " : ""}<a href={"https://cpr.repairq.io/ticket/" + tn} target="_blank" rel="noopener noreferrer" onClick={function(e) { e.stopPropagation(); }} style={{ color: "#00D4FF", textDecoration: "none" }}>#{tn}</a></span>;
               })}
             </div>
           ) : null}
@@ -350,13 +365,351 @@ function FlagCard(props) {
           )}
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 6, flexShrink: 0 }}>
-          <button onClick={function() { props.onCoach(flag); }}
+          <button onClick={function(e) { e.stopPropagation(); props.onCoach(flag); }}
             style={Object.assign({}, btnBase, { background: "linear-gradient(135deg, #7B2FFF, #FF2D95)", border: "none", color: "#fff", whiteSpace: "nowrap" })}>
             {flag.flag_type === "win" ? "Recognize" : "Coach"}
           </button>
-          <button onClick={function() { props.onDismiss(flag); }} style={btnBase}>Dismiss</button>
+          <button onClick={function(e) { e.stopPropagation(); props.onDismiss(flag); }} style={btnBase}>Dismiss</button>
+          <div style={{ fontSize: 9, color: "#6B6F78", textAlign: "center", marginTop: 2 }}>Click for details</div>
         </div>
       </div>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────────
+// DetailModal — full-screen flag detail with rule-specific evidence views
+// ─────────────────────────────────────────────────────────────────
+function DetailModal(props) {
+  var flag = props.flag;
+  var ev = flag.evidence || {};
+  var store = STORES[flag.store];
+  var sevColor = flag.severity >= 5 ? "#F87171" : flag.severity >= 4 ? "#FB923C" : flag.severity >= 3 ? "#FBBF24" : "#8B8F98";
+  var isWin = flag.flag_type === "win";
+  var typeColor = isWin ? "#4ADE80" : flag.flag_type === "opportunity" ? "#FBBF24" : "#F87171";
+  var typeLabel = isWin ? "Recognize" : flag.flag_type === "opportunity" ? "Active Now" : "Needs Attention";
+
+  function fmtDate(s) {
+    if (!s) return "";
+    try { return new Date(s).toLocaleDateString([], { month: "short", day: "numeric" }); } catch(e) { return s; }
+  }
+  function fmtDateTime(s) {
+    if (!s) return "";
+    try { return new Date(s).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch(e) { return s; }
+  }
+
+  return (
+    <div onClick={props.onClose}
+      style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }}>
+      <div onClick={function(e) { e.stopPropagation(); }}
+        style={{ background: "#0F1117", borderRadius: 12, maxWidth: 760, width: "100%", border: "1px solid #2A2D36", overflow: "hidden", maxHeight: "92vh", display: "flex", flexDirection: "column" }}>
+
+        {/* Header */}
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #1E2028", borderTop: "3px solid " + typeColor }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 9, color: typeColor, fontWeight: 800, letterSpacing: "0.08em", textTransform: "uppercase", padding: "3px 8px", borderRadius: 4, background: typeColor + "22" }}>{typeLabel}</span>
+            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: sevColor }} />
+            <span style={{ fontSize: 10, color: "#8B8F98", textTransform: "uppercase", letterSpacing: "0.05em" }}>severity {flag.severity || 3}/5</span>
+            <span style={{ marginLeft: "auto", fontSize: 10, color: "#6B6F78" }}>Detected {fmtDateTime(flag.created_at)}</span>
+          </div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: "#F0F1F3", marginBottom: 4 }}>{flag.employee_name}</div>
+          {store && <div style={{ fontSize: 12, color: store.color, fontWeight: 600, marginBottom: 10 }}>{store.name}</div>}
+          <div style={{ fontSize: 14, color: "#F0F1F3", lineHeight: 1.5 }}>{flag.headline}</div>
+        </div>
+
+        {/* Body — rule-specific evidence */}
+        <div style={{ padding: 24, flex: 1, overflowY: "auto" }}>
+
+          {/* Metric snapshot — common to all rules */}
+          {(flag.metric_current != null || flag.metric_baseline != null) && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 24 }}>
+              <Stat label={flag.metric_label || "Current"} value={flag.metric_current != null ? flag.metric_current : "—"} color="#F0F1F3" />
+              <Stat label="Baseline" value={flag.metric_baseline != null && flag.metric_baseline > 0 ? flag.metric_baseline : "—"} color="#8B8F98" />
+              {flag.delta != null && <Stat label="Delta" value={(flag.delta > 0 ? "+" : "") + flag.delta} color={flag.delta < 0 ? "#F87171" : "#4ADE80"} />}
+            </div>
+          )}
+
+          {/* ─── Rule-specific evidence renders ─── */}
+
+          {/* notes_streak: per-ticket gaps */}
+          {flag.rule_key === "notes_streak" && (
+            <div>
+              {ev.top_gaps && ev.top_gaps.length > 0 && (
+                <Section title="What's Missing">
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {ev.all_gaps && ev.all_gaps.length > 0 ? ev.all_gaps.map(function(g) {
+                      return (
+                        <div key={g.gap} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#FB923C12", borderLeft: "3px solid #FB923C", borderRadius: 4 }}>
+                          <span style={{ color: "#F0F1F3", fontSize: 12 }}>{g.gap}</span>
+                          <span style={{ color: "#FB923C", fontSize: 11, fontWeight: 700 }}>{g.count} ticket{g.count === 1 ? "" : "s"}</span>
+                        </div>
+                      );
+                    }) : ev.top_gaps.map(function(g) {
+                      return <div key={g} style={{ padding: "8px 12px", background: "#FB923C12", borderLeft: "3px solid #FB923C", borderRadius: 4, color: "#F0F1F3", fontSize: 12 }}>{g}</div>;
+                    })}
+                  </div>
+                </Section>
+              )}
+              {ev.ticket_details && ev.ticket_details.length > 0 && (
+                <Section title={"Affected Tickets (" + ev.ticket_details.length + ")"}>
+                  <Table headers={["Ticket", "Notes Score", "What's Missing", "Detail"]}>
+                    {ev.ticket_details.map(function(td) {
+                      return (
+                        <tr key={td.ticket_number}>
+                          <Td><TicketLink num={td.ticket_number} /></Td>
+                          <Td><ScorePill score={td.notes_score} /></Td>
+                          <Td>{td.gaps && td.gaps.length > 0 ? td.gaps.join(", ") : "—"}</Td>
+                          <Td muted>{td.detail || "—"}</Td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                </Section>
+              )}
+              {ev.attribution_note && (
+                <div style={{ marginTop: 16, padding: 12, background: "#7B2FFF11", borderLeft: "3px solid #7B2FFF", borderRadius: 4, fontSize: 11, color: "#8B8F98" }}>
+                  <strong style={{ color: "#7B2FFF" }}>Attribution:</strong> {ev.attribution_note}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* compliance_regression: recent ticket sample */}
+          {flag.rule_key === "compliance_regression" && (
+            <div>
+              <Section title="Recent Tickets (last 7 days)">
+                {ev.recent_ticket_details && ev.recent_ticket_details.length > 0 ? (
+                  <Table headers={["Ticket", "Date", "Overall", "Notes", "Diag", "Pickup"]}>
+                    {ev.recent_ticket_details.map(function(td) {
+                      return (
+                        <tr key={td.ticket_number}>
+                          <Td><TicketLink num={td.ticket_number} /></Td>
+                          <Td muted>{fmtDate(td.date_closed)}</Td>
+                          <Td><ScorePill score={td.overall_score} /></Td>
+                          <Td><ScorePill score={td.notes_score} /></Td>
+                          <Td><ScorePill score={td.diagnostics_score} /></Td>
+                          <Td><ScorePill score={td.categorization_score} /></Td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                ) : <Empty>No ticket detail available</Empty>}
+              </Section>
+            </div>
+          )}
+
+          {/* appt_collapse: per-call breakdown */}
+          {flag.rule_key === "appt_collapse" && (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+                <Stat label="This Week" value={ev.offers_current + " / " + ev.opps_current_week} sub={"appointment offers"} color="#F87171" />
+                <Stat label="Prior Week" value={ev.offers_prior + " / " + ev.opps_prior_week} sub={"appointment offers"} color="#4ADE80" />
+              </div>
+              <Section title="This Week's Opportunity Calls">
+                {ev.call_breakdown && ev.call_breakdown.length > 0 ? (
+                  <Table headers={["Date", "Appt Offered?", "Warranty Mentioned?"]}>
+                    {ev.call_breakdown.map(function(c, i) {
+                      return (
+                        <tr key={i}>
+                          <Td muted>{fmtDateTime(c.date)}</Td>
+                          <Td>{c.offered ? <span style={{ color: "#4ADE80", fontWeight: 700 }}>{"\u2713 Yes"}</span> : <span style={{ color: "#F87171", fontWeight: 700 }}>{"\u2717 No"}</span>}</Td>
+                          <Td>{c.warranty_mentioned ? <span style={{ color: "#4ADE80" }}>{"\u2713"}</span> : <span style={{ color: "#6B6F78" }}>{"\u2014"}</span>}</Td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                ) : <Empty>No call detail available</Empty>}
+              </Section>
+            </div>
+          )}
+
+          {/* active_shift_dip: today's calls */}
+          {flag.rule_key === "active_shift_dip" && (
+            <div>
+              <div style={{ padding: "10px 14px", background: "#FBBF2412", borderLeft: "3px solid #FBBF24", borderRadius: 4, marginBottom: 16, fontSize: 12, color: "#F0F1F3" }}>
+                {"\u26A1"} <strong style={{ color: "#FBBF24" }}>{flag.employee_name} is on shift right now.</strong> Coach today, while the calls are still happening.
+              </div>
+              <Section title="Today's Calls So Far">
+                {ev.today_calls && ev.today_calls.length > 0 ? (
+                  <Table headers={["Time", "Type", "Score", "Appt Offered?", "Warranty?"]}>
+                    {ev.today_calls.map(function(c, i) {
+                      return (
+                        <tr key={i}>
+                          <Td muted>{fmtDateTime(c.date)}</Td>
+                          <Td>{c.call_type}</Td>
+                          <Td><ScorePill score={c.score} /></Td>
+                          <Td>{c.appt_offered ? <span style={{ color: "#4ADE80" }}>{"\u2713"}</span> : <span style={{ color: "#F87171" }}>{"\u2717"}</span>}</Td>
+                          <Td>{c.warranty_mentioned ? <span style={{ color: "#4ADE80" }}>{"\u2713"}</span> : <span style={{ color: "#6B6F78" }}>{"\u2014"}</span>}</Td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                ) : <Empty>No calls graded yet today</Empty>}
+              </Section>
+            </div>
+          )}
+
+          {/* turnaround_improvement: before/after sample */}
+          {flag.rule_key === "turnaround_improvement" && (
+            <div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+                <Stat label="Last 14 Days Avg" value={ev.avg_recent_hours + "h"} sub={ev.recent_window_tix + " " + ev.device_category + " tickets"} color="#4ADE80" />
+                <Stat label="Prior 14 Days" value={ev.avg_prior_hours + "h"} sub={ev.prior_window_tix + " tickets"} color="#8B8F98" />
+                <Stat label="Improvement" value={ev.pct_improvement + "% faster"} color="#4ADE80" />
+              </div>
+              {ev.sample_recent && ev.sample_recent.length > 0 && (
+                <Section title={"\uD83D\uDD25 Fastest Recent " + ev.device_category + " Repairs"}>
+                  <Table headers={["Ticket", "Date", "Turnaround"]}>
+                    {ev.sample_recent.map(function(t) {
+                      return <tr key={t.ticket_number}><Td><TicketLink num={t.ticket_number} /></Td><Td muted>{fmtDate(t.date_closed)}</Td><Td><span style={{ color: "#4ADE80", fontWeight: 700 }}>{t.hours}h</span></Td></tr>;
+                    })}
+                  </Table>
+                </Section>
+              )}
+              {ev.sample_prior && ev.sample_prior.length > 0 && (
+                <Section title="For Comparison: Slower Prior Repairs">
+                  <Table headers={["Ticket", "Date", "Turnaround"]}>
+                    {ev.sample_prior.map(function(t) {
+                      return <tr key={t.ticket_number}><Td><TicketLink num={t.ticket_number} /></Td><Td muted>{fmtDate(t.date_closed)}</Td><Td><span style={{ color: "#FB923C" }}>{t.hours}h</span></Td></tr>;
+                    })}
+                  </Table>
+                </Section>
+              )}
+            </div>
+          )}
+
+          {/* appt_streak: the consecutive calls */}
+          {flag.rule_key === "appt_streak" && (
+            <div>
+              <div style={{ padding: "12px 14px", background: "#4ADE8012", borderLeft: "3px solid #4ADE80", borderRadius: 4, marginBottom: 16, fontSize: 13, color: "#F0F1F3" }}>
+                {"\uD83C\uDFAF"} <strong style={{ color: "#4ADE80" }}>{ev.streak_length} calls in a row</strong> with appointment offered. That's the kind of consistency worth calling out.
+              </div>
+              <Section title="The Streak">
+                {ev.streak_calls && ev.streak_calls.length > 0 ? (
+                  <Table headers={["#", "Date", "Score", "Warranty Mentioned?"]}>
+                    {ev.streak_calls.map(function(c, i) {
+                      return (
+                        <tr key={i}>
+                          <Td><strong style={{ color: "#4ADE80" }}>{i + 1}</strong></Td>
+                          <Td muted>{fmtDateTime(c.date)}</Td>
+                          <Td><ScorePill score={c.score} /></Td>
+                          <Td>{c.warranty_mentioned ? <span style={{ color: "#4ADE80" }}>{"\u2713"}</span> : <span style={{ color: "#6B6F78" }}>{"\u2014"}</span>}</Td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                ) : <Empty>Detail not captured</Empty>}
+              </Section>
+            </div>
+          )}
+
+          {/* notes_excellence: the streak tickets */}
+          {flag.rule_key === "notes_excellence" && (
+            <div>
+              <div style={{ padding: "12px 14px", background: "#4ADE8012", borderLeft: "3px solid #4ADE80", borderRadius: 4, marginBottom: 16, fontSize: 13, color: "#F0F1F3" }}>
+                {"\u2728"} <strong style={{ color: "#4ADE80" }}>{ev.streak_length} consecutive tickets</strong> with notes scoring 90+ (avg {ev.avg_streak_score}/100). This is the documentation discipline you want everyone copying.
+              </div>
+              <Section title="The Streak Tickets">
+                {ev.ticket_details && ev.ticket_details.length > 0 ? (
+                  <Table headers={["Ticket", "Date", "Device", "Notes Score"]}>
+                    {ev.ticket_details.map(function(td) {
+                      return <tr key={td.ticket_number}><Td><TicketLink num={td.ticket_number} /></Td><Td muted>{fmtDate(td.date_closed)}</Td><Td muted>{td.device_category || "—"}</Td><Td><ScorePill score={td.notes_score} /></Td></tr>;
+                    })}
+                  </Table>
+                ) : <Empty>Detail not captured</Empty>}
+              </Section>
+            </div>
+          )}
+
+          {/* tier_crossover */}
+          {flag.rule_key === "tier_crossover" && (
+            <div>
+              <div style={{ padding: "16px 18px", background: "linear-gradient(90deg, #4ADE8015, #00D4FF15)", borderRadius: 8, marginBottom: 16, textAlign: "center" }}>
+                <div style={{ fontSize: 11, color: "#8B8F98", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Tier Movement · {ev.period}</div>
+                <div style={{ fontSize: 22, fontWeight: 800, color: "#F0F1F3", marginTop: 6 }}>
+                  {ev.from_tier} {"\u2192"} <span style={{ color: "#4ADE80" }}>{ev.to_tier}</span>
+                </div>
+                {flag.metric_current != null && (
+                  <div style={{ fontSize: 12, color: "#8B8F98", marginTop: 4 }}>
+                    Score: {flag.metric_baseline} {"\u2192"} <strong style={{ color: "#F0F1F3" }}>{flag.metric_current}</strong>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Fallback for any rules we haven't custom-rendered */}
+          {["notes_streak", "compliance_regression", "appt_collapse", "active_shift_dip", "turnaround_improvement", "appt_streak", "notes_excellence", "tier_crossover"].indexOf(flag.rule_key) < 0 && (
+            <Section title="Evidence">
+              <pre style={{ fontSize: 11, color: "#8B8F98", background: "#12141A", padding: 12, borderRadius: 6, overflow: "auto", maxHeight: 300 }}>{JSON.stringify(ev, null, 2)}</pre>
+            </Section>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: 16, borderTop: "1px solid #1E2028", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+          <button onClick={props.onClose} style={btnBase}>Close</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={function() { props.onMark1on1(flag); }} style={Object.assign({}, btnBase, { color: "#FBBF24", borderColor: "#FBBF2455" })}>
+              {"\uD83D\uDDD3"} Save for 1:1
+            </button>
+            <button onClick={function() { props.onDismiss(flag); }} style={btnBase}>Dismiss</button>
+            <button onClick={function() { props.onCoach(flag); }}
+              style={Object.assign({}, btnBase, { background: "linear-gradient(135deg, #7B2FFF, #FF2D95)", border: "none", color: "#fff", fontWeight: 700 })}>
+              {isWin ? "\uD83C\uDF89 Recognize" : "\uD83D\uDCAC Coach"} {"\u2192"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Small reusable presentational components for the detail modal ──
+function Section(props) {
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <div style={{ fontSize: 11, color: "#8B8F98", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>{props.title}</div>
+      {props.children}
+    </div>
+  );
+}
+function Stat(props) {
+  return (
+    <div style={{ background: "#12141A", borderRadius: 8, padding: 14, border: "1px solid #1E2028" }}>
+      <div style={{ fontSize: 9, color: "#8B8F98", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>{props.label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: props.color || "#F0F1F3" }}>{props.value}</div>
+      {props.sub && <div style={{ fontSize: 10, color: "#6B6F78", marginTop: 2 }}>{props.sub}</div>}
+    </div>
+  );
+}
+function Table(props) {
+  return (
+    <div style={{ background: "#12141A", borderRadius: 8, overflow: "hidden", border: "1px solid #1E2028" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+        <thead>
+          <tr style={{ background: "#0F1117" }}>
+            {props.headers.map(function(h, i) {
+              return <th key={i} style={{ padding: "8px 12px", textAlign: "left", fontSize: 10, color: "#8B8F98", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{h}</th>;
+            })}
+          </tr>
+        </thead>
+        <tbody>{props.children}</tbody>
+      </table>
+    </div>
+  );
+}
+function Td(props) {
+  return <td style={{ padding: "8px 12px", borderTop: "1px solid #1E2028", color: props.muted ? "#8B8F98" : "#F0F1F3" }}>{props.children}</td>;
+}
+function ScorePill(props) {
+  if (props.score == null) return <span style={{ color: "#6B6F78" }}>{"\u2014"}</span>;
+  var c = props.score >= 80 ? "#4ADE80" : props.score >= 60 ? "#FBBF24" : props.score >= 40 ? "#FB923C" : "#F87171";
+  return <span style={{ color: c, fontWeight: 700 }}>{props.score}</span>;
+}
+function TicketLink(props) {
+  return <a href={"https://cpr.repairq.io/ticket/" + props.num} target="_blank" rel="noopener noreferrer" style={{ color: "#00D4FF", textDecoration: "none", fontWeight: 700 }}>#{props.num}</a>;
+}
+function Empty(props) {
+  return <div style={{ padding: 16, color: "#6B6F78", fontSize: 12, textAlign: "center", background: "#12141A", borderRadius: 6 }}>{props.children}</div>;
 }
