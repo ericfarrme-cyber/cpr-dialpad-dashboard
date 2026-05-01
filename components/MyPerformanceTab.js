@@ -224,6 +224,58 @@ export default function MyPerformanceTab({ auth, store }) {
   var [coachingError, setCoachingError] = useState(null);
   var [scheduleWeek, setScheduleWeek] = useState("this");
   var [ticketPeriod, setTicketPeriod] = useState("mtd");
+
+  // ── Period selector ──
+  // Generates options: current month + each month back to March 2026 (the role-split rollout cutoff).
+  // Anything before March 2026 used a different scoring formula and is intentionally excluded.
+  var ROLE_SPLIT_FIRST_MONTH = "2026-03"; // earliest period we expose
+  var periodOptions = useMemo(function() {
+    var opts = [];
+    var now = new Date();
+    var cur = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Walk backwards month by month until we hit ROLE_SPLIT_FIRST_MONTH
+    while (true) {
+      var y = cur.getFullYear();
+      var m = cur.getMonth() + 1;
+      var pVal = y + "-" + String(m).padStart(2, "0");
+      var pLabel = cur.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      opts.push({ value: pVal, label: pLabel });
+      if (pVal <= ROLE_SPLIT_FIRST_MONTH) break;
+      cur.setMonth(cur.getMonth() - 1);
+      if (opts.length > 18) break; // safety cap
+    }
+    // Mark the first as "Current"
+    if (opts.length > 0) opts[0].isCurrent = true;
+    return opts;
+  }, []);
+
+  var currentPeriodValue = periodOptions.length > 0 ? periodOptions[0].value : null;
+  var [selectedPeriod, setSelectedPeriod] = useState(currentPeriodValue);
+  var isCurrentPeriod = selectedPeriod === currentPeriodValue;
+
+  // Compute period date range for endpoints that need start/end dates (audit, tickets by date)
+  function periodDateRange(periodStr) {
+    if (!periodStr) return null;
+    var parts = periodStr.split("-");
+    var year = parseInt(parts[0]);
+    var month = parseInt(parts[1]) - 1; // 0-indexed
+    var start = new Date(year, month, 1);
+    var end = new Date(year, month + 1, 1); // first day of next month
+    return {
+      start: start.toISOString().split("T")[0],
+      end: end.toISOString().split("T")[0],
+      // For the rolling-window audit endpoint that takes "days"
+      daysFromStart: Math.ceil((Date.now() - start.getTime()) / (24 * 60 * 60 * 1000)),
+      daysFromEnd: Math.ceil((Date.now() - end.getTime()) / (24 * 60 * 60 * 1000)),
+    };
+  }
+
+  // Pretty period label for banner ("April 2026", "March 2026", etc.)
+  var selectedPeriodLabel = (function() {
+    var opt = periodOptions.find(function(o) { return o.value === selectedPeriod; });
+    return opt ? opt.label : selectedPeriod;
+  })();
+
   var [viewAsEmployee, setViewAsEmployee] = useState("");
 
   var isAdmin = auth?.userInfo?.role === "admin";
@@ -235,7 +287,7 @@ export default function MyPerformanceTab({ auth, store }) {
     setCoachingInsight(null);
     setCoachingError(null);
     loadData();
-  }, [empName, empStore]);
+  }, [empName, empStore, selectedPeriod]);
 
   var loadData = async function() {
     setLoading(true);
@@ -244,22 +296,37 @@ export default function MyPerformanceTab({ auth, store }) {
     try {
       var now = new Date();
       var currentMonthPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
-      var shiftEnd = new Date(); shiftEnd.setDate(shiftEnd.getDate() + 14); // include next 2 weeks
-      var shiftEndStr = shiftEnd.toISOString().split("T")[0];
-      var shiftStartDate = new Date(); shiftStartDate.setDate(shiftStartDate.getDate() - 90);
-      var shiftStart = shiftStartDate.toISOString().split("T")[0];
+      // Use the selected period for everything that's period-aware. Falls back to current month if not set yet.
+      var activePeriod = selectedPeriod || currentMonthPeriod;
+      var periodRange = periodDateRange(activePeriod);
+      var viewingCurrent = activePeriod === currentMonthPeriod;
+      // Shifts: for current period we look ahead 14 days; for past periods we just show the month itself
+      var shiftEndStr, shiftStart;
+      if (viewingCurrent) {
+        var shiftEnd = new Date(); shiftEnd.setDate(shiftEnd.getDate() + 14);
+        shiftEndStr = shiftEnd.toISOString().split("T")[0];
+        var shiftStartDate = new Date(); shiftStartDate.setDate(shiftStartDate.getDate() - 90);
+        shiftStart = shiftStartDate.toISOString().split("T")[0];
+      } else {
+        // Historical: show only the selected month
+        shiftStart = periodRange.start;
+        shiftEndStr = periodRange.end;
+      }
+      // For tickets and audits, compute days-back so the historical month is fully covered.
+      // For tickets we want to look back at least to the period start; for audits same.
+      var ticketDays = viewingCurrent ? 90 : Math.max(periodRange.daysFromStart, 30);
+      var auditDays = viewingCurrent ? 30 : Math.max(periodRange.daysFromStart, 30);
 
       var results = await Promise.allSettled([
-        fetch("/api/dialpad/scorecard?period=" + currentMonthPeriod).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/scorecard?period=" + activePeriod).then(function(r) { return r.json(); }),
         // Pass explicit period — server-side default has been unreliable, mirrors SalesTab pattern
-        fetch("/api/dialpad/sales?action=performance&period=" + currentMonthPeriod).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/sales?action=performance&period=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/sales?action=commission_config").then(function(r) { return r.json(); }),
         fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEndStr).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=90").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=" + ticketDays).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/weekly-goal?store=" + empStore).then(function(r) { return r.json(); }),
-        // Query audits by store (not employee name) — names are inconsistent in audit table.
-        // We filter client-side with matchName so we catch "Alyssa", "Parent, Alyssa", etc.
-        fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=300&days=30").then(function(r) { return r.json(); }),
+        // Audit endpoint takes a days-back window. We'll filter client-side to the period.
+        fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=300&days=" + auditDays).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
       ]);
@@ -301,7 +368,20 @@ export default function MyPerformanceTab({ auth, store }) {
         setShifts(myShifts);
       } else { errors.shifts = true; }
 
-      if (results[4].status === "fulfilled" && results[4].value.tickets) setTickets(results[4].value.tickets); else errors.tickets = true;
+      if (results[4].status === "fulfilled" && results[4].value.tickets) {
+        var allTix = results[4].value.tickets || [];
+        // For historical periods, filter to tickets closed within the selected month.
+        if (!viewingCurrent && periodRange) {
+          var pStart = periodRange.start;
+          var pEnd = periodRange.end;
+          allTix = allTix.filter(function(t) {
+            if (!t.date_closed) return false;
+            var dc = String(t.date_closed).substring(0, 10);
+            return dc >= pStart && dc < pEnd;
+          });
+        }
+        setTickets(allTix);
+      } else { errors.tickets = true; }
       if (results[5].status === "fulfilled" && results[5].value.goal) setWeeklyGoal(results[5].value.goal);
       if (results[6].status === "fulfilled" && results[6].value.audits) {
         // Filter to this employee with fuzzy name match, exclude excluded/non-scorable, normalize fields
@@ -311,6 +391,17 @@ export default function MyPerformanceTab({ auth, store }) {
           if (a.call_type === "non_scorable") return false;
           return matchName(empName, a.employee || "");
         }).map(normalizeAudit);
+        // For historical periods, filter audits to calls within the selected month.
+        if (!viewingCurrent && periodRange) {
+          var aStart = periodRange.start;
+          var aEnd = periodRange.end;
+          mine = mine.filter(function(a) {
+            var ds = a.date_started || a.date;
+            if (!ds) return false;
+            var dsd = String(ds).substring(0, 10);
+            return dsd >= aStart && dsd < aEnd;
+          });
+        }
         // Sort newest first
         mine.sort(function(x, y) {
           var dx = new Date(x.date || 0).getTime();
@@ -819,10 +910,38 @@ export default function MyPerformanceTab({ auth, store }) {
             {t.icon} {t.label}
           </button>;
         })}
-        <button onClick={loadData} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
-          {"\u21BB"} Refresh
-        </button>
+        {/* Period selector */}
+        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+          <label style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>Period</label>
+          <select value={selectedPeriod || ""} onChange={function(e) { setSelectedPeriod(e.target.value); }}
+            style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid " + (isCurrentPeriod ? "var(--border)" : "#FBBF2455"), background: isCurrentPeriod ? "transparent" : "#FBBF2410", color: "var(--text-primary)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            {periodOptions.map(function(o) {
+              return <option key={o.value} value={o.value}>{o.label}{o.isCurrent ? " (Current)" : ""}</option>;
+            })}
+          </select>
+          <button onClick={loadData} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-muted)", fontSize: 10, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            {"\u21BB"} Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Historical period banner — only shown when viewing a non-current period */}
+      {!isCurrentPeriod && (
+        <div style={{
+          marginBottom: 16, padding: "10px 14px", borderRadius: 8,
+          background: "#FBBF2412",
+          borderLeft: "3px solid #FBBF24",
+          display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap",
+        }}>
+          <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
+            {"\uD83D\uDCC5"} Viewing <strong style={{ color: "#FBBF24" }}>{selectedPeriodLabel}</strong> — historical data, read-only. Coaching is disabled for past periods.
+          </div>
+          <button onClick={function() { setSelectedPeriod(currentPeriodValue); }}
+            style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #FBBF2455", background: "#FBBF2422", color: "#FBBF24", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+            {"\u2190"} Back to Current
+          </button>
+        </div>
+      )}
 
       {/* Role-split announcement banner — dismissible, persists in localStorage */}
       {showRoleSplitBanner && (
@@ -2330,6 +2449,20 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* ═══════════════════════════════════════════════ */}
       {subTab === "coaching" && (
         <div>
+          {!isCurrentPeriod ? (
+            <div style={{ ...card, padding: 40, textAlign: "center" }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>{"\uD83D\uDCC5"}</div>
+              <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Coaching is for the current period only</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 13, maxWidth: 480, margin: "0 auto 16px", lineHeight: 1.5 }}>
+                The AI coach analyzes your <strong>current</strong> performance to suggest the next behavior change worth making. Switch back to the current period to view your latest plan.
+              </div>
+              <button onClick={function() { setSelectedPeriod(currentPeriodValue); }}
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                {"\u2190"} Back to Current Period
+              </button>
+            </div>
+          ) : (
+          <>
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2536,6 +2669,8 @@ export default function MyPerformanceTab({ auth, store }) {
                 })}
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}
