@@ -23,6 +23,72 @@ function jsonResponse(payload, status) {
   return NextResponse.json(payload, { status: status || 200 });
 }
 
+// ── Role-split scoring helpers (April 2026 rollout) ──
+// Mirrors logic in tickets-route.js / scorecard-route.js so flag attribution matches the rest of the app.
+function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
+function isRoleSplitEra(dateStr) { if (!dateStr) return false; return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF(); }
+function paymentIsNA(t) {
+  if (t == null || parseFloat(t.payment_score) !== 100) return false;
+  var n = String(t.payment_notes || "").toLowerCase();
+  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
+}
+function computeRepairRoleScore(t) {
+  if (!t) return null;
+  var notes = t.notes_score, pickup = t.categorization_score;
+  if (notes == null && pickup == null) return null;
+  notes = notes == null ? 0 : parseFloat(notes);
+  pickup = pickup == null ? 0 : parseFloat(pickup);
+  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
+  return Math.round((notes * 25 + pickup * 20) / 45);
+}
+
+// ── Notes-quality gap extraction ──
+// Given a ticket with poor notes_score, identifies the specific things missing
+// so coaching is concrete instead of "your notes were bad".
+// Returns an array of human-readable gap labels (most-impactful first).
+function extractNotesGaps(t) {
+  var gaps = [];
+  if (t == null) return gaps;
+  // Boolean flags from grader (most reliable signal)
+  if (t.notes_customer_contacted === false) gaps.push("customer-contacted note missing");
+  if (t.notes_outcome_documented === false) gaps.push("repair outcome not documented");
+  // Mine the free-text detail for keyword signals — graders tend to call out the same things
+  var detail = String(t.notes_detail || "").toLowerCase();
+  if (detail) {
+    if (detail.indexOf("post-test") >= 0 || detail.indexOf("post test") >= 0 || detail.indexOf("posttest") >= 0) {
+      if (gaps.indexOf("post-test results not documented") < 0) gaps.push("post-test results not documented");
+    }
+    if (detail.indexOf("pre-test") >= 0 || detail.indexOf("pre test") >= 0 || detail.indexOf("pretest") >= 0) {
+      if (gaps.indexOf("pre-test condition not documented") < 0) gaps.push("pre-test condition not documented");
+    }
+    if (detail.indexOf("service performed") >= 0 || detail.indexOf("what was done") >= 0 || detail.indexOf("what was repaired") >= 0) {
+      if (gaps.indexOf("service performed not described") < 0) gaps.push("service performed not described");
+    }
+    if (detail.indexOf("findings") >= 0 || detail.indexOf("diagnosis") >= 0 && gaps.length === 0) {
+      gaps.push("repair findings not documented");
+    }
+    if (detail.indexOf("vague") >= 0 || detail.indexOf("generic") >= 0 || detail.indexOf("brief") >= 0) {
+      if (gaps.length === 0) gaps.push("note too brief or generic");
+    }
+  }
+  // Fallback: if we have nothing but a low score, generic message
+  if (gaps.length === 0 && t.notes_score != null && t.notes_score < 50) {
+    gaps.push("incomplete documentation");
+  }
+  return gaps;
+}
+
+// Aggregate gaps across multiple tickets, returning the most common first.
+function summarizeGaps(tickets) {
+  var counts = {};
+  tickets.forEach(function(t) {
+    extractNotesGaps(t).forEach(function(g) { counts[g] = (counts[g] || 0) + 1; });
+  });
+  var arr = Object.keys(counts).map(function(k) { return { gap: k, count: counts[k] }; });
+  arr.sort(function(a, b) { return b.count - a.count; });
+  return arr;
+}
+
 // ── Date helpers ──
 function daysAgoISO(n) { var d = new Date(); d.setDate(d.getDate() - n); return d.toISOString(); }
 function todayDateStr() { return new Date().toISOString().substring(0, 10); }
@@ -213,7 +279,7 @@ async function runDetection(secret) {
     var [rosterRes, ticketsRes, auditsRes, shiftsRes, tierHistRes] = await Promise.all([
       supabase.from("employee_roster").select("name, store, aliases, role, active").eq("active", true),
       supabase.from("ticket_grades")
-        .select("ticket_number, store, employee_added, employee_repaired, overall_score, notes_score, diagnostics_score, categorization_score, payment_score, contact_score, device_category, turnaround_hours, date_closed, ticket_type")
+        .select("ticket_number, store, employee_added, employee_repaired, overall_score, notes_score, notes_detail, notes_outcome_documented, notes_customer_contacted, diagnostics_score, categorization_score, categorization_notes, payment_score, payment_notes, contact_score, device_category, turnaround_hours, date_closed, ticket_type")
         .gte("date_closed", d35)
         .or("ticket_type.is.null,ticket_type.neq.Sale"),
       supabase.from("audit_results")
@@ -331,19 +397,60 @@ async function runDetection(secret) {
     Object.keys(byEmp).forEach(function(name) {
       var e = byEmp[name];
 
-      // ─── Rule 1: Notes streak (regression) ───
-      // 3+ tickets with notes_score < 50 in last 7 days, OR 15% of week's repair tickets — whichever is higher
-      var poorNotes = e.repair_tickets_7d.filter(function(t) { return t.notes_score != null && t.notes_score < 50; });
+      // ─── Rule 1: Notes-quality streak (regression) ───
+      // Repair-tech tickets where the repair-role score (Notes 25% + Pickup 20%) shows weak notes documentation.
+      // Pre-April 2026: fall back to overall notes_score < 50 on repair-side tickets.
+      // Post-April: use repair_role_score < 60 AND notes_score < 50 (the role-split repair score is what they're actually graded on).
+      // Threshold: 3+ tickets OR 15% of week's repair tickets — whichever is higher.
+      var poorNotes = e.repair_tickets_7d.filter(function(t) {
+        if (t.notes_score == null) return false;
+        if (t.notes_score >= 50) return false;
+        // Role-split era: only flag if THIS person's repair-role score on this ticket is weak.
+        // (Prevents flagging Matt for a low note that Aerick wrote on Matt's repair —
+        // although Matt is still partly responsible since the docs reflect on his repair work.)
+        if (isRoleSplitEra(t.date_closed)) {
+          var rrs = computeRepairRoleScore(t);
+          // rrs being null means we can't compute (e.g. this person wasn't repair-side) — skip
+          if (rrs == null) return false;
+          // Repair role score below 60 AND notes specifically below 50 = real signal
+          return rrs < 60;
+        }
+        // Pre-April: legacy behavior — any low notes_score on a ticket they repaired
+        return true;
+      });
       var notesThreshold = Math.max(NOTES_STREAK_MIN, Math.ceil(e.repair_tickets_7d.length * NOTES_STREAK_PCT));
       if (poorNotes.length >= notesThreshold && poorNotes.length >= NOTES_STREAK_MIN) {
+        // Surface the SPECIFIC gaps so coaching is concrete, not vague
+        var gapSummary = summarizeGaps(poorNotes);
+        var topGaps = gapSummary.slice(0, 2).map(function(g) { return g.gap; });
+        var avgNotesScore = Math.round(avg(poorNotes.map(function(t) { return t.notes_score || 0; })));
+        // Build per-ticket gap detail (used in coaching draft)
+        var ticketDetails = poorNotes.slice(0, 6).map(function(t) {
+          var gaps = extractNotesGaps(t);
+          return {
+            ticket_number: t.ticket_number,
+            notes_score: t.notes_score,
+            gaps: gaps,
+            detail: t.notes_detail ? String(t.notes_detail).substring(0, 220) : null,
+          };
+        });
         candidates.push({
           flag_type: "regression", rule_key: "notes_streak", severity: 4,
           employee_name: name, store: e.store, category: "compliance",
-          metric_label: "Post-repair notes missed",
+          metric_label: "Repair tickets with weak notes",
           metric_current: poorNotes.length, metric_baseline: 0,
           delta: poorNotes.length,
-          headline: name + " missed " + poorNotes.length + " post-repair note" + (poorNotes.length === 1 ? "" : "s") + " in the last 7 days",
-          evidence: { ticket_numbers: poorNotes.slice(0, 6).map(function(t) { return t.ticket_number; }), threshold_used: notesThreshold, total_repair_tickets_7d: e.repair_tickets_7d.length },
+          headline: name + " has " + poorNotes.length + " repair ticket" + (poorNotes.length === 1 ? "" : "s") + " in the last 7 days with weak notes (avg " + avgNotesScore + "/100)" + (topGaps.length > 0 ? " — most common gaps: " + topGaps.join(", ") : ""),
+          evidence: {
+            ticket_numbers: poorNotes.slice(0, 6).map(function(t) { return t.ticket_number; }),
+            ticket_details: ticketDetails,
+            top_gaps: topGaps,
+            all_gaps: gapSummary,
+            avg_notes_score: avgNotesScore,
+            threshold_used: notesThreshold,
+            total_repair_tickets_7d: e.repair_tickets_7d.length,
+            attribution_note: isRoleSplitEra(todayStr) ? "Filtered to tickets where this employee was the repair tech (role-split era)" : "Pre-April 2026: legacy single-attribution scoring",
+          },
         });
       }
 
@@ -556,30 +663,54 @@ async function draftManagerMessage(body) {
   var isWin = flag.flag_type === "win";
   var ev = flag.evidence || {};
 
+  // Pull any rule-specific context we can include — e.g. notes-streak gaps
+  var contextLines = [];
+  if (ev.top_gaps && ev.top_gaps.length > 0) {
+    contextLines.push("SPECIFIC GAPS (the actual problems you want them to fix):");
+    ev.top_gaps.forEach(function(g) { contextLines.push("  - " + g); });
+  }
+  if (ev.ticket_details && ev.ticket_details.length > 0) {
+    contextLines.push("EXAMPLE TICKETS (not for quoting — just so the coaching is grounded in real specifics):");
+    ev.ticket_details.slice(0, 3).forEach(function(td) {
+      var pieces = ["#" + td.ticket_number];
+      if (td.notes_score != null) pieces.push("notes " + td.notes_score + "/100");
+      if (td.gaps && td.gaps.length > 0) pieces.push("missing: " + td.gaps.join(", "));
+      contextLines.push("  - " + pieces.join(" — "));
+    });
+  }
+  if (ev.avg_notes_score != null) {
+    contextLines.push("AVG NOTES SCORE on flagged tickets: " + ev.avg_notes_score + "/100");
+  }
+  if (ev.attribution_note) {
+    contextLines.push("ATTRIBUTION: " + ev.attribution_note);
+  }
+
   var promptLines = [
     "You are drafting a brief, friendly message from a store manager (Eric) to one of his retail technicians at CPR Cell Phone Repair.",
     "",
     isWin
       ? "PURPOSE: Recognize a positive performance trend. Make it personal and encouraging without being saccharine. The employee should feel genuinely seen."
-      : "PURPOSE: Coach the employee on a performance issue. Be warm and constructive — never accusatory. Frame it as 'I noticed' / 'let's' / 'you got this'. Acknowledge the issue is fixable.",
+      : "PURPOSE: Coach the employee on a SPECIFIC performance gap. Be warm and constructive — never accusatory. Frame it as 'I noticed' / 'let's' / 'you got this'. Acknowledge the issue is fixable. CRUCIAL: name the actual specific behavior you want them to change (e.g. 'add a post-test note when you close out repairs' — NOT 'work on your notes'). The employee should know exactly what to do differently after reading this.",
     "",
     "TONE: How a manager who actually likes their team would phrase it in a quick Slack DM. Conversational. Short. Uses their first name. No corporate-speak. No 'circle back' / 'leverage' / 'opportunity area'. No hashtags. No emojis at the start.",
     "",
-    "LENGTH: 2-3 sentences max. ~50 words.",
+    "LENGTH: 2-3 sentences max. ~60 words.",
     "",
     "DO NOT:",
     "- Use bullet points or lists",
-    "- Cite specific numbers/percentages (the manager already knows them; this is a human message)",
+    "- Cite raw numbers/percentages or score values (the manager already knows them; the employee finds them noisy)",
     "- Sign off with a name (Eric will add that himself)",
     "- Start with 'Hey [name]' if it feels awkward — vary the opening",
+    "- Say vague things like 'your notes need work' — name the specific gap from the SPECIFIC GAPS list below",
     "",
     "EMPLOYEE: " + flag.employee_name,
     "STORE: " + (flag.store || "unknown"),
     "FLAG TYPE: " + flag.flag_type + " / " + flag.rule_key,
-    "HEADLINE (for context, do not quote): " + flag.headline,
+    "HEADLINE (for your context, do not quote): " + flag.headline,
+  ].concat(contextLines).concat([
     "",
     "Your output: ONLY the message body, nothing else. No quotes around it. No 'Here's a draft:' preamble.",
-  ];
+  ]);
 
   try {
     var resp = await fetch("https://api.anthropic.com/v1/messages", {
