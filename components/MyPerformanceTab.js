@@ -203,6 +203,27 @@ export default function MyPerformanceTab({ auth, store }) {
     setShowRoleSplitBanner(false);
     try { window.localStorage.setItem("cpr_dismissed_role_split_banner_v1", "1"); } catch(e) {}
   };
+
+  // Mark a private coaching note as read. Optimistic UI: remove from unread immediately.
+  var acknowledgeNote = async function(noteId, response) {
+    setAckingNoteId(noteId);
+    try {
+      await fetch("/api/dialpad/flags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "acknowledge_note", note_id: noteId, response: response || null }),
+      });
+      // Update local state
+      setCoachingNotes(function(prev) {
+        return prev.map(function(n) {
+          if (n.id === noteId) return Object.assign({}, n, { acknowledged_at: new Date().toISOString(), acknowledged_text: response || null });
+          return n;
+        });
+      });
+      setUnreadNotesCount(function(c) { return Math.max(0, c - 1); });
+    } catch(e) { /* fail silently */ }
+    setAckingNoteId(null);
+  };
   var [loading, setLoading] = useState(true);
   var [loadErrors, setLoadErrors] = useState({});
   var [empScore, setEmpScore] = useState(null);
@@ -216,6 +237,10 @@ export default function MyPerformanceTab({ auth, store }) {
   var [auditData, setAuditData] = useState([]);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
+  // Manager → employee private coaching notes (delivered via Performance Command Center)
+  var [coachingNotes, setCoachingNotes] = useState([]);
+  var [unreadNotesCount, setUnreadNotesCount] = useState(0);
+  var [ackingNoteId, setAckingNoteId] = useState(null);
   var [expandedCall, setExpandedCall] = useState(null);
   var [highlightedCalls, setHighlightedCalls] = useState([]); // call IDs cited by AI coaching
   var [expandedTicket, setExpandedTicket] = useState(null);
@@ -412,6 +437,17 @@ export default function MyPerformanceTab({ auth, store }) {
       } else { errors.calls = true; }
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
       if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
+
+      // Fetch private coaching notes from manager (separate, lightweight call — not in main batch
+      // because notes are independent of period selection — they're always shown when present)
+      try {
+        var notesRes = await fetch("/api/dialpad/flags?action=notes_for_employee&employee=" + encodeURIComponent(empName));
+        var notesJson = await notesRes.json();
+        if (notesJson && notesJson.success) {
+          setCoachingNotes(notesJson.notes || []);
+          setUnreadNotesCount(notesJson.unread_count || 0);
+        }
+      } catch(e) { /* notes are optional, fail silently */ }
     } catch(e) { console.error("MyPerformanceTab load error:", e); errors.general = true; }
     setLoadErrors(errors);
     setLoading(false);
@@ -877,6 +913,8 @@ export default function MyPerformanceTab({ auth, store }) {
 
   return (
     <div>
+      {/* Animation keyframes for the unread coaching badge — must be obvious per spec */}
+      <style>{"@keyframes pulse-coach { 0% { box-shadow: 0 0 0 0 rgba(255,45,149,0.6); } 70% { box-shadow: 0 0 0 8px rgba(255,45,149,0); } 100% { box-shadow: 0 0 0 0 rgba(255,45,149,0); } } @keyframes coach-banner-pulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(255,45,149,0.4); } 50% { box-shadow: 0 0 24px 4px rgba(255,45,149,0.3); } }"}</style>
       {/* Admin: employee selector */}
       {isAdmin && allEmployees.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "10px 16px", background: "var(--bg-card)", borderRadius: 10, border: "1px solid #7B2FFF33" }}>
@@ -905,9 +943,23 @@ export default function MyPerformanceTab({ auth, store }) {
         {tabs.map(function(t) {
           var active = subTab === t.id;
           var hasError = loadErrors[t.id === "paycheck" ? "sales" : t.id === "scorecard" ? "scorecard" : t.id];
+          var showCoachingBadge = t.id === "coaching" && unreadNotesCount > 0;
+          // Coaching tab: when there are unread manager notes, the entire button is highlighted hot pink
+          // and a pulsing dot is added. Designed to be impossible to miss per spec.
+          var coachingBg = showCoachingBadge ? "linear-gradient(135deg, #FF2D9522, #FF2D9540)" : (active ? "#7B2FFF18" : "transparent");
+          var coachingBorder = showCoachingBadge ? "2px solid #FF2D95" : (active ? "1px solid #7B2FFF" : hasError ? "1px solid #F8717133" : "1px solid var(--border)");
+          var coachingColor = showCoachingBadge ? "#FF2D95" : (active ? "#7B2FFF" : "var(--text-secondary)");
           return <button key={t.id} onClick={function() { setSubTab(t.id); }}
-            style={{ padding: "8px 14px", borderRadius: 8, border: active ? "1px solid #7B2FFF" : hasError ? "1px solid #F8717133" : "1px solid var(--border)", background: active ? "#7B2FFF18" : "transparent", color: active ? "#7B2FFF" : "var(--text-secondary)", fontSize: 12, fontWeight: active ? 700 : 500, cursor: "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            style={{ padding: "8px 14px", borderRadius: 8, border: coachingBorder, background: coachingBg, color: coachingColor, fontSize: 12, fontWeight: showCoachingBadge ? 800 : (active ? 700 : 500), cursor: "pointer", display: "flex", alignItems: "center", gap: 6, position: "relative", boxShadow: showCoachingBadge ? "0 0 12px #FF2D9544" : "none" }}>
             {t.icon} {t.label}
+            {showCoachingBadge && (
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 20, height: 20, padding: "0 6px", borderRadius: 10, background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 800, marginLeft: 2 }}>
+                {unreadNotesCount}
+              </span>
+            )}
+            {showCoachingBadge && (
+              <span style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: "50%", background: "#FF2D95", boxShadow: "0 0 0 0 #FF2D95", animation: "pulse-coach 1.5s infinite" }} />
+            )}
           </button>;
         })}
         {/* Period selector */}
@@ -924,6 +976,34 @@ export default function MyPerformanceTab({ auth, store }) {
           </button>
         </div>
       </div>
+
+      {/* Unread coaching note banner — TOP PRIORITY, very obvious per spec.
+          Only shown on current period (notes are not period-filtered). Click jumps to Coaching tab. */}
+      {unreadNotesCount > 0 && subTab !== "coaching" && (
+        <div onClick={function() { setSubTab("coaching"); }}
+          style={{
+            marginBottom: 16, padding: "14px 18px", borderRadius: 10,
+            background: "linear-gradient(90deg, #FF2D9522 0%, #7B2FFF22 100%)",
+            border: "2px solid #FF2D95",
+            display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
+            animation: "coach-banner-pulse 2s ease-in-out infinite",
+          }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+            {"\uD83D\uDCAC"}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#FF2D95", fontSize: 14, fontWeight: 800, marginBottom: 2 }}>
+              You have {unreadNotesCount} new message{unreadNotesCount === 1 ? "" : "s"} from your manager
+            </div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.4 }}>
+              Tap here to read {unreadNotesCount === 1 ? "it" : "them"} in your Coaching tab.
+            </div>
+          </div>
+          <div style={{ padding: "6px 14px", borderRadius: 6, background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+            View {"\u2192"}
+          </div>
+        </div>
+      )}
 
       {/* Historical period banner — only shown when viewing a non-current period */}
       {!isCurrentPeriod && (
@@ -2463,6 +2543,62 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
           ) : (
           <>
+          {/* Private notes from manager — shown at top, unread first */}
+          {coachingNotes.length > 0 && (
+            <div style={{ ...card, marginBottom: 20, border: unreadNotesCount > 0 ? "2px solid #FF2D9555" : "1px solid var(--border)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"\uD83D\uDCAC"}</div>
+                  <div>
+                    <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>Notes from your manager</div>
+                    <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                      {unreadNotesCount > 0 ? unreadNotesCount + " unread · " + coachingNotes.length + " total" : "All caught up · " + coachingNotes.length + " total"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              {coachingNotes.slice().sort(function(a, b) {
+                // Unread first, then newest first
+                if (!a.acknowledged_at && b.acknowledged_at) return -1;
+                if (a.acknowledged_at && !b.acknowledged_at) return 1;
+                return String(b.created_at).localeCompare(String(a.created_at));
+              }).slice(0, 10).map(function(note) {
+                var unread = !note.acknowledged_at;
+                return (
+                  <div key={note.id} style={{
+                    padding: 14, borderRadius: 8, marginBottom: 10,
+                    background: unread ? "#FF2D9510" : "var(--bg-card-inner)",
+                    borderLeft: "3px solid " + (unread ? "#FF2D95" : "var(--border)"),
+                  }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 8 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: unread ? "#FF2D95" : "var(--text-muted)" }}>
+                          {note.from_admin || "Manager"}
+                        </span>
+                        {unread && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#FF2D95", color: "#fff", fontWeight: 800 }}>NEW</span>}
+                      </div>
+                      <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                        {note.created_at ? new Date(note.created_at).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.5, whiteSpace: "pre-wrap" }}>{note.message}</div>
+                    {unread ? (
+                      <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
+                        <button onClick={function() { acknowledgeNote(note.id); }} disabled={ackingNoteId === note.id}
+                          style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 700, cursor: ackingNoteId === note.id ? "wait" : "pointer", opacity: ackingNoteId === note.id ? 0.6 : 1 }}>
+                          {ackingNoteId === note.id ? "Saving…" : "\u2713 Got it"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)", fontStyle: "italic" }}>
+                        {"\u2713"} Acknowledged {note.acknowledged_at ? new Date(note.acknowledged_at).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
