@@ -179,7 +179,7 @@ function StoreDashboard() {
         fetch("/api/dialpad/appointments?action=" + (apptView === "today" ? "today" : "list") + "&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/tickets?action=stats&store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/roster").then(function(r){return r.json();}),
-        fetch("/api/dialpad/sales?action=performance").then(function(r){return r.json();}),
+        fetch("/api/dialpad/sales?action=performance&period=" + selectedPeriod).then(function(r){return r.json();}),
         fetch("/api/dialpad/weekly-goal?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/google-reviews?store=" + store).then(function(r){return r.json();}),
         fetch("/api/dialpad/appointments?action=list&store=" + store + "&days=365").then(function(r){return r.json();}),
