@@ -1121,6 +1121,7 @@ function AuditTab({ rawCallData, storeFilter }) {
 export default function DialpadDashboard() {
   var auth = useAuth();
   var [activeTab, setActiveTab] = useState("scorecard");
+  var [didDefaultRoute, setDidDefaultRoute] = useState(false);
   var [storeFilter, setStoreFilter] = useState("all");
   var [isLive, setIsLive] = useState(false);
   var [isStored, setIsStored] = useState(false);
@@ -1163,10 +1164,16 @@ export default function DialpadDashboard() {
   var visibleTabIds = effectiveRole === "employee" ? EMPLOYEE_TABS : effectiveRole === "manager" ? MANAGER_TABS : ADMIN_TABS;
   var visibleTabs = TABS.filter(function(t) { return visibleTabIds.indexOf(t.id) >= 0; });
 
-  // Reset to first visible tab if current tab is hidden
+  // On role change (e.g. previewing as employee), if the current tab isn't valid for this role, fall back.
+  // Coaching is admin-only so non-admins should never land on it.
   useEffect(function() {
-    if (visibleTabIds.indexOf(activeTab) < 0 && visibleTabs.length > 0) {
-      setActiveTab(visibleTabs[0].id);
+    if (effectiveRole === "admin") {
+      // Admin can use any tab — nothing to do
+      return;
+    }
+    // Non-admin: if current tab isn't visible to this role, fall back to first visible.
+    if (activeTab === "coaching" || (visibleTabIds.indexOf(activeTab) < 0 && activeTab !== "profitability" && activeTab !== "admin")) {
+      if (visibleTabs.length > 0) setActiveTab(visibleTabs[0].id);
     }
   }, [effectiveRole]);
 
@@ -1314,12 +1321,18 @@ export default function DialpadDashboard() {
       )}
 
       <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
-        {visibleTabs.map(function(tab) {
+        {/* Render the first visible tab (scorecard) on its own so we can slot Coaching as the SECOND tab for admins */}
+        {visibleTabs.slice(0, 1).map(function(tab) {
+          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
+        })}
+        {isAdmin && !isPreviewing && (
+          <button onClick={function(){setActiveTab("coaching");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="coaching"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="coaching"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFAF"}</span>Coaching</button>
+        )}
+        {visibleTabs.slice(1).map(function(tab) {
           return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
         {isAdmin && !isPreviewing && (<>
           <button onClick={function(){setActiveTab("profitability");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="profitability"?"#4ADE80":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="profitability"?"2px solid #4ADE80":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Profitability</button>
-          <button onClick={function(){setActiveTab("coaching");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="coaching"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="coaching"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFAF"}</span>Coaching</button>
           <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
         </>)}
       </div>
