@@ -250,7 +250,7 @@ export default function MyPerformanceTab({ auth, store }) {
       var shiftStart = shiftStartDate.toISOString().split("T")[0];
 
       var results = await Promise.allSettled([
-        fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/scorecard?period=" + currentMonthPeriod).then(function(r) { return r.json(); }),
         // Pass explicit period — server-side default has been unreliable, mirrors SalesTab pattern
         fetch("/api/dialpad/sales?action=performance&period=" + currentMonthPeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/sales?action=commission_config").then(function(r) { return r.json(); }),
@@ -653,7 +653,7 @@ export default function MyPerformanceTab({ auth, store }) {
 
       // Compliance / tickets — external RepairQ link
       lines.push("");
-      lines.push("COMPLIANCE: " + (empScore.compliance?.score || 0) + "/100 across " + (empScore.compliance?.total_tickets || 0) + " tickets");
+      lines.push("COMPLIANCE: " + (empScore.compliance?.score || 0) + "/100 across " + (empScore.compliance?.tickets_graded || empScore.compliance?.total_tickets || 0) + " tickets");
 
       // Role-split breakdown — coaching focuses on the lower role
       var compIntake = empScore.compliance?.intake_role;
@@ -1419,13 +1419,26 @@ export default function MyPerformanceTab({ auth, store }) {
                   { k: "Opportunity Audits", v: empScore.audit?.opp_audits || 0 },
                   { k: "Avg Score", v: (empScore.audit?.avg_pct || 0) + "%" },
                 ] },
-                { label: "Compliance", score: empScore.compliance?.score || 0, color: "#FF2D95", details: [
-                  { k: "Tickets Graded", v: empScore.compliance?.total_tickets || 0 },
-                  { k: "Avg Ticket Score", v: Math.round(empScore.compliance?.avg_score || 0) },
-                  { k: "Diagnostics Avg", v: Math.round(empScore.compliance?.avg_diagnostics || 0) },
-                  { k: "Notes Avg", v: Math.round(empScore.compliance?.avg_notes || 0) },
-                  { k: "Payment Avg", v: Math.round(empScore.compliance?.avg_payment || 0) },
-                ] },
+                { label: "Compliance", score: empScore.compliance?.score || 0, color: "#FF2D95", details: (function() {
+                  var c = empScore.compliance || {};
+                  var rs = c.role_split_active;
+                  if (rs && (c.intake_role || c.repair_role)) {
+                    // Role-split era: show role breakdown
+                    return [
+                      { k: "Tickets Graded", v: c.tickets_graded || c.total_tickets || 0 },
+                      { k: "\uD83D\uDCDD Intake Role Avg", v: c.intake_role && c.intake_role.avg != null ? c.intake_role.avg + " (" + (c.intake_role.tickets || 0) + " tickets)" : "—" },
+                      { k: "\uD83D\uDD27 Repair Role Avg", v: c.repair_role && c.repair_role.avg != null ? c.repair_role.avg + " (" + (c.repair_role.tickets || 0) + " tickets)" : "—" },
+                      c.legacy_pre_april && c.legacy_pre_april.tickets > 0
+                        ? { k: "Pre-April Tickets", v: c.legacy_pre_april.tickets }
+                        : null,
+                    ].filter(Boolean);
+                  }
+                  // Legacy compatibility fallback (if API still returns old shape)
+                  return [
+                    { k: "Tickets Graded", v: c.tickets_graded || c.total_tickets || 0 },
+                    { k: "Avg Ticket Score", v: Math.round(c.score || c.avg_score || 0) },
+                  ];
+                })() },
               ].map(function(cat) {
                 return (
                   <div key={cat.label} style={{ ...card, marginBottom: 16 }}>
