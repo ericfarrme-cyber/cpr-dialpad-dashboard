@@ -929,14 +929,37 @@ async function runDetection(secret) {
     });
 
     // ── Persist with dedup_key (one flag per rule per employee per day) ──
-    var saved = 0, skipped = 0, errors = [];
+    // Behavior:
+    //   - If no flag exists with this dedup_key → INSERT new active flag
+    //   - If a flag exists and is still active → UPDATE its evidence/headline (re-runs refresh data)
+    //   - If a flag exists but is dismissed or acted → SKIP (don't resurrect)
+    // This lets repeated detection runs always show the freshest evidence shape without breaking
+    // the triage workflow (dismissals stick).
+    var saved = 0, updated = 0, skipped = 0, errors = [];
     for (var i = 0; i < candidates.length; i++) {
       var c = candidates[i];
       c.dedup_key = c.rule_key + ":" + c.employee_name + ":" + todayStr;
-      var { error: insErr } = await supabase.from("performance_flags")
-        .upsert(c, { onConflict: "dedup_key", ignoreDuplicates: true });
-      if (insErr) errors.push(c.dedup_key + ": " + insErr.message);
-      else saved++;
+      // Look up existing flag by dedup_key
+      var { data: existing, error: lookupErr } = await supabase.from("performance_flags")
+        .select("id, status").eq("dedup_key", c.dedup_key).maybeSingle();
+      if (lookupErr) { errors.push(c.dedup_key + " lookup: " + lookupErr.message); continue; }
+      if (existing && existing.id) {
+        // Flag already exists — only refresh if still active
+        if (existing.status !== "active") { skipped++; continue; }
+        var { error: updErr } = await supabase.from("performance_flags")
+          .update({
+            severity: c.severity, metric_label: c.metric_label, metric_current: c.metric_current,
+            metric_baseline: c.metric_baseline, delta: c.delta, headline: c.headline, evidence: c.evidence,
+          })
+          .eq("id", existing.id);
+        if (updErr) errors.push(c.dedup_key + " update: " + updErr.message);
+        else updated++;
+      } else {
+        // No existing flag — insert new
+        var { error: insErr } = await supabase.from("performance_flags").insert(c);
+        if (insErr) errors.push(c.dedup_key + " insert: " + insErr.message);
+        else saved++;
+      }
     }
 
     // ── Auto-resolve stale flags (open >7 days) ──
@@ -949,6 +972,7 @@ async function runDetection(secret) {
       success: true,
       candidates_evaluated: candidates.length,
       saved: saved,
+      updated: updated,
       skipped: skipped,
       errors: errors,
       employees_evaluated: Object.keys(byEmp).length,
