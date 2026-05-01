@@ -243,6 +243,7 @@ export default function MyPerformanceTab({ auth, store }) {
     var errors = {};
     try {
       var now = new Date();
+      var currentMonthPeriod = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
       var shiftEnd = new Date(); shiftEnd.setDate(shiftEnd.getDate() + 14); // include next 2 weeks
       var shiftEndStr = shiftEnd.toISOString().split("T")[0];
       var shiftStartDate = new Date(); shiftStartDate.setDate(shiftStartDate.getDate() - 90);
@@ -250,7 +251,8 @@ export default function MyPerformanceTab({ auth, store }) {
 
       var results = await Promise.allSettled([
         fetch("/api/dialpad/scorecard").then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/sales?action=performance").then(function(r) { return r.json(); }),
+        // Pass explicit period — server-side default has been unreliable, mirrors SalesTab pattern
+        fetch("/api/dialpad/sales?action=performance&period=" + currentMonthPeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/sales?action=commission_config").then(function(r) { return r.json(); }),
         fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEndStr).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=90").then(function(r) { return r.json(); }),
@@ -273,7 +275,24 @@ export default function MyPerformanceTab({ auth, store }) {
       } else { errors.scorecard = true; }
 
       if (results[1].status === "fulfilled") setSalesData(results[1].value); else errors.sales = true;
-      if (results[2].status === "fulfilled" && results[2].value.rates) setCommConfig(results[2].value);
+      // commission_config returns { success: true, config: [{config_key, config_value, enabled}, ...] }
+      // We need to flatten it into { rates: { key: value }, config: { key: enabled } } for the commission calc.
+      if (results[2].status === "fulfilled") {
+        var cc = results[2].value;
+        if (cc && cc.rates && typeof cc.rates === "object") {
+          // Already flattened (alternative shape)
+          setCommConfig(cc);
+        } else if (cc && Array.isArray(cc.config)) {
+          var ratesMap = {};
+          var enabledMap = {};
+          cc.config.forEach(function(row) {
+            if (!row || !row.config_key) return;
+            ratesMap[row.config_key] = parseFloat(row.config_value) || 0;
+            enabledMap[row.config_key] = row.enabled !== false;
+          });
+          setCommConfig({ rates: ratesMap, config: enabledMap });
+        }
+      }
 
       if (results[3].status === "fulfilled" && results[3].value.shifts) {
         var myShifts = results[3].value.shifts.filter(function(s) {
