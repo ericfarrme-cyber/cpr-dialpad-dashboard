@@ -394,8 +394,133 @@ async function runDetection(secret) {
     var APPT_STREAK_LEN = 5;                   // consecutive opp calls all offered
     var NOTES_EXCELLENCE_LEN = 10;             // consecutive 90+ on repair-side notes
 
+    // ── Pre-compute weekly buckets + peer pools for sparkline / peer-context / dollar stake ──
+    // Strategy: for each employee, compute 4 weekly bucket points for each metric we care about.
+    // Then compute store-scoped + role-scoped peer averages so each flag can answer "is this person an outlier?"
+    // Done ONCE per detection run instead of per-rule to avoid re-iterating tickets/audits.
+
+    function weekStartISO(daysBack) {
+      // Returns midnight ISO date for the start of a week N weeks ago (week 0 = current week, includes today)
+      var d = new Date();
+      d.setHours(0, 0, 0, 0);
+      d.setDate(d.getDate() - (daysBack * 7));
+      return d.toISOString().substring(0, 10);
+    }
+
+    // 4 weekly windows, oldest first. Each is {label, startISO, endISO}.
+    // week 0 = oldest (3 weeks ago today → 2 weeks ago today)
+    // week 3 = newest (last 7 days, ending today)
+    var WEEK_WINDOWS = [
+      { label: "3w ago", start: weekStartISO(3), end: weekStartISO(2) },
+      { label: "2w ago", start: weekStartISO(2), end: weekStartISO(1) },
+      { label: "Last wk", start: weekStartISO(1), end: weekStartISO(0) },
+      { label: "This wk", start: weekStartISO(0), end: todayDateStr() }, // inclusive of today
+    ];
+
+    function bucketWeekly(items, dateField, valueFn) {
+      // valueFn(item) returns either a number (for averaging) or null/undefined (skip)
+      // returns array of 4 weekly average objects: [{label, value, count}]
+      return WEEK_WINDOWS.map(function(w) {
+        var bucket = items.filter(function(it) {
+          var d = isoToDate(it[dateField]);
+          if (!d) return false;
+          return d >= w.start && d <= w.end;
+        });
+        var values = bucket.map(valueFn).filter(function(v) { return v != null && !isNaN(v); });
+        return { label: w.label, value: values.length > 0 ? Math.round(avg(values) * 10) / 10 : null, count: values.length };
+      });
+    }
+
+    function bucketWeeklyRate(items, dateField, predicate) {
+      // For "% of items matching predicate per week" — used for appt rate, etc.
+      return WEEK_WINDOWS.map(function(w) {
+        var bucket = items.filter(function(it) {
+          var d = isoToDate(it[dateField]);
+          if (!d) return false;
+          return d >= w.start && d <= w.end;
+        });
+        var hits = bucket.filter(predicate).length;
+        return { label: w.label, value: bucket.length > 0 ? Math.round((hits / bucket.length) * 100) : null, count: bucket.length };
+      });
+    }
+
+    // ── Peer pools by store + by role ──
+    // For a given metric, what's the median/avg across same-store peers + same-role peers?
+    // We'll compute: per store → list of employee 28d-avg scores; same for role.
+    var storeRosters = {};  // store → [employee names]
+    var roleRosters = {};   // role → [employee names]
+    roster.forEach(function(r) {
+      if (r.store) { storeRosters[r.store] = storeRosters[r.store] || []; storeRosters[r.store].push(r.name); }
+      if (r.role) { roleRosters[r.role] = roleRosters[r.role] || []; roleRosters[r.role].push(r.name); }
+    });
+
+    function peerAverage(scope, scopeKey, metricFn) {
+      // scope is 'store' or 'role', scopeKey is the value (e.g. 'fishers'); metricFn(emp) → number or null
+      var pool = scope === "store" ? (storeRosters[scopeKey] || []) : (roleRosters[scopeKey] || []);
+      var vals = pool.map(function(n) { return byEmp[n] ? metricFn(byEmp[n]) : null; }).filter(function(v) { return v != null && !isNaN(v); });
+      if (vals.length === 0) return null;
+      var sorted = vals.slice().sort(function(a, b) { return a - b; });
+      return {
+        avg: Math.round(avg(vals) * 10) / 10,
+        median: sorted[Math.floor(sorted.length / 2)],
+        n: vals.length,
+      };
+    }
+
+    // Common metric extractors per employee
+    function empAvgNotesScore(e) {
+      var tix = e.repair_tickets_28d.filter(function(t) { return t.notes_score != null; });
+      if (tix.length === 0) return null;
+      return Math.round(avg(tix.map(function(t) { return t.notes_score; })));
+    }
+    function empAvgOverall(e) {
+      var tix = e.all_tickets_28d.filter(function(t) { return t.overall_score != null; });
+      if (tix.length === 0) return null;
+      return Math.round(avg(tix.map(function(t) { return t.overall_score; })));
+    }
+    function empApptRate(e) {
+      var opps = e.audits_28d.filter(function(a) { return a.call_type === "opportunity"; });
+      if (opps.length === 0) return null;
+      return Math.round((opps.filter(function(a) { return a.appt_offered; }).length / opps.length) * 100);
+    }
+    function empAvgTurnaround(e) {
+      var tix = e.repair_tickets_28d.filter(function(t) { return t.turnaround_hours && t.turnaround_hours > 0; });
+      if (tix.length === 0) return null;
+      return Math.round(avg(tix.map(function(t) { return t.turnaround_hours; })) * 10) / 10;
+    }
+
+    // ── Dollar stake projector ──
+    // Given an employee's current overall_score and a hypothetical lift, project their tier change.
+    // Tier multipliers: Bronze/Silver 1x, Gold 1.25x, Platinum 1.5x, Diamond 1.5x + 1 PTO.
+    // For the per-month dollar value, we estimate based on average monthly commission (~$300).
+    function tierMultiplier(t) { return t === "Diamond" ? 1.5 : t === "Platinum" ? 1.5 : t === "Gold" ? 1.25 : 1.0; }
+    function projectStake(currentOverall, projectedOverall) {
+      var currentTier = tierForScore(currentOverall);
+      var projectedTier = tierForScore(projectedOverall);
+      var currMult = tierMultiplier(currentTier);
+      var projMult = tierMultiplier(projectedTier);
+      var avgMonthlyCommission = 300; // baseline reference; could make dynamic later
+      var currentTake = avgMonthlyCommission * currMult;
+      var projectedTake = avgMonthlyCommission * projMult;
+      return {
+        current_overall: currentOverall,
+        projected_overall: projectedOverall,
+        current_tier: currentTier,
+        projected_tier: projectedTier,
+        current_multiplier: currMult,
+        projected_multiplier: projMult,
+        delta_per_month: Math.round(projectedTake - currentTake),
+        tier_changed: currentTier !== projectedTier,
+        diamond_bonus_added: projectedTier === "Diamond" && currentTier !== "Diamond",
+      };
+    }
+
     Object.keys(byEmp).forEach(function(name) {
       var e = byEmp[name];
+
+      // Pre-compute role for this employee (used in peer comparison)
+      var rosterRow = roster.filter(function(r) { return r.name === name; })[0];
+      e.role = rosterRow ? rosterRow.role : null;
 
       // ─── Rule 1: Notes-quality streak (regression) ───
       // Repair-tech tickets where the repair-role score (Notes 25% + Pickup 20%) shows weak notes documentation.
@@ -434,6 +559,22 @@ async function runDetection(secret) {
             detail: t.notes_detail ? String(t.notes_detail).substring(0, 220) : null,
           };
         });
+        // ── Universal evidence: sparkline (4-week notes-score trend), peer compare, dollar stake ──
+        var sparkNotes = bucketWeekly(e.repair_tickets_28d, "date_closed", function(t) { return t.notes_score; });
+        var empNotes28 = empAvgNotesScore(e);
+        var storePeer = peerAverage("store", e.store, empAvgNotesScore);
+        var rolePeer = e.role ? peerAverage("role", e.role, empAvgNotesScore) : null;
+        // Dollar-stake projection: if their notes_score lifts to peer median, what tier do they hit?
+        // Notes is 25% of repair_role which is 35% of overall = roughly 8.75% weighted contribution to overall.
+        // Simplified estimate: each 10-point notes lift ≈ 4 overall points.
+        var stake = null;
+        var currentOverall = empAvgOverall(e);
+        if (currentOverall != null && empNotes28 != null && storePeer && storePeer.median != null) {
+          var notesLift = Math.max(0, storePeer.median - empNotes28);
+          var overallLift = Math.round(notesLift * 0.4); // notes → overall translation
+          stake = projectStake(currentOverall, currentOverall + overallLift);
+          stake.lift_source = "matching " + (e.store ? e.store.charAt(0).toUpperCase() + e.store.slice(1) : "store") + " peer median notes (" + storePeer.median + "/100)";
+        }
         candidates.push({
           flag_type: "regression", rule_key: "notes_streak", severity: 4,
           employee_name: name, store: e.store, category: "compliance",
@@ -450,6 +591,10 @@ async function runDetection(secret) {
             threshold_used: notesThreshold,
             total_repair_tickets_7d: e.repair_tickets_7d.length,
             attribution_note: isRoleSplitEra(todayStr) ? "Filtered to tickets where this employee was the repair tech (role-split era)" : "Pre-April 2026: legacy single-attribution scoring",
+            // Universal sections
+            sparkline: { metric_label: "Notes score (weekly avg)", unit: "/100", data: sparkNotes },
+            peer_compare: { metric_label: "28-day notes-score avg", unit: "/100", employee_value: empNotes28, store_avg: storePeer ? storePeer.avg : null, store_median: storePeer ? storePeer.median : null, role_avg: rolePeer ? rolePeer.avg : null, role_label: e.role || "All techs" },
+            dollar_stake: stake,
           },
         });
       }
@@ -482,13 +627,28 @@ async function runDetection(secret) {
               metric_current: Math.round(avg7), metric_baseline: Math.round(avg21),
               delta: -Math.round(drop),
               headline: name + " compliance dropped " + Math.round(drop) + " pts (was " + Math.round(avg21) + ", now " + Math.round(avg7) + ")",
-              evidence: {
-                tickets_7d: e.all_tickets_7d.length,
-                tickets_prior21: prior21.length,
-                avg_recent: Math.round(avg7),
-                avg_prior: Math.round(avg21),
-                recent_ticket_details: recentTixDetail,
-              },
+              evidence: (function() {
+                var sparkOverall = bucketWeekly(e.all_tickets_28d, "date_closed", function(t) { return t.overall_score; });
+                var emp28 = empAvgOverall(e);
+                var storePeerC = peerAverage("store", e.store, empAvgOverall);
+                var rolePeerC = e.role ? peerAverage("role", e.role, empAvgOverall) : null;
+                var stakeC = null;
+                if (emp28 != null && storePeerC && storePeerC.median != null) {
+                  // Compliance lift directly = overall lift (simplified — compliance is ~30% of overall but tickets ARE the overall measure)
+                  stakeC = projectStake(emp28, Math.max(emp28, storePeerC.median));
+                  stakeC.lift_source = "matching " + (e.store ? e.store.charAt(0).toUpperCase() + e.store.slice(1) : "store") + " peer median compliance (" + storePeerC.median + "/100)";
+                }
+                return {
+                  tickets_7d: e.all_tickets_7d.length,
+                  tickets_prior21: prior21.length,
+                  avg_recent: Math.round(avg7),
+                  avg_prior: Math.round(avg21),
+                  recent_ticket_details: recentTixDetail,
+                  sparkline: { metric_label: "Compliance score (weekly avg)", unit: "/100", data: sparkOverall },
+                  peer_compare: { metric_label: "28-day compliance avg", unit: "/100", employee_value: emp28, store_avg: storePeerC ? storePeerC.avg : null, store_median: storePeerC ? storePeerC.median : null, role_avg: rolePeerC ? rolePeerC.avg : null, role_label: e.role || "All techs" },
+                  dollar_stake: stakeC,
+                };
+              })(),
             });
           }
         }
@@ -518,13 +678,22 @@ async function runDetection(secret) {
             metric_current: Math.round(rateNow), metric_baseline: Math.round(ratePrior),
             delta: -Math.round(rateDrop),
             headline: name + " appointment offers dropped to " + Math.round(rateNow) + "% this week (was " + Math.round(ratePrior) + "%)",
-            evidence: {
-              opps_current_week: oppCurrent.length,
-              opps_prior_week: oppPrior.length,
-              offers_current: oppCurrent.filter(function(a) { return a.appt_offered; }).length,
-              offers_prior: oppPrior.filter(function(a) { return a.appt_offered; }).length,
-              call_breakdown: callBreakdown,
-            },
+            evidence: (function() {
+              var sparkAppt = bucketWeeklyRate(e.audits_28d.filter(function(a) { return a.call_type === "opportunity"; }), "date_started", function(a) { return a.appt_offered; });
+              var emp28appt = empApptRate(e);
+              var storePeerA = peerAverage("store", e.store, empApptRate);
+              var rolePeerA = e.role ? peerAverage("role", e.role, empApptRate) : null;
+              return {
+                opps_current_week: oppCurrent.length,
+                opps_prior_week: oppPrior.length,
+                offers_current: oppCurrent.filter(function(a) { return a.appt_offered; }).length,
+                offers_prior: oppPrior.filter(function(a) { return a.appt_offered; }).length,
+                call_breakdown: callBreakdown,
+                sparkline: { metric_label: "Appt-offered rate (weekly)", unit: "%", data: sparkAppt },
+                peer_compare: { metric_label: "28-day appt-offered rate", unit: "%", employee_value: emp28appt, store_avg: storePeerA ? storePeerA.avg : null, store_median: storePeerA ? storePeerA.median : null, role_avg: rolePeerA ? rolePeerA.avg : null, role_label: e.role || "All techs" },
+                dollar_stake: null, // appt rate doesn't directly map to tier dollars in our model
+              };
+            })(),
           });
         }
       }
@@ -555,13 +724,27 @@ async function runDetection(secret) {
               metric_current: Math.round(avgToday), metric_baseline: Math.round(avgPrior),
               delta: -Math.round(avgPrior - avgToday),
               headline: name + " is on shift now and " + Math.round(avgPrior - avgToday) + " pts below their normal — coachable today",
-              evidence: {
-                audits_today: todaysAudits.length,
-                audits_baseline: prior30.length,
-                avg_today: Math.round(avgToday),
-                avg_baseline: Math.round(avgPrior),
-                today_calls: todayCallsDetail,
-              },
+              evidence: (function() {
+                var sparkAudit = bucketWeekly(e.audits_28d, "date_started", function(a) { return a.max_score > 0 ? (a.score / a.max_score) * 100 : null; });
+                function empAvgAudit(emp) {
+                  var auds = emp.audits_28d.filter(function(a) { return a.max_score > 0; });
+                  if (auds.length === 0) return null;
+                  return Math.round(avg(auds.map(function(a) { return (a.score / a.max_score) * 100; })));
+                }
+                var emp28aud = empAvgAudit(e);
+                var storePeerS = peerAverage("store", e.store, empAvgAudit);
+                var rolePeerS = e.role ? peerAverage("role", e.role, empAvgAudit) : null;
+                return {
+                  audits_today: todaysAudits.length,
+                  audits_baseline: prior30.length,
+                  avg_today: Math.round(avgToday),
+                  avg_baseline: Math.round(avgPrior),
+                  today_calls: todayCallsDetail,
+                  sparkline: { metric_label: "Audit score (weekly avg)", unit: "/100", data: sparkAudit },
+                  peer_compare: { metric_label: "28-day audit avg", unit: "/100", employee_value: emp28aud, store_avg: storePeerS ? storePeerS.avg : null, store_median: storePeerS ? storePeerS.median : null, role_avg: rolePeerS ? rolePeerS.avg : null, role_label: e.role || "All techs" },
+                  dollar_stake: null,
+                };
+              })(),
             });
           }
         }
@@ -598,16 +781,25 @@ async function runDetection(secret) {
             metric_current: round1(avgRecent), metric_baseline: round1(avgPrior),
             delta: -round1(avgPrior - avgRecent),
             headline: name + " dropped " + cat + " turnaround from " + round1(avgPrior) + "h to " + round1(avgRecent) + "h",
-            evidence: {
-              device_category: cat,
-              recent_window_tix: dc.recent.length,
-              prior_window_tix: dc.prior.length,
-              pct_improvement: Math.round(pctImprove * 100),
-              avg_recent_hours: round1(avgRecent),
-              avg_prior_hours: round1(avgPrior),
-              sample_recent: sampleRecent,
-              sample_prior: samplePrior,
-            },
+            evidence: (function() {
+              var sparkTat = bucketWeekly(e.repair_tickets_28d.filter(function(t) { return t.device_category === cat; }), "date_closed", function(t) { return t.turnaround_hours > 0 ? t.turnaround_hours : null; });
+              var emp28tat = empAvgTurnaround(e);
+              var storePeerT = peerAverage("store", e.store, empAvgTurnaround);
+              var rolePeerT = e.role ? peerAverage("role", e.role, empAvgTurnaround) : null;
+              return {
+                device_category: cat,
+                recent_window_tix: dc.recent.length,
+                prior_window_tix: dc.prior.length,
+                pct_improvement: Math.round(pctImprove * 100),
+                avg_recent_hours: round1(avgRecent),
+                avg_prior_hours: round1(avgPrior),
+                sample_recent: sampleRecent,
+                sample_prior: samplePrior,
+                sparkline: { metric_label: cat + " turnaround (weekly avg)", unit: "h", data: sparkTat, lower_is_better: true },
+                peer_compare: { metric_label: "28-day avg turnaround (all repairs)", unit: "h", employee_value: emp28tat, store_avg: storePeerT ? storePeerT.avg : null, store_median: storePeerT ? storePeerT.median : null, role_avg: rolePeerT ? rolePeerT.avg : null, role_label: e.role || "All techs", lower_is_better: true },
+                dollar_stake: null,
+              };
+            })(),
           });
         }
       });
@@ -632,7 +824,19 @@ async function runDetection(secret) {
             metric_current: APPT_STREAK_LEN, metric_baseline: 0,
             delta: APPT_STREAK_LEN,
             headline: name + " offered appointments on " + APPT_STREAK_LEN + " opportunity calls in a row",
-            evidence: { streak_length: APPT_STREAK_LEN, streak_calls: streakCalls },
+            evidence: (function() {
+              var sparkApptW = bucketWeeklyRate(e.audits_28d.filter(function(a) { return a.call_type === "opportunity"; }), "date_started", function(a) { return a.appt_offered; });
+              var emp28apptW = empApptRate(e);
+              var storePeerAW = peerAverage("store", e.store, empApptRate);
+              var rolePeerAW = e.role ? peerAverage("role", e.role, empApptRate) : null;
+              return {
+                streak_length: APPT_STREAK_LEN,
+                streak_calls: streakCalls,
+                sparkline: { metric_label: "Appt-offered rate (weekly)", unit: "%", data: sparkApptW },
+                peer_compare: { metric_label: "28-day appt-offered rate", unit: "%", employee_value: emp28apptW, store_avg: storePeerAW ? storePeerAW.avg : null, store_median: storePeerAW ? storePeerAW.median : null, role_avg: rolePeerAW ? rolePeerAW.avg : null, role_label: e.role || "All techs" },
+                dollar_stake: null,
+              };
+            })(),
           });
         }
       }
@@ -658,12 +862,21 @@ async function runDetection(secret) {
             metric_current: NOTES_EXCELLENCE_LEN, metric_baseline: 0,
             delta: NOTES_EXCELLENCE_LEN,
             headline: name + " has " + NOTES_EXCELLENCE_LEN + " consecutive tickets with 90+ notes scores (avg " + avgStreakScore + "/100)",
-            evidence: {
-              streak_length: NOTES_EXCELLENCE_LEN,
-              avg_streak_score: avgStreakScore,
-              ticket_numbers: last10.map(function(t) { return t.ticket_number; }),
-              ticket_details: streakTixDetail,
-            },
+            evidence: (function() {
+              var sparkNotesW = bucketWeekly(e.repair_tickets_28d, "date_closed", function(t) { return t.notes_score; });
+              var emp28notesW = empAvgNotesScore(e);
+              var storePeerN = peerAverage("store", e.store, empAvgNotesScore);
+              var rolePeerN = e.role ? peerAverage("role", e.role, empAvgNotesScore) : null;
+              return {
+                streak_length: NOTES_EXCELLENCE_LEN,
+                avg_streak_score: avgStreakScore,
+                ticket_numbers: last10.map(function(t) { return t.ticket_number; }),
+                ticket_details: streakTixDetail,
+                sparkline: { metric_label: "Notes score (weekly avg)", unit: "/100", data: sparkNotesW },
+                peer_compare: { metric_label: "28-day notes-score avg", unit: "/100", employee_value: emp28notesW, store_avg: storePeerN ? storePeerN.avg : null, store_median: storePeerN ? storePeerN.median : null, role_avg: rolePeerN ? rolePeerN.avg : null, role_label: e.role || "All techs" },
+                dollar_stake: null,
+              };
+            })(),
           });
         }
       }
@@ -687,14 +900,30 @@ async function runDetection(secret) {
       var tierRank = { "Bronze": 1, "Silver": 2, "Gold": 3, "Platinum": 4, "Diamond": 5 };
       var direction = (tierRank[current.tier] || 0) - (tierRank[prior.tier] || 0);
       if (direction > 0) {
+        // Build tier-history mini-trend (up to last 6 months) for the sparkline-style view
+        var tierTrend = hist.slice(0, 6).reverse().map(function(h) { return { label: h.period, value: h.overall_score, tier: h.tier }; });
+        var emp = byEmp[name];
+        var stakeT = null;
+        if (emp && current.overall_score) {
+          // Show what their CURRENT tier multiplier means vs their prior
+          stakeT = projectStake(prior.overall_score || current.overall_score, current.overall_score);
+          stakeT.lift_source = "tier crossover from " + prior.tier + " (" + (prior.overall_score || "?") + ") to " + current.tier + " (" + current.overall_score + ")";
+        }
         candidates.push({
           flag_type: "win", rule_key: "tier_crossover", severity: 4,
-          employee_name: name, store: byEmp[name] ? byEmp[name].store : null, category: "tier",
+          employee_name: name, store: emp ? emp.store : null, category: "tier",
           metric_label: "Monthly tier",
           metric_current: current.overall_score || null, metric_baseline: prior.overall_score || null,
           delta: direction,
           headline: name + " moved up to " + current.tier + " from " + prior.tier + " (" + current.period + ")",
-          evidence: { from_tier: prior.tier, to_tier: current.tier, period: current.period },
+          evidence: {
+            from_tier: prior.tier,
+            to_tier: current.tier,
+            period: current.period,
+            sparkline: { metric_label: "Monthly score history", unit: "/100", data: tierTrend },
+            peer_compare: null, // tier comparison happens visually
+            dollar_stake: stakeT,
+          },
         });
       }
     });
