@@ -237,6 +237,8 @@ export default function MyPerformanceTab({ auth, store }) {
   var [auditData, setAuditData] = useState([]);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
+  // Personal GP data (current period + prior period for comparison) — fetched from gp_leaderboard
+  var [gpData, setGpData] = useState(null);
   // Manager → employee private coaching notes (delivered via Performance Command Center)
   var [coachingNotes, setCoachingNotes] = useState([]);
   var [unreadNotesCount, setUnreadNotesCount] = useState(0);
@@ -448,6 +450,34 @@ export default function MyPerformanceTab({ auth, store }) {
           setUnreadNotesCount(notesJson.unread_count || 0);
         }
       } catch(e) { /* notes are optional, fail silently */ }
+
+      // Fetch personal GP / hours / GP-per-hour for current + prior period.
+      // Uses the gp_leaderboard endpoint and pulls THIS employee's row from each.
+      try {
+        var priorPeriod = (function() {
+          var p = (selectedPeriod || (new Date().getFullYear() + "-" + String(new Date().getMonth() + 1).padStart(2, "0"))).split("-");
+          var py = parseInt(p[0]); var pm = parseInt(p[1]) - 1;
+          if (pm < 1) { pm = 12; py = py - 1; }
+          return py + "-" + String(pm).padStart(2, "0");
+        })();
+        var [gpCurRes, gpPriorRes] = await Promise.all([
+          fetch("/api/dialpad/tickets?action=gp_leaderboard&period=" + encodeURIComponent(selectedPeriod || "")),
+          fetch("/api/dialpad/tickets?action=gp_leaderboard&period=" + priorPeriod),
+        ]);
+        var gpCur = await gpCurRes.json();
+        var gpPrior = await gpPriorRes.json();
+        if (gpCur && gpCur.success) {
+          var myCur = (gpCur.rows || []).filter(function(r) { return r.employee === empName; })[0] || null;
+          var myPrior = (gpPrior && gpPrior.success ? (gpPrior.rows || []) : []).filter(function(r) { return r.employee === empName; })[0] || null;
+          setGpData({
+            current: myCur,
+            prior: myPrior,
+            period_summary: gpCur.summary,
+            period: gpCur.period,
+            prior_period: priorPeriod,
+          });
+        }
+      } catch(e) { /* GP optional, fail silently */ }
     } catch(e) { console.error("MyPerformanceTab load error:", e); errors.general = true; }
     setLoadErrors(errors);
     setLoading(false);
@@ -1482,6 +1512,94 @@ export default function MyPerformanceTab({ auth, store }) {
               <div style={{ marginTop: 16, padding: 12, background: "#7B2FFF08", borderRadius: 8, border: "1px solid #7B2FFF22", fontSize: 11, color: "var(--text-body)", lineHeight: 1.5 }}>
                 {"\uD83D\uDCA1"} <strong style={{ color: "#7B2FFF" }}>Streak bonuses on top:</strong> 3 consecutive months at Gold or higher = <strong>$100 cash</strong>. 3 consecutive at Platinum or higher = <strong>1 PTO day</strong>. 6 Diamond months in a calendar year = <strong>permanent wall plaque</strong>.
               </div>
+            </div>
+          )}
+
+          {/* My Gross Profit — current period vs prior, with peer comparison */}
+          {gpData && gpData.current && (
+            <div style={{ ...card, marginBottom: 20 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{"\uD83D\uDCB0"} My Gross Profit</div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)" }}>{isCurrentPeriod ? "Month to date" : "For " + selectedPeriod}</div>
+              </div>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 16 }}>
+                The gross profit you've personally generated this period. Repair tickets credit you when you were the repair tech; sales credit whoever rang them up.
+              </div>
+
+              {(function() {
+                var cur = gpData.current;
+                var prior = gpData.prior;
+                var summary = gpData.period_summary || {};
+                var peerAvg = summary.avg_gp_per_hour || 0;
+                // Direction calculations vs prior month
+                function delta(now, then) {
+                  if (!then || then === 0) return null;
+                  return Math.round(((now - then) / then) * 100);
+                }
+                var gpDelta = prior ? delta(cur.total_gp, prior.total_gp) : null;
+                var gphDelta = prior ? delta(cur.gp_per_hour, prior.gp_per_hour) : null;
+                return (
+                  <div>
+                    {/* 4 main stat cards */}
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 14 }}>
+                      <div style={cardInner}>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total GP</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "#4ADE80", marginTop: 6 }}>${cur.total_gp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        {gpDelta != null && (
+                          <div style={{ fontSize: 10, color: gpDelta >= 0 ? "#4ADE80" : "#F87171", marginTop: 2 }}>
+                            {gpDelta >= 0 ? "\u2197" : "\u2198"} {Math.abs(gpDelta)}% vs last month
+                          </div>
+                        )}
+                      </div>
+                      <div style={cardInner}>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Tickets</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", marginTop: 6 }}>{cur.ticket_count}</div>
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                          {cur.repair_tickets} repair · {cur.sale_tickets} sale
+                        </div>
+                      </div>
+                      <div style={cardInner}>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Hours Worked</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", marginTop: 6 }}>{cur.hours.toFixed(1)}h</div>
+                      </div>
+                      <div style={Object.assign({}, cardInner, { borderTop: "3px solid #FF2D95" })}>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>GP / Hour</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: cur.gp_per_hour >= peerAvg ? "#4ADE80" : "#FB923C", marginTop: 6 }}>
+                          ${cur.gp_per_hour.toFixed(2)}
+                        </div>
+                        {gphDelta != null && (
+                          <div style={{ fontSize: 10, color: gphDelta >= 0 ? "#4ADE80" : "#F87171", marginTop: 2 }}>
+                            {gphDelta >= 0 ? "\u2197" : "\u2198"} {Math.abs(gphDelta)}% vs last month
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Peer comparison bar — anonymous */}
+                    {peerAvg > 0 && (
+                      <div style={Object.assign({}, cardInner, { padding: 14 })}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>You vs all techs (GP/hour)</div>
+                          <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
+                            {cur.gp_per_hour >= peerAvg
+                              ? <span style={{ color: "#4ADE80" }}>${(cur.gp_per_hour - peerAvg).toFixed(2)}/h above average</span>
+                              : <span style={{ color: "#FB923C" }}>${(peerAvg - cur.gp_per_hour).toFixed(2)}/h below average</span>}
+                          </div>
+                        </div>
+                        <div style={{ position: "relative", height: 8, background: "var(--bg-card-inner)", borderRadius: 4, overflow: "hidden", border: "1px solid var(--border)" }}>
+                          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (cur.gp_per_hour / Math.max(cur.gp_per_hour, peerAvg) / 1.2) * 100) + "%", background: "linear-gradient(90deg, #7B2FFF, #FF2D95)", borderRadius: 4 }} />
+                          {/* Marker for peer average */}
+                          <div style={{ position: "absolute", left: Math.min(100, (peerAvg / Math.max(cur.gp_per_hour, peerAvg) / 1.2) * 100) + "%", top: -2, height: 12, borderLeft: "2px dashed var(--text-muted)" }} />
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 9, color: "var(--text-muted)" }}>
+                          <span>Your GP/hour: <strong style={{ color: "var(--text-secondary)" }}>${cur.gp_per_hour.toFixed(2)}</strong></span>
+                          <span>Avg: <strong style={{ color: "var(--text-secondary)" }}>${peerAvg.toFixed(2)}</strong></span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
