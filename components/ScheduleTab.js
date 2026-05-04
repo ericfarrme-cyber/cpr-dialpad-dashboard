@@ -67,6 +67,10 @@ export default function ScheduleTab({ selectedStore }) {
 
   // Profitability + scorecard for other sub-tabs
   var [profitData, setProfitData] = useState([]);
+  // Per-store ticket economics from the last 30 days (avg ticket, avg GP, GPM%) — used as
+  // a smart fallback for ROI math when the profitability monthly P&L hasn't been entered yet.
+  // Source of truth = profitability table; this is the second-tier fallback before the $175 default.
+  var [ticketEconomics, setTicketEconomics] = useState(null);
   var [scorecardData, setScorecardData] = useState(null);
   var [storedCallData, setStoredCallData] = useState(null);
   var [allStoredShifts, setAllStoredShifts] = useState([]); // 90 days for analysis
@@ -161,6 +165,9 @@ export default function ScheduleTab({ selectedStore }) {
         var lmPeriod = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
         return fetch("/api/dialpad/sales?action=performance&period=" + lmPeriod).then(function(r) { return r.json(); });
       })(),
+      // Real per-store ticket economics from the last 30 days of graded tickets.
+      // Used to replace the $175 hardcoded avg ticket in the staffing ROI calculator.
+      fetch("/api/dialpad/tickets?action=ticket_economics").then(function(r) { return r.json(); }),
     ]).then(function(results) {
       // Merge profitability from current month + last month
       // API returns: {success:true, records:[], period:"2026-04"}
@@ -179,6 +186,7 @@ export default function ScheduleTab({ selectedStore }) {
       if (results[4].status === "fulfilled" && results[4].value.shifts) setAllStoredShifts(results[4].value.shifts);
       if (results[5].status === "fulfilled") setSalesData(results[5].value);
       if (results[6].status === "fulfilled") setLastMonthSalesData(results[6].value);
+      if (results[7] && results[7].status === "fulfilled" && results[7].value.success) setTicketEconomics(results[7].value);
     });
   }, []);
 
@@ -435,13 +443,33 @@ export default function ScheduleTab({ selectedStore }) {
 
     // Fallback: store avg ticket from profitability
     var storeAvgTicket = {};
+    // Per-store avg ticket — 3-tier fallback:
+    //   1. Profitability monthly P&L (most authoritative — actual revenue/tickets recorded by you)
+    //   2. ticket_economics endpoint (last 30 days of graded tickets, real GP per ticket)
+    //   3. $175 hardcoded fallback (only if both above are empty)
+    function lookupTicketEcon(sk) {
+      if (!ticketEconomics || !Array.isArray(ticketEconomics.stores)) return null;
+      return ticketEconomics.stores.filter(function(s) { return s.store === sk; })[0] || null;
+    }
     STORE_KEYS.forEach(function(sk) {
       var record = profitData.find(function(r) { return r.store === sk && r.period === activePeriod; }) ||
                    profitData.find(function(r) { return r.store === sk && r.period === lastPeriod; });
-      if (!record) return;
-      var repairRev = record.repair_revenue || 0;
-      var repairTickets = record.repair_tickets || 0;
-      storeAvgTicket[sk] = repairTickets > 0 ? Math.round(repairRev / repairTickets) : 175;
+      if (record) {
+        var repairRev = record.repair_revenue || 0;
+        var repairTickets = record.repair_tickets || 0;
+        if (repairTickets > 0) {
+          storeAvgTicket[sk] = Math.round(repairRev / repairTickets);
+          return;
+        }
+      }
+      // Tier 2: real tickets economics
+      var econ = lookupTicketEcon(sk);
+      if (econ && econ.avg_gross > 0) {
+        storeAvgTicket[sk] = Math.round(econ.avg_gross);
+        return;
+      }
+      // Tier 3: hardcoded fallback
+      storeAvgTicket[sk] = 175;
     });
 
     var allEmps = [];
@@ -561,24 +589,52 @@ export default function ScheduleTab({ selectedStore }) {
     var storePerf = srcData?.storePerf || [];
     if (!Array.isArray(storePerf)) storePerf = [];
     var results = {};
+    // Helper to look up real ticket economics for a store
+    function lookupTicketEcon(sk) {
+      if (!ticketEconomics || !Array.isArray(ticketEconomics.stores)) return null;
+      return ticketEconomics.stores.filter(function(s) { return s.store === sk; })[0] || null;
+    }
     STORE_KEYS.forEach(function(sk) {
       var perf = storePerf.find(function(p) { return p.store === sk; });
       var econ = laborEconLast[sk];
       if (!perf || !econ) return;
 
-      // Pull actual Repair GPM from profitability data
+      // ── 3-tier resolution for avg ticket + GPM ──
+      // Tier 1 (most authoritative): profitability monthly P&L revenue/tickets
+      // Tier 2: ticket_economics (last 30 days of graded tickets — real avg ticket + real GPM)
+      // Tier 3: hardcoded fallback ($175 avg, 55% GPM)
       var profRecord = profitData.find(function(r) { return r.store === sk && r.period === econ.period; });
-      var repairRev = profRecord?.repair_revenue || 0;
-      var repairCOGS = profRecord?.repair_cogs || 0;
-      var repairGPM = repairRev > 0 ? (repairRev - repairCOGS) / repairRev : 0.55; // fallback 55%
+      var avgTicket = 175;          // tier 3 default
+      var repairGPM = 0.55;          // tier 3 default
+      var dataSource = "fallback";   // "profitability" | "ticket_grades" | "fallback"
+
+      if (profRecord && profRecord.repair_revenue && profRecord.repair_revenue > 0) {
+        // Tier 1 active: use the entered P&L numbers
+        var repairRev = profRecord.repair_revenue || 0;
+        var repairCOGS = profRecord.repair_cogs || 0;
+        var repairTickets = profRecord.repair_tickets || 0;
+        if (repairTickets > 0) avgTicket = repairRev / repairTickets;
+        repairGPM = (repairRev - repairCOGS) / repairRev;
+        dataSource = "profitability";
+      } else {
+        // Tier 1 missing: try Tier 2 (real grades data)
+        var ticketEcon = lookupTicketEcon(sk);
+        if (ticketEcon && ticketEcon.tickets > 0 && ticketEcon.avg_gross > 0) {
+          avgTicket = ticketEcon.avg_gross;
+          repairGPM = ticketEcon.gpm_pct / 100; // gpm_pct is in % units
+          dataSource = "ticket_grades";
+        }
+        // else: keep tier 3 fallback values
+      }
 
       var missed = perf.missed || Math.max(0, (perf.total_calls || 0) - (perf.answered || 0));
-      var grossRevRecoverable = missed * 0.25 * 175; // missed × conversion × avg ticket
+      var grossRevRecoverable = missed * 0.25 * avgTicket;
       var grossProfitRecoverable = Math.round(grossRevRecoverable * repairGPM);
       var fteCost = 2500;
       var netROI = grossProfitRecoverable - fteCost;
       results[sk] = {
         missedCalls: missed,
+        avgTicket: Math.round(avgTicket * 100) / 100,
         grossRevRecoverable: Math.round(grossRevRecoverable),
         repairGPM: Math.round(repairGPM * 100),
         grossProfitRecoverable: grossProfitRecoverable,
@@ -586,10 +642,11 @@ export default function ScheduleTab({ selectedStore }) {
         netROI: netROI,
         justified: netROI > 0,
         paybackPct: Math.round(grossProfitRecoverable / fteCost * 100),
+        dataSource: dataSource,
       };
     });
     return results;
-  }, [storedCallData, laborEconLast, profitData]);
+  }, [storedCallData, laborEconLast, profitData, ticketEconomics]);
 
   // ═══ Live coverage (who's working now) ═══
   var liveCoverage = useMemo(function() {
@@ -964,12 +1021,18 @@ export default function ScheduleTab({ selectedStore }) {
                       return (
                         <div key={sk} style={{ padding: 16, background: "#12141A", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "#4ADE80" : "#EF4444") }}>
                           <div style={{ fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo × 25% conv × $175 avg ticket</div>
+                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo × 25% conv × ${r.avgTicket.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} avg ticket</div>
                           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>= <strong style={{ color: "#fff" }}>${r.grossRevRecoverable.toLocaleString()}</strong> recoverable revenue</div>
                           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>× <strong style={{ color: "#00D4FF" }}>{r.repairGPM}% repair GPM</strong> = <strong style={{ color: "#fff" }}>${r.grossProfitRecoverable.toLocaleString()}</strong> gross profit</div>
                           <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>− ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
                           <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "#4ADE80" : "#EF4444" }}>
                             {r.justified ? "✅ Hire — pays for itself" : "❌ Not justified yet"} ({r.paybackPct}%)
+                          </div>
+                          {/* Data source attribution — surfaces whether this is real data or fallback */}
+                          <div style={{ fontSize: 9, color: "#6B7280", marginTop: 6, fontStyle: "italic" }}>
+                            {r.dataSource === "profitability" && "\u2713 Using profitability P&L"}
+                            {r.dataSource === "ticket_grades" && "\u2713 Using last 30 days of graded tickets"}
+                            {r.dataSource === "fallback" && "\u26A0 Using $175 fallback (no real data available)"}
                           </div>
                         </div>
                       );
