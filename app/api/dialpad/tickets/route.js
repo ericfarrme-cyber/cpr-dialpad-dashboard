@@ -331,6 +331,207 @@ export async function GET(request) {
     });
   }
 
+  if (action === "gp_leaderboard") {
+    // Cross-table aggregate: gross profit per employee + hours worked + computed GP/hour.
+    // Period inputs: ?period=YYYY-MM (calendar month) OR ?start=YYYY-MM-DD&end=YYYY-MM-DD (custom range).
+    // Default: current calendar month, month-to-date.
+    var period = searchParams.get("period");
+    var rangeStart, rangeEnd;
+    if (searchParams.get("start") && searchParams.get("end")) {
+      rangeStart = searchParams.get("start");
+      rangeEnd = searchParams.get("end");
+    } else if (period) {
+      var parts = period.split("-");
+      var year = parseInt(parts[0]);
+      var month = parseInt(parts[1]);
+      rangeStart = period + "-01";
+      var lastDay = new Date(year, month, 0).getDate();
+      rangeEnd = period + "-" + String(lastDay).padStart(2, "0");
+    } else {
+      var now = new Date();
+      var y = now.getFullYear(), m = now.getMonth() + 1;
+      rangeStart = y + "-" + String(m).padStart(2, "0") + "-01";
+      rangeEnd = now.toISOString().substring(0, 10);
+    }
+
+    var { data: roster, error: rErr } = await supabase.from("employee_roster").select("name, store, aliases, role, active").eq("active", true);
+    if (rErr) return jsonResponse({ success: false, error: "roster: " + rErr.message });
+
+    var aliasMap = {};
+    (roster || []).forEach(function(r) {
+      if (!r || !r.name) return;
+      var name = r.name;
+      var lower = name.toLowerCase();
+      aliasMap[lower] = name;
+      var nameParts = lower.split(/\s+/);
+      if (nameParts.length > 0) aliasMap[nameParts[0]] = name;
+      if (nameParts.length > 1) aliasMap[nameParts[nameParts.length - 1]] = name;
+      if (Array.isArray(r.aliases)) {
+        r.aliases.forEach(function(a) { if (a) aliasMap[String(a).toLowerCase().trim()] = name; });
+      }
+    });
+    function resolveName(raw) {
+      if (!raw) return null;
+      var lower = String(raw).toLowerCase().trim();
+      if (aliasMap[lower]) return aliasMap[lower];
+      for (var k in aliasMap) {
+        if (k.length >= 3 && lower.indexOf(k) >= 0) return aliasMap[k];
+      }
+      return null;
+    }
+
+    var { data: tickets, error: tErr } = await supabase.from("ticket_grades")
+      .select("ticket_number, store, employee_added, employee_repaired, gross_sales, gross_profit, ticket_type, date_closed")
+      .gte("date_closed", rangeStart)
+      .lte("date_closed", rangeEnd + "T23:59:59")
+      .order("date_closed", { ascending: false })
+      .limit(5000);
+    if (tErr) return jsonResponse({ success: false, error: "tickets: " + tErr.message });
+
+    var { data: shifts, error: sErr } = await supabase.from("employee_shifts")
+      .select("employee_name, store, date, start_time, end_time")
+      .gte("date", rangeStart).lte("date", rangeEnd);
+    if (sErr) return jsonResponse({ success: false, error: "shifts: " + sErr.message });
+
+    var byEmp = {};
+    function ensureEmp(name) {
+      if (!byEmp[name]) {
+        var r = (roster || []).filter(function(x) { return x.name === name; })[0];
+        byEmp[name] = {
+          employee: name,
+          store: r ? r.store : null,
+          role: r ? r.role : null,
+          ticket_count: 0,
+          total_gross: 0,
+          total_gp: 0,
+          hours: 0,
+          sale_tickets: 0,
+          repair_tickets: 0,
+        };
+      }
+      return byEmp[name];
+    }
+    (roster || []).forEach(function(r) { ensureEmp(r.name); });
+
+    // Tickets — attribution Option A (sale → added, repair → repaired-then-added)
+    (tickets || []).forEach(function(t) {
+      var isSale = t.ticket_type === "Sale";
+      var attribName = null;
+      if (isSale) {
+        attribName = resolveName(t.employee_added);
+      } else {
+        attribName = resolveName(t.employee_repaired) || resolveName(t.employee_added);
+      }
+      if (!attribName) return;
+      var e = ensureEmp(attribName);
+      e.ticket_count += 1;
+      e.total_gross += parseFloat(t.gross_sales) || 0;
+      e.total_gp += parseFloat(t.gross_profit) || 0;
+      if (isSale) e.sale_tickets += 1; else e.repair_tickets += 1;
+    });
+
+    // Shifts — sum hours per employee across all stores (Option 1)
+    (shifts || []).forEach(function(s) {
+      var name = resolveName(s.employee_name);
+      if (!name) return;
+      if (!s.start_time || !s.end_time) return;
+      var startMs, endMs;
+      if (String(s.start_time).indexOf("T") >= 0 || String(s.start_time).indexOf("-") > 4) {
+        startMs = new Date(s.start_time).getTime();
+        endMs = new Date(s.end_time).getTime();
+      } else {
+        startMs = new Date(s.date + "T" + s.start_time).getTime();
+        endMs = new Date(s.date + "T" + s.end_time).getTime();
+      }
+      if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) return;
+      var hours = (endMs - startMs) / (1000 * 60 * 60);
+      if (hours > 16) hours = 16; // sanity cap
+      var e = ensureEmp(name);
+      e.hours += hours;
+    });
+
+    var rows = Object.values(byEmp).map(function(e) {
+      e.hours = Math.round(e.hours * 10) / 10;
+      e.total_gross = Math.round(e.total_gross * 100) / 100;
+      e.total_gp = Math.round(e.total_gp * 100) / 100;
+      e.avg_gp_per_ticket = e.ticket_count > 0 ? Math.round((e.total_gp / e.ticket_count) * 100) / 100 : 0;
+      e.gp_per_hour = e.hours > 0 ? Math.round((e.total_gp / e.hours) * 100) / 100 : 0;
+      e.gpm_pct = e.total_gross > 0 ? Math.round((e.total_gp / e.total_gross) * 1000) / 10 : 0;
+      return e;
+    }).filter(function(e) {
+      return e.ticket_count > 0 || e.hours > 0;
+    });
+
+    rows.sort(function(a, b) { return b.gp_per_hour - a.gp_per_hour; });
+    rows.forEach(function(r, i) { r.rank = i + 1; });
+
+    var totalGP = rows.reduce(function(s, r) { return s + r.total_gp; }, 0);
+    var totalHours = rows.reduce(function(s, r) { return s + r.hours; }, 0);
+    var totalTickets = rows.reduce(function(s, r) { return s + r.ticket_count; }, 0);
+
+    return jsonResponse({
+      success: true,
+      period: { start: rangeStart, end: rangeEnd },
+      rows: rows,
+      summary: {
+        total_employees: rows.length,
+        total_gp: Math.round(totalGP * 100) / 100,
+        total_hours: Math.round(totalHours * 10) / 10,
+        total_tickets: totalTickets,
+        avg_gp_per_hour: totalHours > 0 ? Math.round((totalGP / totalHours) * 100) / 100 : 0,
+        avg_gp_per_ticket: totalTickets > 0 ? Math.round((totalGP / totalTickets) * 100) / 100 : 0,
+      },
+    });
+  }
+
+  if (action === "ticket_economics") {
+    // Per-store aggregates for use in Labor Economics ROI math.
+    var period2 = searchParams.get("period");
+    var rs2, re2;
+    if (period2) {
+      var p2 = period2.split("-");
+      rs2 = period2 + "-01";
+      var lastD = new Date(parseInt(p2[0]), parseInt(p2[1]), 0).getDate();
+      re2 = period2 + "-" + String(lastD).padStart(2, "0");
+    } else {
+      var n2 = new Date();
+      var thirtyAgo = new Date(); thirtyAgo.setDate(thirtyAgo.getDate() - 30);
+      rs2 = thirtyAgo.toISOString().substring(0, 10);
+      re2 = n2.toISOString().substring(0, 10);
+    }
+    var { data: tix, error: txErr } = await supabase.from("ticket_grades")
+      .select("store, gross_sales, gross_profit, ticket_type, date_closed")
+      .gte("date_closed", rs2).lte("date_closed", re2 + "T23:59:59")
+      .or("ticket_type.is.null,ticket_type.neq.Sale")
+      .limit(10000);
+    if (txErr) return jsonResponse({ success: false, error: txErr.message });
+
+    var byStore = {};
+    function ensureStore(s) {
+      if (!byStore[s]) byStore[s] = { store: s, tickets: 0, total_gross: 0, total_gp: 0 };
+      return byStore[s];
+    }
+    (tix || []).forEach(function(t) {
+      if (!t.store) return;
+      var s = ensureStore(t.store);
+      s.tickets += 1;
+      s.total_gross += parseFloat(t.gross_sales) || 0;
+      s.total_gp += parseFloat(t.gross_profit) || 0;
+    });
+    var stores = Object.values(byStore).map(function(s) {
+      return {
+        store: s.store,
+        tickets: s.tickets,
+        avg_gross: s.tickets > 0 ? Math.round((s.total_gross / s.tickets) * 100) / 100 : 0,
+        avg_gp: s.tickets > 0 ? Math.round((s.total_gp / s.tickets) * 100) / 100 : 0,
+        gpm_pct: s.total_gross > 0 ? Math.round((s.total_gp / s.total_gross) * 1000) / 10 : 0,
+        total_gross: Math.round(s.total_gross * 100) / 100,
+        total_gp: Math.round(s.total_gp * 100) / 100,
+      };
+    });
+    return jsonResponse({ success: true, period: { start: rs2, end: re2 }, stores: stores });
+  }
+
   return jsonResponse({ success: false, error: "Invalid action" });
 }
 
