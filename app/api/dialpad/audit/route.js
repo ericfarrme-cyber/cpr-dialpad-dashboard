@@ -310,6 +310,11 @@ export async function POST(request) {
       exclude_reason: excludeReason,
       criteria: auditResult.criteria,
       transcript_preview: formattedTranscript.substring(0, 500),
+      // Qualitative grading (added with cx insights migration) — null for non_scorable
+      tone_score: auditResult.tone_score != null ? parseInt(auditResult.tone_score) || null : null,
+      clarity_score: auditResult.clarity_score != null ? parseInt(auditResult.clarity_score) || null : null,
+      empathy_score: auditResult.empathy_score != null ? parseInt(auditResult.empathy_score) || null : null,
+      qualitative_notes: auditResult.qualitative_notes || null,
     });
 
     return NextResponse.json({
