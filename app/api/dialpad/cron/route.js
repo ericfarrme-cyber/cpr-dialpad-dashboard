@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { waitUntil } from "@vercel/functions";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
 import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
@@ -216,24 +215,34 @@ export async function GET(request) {
   console.log("[Cron] Dispatcher mode: triggering " + storeKeys.length + " stores in parallel");
 
   var dispatched = [];
-  storeKeys.forEach(function(sk) {
+  // ── Pattern: kick off all 3 store invocations and AWAIT just the dispatch handshake. ──
+  // Each fetch resolves quickly when the dispatched function ACCEPTS the request
+  // (in dispatcher mode the parent doesn't need to wait for the store's full work to complete —
+  // each store invocation has its own 300s Vercel budget once it starts running).
+  // The await here ensures Node actually sends the HTTP requests out before the parent function terminates.
+  // Without this await, fire-and-forget fetches can be killed mid-handshake when the parent returns.
+  var dispatchPromises = storeKeys.map(function(sk) {
     var storeUrl = baseUrl + "/api/dialpad/cron?secret=" + (CRON_SECRET || "") + "&store=" + sk;
     if (dispatchDays) storeUrl += "&days=" + dispatchDays;
     console.log("[Cron] Dispatching: " + sk);
-    // ── waitUntil keeps the fetch alive AFTER the response has been sent. ──
-    // Without this, Vercel terminates in-flight fetches when the parent function returns,
-    // killing the dispatched store crons mid-execution. waitUntil tells Vercel
-    // "this background work is part of this invocation — keep the function running until it finishes."
-    // Each dispatched store gets its own 300s budget via maxDuration on its own invocation.
-    waitUntil(
-      fetch(storeUrl).then(function(r) {
-        console.log("[Cron] " + sk + " responded: " + r.status);
-      }).catch(function(e) {
-        console.error("[Cron] " + sk + " dispatch error:", e.message);
-      })
-    );
     dispatched.push(sk);
+    // Don't wait for the store work to finish — just wait for the request to be sent + headers received.
+    // The dispatched invocation will continue running on Vercel with its own 300s budget.
+    return fetch(storeUrl, { signal: AbortSignal.timeout(2000) })
+      .then(function(r) { console.log("[Cron] " + sk + " accepted: " + r.status); })
+      .catch(function(e) {
+        // AbortSignal timeout is EXPECTED — it means the store is still running, which is what we want.
+        // The dispatched invocation continues independently on Vercel even though we abandoned the connection.
+        if (e.name === "TimeoutError" || e.name === "AbortError") {
+          console.log("[Cron] " + sk + " dispatched (continues in background)");
+        } else {
+          console.error("[Cron] " + sk + " dispatch error:", e.message);
+        }
+      });
   });
+  // Wait for all dispatch attempts to settle (success or expected timeout) before returning.
+  // This gives Node a chance to actually push the HTTP requests onto the wire.
+  await Promise.allSettled(dispatchPromises);
 
   return NextResponse.json({
     success: true,
