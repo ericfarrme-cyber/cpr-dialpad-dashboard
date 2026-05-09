@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
 import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
@@ -219,12 +220,18 @@ export async function GET(request) {
     var storeUrl = baseUrl + "/api/dialpad/cron?secret=" + (CRON_SECRET || "") + "&store=" + sk;
     if (dispatchDays) storeUrl += "&days=" + dispatchDays;
     console.log("[Cron] Dispatching: " + sk);
-    // Fire-and-forget — don't await, let each run independently
-    fetch(storeUrl).then(function(r) {
-      console.log("[Cron] " + sk + " responded: " + r.status);
-    }).catch(function(e) {
-      console.error("[Cron] " + sk + " dispatch error:", e.message);
-    });
+    // ── waitUntil keeps the fetch alive AFTER the response has been sent. ──
+    // Without this, Vercel terminates in-flight fetches when the parent function returns,
+    // killing the dispatched store crons mid-execution. waitUntil tells Vercel
+    // "this background work is part of this invocation — keep the function running until it finishes."
+    // Each dispatched store gets its own 300s budget via maxDuration on its own invocation.
+    waitUntil(
+      fetch(storeUrl).then(function(r) {
+        console.log("[Cron] " + sk + " responded: " + r.status);
+      }).catch(function(e) {
+        console.error("[Cron] " + sk + " dispatch error:", e.message);
+      })
+    );
     dispatched.push(sk);
   });
 
