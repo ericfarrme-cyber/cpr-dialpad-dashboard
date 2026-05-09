@@ -610,7 +610,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                             <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
                               <div style={{ color:"#6B6F78",fontSize:9 }}>
-                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
+                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
                               </div>
                             </td>
                             {/* Actions cell — only for stray rows when the column is visible */}
