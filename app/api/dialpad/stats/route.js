@@ -45,7 +45,7 @@ export async function GET(request) {
           export_type: "records",
           stat_type: "calls",
           days_ago_start: 7,
-          days_ago_end: 0,
+          days_ago_end: -1,
           timezone: "America/Indiana/Indianapolis",
         }),
       });
