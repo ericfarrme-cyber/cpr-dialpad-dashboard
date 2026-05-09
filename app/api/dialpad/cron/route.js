@@ -64,6 +64,7 @@ async function scoreCall(call) {
         confidence_reason: "Pre-filter auto-exclusion",
         excluded: true, exclude_reason: pf.detail || pf.reason,
         criteria: {}, transcript_preview: "",
+        tone_score: null, clarity_score: null, empathy_score: null, qualitative_notes: null,
       };
     }
 
@@ -95,6 +96,7 @@ async function scoreCall(call) {
         confidence_reason: "Transcript pre-check exclusion",
         excluded: true, exclude_reason: tc.detail || tc.reason,
         criteria: {}, transcript_preview: (ft || "").substring(0, 500),
+        tone_score: null, clarity_score: null, empathy_score: null, qualitative_notes: null,
       };
     }
 
@@ -135,6 +137,13 @@ async function scoreCall(call) {
       exclude_reason: shouldExclude ? "AI classified as non-scorable" : "",
       criteria: r.criteria,
       transcript_preview: ft.substring(0, 500),
+      // ── Qualitative grading (calibration mode — NOT used in employee scorecards) ──
+      // These fields run alongside the structural score above. They're observation-only
+      // for at least the first 4 weeks of data while we calibrate the AI's distribution.
+      tone_score: r.tone_score != null ? r.tone_score : null,
+      clarity_score: r.clarity_score != null ? r.clarity_score : null,
+      empathy_score: r.empathy_score != null ? r.empathy_score : null,
+      qualitative_notes: r.qualitative_notes || null,
     };
   } catch (err) {
     console.error("[Cron] Score error:", err.message);
