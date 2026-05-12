@@ -99,8 +99,18 @@ export default function AdvancedRepairsTab() {
       });
       var d = await res.json();
       if (d.success) {
-        if (d.reconciled) setMsg({ type: "success", text: "Reconciled from RepairQ. Profit: " + fmt(d.source.profit) });
-        else setMsg({ type: "info", text: d.message || "No match found yet." });
+        if (d.reconciled) {
+          var successMsg;
+          if (d.note) {
+            // RepairQ had the ticket but couldn't improve our data — show the explanation
+            successMsg = { type: "info", text: d.note };
+          } else {
+            successMsg = { type: "success", text: "Reconciled from RepairQ. Profit: " + fmt(d.source.profit) };
+          }
+          setMsg(successMsg);
+        } else {
+          setMsg({ type: "info", text: d.message || "No match found yet." });
+        }
         load();
       } else {
         setMsg({ type: "error", text: d.error });
