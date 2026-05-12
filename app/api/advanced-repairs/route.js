@@ -19,6 +19,29 @@ var DUNCAN_PRIMARY_RATE = 0.10;
 var DEFAULT_PRIMARY_RATE = 0.07;
 var DUNCAN_OVERHEAD_RATE = 0.03;
 
+// Fuzzy name match — handles "Duncan Hitti" vs "Duncan" vs "Hitti, Duncan" etc.
+// Mirrors the matchName helper in MyPerformanceTab so the two stay in sync.
+function namesMatch(a, b) {
+  if (!a || !b) return false;
+  var x = String(a).toLowerCase().trim();
+  var y = String(b).toLowerCase().trim();
+  if (x === y) return true;
+  if (x.includes(y) || y.includes(x)) return true;
+  var xParts = x.replace(",", " ").split(/\s+/).filter(Boolean);
+  var yParts = y.replace(",", " ").split(/\s+/).filter(Boolean);
+  if (xParts.length > 0 && yParts.length > 0 && xParts[0] === yParts[0]) return true;
+  if (xParts.length >= 2 && yParts.length >= 2) {
+    if (xParts[0] === yParts[1] && xParts[1] === yParts[0]) return true;
+  }
+  return false;
+}
+
+// Detect "Duncan" specifically — used for commission rate decisions.
+// Matches "Duncan", "Duncan Hitti", "Hitti, Duncan", etc.
+function isDuncan(name) {
+  return namesMatch(name, "Duncan");
+}
+
 function commissionFor(repair) {
   // Returns array of { employee, rate, amount, store, role }
   // Only paid on closed repairs (not open/in_transit/repaired/nonrepairable)
@@ -26,9 +49,8 @@ function commissionFor(repair) {
   var profit = parseFloat(repair.profit || 0);
   if (profit <= 0) return [];
   var techRaw = (repair.repaired_by || "").trim();
-  var tech = techRaw.toLowerCase();
-  if (!tech) return [];
-  var isDuncanTech = tech === "duncan";
+  if (!techRaw) return [];
+  var isDuncanTech = isDuncan(techRaw);
   var primaryRate = isDuncanTech ? DUNCAN_PRIMARY_RATE : DEFAULT_PRIMARY_RATE;
   var out = [{
     employee: techRaw,
@@ -264,7 +286,7 @@ export async function GET(request) {
       (data || []).forEach(function(r) {
         var lines = commissionFor(r);
         lines.forEach(function(line) {
-          if (line.employee.toLowerCase() === employee.toLowerCase()) {
+          if (namesMatch(line.employee, employee)) {
             totalAmount += line.amount;
             if (line.role === "primary") {
               totalRepairs += 1;
@@ -396,15 +418,32 @@ export async function POST(request) {
       if (!match) {
         return NextResponse.json({ success: true, reconciled: false, message: "No matching ticket in ticket_grades yet. Will retry later." });
       }
+      // Build patch — but don't overwrite a manually-entered non-zero profit with a $0 from RepairQ.
+      // This handles warranty reworks and tickets where the extension captured but profit is $0,
+      // protecting the manually-entered value from the original spreadsheet/intake.
+      var existingProfit = parseFloat(repair.profit || 0);
+      var matchedProfit = parseFloat(match.profit || 0);
+      var existingPrice = parseFloat(repair.price || 0);
+      var matchedPrice = parseFloat(match.price || 0);
+
+      // Only reconcile profit/price if we'd be ADDING information, not removing it.
+      // - If existing is 0 and matched > 0: take the matched value.
+      // - If existing > 0 and matched > 0: take the matched value (RepairQ is authoritative).
+      // - If existing > 0 and matched = 0: keep existing (warranty/zero-profit ticket; don't blank it out).
+      // - If existing = 0 and matched = 0: take matched (still zero, no harm).
+      var keepExistingProfit = existingProfit > 0 && matchedProfit === 0;
+      var keepExistingPrice = existingPrice > 0 && matchedPrice === 0;
+
       var patch = {
-        price: match.price,
-        profit: match.profit,
         reconciled_from_ticket: true,
         reconciled_at: new Date().toISOString(),
       };
+      if (!keepExistingPrice) patch.price = matchedPrice;
+      if (!keepExistingProfit) patch.profit = matchedProfit;
       if (!repair.repaired_by && match.employee_repaired) patch.repaired_by = match.employee_repaired;
       if (!repair.device_repair && match.device) patch.device_repair = match.device;
       if (!repair.date_closed && match.date_closed) patch.date_closed = match.date_closed;
+
       var { data, error } = await supabase
         .from("advanced_repairs")
         .update(patch)
@@ -412,7 +451,18 @@ export async function POST(request) {
         .select()
         .single();
       if (error) return NextResponse.json({ success: false, error: error.message });
-      return NextResponse.json({ success: true, reconciled: true, repair: data, source: match });
+
+      // Build a more informative message about what happened
+      var note = null;
+      if (keepExistingProfit && keepExistingPrice) {
+        note = "RepairQ ticket found but has $0 price and profit (warranty rework or zero-profit ticket). Kept your manually-entered values.";
+      } else if (keepExistingProfit) {
+        note = "RepairQ profit was $0 — kept your manually-entered profit of $" + existingProfit.toFixed(2) + ".";
+      } else if (keepExistingPrice) {
+        note = "RepairQ price was $0 — kept your manually-entered price.";
+      }
+
+      return NextResponse.json({ success: true, reconciled: true, repair: data, source: match, note: note });
     }
 
     // ─── DELETE ───
