@@ -42,6 +42,24 @@ function isDuncan(name) {
   return namesMatch(name, "Duncan");
 }
 
+// ─── Ownership check ──────────────────────────────────────────────────────
+// Returns true if the actor is authorized to edit/delete this repair.
+// Admins can edit anything. Non-admins can edit a repair if they created it
+// (created_by matches) or they were the intake employee (intake_employee matches).
+// The actor object comes from the client (passed via body.actor).
+function canActOn(repair, actor) {
+  if (!actor) return false;
+  if (actor.role === "admin") return true;
+  if (!repair) return false;
+  // Check against both created_by and intake_employee, against both name and email
+  var candidates = [actor.name, actor.email].filter(Boolean);
+  for (var i = 0; i < candidates.length; i++) {
+    if (namesMatch(repair.created_by, candidates[i])) return true;
+    if (namesMatch(repair.intake_employee, candidates[i])) return true;
+  }
+  return false;
+}
+
 function commissionFor(repair) {
   // Returns array of { employee, rate, amount, store, role }
   // Only paid on closed repairs (not open/in_transit/repaired/nonrepairable)
@@ -308,6 +326,30 @@ export async function GET(request) {
       });
     }
 
+    // ─── LOOKUP: look up a ticket_number in ticket_grades for auto-fill at intake ───
+    if (action === "lookup") {
+      var ticketNumber = (searchParams.get("ticket_number") || "").trim();
+      if (!ticketNumber) return NextResponse.json({ success: false, error: "ticket_number required" });
+      var { data: lookupData, error: lookupError } = await supabase
+        .from("ticket_grades")
+        .select("ticket_number, customer_name, device, gross_sales, gross_profit, employee_repaired, date_closed")
+        .eq("ticket_number", ticketNumber)
+        .limit(1)
+        .maybeSingle();
+      if (lookupError) return NextResponse.json({ success: false, error: lookupError.message });
+      if (!lookupData) return NextResponse.json({ success: true, found: false });
+      return NextResponse.json({
+        success: true,
+        found: true,
+        customer_name: lookupData.customer_name || "",
+        device: lookupData.device || "",
+        gross_sales: parseFloat(lookupData.gross_sales || 0),
+        gross_profit: parseFloat(lookupData.gross_profit || 0),
+        employee_repaired: lookupData.employee_repaired || "",
+        date_closed: lookupData.date_closed || null,
+      });
+    }
+
     return NextResponse.json({ success: false, error: "Unknown action: " + action });
   } catch (err) {
     return NextResponse.json({ success: false, error: err.message });
@@ -361,10 +403,19 @@ export async function POST(request) {
     if (action === "update") {
       if (!body.id) return NextResponse.json({ success: false, error: "id required" });
 
-      // Check if it's commission-locked
-      var { data: existing } = await supabase.from("advanced_repairs").select("commission_locked").eq("id", body.id).single();
+      // Load existing record so we can check ownership + locked status
+      var { data: existing } = await supabase
+        .from("advanced_repairs")
+        .select("commission_locked, created_by, intake_employee")
+        .eq("id", body.id)
+        .single();
       if (existing && existing.commission_locked) {
         return NextResponse.json({ success: false, error: "This repair's commission has been paid out and is locked from edits." });
+      }
+
+      // Permission check: admin always allowed; non-admin must own this repair
+      if (existing && !canActOn(existing, body.actor)) {
+        return NextResponse.json({ success: false, error: "You can only edit advanced repairs you logged. Ask an admin or whoever created this entry." });
       }
 
       // Build patch — only update fields actually supplied
@@ -468,12 +519,19 @@ export async function POST(request) {
     // ─── DELETE ───
     if (action === "delete") {
       if (!body.id) return NextResponse.json({ success: false, error: "id required" });
-      var { data: existing } = await supabase.from("advanced_repairs").select("commission_locked").eq("id", body.id).single();
-      if (existing && existing.commission_locked) {
+      var { data: existingDel } = await supabase
+        .from("advanced_repairs")
+        .select("commission_locked, created_by, intake_employee")
+        .eq("id", body.id)
+        .single();
+      if (existingDel && existingDel.commission_locked) {
         return NextResponse.json({ success: false, error: "This repair's commission has been paid out. Cannot delete." });
       }
-      var { error } = await supabase.from("advanced_repairs").delete().eq("id", body.id);
-      if (error) return NextResponse.json({ success: false, error: error.message });
+      if (existingDel && !canActOn(existingDel, body.actor)) {
+        return NextResponse.json({ success: false, error: "You can only delete advanced repairs you logged. Ask an admin if you need help." });
+      }
+      var { error: delError } = await supabase.from("advanced_repairs").delete().eq("id", body.id);
+      if (delError) return NextResponse.json({ success: false, error: delError.message });
       return NextResponse.json({ success: true });
     }
 
