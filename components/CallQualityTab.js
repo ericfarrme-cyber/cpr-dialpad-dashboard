@@ -89,7 +89,15 @@ export default function CallQualityTab() {
 
   function fmtDate(s) {
     if (!s) return "—";
-    try { return new Date(s).toLocaleDateString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }); } catch(e) { return String(s).substring(0, 10); }
+    try {
+      return new Date(s).toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        timeZone: "America/Indiana/Indianapolis",
+      });
+    } catch(e) { return String(s).substring(0, 10); }
   }
 
   return (
