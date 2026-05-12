@@ -1,6 +1,22 @@
 "use client";
 import { useState, useEffect } from "react";
 
+// Fuzzy name match — handles "Duncan Hitti" vs "Duncan" vs "Hitti, Duncan"
+function namesMatch(a, b) {
+  if (!a || !b) return false;
+  var x = String(a).toLowerCase().trim();
+  var y = String(b).toLowerCase().trim();
+  if (x === y) return true;
+  if (x.includes(y) || y.includes(x)) return true;
+  var xParts = x.replace(",", " ").split(/\s+/).filter(Boolean);
+  var yParts = y.replace(",", " ").split(/\s+/).filter(Boolean);
+  if (xParts.length > 0 && yParts.length > 0 && xParts[0] === yParts[0]) return true;
+  if (xParts.length >= 2 && yParts.length >= 2) {
+    if (xParts[0] === yParts[1] && xParts[1] === yParts[0]) return true;
+  }
+  return false;
+}
+
 function fmt(n) {
   return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -60,7 +76,7 @@ export default function AdvancedRepairsWidget(props) {
   var myRank = -1;
   if (employee) {
     for (var i = 0; i < leaderboard.length; i++) {
-      if ((leaderboard[i].employee || "").toLowerCase() === employee.toLowerCase()) {
+      if (namesMatch(leaderboard[i].employee, employee)) {
         myRank = i + 1;
         break;
       }
@@ -81,7 +97,7 @@ export default function AdvancedRepairsWidget(props) {
             </span>
           </div>
           <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
-            Soldering & board-level repairs. 7% GP bonus for everyone, 10% for Duncan. Get trained, get paid.
+            Soldering & board-level repairs. Earn a percentage of gross profit on every advanced repair you complete. Get trained, get paid.
           </div>
         </div>
       </div>
@@ -122,7 +138,7 @@ export default function AdvancedRepairsWidget(props) {
               </div>
               <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
                 {topEarner ? (
-                  <span>Top earner this month: <strong style={{ color: "var(--text-primary)" }}>{topEarner.employee}</strong> ({fmt(topEarner.commission)}). Talk to Duncan about getting trained — these are 7-10% GP bonuses on top of your normal commission.</span>
+                  <span>Top earner this month: <strong style={{ color: "var(--text-primary)" }}>{topEarner.employee}</strong> ({fmt(topEarner.commission)}). Talk to Duncan about getting trained — earn a percentage of gross profit on every advanced repair, on top of your normal commission.</span>
                 ) : (
                   <span>No one's earned yet this month — be the first. Talk to Duncan about training.</span>
                 )}
@@ -146,7 +162,7 @@ export default function AdvancedRepairsWidget(props) {
           ) : (
             <div>
               {leaderboard.slice(0, 6).map(function(row, idx) {
-                var isYou = employee && (row.employee || "").toLowerCase() === employee.toLowerCase();
+                var isYou = employee && namesMatch(row.employee, employee);
                 return (
                   <div key={row.employee} style={{
                     display: "flex", alignItems: "center", gap: 10,
