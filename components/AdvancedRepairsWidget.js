@@ -42,36 +42,46 @@ function storeLabel(s) {
 // Props:
 //   store: the store this /appointments page is for (e.g. "fishers")
 //   employee: optional — the logged-in employee's name. If supplied, shows "your stake" panel.
+//   auth: optional — full auth object { userInfo: { name, email, role } }. If supplied,
+//         enables the "+ Log Advanced Repair" button and lets the widget identify
+//         the actor for ownership checks. Falls back to employee-only mode when omitted.
 export default function AdvancedRepairsWidget(props) {
   var store = props.store;
   var employee = props.employee;
+  var auth = props.auth;
   var [leaderboard, setLeaderboard] = useState([]);
   var [openRepairs, setOpenRepairs] = useState([]);
   var [myCommission, setMyCommission] = useState(null);
   var [loading, setLoading] = useState(true);
+  var [showForm, setShowForm] = useState(false);
+  var [editingRepair, setEditingRepair] = useState(null);
+  var [msg, setMsg] = useState(null);
+
+  var load = async function() {
+    setLoading(true);
+    try {
+      var calls = [
+        fetch("/api/advanced-repairs?action=leaderboard").then(function(r) { return r.json(); }),
+        fetch("/api/advanced-repairs?action=open_at_store&store=" + store).then(function(r) { return r.json(); }),
+      ];
+      if (employee) {
+        calls.push(fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(employee)).then(function(r) { return r.json(); }));
+      }
+      var results = await Promise.all(calls);
+      if (results[0] && results[0].success) setLeaderboard(results[0].leaderboard || []);
+      if (results[1] && results[1].success) setOpenRepairs(results[1].repairs || []);
+      if (employee && results[2] && results[2].success) setMyCommission(results[2]);
+    } catch (e) { /* fail silent — supplemental widget */ }
+    setLoading(false);
+  };
 
   useEffect(function() {
-    var load = async function() {
-      setLoading(true);
-      try {
-        var calls = [
-          fetch("/api/advanced-repairs?action=leaderboard").then(function(r) { return r.json(); }),
-          fetch("/api/advanced-repairs?action=open_at_store&store=" + store).then(function(r) { return r.json(); }),
-        ];
-        if (employee) {
-          calls.push(fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(employee)).then(function(r) { return r.json(); }));
-        }
-        var results = await Promise.all(calls);
-        if (results[0] && results[0].success) setLeaderboard(results[0].leaderboard || []);
-        if (results[1] && results[1].success) setOpenRepairs(results[1].repairs || []);
-        if (employee && results[2] && results[2].success) setMyCommission(results[2]);
-      } catch (e) { /* fail silent — supplemental widget */ }
-      setLoading(false);
-    };
     if (store) load();
   }, [store, employee]);
 
-  if (!loading && leaderboard.length === 0 && openRepairs.length === 0 && !myCommission) return null;
+  // Show the widget even when empty if the employee is logged in (they need the "Log" button).
+  // Hide it only when there's nothing to show AND nobody can interact with it.
+  if (!loading && leaderboard.length === 0 && openRepairs.length === 0 && !myCommission && !employee) return null;
 
   var myRank = -1;
   if (employee) {
@@ -84,11 +94,32 @@ export default function AdvancedRepairsWidget(props) {
   }
   var topEarner = leaderboard.length > 0 ? leaderboard[0] : null;
 
+  // Determine if user can click rows to edit (admins) or just view (employees see only their own as editable).
+  var actor = {
+    name: auth?.userInfo?.name || employee || "",
+    email: auth?.userInfo?.email || "",
+    role: auth?.userInfo?.role || "",
+  };
+  var canLog = !!(employee && store);
+  var isAdmin = actor.role === "admin";
+
+  // Helper: can the current user edit a given repair (matches API logic)?
+  var canEdit = function(r) {
+    if (isAdmin) return true;
+    if (!r || r.commission_locked) return false;
+    var candidates = [actor.name, actor.email].filter(Boolean);
+    for (var ci = 0; ci < candidates.length; ci++) {
+      if (namesMatch(r.created_by, candidates[ci])) return true;
+      if (namesMatch(r.intake_employee, candidates[ci])) return true;
+    }
+    return false;
+  };
+
   return (
     <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 20, marginTop: 24, border: "1px solid var(--border)" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
-        <div>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 20 }}>{"\uD83D\uDD27"}</span>
             <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 17, fontWeight: 700 }}>Advanced Repairs</h3>
@@ -100,7 +131,25 @@ export default function AdvancedRepairsWidget(props) {
             Soldering & board-level repairs. Earn a percentage of gross profit on every advanced repair you complete. Get trained, get paid.
           </div>
         </div>
+        {canLog && (
+          <button onClick={function() { setEditingRepair(null); setShowForm(true); }}
+            style={{ background: "linear-gradient(135deg, #FBBF24, #FF2D95)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
+            + Log Advanced Repair
+          </button>
+        )}
       </div>
+
+      {/* Status message */}
+      {msg && (
+        <div style={{
+          padding: 10, borderRadius: 6, marginBottom: 14, fontSize: 12,
+          background: msg.type === "error" ? "#F8717122" : msg.type === "success" ? "#4ADE8022" : "#00D4FF22",
+          color: msg.type === "error" ? "#F87171" : msg.type === "success" ? "#4ADE80" : "#00D4FF",
+        }}>
+          {msg.text}
+          <button onClick={function() { setMsg(null); }} style={{ float: "right", background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}>×</button>
+        </div>
+      )}
 
       {/* "Your stake" panel — only for logged-in employees */}
       {employee && myCommission && (
@@ -216,8 +265,17 @@ export default function AdvancedRepairsWidget(props) {
             <div>
               {openRepairs.slice(0, 6).map(function(r, idx) {
                 var statusColor = r.status === "open" ? "var(--text-muted)" : r.status === "in_transit" ? "#00D4FF" : "#7B2FFF";
+                var editable = canEdit(r);
                 return (
-                  <div key={r.id} style={{ padding: "8px 4px", borderTop: idx === 0 ? "none" : "1px solid var(--border)" }}>
+                  <div key={r.id}
+                    onClick={editable ? function() { setEditingRepair(r); setShowForm(true); } : undefined}
+                    style={{
+                      padding: "8px 4px", borderTop: idx === 0 ? "none" : "1px solid var(--border)",
+                      cursor: editable ? "pointer" : "default",
+                      borderRadius: editable ? 4 : 0,
+                    }}
+                    title={editable ? "Click to edit" : ""}
+                  >
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
                       <span style={{ background: statusColor + "22", color: statusColor, padding: "2px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>
                         {r.status === "in_transit" ? "Transit" : r.status === "repaired" ? "Done" : "Open"}
@@ -225,6 +283,7 @@ export default function AdvancedRepairsWidget(props) {
                       <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
                         {r.device_repair || "—"}
                       </div>
+                      {editable && <span style={{ color: "var(--text-muted)", fontSize: 10 }}>✏️</span>}
                       <div style={{ color: "var(--text-muted)", fontSize: 10 }}>{fmtDate(r.ticket_created_date)}</div>
                     </div>
                     <div style={{ color: "var(--text-muted)", fontSize: 11, paddingLeft: 4 }}>
@@ -249,6 +308,295 @@ export default function AdvancedRepairsWidget(props) {
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
         {"\uD83D\uDCA1"} These are high-profit repairs (avg <span style={{ color: "#4ADE80", fontWeight: 700 }}>80%+ margin</span>). Bonus paid monthly when ticket closes. Want training? Ask Duncan.
+      </div>
+
+      {/* Quick form modal */}
+      {showForm && (
+        <QuickRepairForm
+          repair={editingRepair}
+          store={store}
+          actor={actor}
+          onClose={function() { setShowForm(false); setEditingRepair(null); }}
+          onSaved={function(savedMsg) {
+            setShowForm(false);
+            setEditingRepair(null);
+            setMsg({ type: "success", text: savedMsg });
+            load();
+          }}
+          onError={function(errText) {
+            setMsg({ type: "error", text: errText });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Quick form modal — 8 fields for intake employees ─────────────────────
+function QuickRepairForm(props) {
+  var isNew = !props.repair;
+  var [form, setForm] = useState(isNew ? {
+    ticket_number: "",
+    customer_name: "",
+    device_repair: "",
+    bench_fee: false,
+    notes: "",
+    // Hidden fields auto-set
+    ticket_created_date: new Date().toISOString().slice(0, 10),
+    origin_store: props.store,
+    current_location: props.store,
+    intake_employee: props.actor.name || "",
+    status: "open",
+    price: 0,
+    profit: 0,
+  } : Object.assign({}, props.repair));
+  var [saving, setSaving] = useState(false);
+  var [showAdvanced, setShowAdvanced] = useState(!isNew); // show extra fields when editing
+  var [lookupHint, setLookupHint] = useState(null);
+
+  var update = function(k, v) {
+    setForm(function(f) { var n = Object.assign({}, f); n[k] = v; return n; });
+  };
+
+  // Lookup customer + device from ticket_grades when ticket number is entered
+  var doLookup = async function() {
+    var tn = (form.ticket_number || "").trim();
+    if (!tn) return;
+    try {
+      var r = await fetch("/api/advanced-repairs?action=lookup&ticket_number=" + encodeURIComponent(tn));
+      var d = await r.json();
+      if (d.success && d.found) {
+        var updates = {};
+        var hints = [];
+        if (d.customer_name && !form.customer_name) { updates.customer_name = d.customer_name; hints.push("customer"); }
+        if (d.device && !form.device_repair) { updates.device_repair = d.device; hints.push("device"); }
+        if (Object.keys(updates).length > 0) {
+          setForm(function(f) { return Object.assign({}, f, updates); });
+          setLookupHint("✓ Auto-filled " + hints.join(" + ") + " from RepairQ");
+          setTimeout(function() { setLookupHint(null); }, 3000);
+        } else {
+          setLookupHint("✓ Ticket found in RepairQ");
+          setTimeout(function() { setLookupHint(null); }, 2000);
+        }
+      }
+    } catch (e) { /* silent */ }
+  };
+
+  var save = async function() {
+    if (!form.ticket_number) { props.onError("Ticket number is required."); return; }
+    if (!form.device_repair) { props.onError("Device/repair description is required."); return; }
+    setSaving(true);
+    try {
+      var payload = Object.assign({}, form, {
+        action: isNew ? "create" : "update",
+        actor: props.actor,
+        created_by: isNew ? (props.actor.email || props.actor.name) : form.created_by,
+        updated_by: props.actor.email || props.actor.name,
+      });
+      if (payload.ticket_number && !payload.ticket_url) {
+        payload.ticket_url = "https://cpr.repairq.io/ticket/" + payload.ticket_number;
+      }
+      ["ticket_created_date", "last_transport_date", "estimated_completion", "date_completed", "date_closed"].forEach(function(k) {
+        if (payload[k] === "") payload[k] = null;
+      });
+      var r = await fetch("/api/advanced-repairs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      var d = await r.json();
+      if (d.success) {
+        props.onSaved(isNew ? "Advanced repair logged. Duncan and the team can now see it." : "Repair updated.");
+      } else {
+        props.onError(d.error || "Save failed");
+      }
+    } catch (e) { props.onError(e.message); }
+    setSaving(false);
+  };
+
+  var del = async function() {
+    if (!confirm("Delete this advanced repair entry? Cannot be undone.")) return;
+    setSaving(true);
+    try {
+      var r = await fetch("/api/advanced-repairs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id: form.id, actor: props.actor }),
+      });
+      var d = await r.json();
+      if (d.success) {
+        props.onSaved("Repair entry deleted.");
+      } else {
+        props.onError(d.error || "Delete failed");
+      }
+    } catch (e) { props.onError(e.message); }
+    setSaving(false);
+  };
+
+  var inputSt = {
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 6,
+    border: "1px solid var(--border)",
+    background: "var(--bg-card-inner)",
+    color: "var(--text-primary)",
+    fontSize: 13,
+    boxSizing: "border-box",
+  };
+  var labelSt = {
+    display: "block",
+    color: "var(--text-muted)",
+    fontSize: 10,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  };
+
+  return (
+    <div onClick={props.onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}>
+      <div onClick={function(e) { e.stopPropagation(); }} style={{ background: "var(--bg-card)", borderRadius: 14, border: "1px solid var(--border)", width: "100%", maxWidth: 560, padding: 24, margin: "0 16px" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+          <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 17, fontWeight: 700 }}>
+            {"\uD83D\uDD27"} {isNew ? "Log Advanced Repair" : "Edit Advanced Repair"}
+          </h3>
+          <button onClick={props.onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 22, cursor: "pointer" }}>×</button>
+        </div>
+        {isNew && (
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 18 }}>
+            Use this when a customer brings in a device needing soldering or board-level work. Duncan and the team will see it immediately.
+          </div>
+        )}
+
+        <div style={{ display: "grid", gap: 14 }}>
+          {/* Ticket # — with lookup */}
+          <div>
+            <label style={labelSt}>RepairQ Ticket Number*</label>
+            <input
+              value={form.ticket_number}
+              onChange={function(e) { update("ticket_number", e.target.value); }}
+              onBlur={doLookup}
+              placeholder="e.g. 15863995"
+              style={inputSt}
+              autoFocus={isNew}
+            />
+            {lookupHint && <div style={{ color: "#4ADE80", fontSize: 11, marginTop: 4 }}>{lookupHint}</div>}
+            {isNew && !lookupHint && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>Paste from the URL after creating the RepairQ ticket. We'll auto-fill customer and device if we know them.</div>}
+          </div>
+
+          <div>
+            <label style={labelSt}>Customer Name</label>
+            <input value={form.customer_name} onChange={function(e) { update("customer_name", e.target.value); }} placeholder="optional" style={inputSt} />
+          </div>
+
+          <div>
+            <label style={labelSt}>Device & Repair*</label>
+            <input value={form.device_repair} onChange={function(e) { update("device_repair", e.target.value); }} placeholder="e.g. PS5 HDMI port, iPad charging port" style={inputSt} />
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div>
+              <label style={labelSt}>Origin Store</label>
+              <select value={form.origin_store} onChange={function(e) { update("origin_store", e.target.value); }} style={inputSt}>
+                <option value="fishers">Fishers</option>
+                <option value="bloomington">Bloomington</option>
+                <option value="indianapolis">Indianapolis</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelSt}>Bench Fee Collected?</label>
+              <select value={form.bench_fee ? "yes" : "no"} onChange={function(e) { update("bench_fee", e.target.value === "yes"); }} style={inputSt}>
+                <option value="no">No</option>
+                <option value="yes">Yes</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={labelSt}>Notes</label>
+            <textarea value={form.notes || ""} onChange={function(e) { update("notes", e.target.value); }} placeholder="Anything Duncan or the team should know (symptoms, customer preferences, etc.)" rows={3} style={Object.assign({}, inputSt, { fontFamily: "inherit", resize: "vertical" })} />
+          </div>
+
+          {/* Toggle for advanced fields */}
+          <button onClick={function() { setShowAdvanced(!showAdvanced); }}
+            type="button"
+            style={{ background: "transparent", border: "none", color: "#7B2FFF", fontSize: 11, cursor: "pointer", padding: 0, textAlign: "left", textDecoration: "underline" }}>
+            {showAdvanced ? "Hide advanced fields" : "Show advanced fields (status, repaired by, profit, dates)"}
+          </button>
+
+          {showAdvanced && (
+            <div style={{ display: "grid", gap: 12, padding: 14, background: "var(--bg-card-inner)", borderRadius: 8, border: "1px solid var(--border)" }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 11, marginBottom: 2 }}>
+                These fields are normally filled in by Duncan or an admin after the repair is complete. Only edit if you know.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelSt}>Status</label>
+                  <select value={form.status} onChange={function(e) { update("status", e.target.value); }} style={inputSt}>
+                    <option value="open">Open</option>
+                    <option value="in_transit">In Transit</option>
+                    <option value="repaired">Repaired (awaiting pickup)</option>
+                    <option value="closed">Closed (paid + picked up)</option>
+                    <option value="nonrepairable">Nonrepairable</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelSt}>Current Location</label>
+                  <select value={form.current_location || form.origin_store} onChange={function(e) { update("current_location", e.target.value); }} style={inputSt}>
+                    <option value="fishers">Fishers</option>
+                    <option value="bloomington">Bloomington</option>
+                    <option value="indianapolis">Indianapolis</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={labelSt}>Repaired By</label>
+                <input value={form.repaired_by || ""} onChange={function(e) { update("repaired_by", e.target.value); }} placeholder="e.g. Duncan, Luke — set when work is done" style={inputSt} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelSt}>Price</label>
+                  <input type="number" step="0.01" value={form.price || 0} onChange={function(e) { update("price", e.target.value); }} style={inputSt} />
+                </div>
+                <div>
+                  <label style={labelSt}>Profit (GP)</label>
+                  <input type="number" step="0.01" value={form.profit || 0} onChange={function(e) { update("profit", e.target.value); }} style={inputSt} />
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                <div>
+                  <label style={labelSt}>Date Completed</label>
+                  <input type="date" value={form.date_completed || ""} onChange={function(e) { update("date_completed", e.target.value); }} style={inputSt} />
+                </div>
+                <div>
+                  <label style={labelSt}>Date Closed</label>
+                  <input type="date" value={form.date_closed || ""} onChange={function(e) { update("date_closed", e.target.value); }} style={inputSt} />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 22, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+          <div>
+            {!isNew && !form.commission_locked && (
+              <button onClick={del} disabled={saving}
+                style={{ background: "transparent", color: "#F87171", border: "1px solid #F87171", padding: "8px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                Delete
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={props.onClose} disabled={saving}
+              style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border)", padding: "8px 16px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+              Cancel
+            </button>
+            <button onClick={save} disabled={saving || !form.ticket_number || !form.device_repair}
+              style={{ background: "linear-gradient(135deg, #FBBF24, #FF2D95)", color: "#fff", border: "none", padding: "8px 22px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
+              {saving ? "Saving..." : (isNew ? "Log Repair" : "Save Changes")}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
