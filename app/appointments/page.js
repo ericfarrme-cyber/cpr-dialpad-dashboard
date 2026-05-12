@@ -5,6 +5,7 @@ import AuthProvider, { useAuth } from "@/components/AuthProvider";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import ThemeProvider, { useTheme, ThemeToggle } from "@/components/ThemeProvider";
 import MyPerformanceTab from "@/components/MyPerformanceTab";
+import AdvancedRepairsWidget from "@/components/AdvancedRepairsWidget";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -1227,6 +1228,9 @@ function StoreDashboard() {
                 <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>No appointments today</div>
               )}
             </div>
+
+            {/* ═══ ADVANCED REPAIRS WIDGET ═══ */}
+            <AdvancedRepairsWidget store={store} employee={auth?.userInfo?.name || ""} />
           </div>
         )}
 
