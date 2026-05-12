@@ -237,6 +237,9 @@ export default function MyPerformanceTab({ auth, store }) {
   var [auditData, setAuditData] = useState([]);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
+  // Advanced repair commission — from /api/advanced-repairs?action=my_commission
+  // Counts in calibration mode initially; ALWAYS visible to employee since paid monthly
+  var [advancedRepair, setAdvancedRepair] = useState(null);
   // Personal GP data (current period + prior period for comparison) — fetched from gp_leaderboard
   var [gpData, setGpData] = useState(null);
   // Manager → employee private coaching notes (delivered via Performance Command Center)
@@ -356,6 +359,7 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=300&days=" + auditDays).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
+        fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -439,6 +443,7 @@ export default function MyPerformanceTab({ auth, store }) {
       } else { errors.calls = true; }
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
       if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
+      if (results[9] && results[9].status === "fulfilled" && results[9].value.success) setAdvancedRepair(results[9].value);
 
       // Fetch private coaching notes from manager (separate, lightweight call — not in main batch
       // because notes are independent of period selection — they're always shown when present)
@@ -1436,6 +1441,25 @@ export default function MyPerformanceTab({ auth, store }) {
                         </tr>
                       );
                     })}
+                    {/* Advanced Repairs row — separate data source from sales commission */}
+                    {advancedRepair && (advancedRepair.total_amount > 0 || advancedRepair.primary_repairs > 0) && (
+                      <tr style={{ borderBottom: "1px solid var(--border)", background: "#FBBF2408" }}>
+                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
+                          {"\uD83D\uDD27"} Advanced Repairs
+                          {advancedRepair.overhead_amount > 0 && (
+                            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
+                              Incl. {fmt(advancedRepair.overhead_amount)} overhead bonus
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{advancedRepair.primary_repairs}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+                          {(empName || "").toLowerCase() === "duncan" ? "10% GP + 3% overhead" : "7% GP"}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#FBBF24", fontSize: 14, fontWeight: 700 }}>{fmt(advancedRepair.total_amount)}</td>
+                      </tr>
+                    )}
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
                       <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600 }}>Base Commission</td>
                       <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-secondary)", fontSize: 14, fontWeight: 700 }}>{fmt(commission.baseTotal)}</td>
@@ -1459,6 +1483,14 @@ export default function MyPerformanceTab({ auth, store }) {
                       <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>Total Commission</td>
                       <td style={{ padding: "12px", textAlign: "right", color: "#FBBF24", fontSize: 18, fontWeight: 900 }}>{fmt(commission.total)}</td>
                     </tr>
+                    {advancedRepair && advancedRepair.total_amount > 0 && (
+                      <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
+                        <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
+                          Grand Total <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>(incl. advanced repair bonus)</span>
+                        </td>
+                        <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(commission.total + advancedRepair.total_amount)}</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
@@ -1470,6 +1502,41 @@ export default function MyPerformanceTab({ auth, store }) {
               </div>
             )}
           </div>
+
+          {/* Advanced Repairs commission card — always visible when employee has earned anything */}
+          {advancedRepair && advancedRepair.total_amount > 0 && (
+            <div style={{ ...card, marginBottom: 20, background: "linear-gradient(135deg, var(--bg-card) 0%, #FBBF2408 100%)", border: "1px solid #FBBF2444" }}>
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                    <span style={{ fontSize: 20 }}>{"\uD83D\uDD27"}</span>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Advanced Repairs Commission</div>
+                    <span style={{ background: "#FBBF2422", color: "#FBBF24", padding: "2px 8px", borderRadius: 999, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Bonus Program</span>
+                  </div>
+                  <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                    Soldering & board-level repairs you've closed this month. Paid monthly alongside regular commission.
+                  </div>
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Period</div>
+                  <div style={{ fontSize: 30, fontWeight: 900, color: "#FBBF24" }}>{fmt(advancedRepair.total_amount)}</div>
+                  <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
+                    <strong style={{ color: "var(--text-primary)" }}>{advancedRepair.primary_repairs}</strong> repair{advancedRepair.primary_repairs === 1 ? "" : "s"} completed
+                    {advancedRepair.overhead_amount > 0 && (
+                      <span> · <strong style={{ color: "#7B2FFF" }}>{fmt(advancedRepair.overhead_amount)}</strong> overhead</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div style={{ marginTop: 14, padding: 12, background: "var(--bg-card-inner)", borderRadius: 8, fontSize: 11, color: "var(--text-secondary)" }}>
+                {(empName || "").toLowerCase() === "duncan" ? (
+                  <span>{"\uD83D\uDCA1"} As program lead, you earn <strong style={{ color: "#FBBF24" }}>10% GP</strong> on your own advanced repairs and <strong style={{ color: "#7B2FFF" }}>3% GP</strong> on every advanced repair other techs complete.</span>
+                ) : (
+                  <span>{"\uD83D\uDCA1"} You earn <strong style={{ color: "#FBBF24" }}>7% of gross profit</strong> on every advanced repair you complete. Want to do more? Ask Duncan about training.</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Annual Tier Earnings Projection — the headline view */}
           {commission && commission.hasData && (
