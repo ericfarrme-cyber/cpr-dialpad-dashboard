@@ -1230,7 +1230,7 @@ function StoreDashboard() {
             </div>
 
             {/* ═══ ADVANCED REPAIRS WIDGET ═══ */}
-            <AdvancedRepairsWidget store={store} employee={auth?.userInfo?.name || ""} />
+            <AdvancedRepairsWidget store={store} employee={auth?.userInfo?.name || ""} auth={auth} />
           </div>
         )}
 
