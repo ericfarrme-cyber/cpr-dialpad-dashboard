@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
+import { useAuth } from "@/components/AuthProvider";
 
 // Hardcoded brand palette — matches ScorecardTab and other DialpadDashboard tabs
 var CYAN = "#00D4FF";
@@ -46,6 +47,12 @@ function statusBadge(status) {
 }
 
 export default function AdvancedRepairsTab() {
+  var auth = useAuth();
+  var actor = {
+    name: auth?.userInfo?.name || "",
+    email: auth?.userInfo?.email || "",
+    role: auth?.userInfo?.role || "admin", // this tab is admin-gated by the parent
+  };
   var [repairs, setRepairs] = useState([]);
   var [commissions, setCommissions] = useState(null);
   var [loading, setLoading] = useState(true);
@@ -291,6 +298,7 @@ export default function AdvancedRepairsTab() {
       {editing && (
         <RepairFormModal
           repair={editing === "new" ? null : editing}
+          actor={actor}
           onClose={function() { setEditing(null); }}
           onSaved={function() { setEditing(null); load(); }}
           onMessage={setMsg}
@@ -407,7 +415,7 @@ function RepairFormModal(props) {
   var save = async function() {
     setSaving(true);
     try {
-      var payload = Object.assign({}, form, { action: isNew ? "create" : "update" });
+      var payload = Object.assign({}, form, { action: isNew ? "create" : "update", actor: props.actor });
       if (payload.ticket_number && !payload.ticket_url) {
         payload.ticket_url = "https://cpr.repairq.io/ticket/" + payload.ticket_number;
       }
@@ -437,7 +445,7 @@ function RepairFormModal(props) {
       var r = await fetch("/api/advanced-repairs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "delete", id: form.id }),
+        body: JSON.stringify({ action: "delete", id: form.id, actor: props.actor }),
       });
       var d = await r.json();
       if (d.success) {
