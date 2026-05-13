@@ -7,9 +7,10 @@ export async function OPTIONS() { return new NextResponse(null, { status: 204, h
 
 var REVENUE_FIELDS = ["accessory_revenue","accessory_cogs","device_revenue","device_cogs","repair_revenue","repair_cogs","parts_revenue","parts_cogs","services_revenue","services_cogs","promotions_revenue","promotions_cogs"];
 var EXPENSE_FIELDS = ["rent","payroll","corporate_overhead","area_manager_expenses","internet_security","electric","gas_parking","voip","marketing_digital","marketing_local","store_budget","damaged","shrinkage","voided","kbb_charges","tips","lcd_credits","cc_fee_diff"];
+var OTHER_INCOME_FIELDS = ["fieldprint_payout"];
 var FEE_FIELDS = ["royalty_rate","cpr_ad_fee","cpr_tech_fee"];
 var LABOR_FIELDS = ["hours_worked","revenue_per_hour_goal","profit_per_hour_goal"];
-var ALL_FIELDS = REVENUE_FIELDS.concat(EXPENSE_FIELDS).concat(FEE_FIELDS).concat(LABOR_FIELDS).concat(["notes", "area_manager_breakdown"]);
+var ALL_FIELDS = REVENUE_FIELDS.concat(EXPENSE_FIELDS).concat(OTHER_INCOME_FIELDS).concat(FEE_FIELDS).concat(LABOR_FIELDS).concat(["notes", "area_manager_breakdown"]);
 
 export async function GET(request) {
   if (!supabase) return json({ success: false, error: "Supabase not configured" });
@@ -89,6 +90,8 @@ export async function POST(request) {
       copy.store = r.store;
       // Zero out revenue fields — those need fresh data
       REVENUE_FIELDS.forEach(function(f) { copy[f] = 0; });
+      // Other income fields are also period-specific — don't carry forward
+      OTHER_INCOME_FIELDS.forEach(function(f) { copy[f] = 0; });
       copy.hours_worked = 0;
       copy.notes = "";
       return copy;
