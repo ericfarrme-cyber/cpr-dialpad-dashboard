@@ -1441,25 +1441,6 @@ export default function MyPerformanceTab({ auth, store }) {
                         </tr>
                       );
                     })}
-                    {/* Advanced Repairs row — separate data source from sales commission */}
-                    {advancedRepair && (advancedRepair.total_amount > 0 || advancedRepair.primary_repairs > 0) && (
-                      <tr style={{ borderBottom: "1px solid var(--border)", background: "#FBBF2408" }}>
-                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
-                          {"\uD83D\uDD27"} Advanced Repairs
-                          {advancedRepair.overhead_amount > 0 && (
-                            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
-                              Incl. {fmt(advancedRepair.overhead_amount)} overhead bonus
-                            </div>
-                          )}
-                        </td>
-                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{advancedRepair.primary_repairs}</td>
-                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
-                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
-                          {matchName(empName, "Duncan") ? "10% GP + 3% overhead" : "7% GP"}
-                        </td>
-                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#FBBF24", fontSize: 14, fontWeight: 700 }}>{fmt(advancedRepair.total_amount)}</td>
-                      </tr>
-                    )}
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
                       <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-secondary)", fontSize: 13, fontWeight: 600 }}>Base Commission</td>
                       <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-secondary)", fontSize: 14, fontWeight: 700 }}>{fmt(commission.baseTotal)}</td>
@@ -1483,6 +1464,25 @@ export default function MyPerformanceTab({ auth, store }) {
                       <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>Total Commission</td>
                       <td style={{ padding: "12px", textAlign: "right", color: "#FBBF24", fontSize: 18, fontWeight: 900 }}>{fmt(commission.total)}</td>
                     </tr>
+                    {/* Advanced Repairs — added AFTER multiplier so it's clearly a non-multiplied bonus */}
+                    {advancedRepair && (advancedRepair.total_amount > 0 || advancedRepair.primary_repairs > 0) && (
+                      <tr style={{ borderTop: "1px solid var(--border)", background: "#FBBF2408" }}>
+                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
+                          {"\uD83D\uDD27"} Advanced Repairs <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500 }}>(no multiplier)</span>
+                          {advancedRepair.overhead_amount > 0 && (
+                            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
+                              Incl. {fmt(advancedRepair.overhead_amount)} overhead bonus
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{advancedRepair.primary_repairs}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
+                          {matchName(empName, "Duncan") ? "10% GP + 3% overhead" : "7% GP"}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#FBBF24", fontSize: 14, fontWeight: 700 }}>+{fmt(advancedRepair.total_amount)}</td>
+                      </tr>
+                    )}
                     {advancedRepair && advancedRepair.total_amount > 0 && (
                       <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
                         <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
