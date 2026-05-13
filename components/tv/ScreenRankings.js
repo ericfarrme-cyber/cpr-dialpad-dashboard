@@ -1,217 +1,234 @@
-// Daily Dash — big visible KPIs for today.
-// Layout (1920x1080 landscape):
-//   ┌──────────────────────────┬──────────────────────────┐
-//   │  CALLS TODAY (big number) │  ANSWER RATE TODAY (big) │
-//   │  [answered] / [missed]    │  [color-coded]           │
-//   ├──────────────────────────┼──────────────────────────┤
-//   │  NEXT APPOINTMENTS        │  ACTIVE ADVANCED REPAIRS │
-//   │  (next 3-4 upcoming)      │  (count + names)         │
-//   └──────────────────────────┴──────────────────────────┘
+// Rankings screen — store leaderboard + employee category rankings.
+// Layout:
+//   ┌──────────────────────────┬────────────────────────────────────────┐
+//   │  STORE RANKINGS          │  EMPLOYEE RANKINGS (this store)         │
+//   │  THIS WEEK               │  Accessory GP | Repairs | Cleanings |   │
+//   │  1. Indy   312 calls     │                Ticket Score             │
+//   │  2. Fish   245           │  Top 3 employees per category          │
+//   │  3. Bloom  201           │  + company #1 footer                    │
+//   │                          │                                          │
+//   │  THIS MONTH              │                                          │
+//   │  1. Indy  1247           │                                          │
+//   │  2. Fish  954            │                                          │
+//   │  3. Bloom 823            │                                          │
+//   └──────────────────────────┴────────────────────────────────────────┘
 "use client";
 
-function pad2(n) { return n < 10 ? "0" + n : "" + n; }
-function todayDateLocalYMD() {
-  // Returns YYYY-MM-DD in Indianapolis tz
+var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
+var STORE_LABELS = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
+var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#FBBF24" };
+
+function fmtMoney(n) {
+  var v = parseFloat(n || 0);
+  return "$" + Math.round(v).toLocaleString();
+}
+
+// Returns a Monday-start ISO week start date string (YYYY-MM-DD) for current week
+function startOfWeekYMD() {
   var d = new Date();
-  var parts = d.toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" });
-  return parts; // en-CA returns YYYY-MM-DD
+  var dow = d.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+  var daysSinceMonday = (dow + 6) % 7; // Sunday → 6, Monday → 0
+  d.setDate(d.getDate() - daysSinceMonday);
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 
-function fmtTimeRaw(timeStr) {
-  // Accepts "14:30" or "14:30:00" or "2:30 PM" — best effort
-  if (!timeStr) return "";
-  // If already has AM/PM, return as is
-  if (/AM|PM/i.test(timeStr)) return timeStr.toUpperCase();
-  // Try HH:MM
-  var m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-  if (!m) return timeStr;
-  var h = parseInt(m[1]);
-  var min = m[2];
-  var ampm = h >= 12 ? "PM" : "AM";
-  if (h === 0) h = 12;
-  else if (h > 12) h = h - 12;
-  return h + ":" + min + " " + ampm;
+function startOfMonthYMD() {
+  var d = new Date();
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
 }
 
-export default function ScreenDaily(props) {
+// Sum answered calls per store across a date range from dailyCalls array
+function sumAnswered(dailyCalls, startYMD) {
+  var out = { fishers: 0, bloomington: 0, indianapolis: 0 };
+  if (!dailyCalls) return out;
+  dailyCalls.forEach(function(d) {
+    if (!d.date) return;
+    var ymd = String(d.date).slice(0, 10);
+    if (ymd < startYMD) return;
+    STORE_KEYS.forEach(function(sk) {
+      out[sk] += d[sk + "_answered"] || 0;
+    });
+  });
+  return out;
+}
+
+export default function ScreenRankings(props) {
   var store = props.store;
   var storeName = props.storeName;
   var dailyCalls = props.dailyCalls || [];
-  var appointments = props.appointments || [];
-  var advancedRepairs = props.advancedRepairs || [];
+  var scorecard = props.scorecard || null;
 
-  // ── Today's call stats — find last entry in dailyCalls ─────────────
-  var today = dailyCalls.length > 0 ? dailyCalls[dailyCalls.length - 1] : null;
-  var totalCalls = 0, answered = 0, missed = 0;
-  if (today) {
-    totalCalls = today[store + "_total"] || 0;
-    answered = today[store + "_answered"] || 0;
-    missed = Math.max(0, totalCalls - answered);
-  }
-  var answerRate = totalCalls > 0 ? Math.round((answered / totalCalls) * 100) : null;
+  // ── Store rankings ───────────────────────────────────────────────
+  var weekStart = startOfWeekYMD();
+  var monthStart = startOfMonthYMD();
+  var weekStats = sumAnswered(dailyCalls, weekStart);
+  var monthStats = sumAnswered(dailyCalls, monthStart);
 
-  // Color the answer rate
-  var rateColor = "#8B8F98";
-  if (answerRate !== null) {
-    if (answerRate >= 85) rateColor = "#4ADE80";
-    else if (answerRate >= 70) rateColor = "#FBBF24";
-    else rateColor = "#F87171";
-  }
+  var rankStores = function(stats) {
+    var arr = STORE_KEYS.map(function(sk) { return { store: sk, value: stats[sk] }; });
+    arr.sort(function(a, b) { return b.value - a.value; });
+    return arr;
+  };
+  var weekRanked = rankStores(weekStats);
+  var monthRanked = rankStores(monthStats);
 
-  // ── Next appointments today (filter to upcoming, sorted by time) ───
-  var todayY = todayDateLocalYMD();
-  var upcomingAppts = appointments
-    .filter(function(a) {
-      // Only today, only upcoming (no did_arrive set yet, or empty)
-      if (!a.date_of_appt) return false;
-      var ymd = String(a.date_of_appt).slice(0, 10);
-      if (ymd !== todayY) return false;
-      // Skip arrived/no-show
-      if (a.did_arrive && a.did_arrive.toLowerCase() === "no") return false;
-      return true;
-    })
-    .sort(function(a, b) {
-      var ta = a.appt_time || a.time_of_appt || "23:59";
-      var tb = b.appt_time || b.time_of_appt || "23:59";
-      return String(ta).localeCompare(String(tb));
-    })
-    .slice(0, 4);
+  // ── Employee rankings ─────────────────────────────────────────────
+  var empScores = (scorecard && scorecard.employeeScores) || [];
 
-  // ── Open advanced repairs (well, we have leaderboard not list — derive count from store match) ───
-  // ScreenDaily gets the leaderboard which has earners. We don't have a direct
-  // "open at this store" count here. So we just show top earners as motivation.
-  // Top advanced repair earner for THIS store, for motivation:
-  var topAdvRepEarner = null;
-  // We have leaderboard from /api/advanced-repairs?action=leaderboard which is global.
-  // To know who's THIS store specifically requires an additional query — we'll just
-  // show the company top earner and how many advanced repairs this month.
-  var totalAdvancedRepairsClosedThisMonth = 0;
-  advancedRepairs.forEach(function(r) { totalAdvancedRepairsClosedThisMonth += r.repairs || 0; });
+  // Filter to this store
+  var thisStoreEmps = empScores.filter(function(e) { return e.store === store; });
+
+  // Build per-category rankings — top 3 this store + #1 company-wide
+  var categories = [
+    { key: "accy_gp", label: "Accessory GP", color: "#FBBF24", icon: "💰", fmt: fmtMoney, get: function(e) { return (e.repairs && e.repairs.accy_gp) || 0; } },
+    { key: "repair_count", label: "Repairs", color: "#00D4FF", icon: "🔧", fmt: function(v) { return v.toString(); }, get: function(e) { var r = e.repairs || {}; return (r.phone_tickets || 0) + (r.other_tickets || 0); } },
+    { key: "cleanings", label: "Cleanings", color: "#4ADE80", icon: "✨", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.repairs && e.repairs.clean_count) || 0; } },
+    { key: "ticket_score", label: "Ticket Score", color: "#FF2D95", icon: "📋", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.compliance && e.compliance.tickets_graded > 0) ? (e.compliance.score || 0) : null; } },
+  ];
 
   return (
-    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 24 }}>
-      {/* ─── TOP LEFT: Calls today ─── */}
-      <Panel accent="#00D4FF">
-        <PanelLabel color="#00D4FF">📞 Calls Today</PanelLabel>
-        <BigNumber value={totalCalls} color="#F0F1F3" />
-        <div style={{ display: "flex", gap: 36, marginTop: 20 }}>
-          <Stat label="Answered" value={answered} color="#4ADE80" />
-          <Stat label="Missed" value={missed} color={missed > 0 ? "#F87171" : "#8B8F98"} />
-        </div>
-      </Panel>
+    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "5fr 7fr", gap: 24 }}>
+      {/* ─── LEFT: Store rankings (stacked: this week + this month) ─── */}
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <StoreRankPanel title="🏪 Stores · This Week" subtitle="Calls answered" ranked={weekRanked} highlightStore={store} />
+        <StoreRankPanel title="🏪 Stores · This Month" subtitle="Calls answered" ranked={monthRanked} highlightStore={store} />
+      </div>
 
-      {/* ─── TOP RIGHT: Answer Rate ─── */}
-      <Panel accent={rateColor}>
-        <PanelLabel color={rateColor}>🎯 Answer Rate Today</PanelLabel>
-        {answerRate === null ? (
-          <div style={{ fontSize: 96, fontWeight: 900, color: "#6B6F78" }}>—</div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <div style={{ fontSize: 180, fontWeight: 900, color: rateColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{answerRate}</div>
-            <div style={{ fontSize: 64, fontWeight: 700, color: rateColor }}>%</div>
+      {/* ─── RIGHT: Employee rankings (4 categories side by side) ─── */}
+      <div style={{
+        background: "linear-gradient(135deg, #0F1116, #14171E)",
+        borderRadius: 16,
+        padding: 24,
+        border: "1px solid #1E2028",
+        borderTop: "3px solid #00D4FF",
+        display: "flex", flexDirection: "column",
+        overflow: "hidden",
+      }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ color: "#F0F1F3", fontSize: 26, fontWeight: 800 }}>
+            🏆 {storeName} Employees
           </div>
-        )}
-        <div style={{ marginTop: 16, fontSize: 18, color: "#8B8F98" }}>
-          {answerRate === null ? "Waiting for today's call data..." :
-            answerRate >= 85 ? "Crushing it 🔥" :
-            answerRate >= 70 ? "Solid — keep pushing" :
-            "Pick up the phones! 📞"}
+          <div style={{ color: "#8B8F98", fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+            This Month
+          </div>
         </div>
-      </Panel>
 
-      {/* ─── BOTTOM LEFT: Next Appointments ─── */}
-      <Panel accent="#7B2FFF">
-        <PanelLabel color="#7B2FFF">📅 Next Up Today</PanelLabel>
-        {upcomingAppts.length === 0 ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6B6F78", fontSize: 24, fontStyle: "italic" }}>
-            No more appointments today
+        {thisStoreEmps.length === 0 ? (
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6B6F78", fontSize: 22, fontStyle: "italic" }}>
+            No employee data for this period yet
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 12 }}>
-            {upcomingAppts.map(function(a, i) {
-              var t = fmtTimeRaw(a.appt_time || a.time_of_appt);
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, overflow: "hidden" }}>
+            {categories.map(function(cat) {
+              // Local ranking — top 3 at this store for this category
+              var localRanked = thisStoreEmps
+                .map(function(e) { return { name: e.name, value: cat.get(e) }; })
+                .filter(function(x) { return x.value !== null && x.value !== undefined; })
+                .sort(function(a, b) { return (b.value || 0) - (a.value || 0); });
+              // Company #1 across all stores
+              var globalRanked = empScores
+                .map(function(e) { return { name: e.name, value: cat.get(e), store: e.store }; })
+                .filter(function(x) { return x.value !== null && x.value !== undefined; })
+                .sort(function(a, b) { return (b.value || 0) - (a.value || 0); });
+              var companyTop = globalRanked.length > 0 ? globalRanked[0] : null;
               return (
-                <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 18,
-                  padding: "14px 18px",
-                  background: i === 0 ? "#7B2FFF18" : "#0F1116",
-                  borderLeft: i === 0 ? "4px solid #7B2FFF" : "4px solid #1E2028",
-                  borderRadius: 8,
-                }}>
-                  <div style={{ minWidth: 100, fontSize: 26, fontWeight: 800, color: i === 0 ? "#7B2FFF" : "#F0F1F3", fontVariantNumeric: "tabular-nums" }}>{t}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#F0F1F3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.customer_name || "Walk-in"}</div>
-                    <div style={{ fontSize: 16, color: "#8B8F98", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.reason || "Repair appointment"}</div>
+                <div key={cat.key} style={{ background: "#0A0C10", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", borderTop: "2px solid " + cat.color }}>
+                  {/* Category header */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                    <div style={{ fontSize: 18 }}>{cat.icon}</div>
+                    <div style={{ color: cat.color, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat.label}</div>
                   </div>
+
+                  {/* Top 3 at this store */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                    {[0, 1, 2].map(function(idx) {
+                      var emp = localRanked[idx];
+                      var medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
+                      var nameColor = idx === 0 ? "#F0F1F3" : "#8B8F98";
+                      var valColor = idx === 0 ? cat.color : "#6B6F78";
+                      return (
+                        <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <div style={{ fontSize: 18 }}>{emp ? medal : ""}</div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 700, color: nameColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                              {emp ? emp.name.split(" ")[0] : "—"}
+                            </div>
+                            <div style={{ fontSize: idx === 0 ? 22 : 16, fontWeight: 800, color: valColor, fontVariantNumeric: "tabular-nums" }}>
+                              {emp ? cat.fmt(emp.value) : ""}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Company #1 footer */}
+                  {companyTop && (
+                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #1E2028" }}>
+                      <div style={{ color: "#6B6F78", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Company #1</div>
+                      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: STORE_COLORS[companyTop.store] || "#F0F1F3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {companyTop.name.split(" ")[0]}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: cat.color, fontVariantNumeric: "tabular-nums" }}>{cat.fmt(companyTop.value)}</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
-      </Panel>
-
-      {/* ─── BOTTOM RIGHT: Advanced Repairs ─── */}
-      <Panel accent="#FBBF24">
-        <PanelLabel color="#FBBF24">🔧 Advanced Repairs This Month</PanelLabel>
-        <BigNumber value={totalAdvancedRepairsClosedThisMonth} color="#F0F1F3" suffix=" closed" />
-        {advancedRepairs.length > 0 ? (
-          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 14, color: "#FBBF24", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Top Earner This Month</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-              <div style={{ fontSize: 32, fontWeight: 800, color: "#F0F1F3" }}>{advancedRepairs[0].employee}</div>
-              <div style={{ fontSize: 18, color: "#8B8F98" }}>{advancedRepairs[0].repairs} repair{advancedRepairs[0].repairs === 1 ? "" : "s"}</div>
-            </div>
-          </div>
-        ) : (
-          <div style={{ marginTop: 20, fontSize: 18, color: "#8B8F98", fontStyle: "italic" }}>
-            No closed advanced repairs yet this month — be the first!
-          </div>
-        )}
-      </Panel>
+      </div>
     </div>
   );
 }
 
-// ── Helpers ─────────────────────────────────────────────────────────
-function Panel(props) {
+// ── Store ranking panel (shared between week + month) ──────────────
+function StoreRankPanel(props) {
   return (
     <div style={{
+      flex: 1,
       background: "linear-gradient(135deg, #0F1116, #14171E)",
       borderRadius: 16,
-      padding: 28,
+      padding: 24,
       border: "1px solid #1E2028",
-      borderTop: "3px solid " + props.accent,
-      display: "flex",
-      flexDirection: "column",
+      borderTop: "3px solid #7B2FFF",
+      display: "flex", flexDirection: "column",
       overflow: "hidden",
     }}>
-      {props.children}
-    </div>
-  );
-}
-
-function PanelLabel(props) {
-  return (
-    <div style={{ color: props.color || "#8B8F98", fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 16 }}>
-      {props.children}
-    </div>
-  );
-}
-
-function BigNumber(props) {
-  return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <div style={{ fontSize: 140, fontWeight: 900, color: props.color || "#F0F1F3", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
-      {props.suffix && <div style={{ fontSize: 28, fontWeight: 700, color: "#8B8F98" }}>{props.suffix}</div>}
-    </div>
-  );
-}
-
-function Stat(props) {
-  return (
-    <div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "#8B8F98", textTransform: "uppercase", letterSpacing: 1 }}>{props.label}</div>
-      <div style={{ fontSize: 48, fontWeight: 800, color: props.color || "#F0F1F3", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 22, fontWeight: 800, color: "#F0F1F3" }}>{props.title}</div>
+        <div style={{ color: "#6B6F78", fontSize: 13, marginTop: 2, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{props.subtitle}</div>
+      </div>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+        {props.ranked.map(function(row, idx) {
+          var isUs = row.store === props.highlightStore;
+          var medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
+          var rowBg = isUs ? (STORE_COLORS[row.store] || "#7B2FFF") + "22" : "#0A0C10";
+          var rowBorder = isUs ? "2px solid " + (STORE_COLORS[row.store] || "#7B2FFF") : "1px solid #1E2028";
+          var nameColor = isUs ? STORE_COLORS[row.store] : (idx === 0 ? "#F0F1F3" : "#8B8F98");
+          return (
+            <div key={row.store} style={{
+              display: "flex", alignItems: "center", gap: 14,
+              padding: "12px 18px",
+              background: rowBg,
+              border: rowBorder,
+              borderRadius: 10,
+              flex: 1,
+            }}>
+              <div style={{ fontSize: 36 }}>{medal}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 26, fontWeight: 800, color: nameColor, display: "flex", alignItems: "center", gap: 10 }}>
+                  {STORE_LABELS[row.store]}
+                  {isUs && <span style={{ background: STORE_COLORS[row.store], color: "#0A0C10", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 800, letterSpacing: 1 }}>YOU</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 42, fontWeight: 900, color: idx === 0 ? "#F0F1F3" : "#8B8F98", fontVariantNumeric: "tabular-nums" }}>{row.value}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
