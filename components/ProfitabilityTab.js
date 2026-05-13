@@ -51,7 +51,14 @@ function compute(r) {
   var totalFees = royalties + adFee + techFee;
 
   var profitLessFees = grossProfit - totalFees;
-  var netProfit = profitLessFees - totalExpenses;
+
+  // Other Income — non-operating revenue (Fieldprint fingerprinting payouts, etc.)
+  // Adds to Net Profit but does NOT affect Gross Profit, GPM, or category margins.
+  // Therefore commissions, scorecards, and ROI models are unaffected.
+  var fieldprintPayout = g("fieldprint_payout");
+  var otherIncome = fieldprintPayout;
+
+  var netProfit = profitLessFees - totalExpenses + otherIncome;
   var netMargin = grossRev > 0 ? netProfit / grossRev : 0;
 
   // Labor
@@ -70,6 +77,7 @@ function compute(r) {
     controllables: controllables, otherExpenses: otherExpenses, totalExpenses: totalExpenses,
     royalties: royalties, adFee: adFee, techFee: techFee, totalFees: totalFees,
     profitLessFees: profitLessFees, netProfit: netProfit, netMargin: netMargin,
+    fieldprintPayout: fieldprintPayout, otherIncome: otherIncome,
     hours: hours, revPerHour: revPerHour, profPerHour: profPerHour,
     storeBudget: storeBudget, kbb: kbb, tips: tips, lcd: lcd, ccFee: ccFee,
     damaged: damaged, shrinkage: shrinkage, voided: voided,
@@ -323,12 +331,16 @@ export default function ProfitabilityTab() {
     var isPct = props.isPct;
     var bg = props.bg || "transparent";
     var borderTop = props.borderTop;
+    var prefix = props.prefix || ""; // e.g. "+" to show "+$120.00" for additive lines
     return (
       <tr style={{ background: bg, borderTop: borderTop || "none" }}>
         <td style={Object.assign({}, cs, { color: indent ? "#8B8F98" : color, fontWeight: bold ? 800 : indent ? 400 : 600, paddingLeft: indent ? 28 : 12, fontSize: bold ? 13 : 12 })}>{label}</td>
         {values.map(function(v, i) {
           var c = isPct ? pctColor(v) : (typeof color === "function" ? color(v) : color);
-          return <td key={i} style={Object.assign({}, cs, { textAlign: "right", color: c, fontWeight: bold ? 800 : 600, fontSize: bold ? 13 : 12 })}>{isPct ? fmtPct(v) : fmt(v)}</td>;
+          var displayVal = isPct ? fmtPct(v) : fmt(v);
+          // Only apply prefix to non-zero values so empty rows don't show "+$0.00"
+          if (prefix && !isPct && v) displayVal = prefix + displayVal;
+          return <td key={i} style={Object.assign({}, cs, { textAlign: "right", color: c, fontWeight: bold ? 800 : 600, fontSize: bold ? 13 : 12 })}>{displayVal}</td>;
         })}
       </tr>
     );
@@ -639,6 +651,9 @@ export default function ProfitabilityTab() {
 
             {/* ── NET PROFIT ── */}
             <Row label="Profit Less Fees" values={vals("profitLessFees")} color={profitColor} bg="#1E202833" />
+            {/* Other Income — adds to NET PROFIT but doesn't affect Gross Profit / GPM */}
+            <SectionRow label="Other Income" color="#4ADE80" />
+            <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="#4ADE80" prefix="+" />
             <tr style={{ background: "linear-gradient(90deg, #7B2FFF08, #00D4FF08)", borderTop: "2px solid #7B2FFF44" }}>
               <td style={Object.assign({}, cs, { fontWeight: 900, fontSize: 15, color: "#F0F1F3", padding: "12px" })}>NET PROFIT</td>
               {STORE_KEYS.map(function(k) {
@@ -840,6 +855,14 @@ function StoreForm({ store, data, period, onSave, saving }) {
             { l: "KBB Charges", k: "kbb_charges" }, { l: "Tips", k: "tips" },
             { l: "LCD Credits", k: "lcd_credits" }, { l: "CC Fee Diff", k: "cc_fee_diff" },
           ].map(function(f) { return <div key={f.k}>{field(f.l, f.k)}</div>; })}
+        </div>
+      </div>
+
+      {/* Other Income — non-operating revenue, added to NET PROFIT */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ color: "#4ADE80", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Other Income</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+          {field("Fieldprint Payout", "fieldprint_payout")}
         </div>
       </div>
 
