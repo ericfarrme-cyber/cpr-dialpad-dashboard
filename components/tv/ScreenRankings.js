@@ -1,4 +1,5 @@
 // Rankings screen — store leaderboard + employee category rankings.
+// LIGHT THEME: white panels, soft shadows, dark slate text, vivid accents.
 // Layout:
 //   ┌──────────────────────────┬────────────────────────────────────────┐
 //   │  STORE RANKINGS          │  EMPLOYEE RANKINGS (this store)         │
@@ -16,7 +17,7 @@
 
 var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 var STORE_LABELS = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
-var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#FBBF24" };
+var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#D97706" };
 
 function fmtMoney(n) {
   var v = parseFloat(n || 0);
@@ -80,45 +81,47 @@ export default function ScreenRankings(props) {
 
   // Build per-category rankings — top 3 this store + #1 company-wide
   var categories = [
-    { key: "accy_gp", label: "Accessory GP", color: "#FBBF24", icon: "💰", fmt: fmtMoney, get: function(e) { return (e.repairs && e.repairs.accy_gp) || 0; } },
-    { key: "repair_count", label: "Repairs", color: "#00D4FF", icon: "🔧", fmt: function(v) { return v.toString(); }, get: function(e) { var r = e.repairs || {}; return (r.phone_tickets || 0) + (r.other_tickets || 0); } },
-    { key: "cleanings", label: "Cleanings", color: "#4ADE80", icon: "✨", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.repairs && e.repairs.clean_count) || 0; } },
-    { key: "ticket_score", label: "Ticket Score", color: "#FF2D95", icon: "📋", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.compliance && e.compliance.tickets_graded > 0) ? (e.compliance.score || 0) : null; } },
+    { key: "accy_gp", label: "Accessory GP", color: "#D97706", icon: "💰", fmt: fmtMoney, get: function(e) { return (e.repairs && e.repairs.accy_gp) || 0; } },
+    { key: "repair_count", label: "Repairs", color: "#0891B2", icon: "🔧", fmt: function(v) { return v.toString(); }, get: function(e) { var r = e.repairs || {}; return (r.phone_tickets || 0) + (r.other_tickets || 0); } },
+    { key: "cleanings", label: "Cleanings", color: "#10B981", icon: "✨", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.repairs && e.repairs.clean_count) || 0; } },
+    { key: "ticket_score", label: "Ticket Score", color: "#DB2777", icon: "📋", fmt: function(v) { return v.toString(); }, get: function(e) { return (e.compliance && e.compliance.tickets_graded > 0) ? (e.compliance.score || 0) : null; } },
   ];
 
   return (
-    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "5fr 7fr", gap: 24 }}>
+    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "5fr 7fr", gap: "clamp(12px, 2vh, 24px)" }}>
       {/* ─── LEFT: Store rankings (stacked: this week + this month) ─── */}
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 1.5vh, 16px)", minHeight: 0 }}>
         <StoreRankPanel title="🏪 Stores · This Week" subtitle="Calls answered" ranked={weekRanked} highlightStore={store} />
         <StoreRankPanel title="🏪 Stores · This Month" subtitle="Calls answered" ranked={monthRanked} highlightStore={store} />
       </div>
 
       {/* ─── RIGHT: Employee rankings (4 categories side by side) ─── */}
       <div style={{
-        background: "linear-gradient(135deg, #0F1116, #14171E)",
+        background: "#FFFFFF",
         borderRadius: 16,
-        padding: 24,
-        border: "1px solid #1E2028",
+        padding: "clamp(14px, 2.2vh, 24px)",
+        border: "1px solid #E5E7EB",
         borderTop: "3px solid #00D4FF",
+        boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)",
         display: "flex", flexDirection: "column",
         overflow: "hidden",
+        minHeight: 0,
       }}>
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 18 }}>
-          <div style={{ color: "#F0F1F3", fontSize: 26, fontWeight: 800 }}>
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "clamp(10px, 1.8vh, 18px)" }}>
+          <div style={{ color: "#1A2233", fontSize: "clamp(18px, 2.8vh, 26px)", fontWeight: 800 }}>
             🏆 {storeName} Employees
           </div>
-          <div style={{ color: "#8B8F98", fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
+          <div style={{ color: "#6B7280", fontSize: "clamp(11px, 1.5vh, 13px)", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>
             This Month
           </div>
         </div>
 
         {thisStoreEmps.length === 0 ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6B6F78", fontSize: 22, fontStyle: "italic" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9CA3AF", fontSize: "clamp(16px, 2.2vh, 22px)", fontStyle: "italic" }}>
             No employee data for this period yet
           </div>
         ) : (
-          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 14, overflow: "hidden" }}>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "clamp(8px, 1.2vw, 14px)", overflow: "hidden", minHeight: 0 }}>
             {categories.map(function(cat) {
               // Local ranking — top 3 at this store for this category
               var localRanked = thisStoreEmps
@@ -132,28 +135,28 @@ export default function ScreenRankings(props) {
                 .sort(function(a, b) { return (b.value || 0) - (a.value || 0); });
               var companyTop = globalRanked.length > 0 ? globalRanked[0] : null;
               return (
-                <div key={cat.key} style={{ background: "#0A0C10", borderRadius: 10, padding: 14, display: "flex", flexDirection: "column", borderTop: "2px solid " + cat.color }}>
+                <div key={cat.key} style={{ background: "#F9FAFB", borderRadius: 10, padding: "clamp(8px, 1.5vh, 14px)", display: "flex", flexDirection: "column", borderTop: "2px solid " + cat.color, border: "1px solid #E5E7EB", overflow: "hidden", minHeight: 0 }}>
                   {/* Category header */}
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
-                    <div style={{ fontSize: 18 }}>{cat.icon}</div>
-                    <div style={{ color: cat.color, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat.label}</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "clamp(6px, 1.2vh, 12px)" }}>
+                    <div style={{ fontSize: "clamp(14px, 1.8vh, 18px)" }}>{cat.icon}</div>
+                    <div style={{ color: cat.color, fontSize: "clamp(10px, 1.4vh, 13px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>{cat.label}</div>
                   </div>
 
                   {/* Top 3 at this store */}
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "clamp(4px, 1vh, 8px)", minHeight: 0, overflow: "hidden" }}>
                     {[0, 1, 2].map(function(idx) {
                       var emp = localRanked[idx];
                       var medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
-                      var nameColor = idx === 0 ? "#F0F1F3" : "#8B8F98";
-                      var valColor = idx === 0 ? cat.color : "#6B6F78";
+                      var nameColor = idx === 0 ? "#1A2233" : "#6B7280";
+                      var valColor = idx === 0 ? cat.color : "#9CA3AF";
                       return (
                         <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <div style={{ fontSize: 18 }}>{emp ? medal : ""}</div>
+                          <div style={{ fontSize: "clamp(14px, 1.8vh, 18px)" }}>{emp ? medal : ""}</div>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 15, fontWeight: 700, color: nameColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            <div style={{ fontSize: "clamp(12px, 1.7vh, 15px)", fontWeight: 700, color: nameColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                               {emp ? emp.name.split(" ")[0] : "—"}
                             </div>
-                            <div style={{ fontSize: idx === 0 ? 22 : 16, fontWeight: 800, color: valColor, fontVariantNumeric: "tabular-nums" }}>
+                            <div style={{ fontSize: idx === 0 ? "clamp(16px, 2.5vh, 22px)" : "clamp(12px, 1.8vh, 16px)", fontWeight: 800, color: valColor, fontVariantNumeric: "tabular-nums" }}>
                               {emp ? cat.fmt(emp.value) : ""}
                             </div>
                           </div>
@@ -164,13 +167,13 @@ export default function ScreenRankings(props) {
 
                   {/* Company #1 footer */}
                   {companyTop && (
-                    <div style={{ marginTop: 12, paddingTop: 10, borderTop: "1px solid #1E2028" }}>
-                      <div style={{ color: "#6B6F78", fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Company #1</div>
+                    <div style={{ marginTop: "clamp(8px, 1.4vh, 12px)", paddingTop: "clamp(6px, 1.2vh, 10px)", borderTop: "1px solid #E5E7EB" }}>
+                      <div style={{ color: "#9CA3AF", fontSize: "clamp(8px, 1.1vh, 9px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Company #1</div>
                       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: STORE_COLORS[companyTop.store] || "#F0F1F3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        <div style={{ fontSize: "clamp(11px, 1.5vh, 13px)", fontWeight: 700, color: STORE_COLORS[companyTop.store] || "#1A2233", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {companyTop.name.split(" ")[0]}
                         </div>
-                        <div style={{ fontSize: 14, fontWeight: 800, color: cat.color, fontVariantNumeric: "tabular-nums" }}>{cat.fmt(companyTop.value)}</div>
+                        <div style={{ fontSize: "clamp(11px, 1.6vh, 14px)", fontWeight: 800, color: cat.color, fontVariantNumeric: "tabular-nums" }}>{cat.fmt(companyTop.value)}</div>
                       </div>
                     </div>
                   )}
@@ -189,42 +192,45 @@ function StoreRankPanel(props) {
   return (
     <div style={{
       flex: 1,
-      background: "linear-gradient(135deg, #0F1116, #14171E)",
+      background: "#FFFFFF",
       borderRadius: 16,
-      padding: 24,
-      border: "1px solid #1E2028",
+      padding: "clamp(14px, 2.2vh, 24px)",
+      border: "1px solid #E5E7EB",
       borderTop: "3px solid #7B2FFF",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)",
       display: "flex", flexDirection: "column",
       overflow: "hidden",
+      minHeight: 0,
     }}>
-      <div style={{ marginBottom: 14 }}>
-        <div style={{ fontSize: 22, fontWeight: 800, color: "#F0F1F3" }}>{props.title}</div>
-        <div style={{ color: "#6B6F78", fontSize: 13, marginTop: 2, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{props.subtitle}</div>
+      <div style={{ marginBottom: "clamp(8px, 1.5vh, 14px)" }}>
+        <div style={{ fontSize: "clamp(16px, 2.4vh, 22px)", fontWeight: 800, color: "#1A2233" }}>{props.title}</div>
+        <div style={{ color: "#9CA3AF", fontSize: "clamp(11px, 1.5vh, 13px)", marginTop: 2, textTransform: "uppercase", letterSpacing: 1, fontWeight: 600 }}>{props.subtitle}</div>
       </div>
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "clamp(6px, 1.2vh, 10px)", minHeight: 0 }}>
         {props.ranked.map(function(row, idx) {
           var isUs = row.store === props.highlightStore;
           var medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
-          var rowBg = isUs ? (STORE_COLORS[row.store] || "#7B2FFF") + "22" : "#0A0C10";
-          var rowBorder = isUs ? "2px solid " + (STORE_COLORS[row.store] || "#7B2FFF") : "1px solid #1E2028";
-          var nameColor = isUs ? STORE_COLORS[row.store] : (idx === 0 ? "#F0F1F3" : "#8B8F98");
+          var rowBg = isUs ? (STORE_COLORS[row.store] || "#7B2FFF") + "10" : "#F9FAFB";
+          var rowBorder = isUs ? "2px solid " + (STORE_COLORS[row.store] || "#7B2FFF") : "1px solid #E5E7EB";
+          var nameColor = isUs ? STORE_COLORS[row.store] : (idx === 0 ? "#1A2233" : "#6B7280");
           return (
             <div key={row.store} style={{
-              display: "flex", alignItems: "center", gap: 14,
-              padding: "12px 18px",
+              display: "flex", alignItems: "center", gap: "clamp(8px, 1.5vw, 14px)",
+              padding: "clamp(8px, 1.5vh, 12px) clamp(10px, 1.5vw, 18px)",
               background: rowBg,
               border: rowBorder,
               borderRadius: 10,
               flex: 1,
+              minHeight: 0,
             }}>
-              <div style={{ fontSize: 36 }}>{medal}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 26, fontWeight: 800, color: nameColor, display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontSize: "clamp(22px, 4vh, 36px)" }}>{medal}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "clamp(16px, 2.8vh, 26px)", fontWeight: 800, color: nameColor, display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {STORE_LABELS[row.store]}
-                  {isUs && <span style={{ background: STORE_COLORS[row.store], color: "#0A0C10", padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 800, letterSpacing: 1 }}>YOU</span>}
+                  {isUs && <span style={{ background: STORE_COLORS[row.store], color: "#FFFFFF", padding: "3px 9px", borderRadius: 999, fontSize: "clamp(9px, 1.2vh, 11px)", fontWeight: 800, letterSpacing: 1, flexShrink: 0 }}>YOU</span>}
                 </div>
               </div>
-              <div style={{ fontSize: 42, fontWeight: 900, color: idx === 0 ? "#F0F1F3" : "#8B8F98", fontVariantNumeric: "tabular-nums" }}>{row.value}</div>
+              <div style={{ fontSize: "clamp(26px, 4.5vh, 42px)", fontWeight: 900, color: idx === 0 ? "#1A2233" : "#6B7280", fontVariantNumeric: "tabular-nums" }}>{row.value}</div>
             </div>
           );
         })}
