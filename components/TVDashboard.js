@@ -3,6 +3,7 @@
 // - Fetches all data needed by both screens
 // - Refreshes data every 60s (background heartbeat)
 // - Failure mode: keep showing last good data + tiny "stale" indicator
+// LIGHT THEME: white card panels on light gray page background.
 "use client";
 
 import { useState, useEffect, useRef } from "react";
@@ -91,7 +92,7 @@ export default function TVDashboard(props) {
   // ── Loading state (first boot only) ──────────────────────────────────
   if (!bootDone && !dailyCalls && !appointments && !scorecard) {
     return (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#8B8F98", fontSize: 32 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#6B7280", fontSize: 32 }}>
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📺</div>
           <div>Loading {storeName} dashboard...</div>
@@ -106,19 +107,20 @@ export default function TVDashboard(props) {
       {/* ── Top bar: store name + clock + screen indicator ───────────── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "20px 40px",
-        borderBottom: "1px solid #1E2028",
+        padding: "clamp(10px, 1.8vh, 20px) clamp(16px, 2.5vw, 40px)",
+        borderBottom: "1px solid #E5E7EB",
+        background: "#FFFFFF",
         flexShrink: 0,
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "clamp(10px, 1.5vw, 18px)" }}>
           <div style={{
             background: "linear-gradient(135deg, #00D4FF, #7B2FFF, #FF2D95)",
             WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent",
-            fontSize: 36, fontWeight: 900, letterSpacing: 1,
+            fontSize: "clamp(20px, 3.5vh, 36px)", fontWeight: 900, letterSpacing: 1,
           }}>
             CPR {storeName.toUpperCase()}
           </div>
-          <div style={{ background: "#7B2FFF22", color: "#7B2FFF", padding: "5px 12px", borderRadius: 999, fontSize: 13, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
+          <div style={{ background: "#7B2FFF15", color: "#7B2FFF", padding: "5px 12px", borderRadius: 999, fontSize: "clamp(10px, 1.3vh, 13px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
             {screenIdx === 0 ? "Daily Dash" : "Rankings"}
           </div>
         </div>
@@ -126,7 +128,7 @@ export default function TVDashboard(props) {
       </div>
 
       {/* ── Main screen area ─────────────────────────────────────────── */}
-      <div style={{ flex: 1, position: "relative", overflow: "hidden" }}>
+      <div style={{ flex: 1, position: "relative", overflow: "hidden", background: "#F4F6FA" }}>
         {/* Daily screen */}
         <div style={Object.assign({}, screenStyle, {
           opacity: screenIdx === 0 ? 1 : 0,
@@ -146,13 +148,14 @@ export default function TVDashboard(props) {
       {/* ── Bottom bar: page dots + freshness ─────────────────────────── */}
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "14px 40px",
-        borderTop: "1px solid #1E2028",
+        padding: "clamp(8px, 1.3vh, 14px) clamp(16px, 2.5vw, 40px)",
+        borderTop: "1px solid #E5E7EB",
+        background: "#FFFFFF",
         flexShrink: 0,
       }}>
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 0 ? "#00D4FF" : "#1E2028", transition: "background 0.3s" }} />
-          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 1 ? "#FF2D95" : "#1E2028", transition: "background 0.3s" }} />
+          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 0 ? "#00D4FF" : "#E5E7EB", transition: "background 0.3s" }} />
+          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 1 ? "#FF2D95" : "#E5E7EB", transition: "background 0.3s" }} />
         </div>
         <FreshnessIndicator dataAge={dataAge} error={error} />
       </div>
@@ -162,7 +165,7 @@ export default function TVDashboard(props) {
 
 var screenStyle = {
   position: "absolute", inset: 0,
-  padding: "30px 40px",
+  padding: "clamp(14px, 2.5vh, 30px) clamp(16px, 2.5vw, 40px)",
   transition: "opacity 0.6s ease-in-out",
 };
 
@@ -177,8 +180,8 @@ function Clock() {
   var dateStr = now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "America/Indiana/Indianapolis" });
   return (
     <div style={{ textAlign: "right" }}>
-      <div style={{ fontSize: 40, fontWeight: 800, color: "#F0F1F3", letterSpacing: 1, fontVariantNumeric: "tabular-nums" }}>{timeStr}</div>
-      <div style={{ fontSize: 16, color: "#8B8F98", marginTop: 2 }}>{dateStr}</div>
+      <div style={{ fontSize: "clamp(22px, 3.8vh, 40px)", fontWeight: 800, color: "#1A2233", letterSpacing: 1, fontVariantNumeric: "tabular-nums", lineHeight: 1.1 }}>{timeStr}</div>
+      <div style={{ fontSize: "clamp(11px, 1.5vh, 16px)", color: "#6B7280", marginTop: 2 }}>{dateStr}</div>
     </div>
   );
 }
@@ -195,7 +198,7 @@ function FreshnessIndicator(props) {
   // Find the oldest "alive" data source — that's the freshness we report
   var ts = [ages.calls, ages.appts, ages.scores, ages.advrep].filter(function(x) { return x !== null; });
   if (ts.length === 0) {
-    return <div style={{ color: "#6B6F78", fontSize: 12 }}>Waiting for data...</div>;
+    return <div style={{ color: "#9CA3AF", fontSize: 12 }}>Waiting for data...</div>;
   }
   var oldest = Math.min.apply(null, ts);
   var ageMs = now - oldest;
@@ -205,7 +208,7 @@ function FreshnessIndicator(props) {
   else if (ageMin === 1) label = "Updated 1 min ago";
   else label = "Updated " + ageMin + " min ago";
   return (
-    <div style={{ color: props.error ? "#FBBF24" : "#6B6F78", fontSize: 12 }}>
+    <div style={{ color: props.error ? "#D97706" : "#9CA3AF", fontSize: 12 }}>
       {props.error ? "Connection issue · " : ""}{label}
     </div>
   );
