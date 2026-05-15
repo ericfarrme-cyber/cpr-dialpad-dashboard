@@ -1,6 +1,6 @@
 // Always-on TV dashboard for store backrooms.
 // Public URL: /tv?store=fishers (or bloomington, indianapolis)
-// No login, no nav chrome, full-screen black background.
+// No login, no nav chrome, light theme.
 // Two rotating screens: DAILY DASH and RANKINGS, 30 sec each.
 "use client";
 
@@ -21,12 +21,12 @@ export default function TVPage() {
   return (
     <div style={{
       position: "fixed", inset: 0,
-      background: "#000",
-      color: "#F0F1F3",
+      background: "#F4F6FA",
+      color: "#1A2233",
       overflow: "hidden",
       fontFamily: "'Space Grotesk', system-ui, -apple-system, sans-serif",
     }}>
-      <Suspense fallback={<div style={{ padding: 40, fontSize: 24, color: "#8B8F98" }}>Loading...</div>}>
+      <Suspense fallback={<div style={{ padding: 40, fontSize: 24, color: "#6B7280" }}>Loading...</div>}>
         <TVPageInner />
       </Suspense>
     </div>
