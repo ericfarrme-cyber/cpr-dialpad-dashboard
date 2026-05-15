@@ -1,11 +1,12 @@
 // Daily Dash — big visible KPIs for today.
+// LIGHT THEME: white panels, soft shadows, dark slate text, vivid accents.
 // Layout (1920x1080 landscape):
 //   ┌──────────────────────────┬──────────────────────────┐
 //   │  CALLS TODAY (big number) │  ANSWER RATE TODAY (big) │
 //   │  [answered] / [missed]    │  [color-coded]           │
 //   ├──────────────────────────┼──────────────────────────┤
-//   │  NEXT APPOINTMENTS        │  ACTIVE ADVANCED REPAIRS │
-//   │  (next 3-4 upcoming)      │  (count + names)         │
+//   │  NEXT APPOINTMENTS        │  ADVANCED REPAIRS        │
+//   │  (next 3-4 upcoming)      │  (count + top earner)    │
 //   └──────────────────────────┴──────────────────────────┘
 "use client";
 
@@ -50,12 +51,12 @@ export default function ScreenDaily(props) {
   }
   var answerRate = totalCalls > 0 ? Math.round((answered / totalCalls) * 100) : null;
 
-  // Color the answer rate
-  var rateColor = "#8B8F98";
+  // Color the answer rate — deeper hues for light backgrounds
+  var rateColor = "#9CA3AF";
   if (answerRate !== null) {
-    if (answerRate >= 85) rateColor = "#4ADE80";
-    else if (answerRate >= 70) rateColor = "#FBBF24";
-    else rateColor = "#F87171";
+    if (answerRate >= 85) rateColor = "#10B981";       // emerald — good
+    else if (answerRate >= 70) rateColor = "#D97706";  // amber — okay
+    else rateColor = "#DC2626";                         // red — bad
   }
 
   // ── Next appointments today (filter to upcoming, sorted by time) ───
@@ -77,26 +78,19 @@ export default function ScreenDaily(props) {
     })
     .slice(0, 4);
 
-  // ── Open advanced repairs (well, we have leaderboard not list — derive count from store match) ───
-  // ScreenDaily gets the leaderboard which has earners. We don't have a direct
-  // "open at this store" count here. So we just show top earners as motivation.
-  // Top advanced repair earner for THIS store, for motivation:
-  var topAdvRepEarner = null;
-  // We have leaderboard from /api/advanced-repairs?action=leaderboard which is global.
-  // To know who's THIS store specifically requires an additional query — we'll just
-  // show the company top earner and how many advanced repairs this month.
+  // ── Open advanced repairs counts ───────────────────────────────────
   var totalAdvancedRepairsClosedThisMonth = 0;
   advancedRepairs.forEach(function(r) { totalAdvancedRepairsClosedThisMonth += r.repairs || 0; });
 
   return (
-    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: 24 }}>
+    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "1fr 1fr", gridTemplateRows: "1fr 1fr", gap: "clamp(12px, 2vh, 24px)" }}>
       {/* ─── TOP LEFT: Calls today ─── */}
       <Panel accent="#00D4FF">
         <PanelLabel color="#00D4FF">📞 Calls Today</PanelLabel>
-        <BigNumber value={totalCalls} color="#F0F1F3" />
-        <div style={{ display: "flex", gap: 36, marginTop: 20 }}>
-          <Stat label="Answered" value={answered} color="#4ADE80" />
-          <Stat label="Missed" value={missed} color={missed > 0 ? "#F87171" : "#8B8F98"} />
+        <BigNumber value={totalCalls} color="#1A2233" />
+        <div style={{ display: "flex", gap: "clamp(20px, 3vw, 36px)", marginTop: "clamp(10px, 2vh, 20px)" }}>
+          <Stat label="Answered" value={answered} color="#10B981" />
+          <Stat label="Missed" value={missed} color={missed > 0 ? "#DC2626" : "#9CA3AF"} />
         </div>
       </Panel>
 
@@ -104,14 +98,14 @@ export default function ScreenDaily(props) {
       <Panel accent={rateColor}>
         <PanelLabel color={rateColor}>🎯 Answer Rate Today</PanelLabel>
         {answerRate === null ? (
-          <div style={{ fontSize: 96, fontWeight: 900, color: "#6B6F78" }}>—</div>
+          <div style={{ fontSize: "clamp(48px, 10vh, 96px)", fontWeight: 900, color: "#9CA3AF" }}>—</div>
         ) : (
-          <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-            <div style={{ fontSize: 180, fontWeight: 900, color: rateColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{answerRate}</div>
-            <div style={{ fontSize: 64, fontWeight: 700, color: rateColor }}>%</div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, lineHeight: 1 }}>
+            <div style={{ fontSize: "clamp(80px, 18vh, 180px)", fontWeight: 900, color: rateColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{answerRate}</div>
+            <div style={{ fontSize: "clamp(32px, 6vh, 64px)", fontWeight: 700, color: rateColor }}>%</div>
           </div>
         )}
-        <div style={{ marginTop: 16, fontSize: 18, color: "#8B8F98" }}>
+        <div style={{ marginTop: "clamp(8px, 1.5vh, 16px)", fontSize: "clamp(14px, 1.8vh, 18px)", color: "#6B7280" }}>
           {answerRate === null ? "Waiting for today's call data..." :
             answerRate >= 85 ? "Crushing it 🔥" :
             answerRate >= 70 ? "Solid — keep pushing" :
@@ -123,25 +117,26 @@ export default function ScreenDaily(props) {
       <Panel accent="#7B2FFF">
         <PanelLabel color="#7B2FFF">📅 Next Up Today</PanelLabel>
         {upcomingAppts.length === 0 ? (
-          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#6B6F78", fontSize: 24, fontStyle: "italic" }}>
+          <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: "#9CA3AF", fontSize: "clamp(16px, 2.5vh, 24px)", fontStyle: "italic" }}>
             No more appointments today
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 12 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: "clamp(6px, 1.2vh, 14px)", marginTop: "clamp(6px, 1vh, 12px)", overflow: "hidden", flex: 1 }}>
             {upcomingAppts.map(function(a, i) {
               var t = fmtTimeRaw(a.appt_time || a.time_of_appt);
               return (
                 <div key={i} style={{
-                  display: "flex", alignItems: "center", gap: 18,
-                  padding: "14px 18px",
-                  background: i === 0 ? "#7B2FFF18" : "#0F1116",
-                  borderLeft: i === 0 ? "4px solid #7B2FFF" : "4px solid #1E2028",
+                  display: "flex", alignItems: "center", gap: "clamp(8px, 1.5vw, 18px)",
+                  padding: "clamp(8px, 1.5vh, 14px) clamp(10px, 1.5vw, 18px)",
+                  background: i === 0 ? "#7B2FFF10" : "#F4F6FA",
+                  borderLeft: i === 0 ? "4px solid #7B2FFF" : "4px solid #E5E7EB",
                   borderRadius: 8,
+                  flexShrink: 0,
                 }}>
-                  <div style={{ minWidth: 100, fontSize: 26, fontWeight: 800, color: i === 0 ? "#7B2FFF" : "#F0F1F3", fontVariantNumeric: "tabular-nums" }}>{t}</div>
+                  <div style={{ minWidth: "clamp(72px, 8vw, 100px)", fontSize: "clamp(16px, 2.6vh, 26px)", fontWeight: 800, color: i === 0 ? "#7B2FFF" : "#1A2233", fontVariantNumeric: "tabular-nums" }}>{t}</div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#F0F1F3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.customer_name || "Walk-in"}</div>
-                    <div style={{ fontSize: 16, color: "#8B8F98", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.reason || "Repair appointment"}</div>
+                    <div style={{ fontSize: "clamp(14px, 2.2vh, 22px)", fontWeight: 700, color: "#1A2233", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.customer_name || "Walk-in"}</div>
+                    <div style={{ fontSize: "clamp(12px, 1.7vh, 16px)", color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.reason || "Repair appointment"}</div>
                   </div>
                 </div>
               );
@@ -151,19 +146,19 @@ export default function ScreenDaily(props) {
       </Panel>
 
       {/* ─── BOTTOM RIGHT: Advanced Repairs ─── */}
-      <Panel accent="#FBBF24">
-        <PanelLabel color="#FBBF24">🔧 Advanced Repairs This Month</PanelLabel>
-        <BigNumber value={totalAdvancedRepairsClosedThisMonth} color="#F0F1F3" suffix=" closed" />
+      <Panel accent="#D97706">
+        <PanelLabel color="#D97706">🔧 Advanced Repairs This Month</PanelLabel>
+        <BigNumber value={totalAdvancedRepairsClosedThisMonth} color="#1A2233" suffix=" closed" />
         {advancedRepairs.length > 0 ? (
-          <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
-            <div style={{ fontSize: 14, color: "#FBBF24", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Top Earner This Month</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
-              <div style={{ fontSize: 32, fontWeight: 800, color: "#F0F1F3" }}>{advancedRepairs[0].employee}</div>
-              <div style={{ fontSize: 18, color: "#8B8F98" }}>{advancedRepairs[0].repairs} repair{advancedRepairs[0].repairs === 1 ? "" : "s"}</div>
+          <div style={{ marginTop: "clamp(8px, 1.5vh, 16px)", display: "flex", flexDirection: "column", gap: 8 }}>
+            <div style={{ fontSize: "clamp(11px, 1.5vh, 14px)", color: "#D97706", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Top Earner This Month</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: "clamp(20px, 3.2vh, 32px)", fontWeight: 800, color: "#1A2233" }}>{advancedRepairs[0].employee}</div>
+              <div style={{ fontSize: "clamp(13px, 1.8vh, 18px)", color: "#6B7280" }}>{advancedRepairs[0].repairs} repair{advancedRepairs[0].repairs === 1 ? "" : "s"}</div>
             </div>
           </div>
         ) : (
-          <div style={{ marginTop: 20, fontSize: 18, color: "#8B8F98", fontStyle: "italic" }}>
+          <div style={{ marginTop: "clamp(12px, 2vh, 20px)", fontSize: "clamp(14px, 1.8vh, 18px)", color: "#9CA3AF", fontStyle: "italic" }}>
             No closed advanced repairs yet this month — be the first!
           </div>
         )}
@@ -176,14 +171,16 @@ export default function ScreenDaily(props) {
 function Panel(props) {
   return (
     <div style={{
-      background: "linear-gradient(135deg, #0F1116, #14171E)",
+      background: "#FFFFFF",
       borderRadius: 16,
-      padding: 28,
-      border: "1px solid #1E2028",
+      padding: "clamp(16px, 2.5vh, 28px)",
+      border: "1px solid #E5E7EB",
       borderTop: "3px solid " + props.accent,
+      boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)",
       display: "flex",
       flexDirection: "column",
       overflow: "hidden",
+      minHeight: 0, // critical: lets flexbox respect parent height
     }}>
       {props.children}
     </div>
@@ -192,7 +189,7 @@ function Panel(props) {
 
 function PanelLabel(props) {
   return (
-    <div style={{ color: props.color || "#8B8F98", fontSize: 18, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: 16 }}>
+    <div style={{ color: props.color || "#6B7280", fontSize: "clamp(13px, 1.7vh, 18px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 2, marginBottom: "clamp(8px, 1.5vh, 16px)" }}>
       {props.children}
     </div>
   );
@@ -200,9 +197,9 @@ function PanelLabel(props) {
 
 function BigNumber(props) {
   return (
-    <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-      <div style={{ fontSize: 140, fontWeight: 900, color: props.color || "#F0F1F3", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
-      {props.suffix && <div style={{ fontSize: 28, fontWeight: 700, color: "#8B8F98" }}>{props.suffix}</div>}
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, lineHeight: 1 }}>
+      <div style={{ fontSize: "clamp(60px, 14vh, 140px)", fontWeight: 900, color: props.color || "#1A2233", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
+      {props.suffix && <div style={{ fontSize: "clamp(16px, 2.6vh, 28px)", fontWeight: 700, color: "#6B7280" }}>{props.suffix}</div>}
     </div>
   );
 }
@@ -210,8 +207,8 @@ function BigNumber(props) {
 function Stat(props) {
   return (
     <div>
-      <div style={{ fontSize: 16, fontWeight: 600, color: "#8B8F98", textTransform: "uppercase", letterSpacing: 1 }}>{props.label}</div>
-      <div style={{ fontSize: 48, fontWeight: 800, color: props.color || "#F0F1F3", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
+      <div style={{ fontSize: "clamp(12px, 1.5vh, 16px)", fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 1 }}>{props.label}</div>
+      <div style={{ fontSize: "clamp(28px, 4.5vh, 48px)", fontWeight: 800, color: props.color || "#1A2233", marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
     </div>
   );
 }
