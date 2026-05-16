@@ -38,20 +38,31 @@ function startOfMonthYMD() {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-01";
 }
 
-// Sum answered calls per store across a date range from dailyCalls array
-function sumAnswered(dailyCalls, startYMD) {
-  var out = { fishers: 0, bloomington: 0, indianapolis: 0 };
+// Sum total + answered calls per store across a date range from dailyCalls array
+// Returns: { fishers: {total, answered}, bloomington: {...}, indianapolis: {...} }
+function sumCalls(dailyCalls, startYMD) {
+  var out = {
+    fishers: { total: 0, answered: 0 },
+    bloomington: { total: 0, answered: 0 },
+    indianapolis: { total: 0, answered: 0 },
+  };
   if (!dailyCalls) return out;
   dailyCalls.forEach(function(d) {
     if (!d.date) return;
     var ymd = String(d.date).slice(0, 10);
     if (ymd < startYMD) return;
     STORE_KEYS.forEach(function(sk) {
-      out[sk] += d[sk + "_answered"] || 0;
+      out[sk].total += d[sk + "_total"] || 0;
+      out[sk].answered += d[sk + "_answered"] || 0;
     });
   });
   return out;
 }
+
+// Minimum total calls required for a store to be ranked by answer rate.
+// Below this threshold, the store is ranked by raw answered count (avoids
+// "5 calls, 100% answered" outranking "200 calls, 91% answered").
+var MIN_CALLS_FOR_RATE_RANK = 20;
 
 export default function ScreenRankings(props) {
   var store = props.store;
@@ -62,16 +73,35 @@ export default function ScreenRankings(props) {
   // ── Store rankings ───────────────────────────────────────────────
   var weekStart = startOfWeekYMD();
   var monthStart = startOfMonthYMD();
-  var weekStats = sumAnswered(dailyCalls, weekStart);
-  var monthStats = sumAnswered(dailyCalls, monthStart);
+  var weekStats = sumCalls(dailyCalls, weekStart);
+  var monthStats = sumCalls(dailyCalls, monthStart);
 
-  var rankStores = function(stats) {
-    var arr = STORE_KEYS.map(function(sk) { return { store: sk, value: stats[sk] }; });
-    arr.sort(function(a, b) { return b.value - a.value; });
+  // Compute rows with rate, then rank by rate.
+  // Stores below minimum call threshold get ranked last regardless of rate —
+  // prevents "1 call, 100%" outranking real performance.
+  var buildRanking = function(stats) {
+    var arr = STORE_KEYS.map(function(sk) {
+      var s = stats[sk];
+      var rate = s.total > 0 ? (s.answered / s.total) * 100 : null;
+      var qualified = s.total >= MIN_CALLS_FOR_RATE_RANK;
+      return {
+        store: sk,
+        total: s.total,
+        answered: s.answered,
+        rate: rate,
+        qualified: qualified,
+      };
+    });
+    arr.sort(function(a, b) {
+      if (a.qualified && !b.qualified) return -1;
+      if (!a.qualified && b.qualified) return 1;
+      if (a.qualified && b.qualified) return (b.rate || 0) - (a.rate || 0);
+      return (b.total || 0) - (a.total || 0); // both unqualified — sort by volume
+    });
     return arr;
   };
-  var weekRanked = rankStores(weekStats);
-  var monthRanked = rankStores(monthStats);
+  var weekRanked = buildRanking(weekStats);
+  var monthRanked = buildRanking(monthStats);
 
   // ── Employee rankings ─────────────────────────────────────────────
   var empScores = (scorecard && scorecard.employeeScores) || [];
@@ -91,8 +121,8 @@ export default function ScreenRankings(props) {
     <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "5fr 7fr", gap: "clamp(12px, 2vh, 24px)" }}>
       {/* ─── LEFT: Store rankings (stacked: this week + this month) ─── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 1.5vh, 16px)", minHeight: 0 }}>
-        <StoreRankPanel title="🏪 Stores · This Week" subtitle="Calls answered" ranked={weekRanked} highlightStore={store} />
-        <StoreRankPanel title="🏪 Stores · This Month" subtitle="Calls answered" ranked={monthRanked} highlightStore={store} />
+        <StoreRankPanel title="🏪 Stores · This Week" subtitle="Answer rate" ranked={weekRanked} highlightStore={store} />
+        <StoreRankPanel title="🏪 Stores · This Month" subtitle="Answer rate" ranked={monthRanked} highlightStore={store} />
       </div>
 
       {/* ─── RIGHT: Employee rankings (4 categories side by side) ─── */}
@@ -213,6 +243,12 @@ function StoreRankPanel(props) {
           var rowBg = isUs ? (STORE_COLORS[row.store] || "#7B2FFF") + "10" : "#F9FAFB";
           var rowBorder = isUs ? "2px solid " + (STORE_COLORS[row.store] || "#7B2FFF") : "1px solid #E5E7EB";
           var nameColor = isUs ? STORE_COLORS[row.store] : (idx === 0 ? "#1A2233" : "#6B7280");
+          // Color the rate using the same green/amber/red thresholds as the Daily screen
+          var rateColor;
+          if (!row.qualified || row.rate === null) rateColor = "#9CA3AF"; // gray for not-enough-data
+          else if (row.rate >= 85) rateColor = "#10B981";
+          else if (row.rate >= 70) rateColor = "#D97706";
+          else rateColor = "#DC2626";
           return (
             <div key={row.store} style={{
               display: "flex", alignItems: "center", gap: "clamp(8px, 1.5vw, 14px)",
@@ -223,14 +259,29 @@ function StoreRankPanel(props) {
               flex: 1,
               minHeight: 0,
             }}>
-              <div style={{ fontSize: "clamp(22px, 4vh, 36px)" }}>{medal}</div>
+              <div style={{ fontSize: "clamp(22px, 4vh, 36px)", flexShrink: 0 }}>{medal}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: "clamp(16px, 2.8vh, 26px)", fontWeight: 800, color: nameColor, display: "flex", alignItems: "center", gap: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                   {STORE_LABELS[row.store]}
                   {isUs && <span style={{ background: STORE_COLORS[row.store], color: "#FFFFFF", padding: "3px 9px", borderRadius: 999, fontSize: "clamp(9px, 1.2vh, 11px)", fontWeight: 800, letterSpacing: 1, flexShrink: 0 }}>YOU</span>}
                 </div>
+                <div style={{ fontSize: "clamp(11px, 1.5vh, 14px)", color: "#9CA3AF", marginTop: 2, fontWeight: 600 }}>
+                  {row.answered} of {row.total} answered
+                </div>
               </div>
-              <div style={{ fontSize: "clamp(26px, 4.5vh, 42px)", fontWeight: 900, color: idx === 0 ? "#1A2233" : "#6B7280", fontVariantNumeric: "tabular-nums" }}>{row.value}</div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                {row.rate === null || !row.qualified ? (
+                  <div>
+                    <div style={{ fontSize: "clamp(22px, 4vh, 36px)", fontWeight: 900, color: "#9CA3AF", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>—</div>
+                    <div style={{ fontSize: "clamp(9px, 1.2vh, 11px)", color: "#9CA3AF", marginTop: 2, fontWeight: 600 }}>Low volume</div>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 2, justifyContent: "flex-end", lineHeight: 1 }}>
+                    <div style={{ fontSize: "clamp(26px, 4.5vh, 42px)", fontWeight: 900, color: rateColor, fontVariantNumeric: "tabular-nums" }}>{Math.round(row.rate)}</div>
+                    <div style={{ fontSize: "clamp(14px, 2.2vh, 22px)", fontWeight: 700, color: rateColor }}>%</div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
