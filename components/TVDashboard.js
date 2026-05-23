@@ -30,6 +30,7 @@ export default function TVDashboard(props) {
   var [appointments, setAppointments] = useState(null);
   var [scorecard, setScorecard] = useState(null);
   var [advancedRepairs, setAdvancedRepairs] = useState(null);
+  var [advancedStoreStats, setAdvancedStoreStats] = useState(null);
   var [dataAge, setDataAge] = useState({ calls: null, appts: null, scores: null, advrep: null });
   var [error, setError] = useState(null);
   var [bootDone, setBootDone] = useState(false);
@@ -38,14 +39,34 @@ export default function TVDashboard(props) {
   var loadRef = useRef(null);
 
   // ── Data fetcher ─────────────────────────────────────────────────────
+  // Each fetch gets its own 12-sec timeout via AbortController.
+  // If a single endpoint is slow/hanging, it doesn't block the others.
+  function fetchWithTimeout(url, timeoutMs) {
+    var controller = new AbortController();
+    var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+    return fetch(url, { signal: controller.signal })
+      .then(function(r) { clearTimeout(timer); return r.json(); })
+      .catch(function(e) { clearTimeout(timer); throw e; });
+  }
+
   loadRef.current = async function() {
     try {
       var period = currentPeriod();
+      // Note: only fetch 15 days of call data. We only need:
+      //   - today (Daily screen)
+      //   - last 7 days (Rankings: This Week)
+      //   - month-to-date (Rankings: This Month — up to 31 days but we cap at 15 to avoid large payloads;
+      //     for the first 2 weeks of a month this is fine, for the last 2 weeks we'd undercount —
+      //     so the smarter approach is "max(15, days-since-month-start + 2)")
+      var d = new Date();
+      var daysSinceMonthStart = d.getDate(); // 1..31
+      var daysNeeded = Math.max(15, daysSinceMonthStart + 2);
       var results = await Promise.allSettled([
-        fetch("/api/dialpad/stored?days=35").then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/appointments?action=today&store=" + store).then(function(r) { return r.json(); }),
-        fetch("/api/dialpad/scorecard?period=" + period).then(function(r) { return r.json(); }),
-        fetch("/api/advanced-repairs?action=leaderboard&period=" + period).then(function(r) { return r.json(); }),
+        fetchWithTimeout("/api/dialpad/stored?days=" + daysNeeded, 12000),
+        fetchWithTimeout("/api/dialpad/appointments?action=today&store=" + store, 8000),
+        fetchWithTimeout("/api/dialpad/scorecard?period=" + period, 12000),
+        fetchWithTimeout("/api/advanced-repairs?action=public_leaderboard&period=" + period, 8000),
+        fetchWithTimeout("/api/advanced-repairs?action=store_stats&store=" + store + "&period=" + period, 8000),
       ]);
       var nowTs = Date.now();
       var newAge = Object.assign({}, dataAge);
@@ -65,12 +86,21 @@ export default function TVDashboard(props) {
         setAdvancedRepairs(results[3].value.leaderboard || []);
         newAge.advrep = nowTs;
       }
+      if (results[4].status === "fulfilled" && results[4].value.success) {
+        setAdvancedStoreStats(results[4].value);
+      }
       setDataAge(newAge);
-      setError(null);
+      // Count successes — if at least one fetch worked, we can show real data
+      var successCount = results.filter(function(r) {
+        return r.status === "fulfilled" && r.value && r.value.success;
+      }).length;
+      setError(successCount === 0 ? "All data sources timed out — retrying..." : null);
       setBootDone(true);
     } catch (e) {
-      setError(e.message);
-      // Don't blank the screen — keep showing last good data
+      // This should rarely fire since Promise.allSettled never rejects.
+      // But if currentPeriod() or something else throws, we still need to escape loading.
+      setError(e.message || "Failed to load");
+      setBootDone(true);
     }
   };
 
@@ -96,6 +126,7 @@ export default function TVDashboard(props) {
         <div style={{ textAlign: "center" }}>
           <div style={{ fontSize: 48, marginBottom: 16 }}>📺</div>
           <div>Loading {storeName} dashboard...</div>
+          <div style={{ fontSize: 14, marginTop: 12, color: "#9CA3AF" }}>Fetching call data, appointments, and rankings</div>
         </div>
       </div>
     );
@@ -134,7 +165,7 @@ export default function TVDashboard(props) {
           opacity: screenIdx === 0 ? 1 : 0,
           pointerEvents: screenIdx === 0 ? "auto" : "none",
         })}>
-          <ScreenDaily store={store} storeName={storeName} dailyCalls={dailyCalls} appointments={appointments} advancedRepairs={advancedRepairs} />
+          <ScreenDaily store={store} storeName={storeName} dailyCalls={dailyCalls} appointments={appointments} advancedRepairs={advancedRepairs} advancedStoreStats={advancedStoreStats} />
         </div>
         {/* Rankings screen */}
         <div style={Object.assign({}, screenStyle, {
