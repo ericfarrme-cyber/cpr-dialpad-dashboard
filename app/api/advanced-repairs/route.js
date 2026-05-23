@@ -215,7 +215,10 @@ export async function GET(request) {
     }
 
     // ─── LEADERBOARD: same as commissions but trimmed for /appointments widget ───
-    if (action === "leaderboard") {
+    if (action === "leaderboard" || action === "public_leaderboard") {
+      // public_leaderboard hides overhead earnings entirely — for employee-facing widget.
+      // leaderboard includes overhead breakdown — for admin views.
+      var hideOverhead = (action === "public_leaderboard");
       var period = searchParams.get("period");
       if (!period) {
         var now = new Date();
@@ -237,25 +240,41 @@ export async function GET(request) {
         .lt("date_closed", end);
       if (error) return NextResponse.json({ success: false, error: error.message });
 
+      // Helper: find existing key for this employee using namesMatch, so "Duncan"
+      // and "Duncan Hitti" collapse into one row regardless of name variation.
       var byEmployee = {};
+      function findKeyFor(empName) {
+        var keys = Object.keys(byEmployee);
+        for (var i = 0; i < keys.length; i++) {
+          if (namesMatch(keys[i], empName)) return keys[i];
+        }
+        return null;
+      }
+
       (data || []).forEach(function(r) {
         var lines = commissionFor(r);
         lines.forEach(function(line) {
-          if (!byEmployee[line.employee]) {
-            byEmployee[line.employee] = { employee: line.employee, repairs: 0, profit: 0, commission: 0 };
+          // Skip overhead in public_leaderboard mode — employees shouldn't see it
+          if (hideOverhead && line.role === "overhead") return;
+          var key = findKeyFor(line.employee) || line.employee;
+          if (!byEmployee[key]) {
+            byEmployee[key] = { employee: key, repairs: 0, profit: 0, commission: 0 };
           }
           if (line.role === "primary") {
-            byEmployee[line.employee].repairs += 1;
-            byEmployee[line.employee].profit += parseFloat(r.profit || 0);
+            byEmployee[key].repairs += 1;
+            byEmployee[key].profit += parseFloat(r.profit || 0);
           }
-          byEmployee[line.employee].commission += line.amount;
+          byEmployee[key].commission += line.amount;
         });
       });
       Object.keys(byEmployee).forEach(function(k) {
         byEmployee[k].profit = Math.round(byEmployee[k].profit * 100) / 100;
         byEmployee[k].commission = Math.round(byEmployee[k].commission * 100) / 100;
       });
-      var ranked = Object.values(byEmployee).sort(function(a, b) { return b.commission - a.commission; });
+      // Filter out employees with zero earnings in public mode (Duncan with no own work shouldn't show)
+      var rankedRaw = Object.values(byEmployee);
+      if (hideOverhead) rankedRaw = rankedRaw.filter(function(e) { return e.commission > 0 || e.repairs > 0; });
+      var ranked = rankedRaw.sort(function(a, b) { return b.commission - a.commission; });
       return NextResponse.json({ success: true, period: period, leaderboard: ranked });
     }
 
@@ -263,15 +282,91 @@ export async function GET(request) {
     if (action === "open_at_store") {
       var store = searchParams.get("store");
       if (!store) return NextResponse.json({ success: false, error: "store required" });
+      // Filter by origin_store — these are this store's customers' devices,
+      // regardless of where they currently sit (e.g. sent to Duncan in Indy).
       var { data, error } = await supabase
         .from("advanced_repairs")
         .select("*")
-        .or("origin_store.eq." + store + ",current_location.eq." + store)
+        .eq("origin_store", store)
         .in("status", ["open", "in_transit", "repaired"])
-        .order("ticket_created_date", { ascending: false })
+        .order("ticket_created_date", { ascending: true }) // oldest first — they need attention most
         .limit(50);
       if (error) return NextResponse.json({ success: false, error: error.message });
-      return NextResponse.json({ success: true, repairs: data || [] });
+      // Annotate each repair with days_in_queue (today minus ticket_created_date)
+      var todayMs = Date.now();
+      var enriched = (data || []).map(function(r) {
+        var daysInQueue = null;
+        if (r.ticket_created_date) {
+          var created = new Date(r.ticket_created_date).getTime();
+          if (!isNaN(created)) {
+            daysInQueue = Math.max(0, Math.floor((todayMs - created) / (1000 * 60 * 60 * 24)));
+          }
+        }
+        return Object.assign({}, r, { days_in_queue: daysInQueue });
+      });
+      return NextResponse.json({ success: true, repairs: enriched });
+    }
+
+    // ─── STORE STATS: aggregate metrics for one store's advanced repair widget ───
+    // Returns: avg turnaround days (closed this month at store), open count, etc.
+    if (action === "store_stats") {
+      var store = searchParams.get("store");
+      if (!store) return NextResponse.json({ success: false, error: "store required" });
+      var period = searchParams.get("period");
+      if (!period) {
+        var nowS = new Date();
+        period = nowS.getFullYear() + "-" + String(nowS.getMonth() + 1).padStart(2, "0");
+      }
+      var partsS = period.split("-");
+      var yearS = parseInt(partsS[0]);
+      var monthS = parseInt(partsS[1]);
+      var startS = yearS + "-" + String(monthS).padStart(2, "0") + "-01";
+      var endMonthS = monthS === 12 ? 1 : monthS + 1;
+      var endYearS = monthS === 12 ? yearS + 1 : yearS;
+      var endS = endYearS + "-" + String(endMonthS).padStart(2, "0") + "-01";
+
+      // Closed-this-month at this store — for avg turnaround
+      var closedRes = await supabase
+        .from("advanced_repairs")
+        .select("ticket_created_date, date_completed, date_closed, status")
+        .eq("origin_store", store)
+        .eq("status", "closed")
+        .gte("date_closed", startS)
+        .lt("date_closed", endS);
+      if (closedRes.error) return NextResponse.json({ success: false, error: closedRes.error.message });
+
+      // Compute average turnaround: intake → date_completed (NOT date_closed)
+      var turnaroundDays = [];
+      (closedRes.data || []).forEach(function(r) {
+        if (!r.ticket_created_date || !r.date_completed) return;
+        var start = new Date(r.ticket_created_date).getTime();
+        var done = new Date(r.date_completed).getTime();
+        if (isNaN(start) || isNaN(done) || done < start) return;
+        turnaroundDays.push((done - start) / (1000 * 60 * 60 * 24));
+      });
+      var avgTurnaround = null;
+      if (turnaroundDays.length > 0) {
+        var sum = turnaroundDays.reduce(function(a, b) { return a + b; }, 0);
+        avgTurnaround = Math.round((sum / turnaroundDays.length) * 10) / 10;
+      }
+
+      // Open count at store (any status that's not closed/nonrepairable, originated at this store)
+      var openRes = await supabase
+        .from("advanced_repairs")
+        .select("id", { count: "exact", head: true })
+        .eq("origin_store", store)
+        .in("status", ["open", "in_transit", "repaired"]);
+      var openCount = openRes.count || 0;
+
+      return NextResponse.json({
+        success: true,
+        store: store,
+        period: period,
+        avg_turnaround_days: avgTurnaround,
+        turnaround_sample_size: turnaroundDays.length,
+        closed_this_month: (closedRes.data || []).length,
+        open_count: openCount,
+      });
     }
 
     // ─── MY COMMISSION: a single employee's earnings for the period ───
