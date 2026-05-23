@@ -40,6 +40,7 @@ export default function ScreenDaily(props) {
   var dailyCalls = props.dailyCalls || [];
   var appointments = props.appointments || [];
   var advancedRepairs = props.advancedRepairs || [];
+  var advancedStoreStats = props.advancedStoreStats || null;
 
   // ── Today's call stats — find last entry in dailyCalls ─────────────
   var today = dailyCalls.length > 0 ? dailyCalls[dailyCalls.length - 1] : null;
@@ -148,7 +149,16 @@ export default function ScreenDaily(props) {
       {/* ─── BOTTOM RIGHT: Advanced Repairs ─── */}
       <Panel accent="#D97706">
         <PanelLabel color="#D97706">🔧 Advanced Repairs This Month</PanelLabel>
-        <BigNumber value={totalAdvancedRepairsClosedThisMonth} color="#1A2233" suffix=" closed" />
+        <div style={{ display: "flex", alignItems: "baseline", gap: "clamp(12px, 2vw, 24px)", flexWrap: "wrap", lineHeight: 1 }}>
+          <BigNumber value={totalAdvancedRepairsClosedThisMonth} color="#1A2233" suffix=" closed" />
+          {advancedStoreStats && advancedStoreStats.avg_turnaround_days !== null && advancedStoreStats.avg_turnaround_days !== undefined && (
+            <div style={{ display: "flex", alignItems: "baseline", gap: 4, color: "#7B2FFF" }}>
+              <div style={{ fontSize: "clamp(16px, 2.6vh, 28px)" }}>{"\u23F1"}</div>
+              <div style={{ fontSize: "clamp(28px, 5vh, 56px)", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{advancedStoreStats.avg_turnaround_days}</div>
+              <div style={{ fontSize: "clamp(12px, 1.8vh, 18px)", fontWeight: 600, color: "#6B7280" }}>day{advancedStoreStats.avg_turnaround_days === 1 ? "" : "s"} avg turnaround</div>
+            </div>
+          )}
+        </div>
         {advancedRepairs.length > 0 ? (
           <div style={{ marginTop: "clamp(8px, 1.5vh, 16px)", display: "flex", flexDirection: "column", gap: 8 }}>
             <div style={{ fontSize: "clamp(11px, 1.5vh, 14px)", color: "#D97706", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>Top Earner This Month</div>
