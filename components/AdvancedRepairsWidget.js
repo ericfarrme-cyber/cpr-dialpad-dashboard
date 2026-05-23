@@ -24,6 +24,9 @@ function fmt(n) {
 function fmtShort(n) {
   var v = parseFloat(n || 0);
   if (v >= 1000) return "$" + (v / 1000).toFixed(1) + "k";
+  // For amounts under $100, show cents to avoid losing accuracy
+  // (e.g. $10.37 was rounding to $10, looked like a data error)
+  if (v < 100) return "$" + v.toFixed(2);
   return "$" + Math.round(v);
 }
 
@@ -52,6 +55,7 @@ export default function AdvancedRepairsWidget(props) {
   var [leaderboard, setLeaderboard] = useState([]);
   var [openRepairs, setOpenRepairs] = useState([]);
   var [myCommission, setMyCommission] = useState(null);
+  var [storeStats, setStoreStats] = useState(null);
   var [loading, setLoading] = useState(true);
   var [showForm, setShowForm] = useState(false);
   var [editingRepair, setEditingRepair] = useState(null);
@@ -61,8 +65,10 @@ export default function AdvancedRepairsWidget(props) {
     setLoading(true);
     try {
       var calls = [
-        fetch("/api/advanced-repairs?action=leaderboard").then(function(r) { return r.json(); }),
+        // public_leaderboard hides Duncan's overhead so employees don't see he earns from their work
+        fetch("/api/advanced-repairs?action=public_leaderboard").then(function(r) { return r.json(); }),
         fetch("/api/advanced-repairs?action=open_at_store&store=" + store).then(function(r) { return r.json(); }),
+        fetch("/api/advanced-repairs?action=store_stats&store=" + store).then(function(r) { return r.json(); }),
       ];
       if (employee) {
         calls.push(fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(employee)).then(function(r) { return r.json(); }));
@@ -70,7 +76,8 @@ export default function AdvancedRepairsWidget(props) {
       var results = await Promise.all(calls);
       if (results[0] && results[0].success) setLeaderboard(results[0].leaderboard || []);
       if (results[1] && results[1].success) setOpenRepairs(results[1].repairs || []);
-      if (employee && results[2] && results[2].success) setMyCommission(results[2]);
+      if (results[2] && results[2].success) setStoreStats(results[2]);
+      if (employee && results[3] && results[3].success) setMyCommission(results[3]);
     } catch (e) { /* fail silent — supplemental widget */ }
     setLoading(false);
   };
@@ -257,15 +264,42 @@ export default function AdvancedRepairsWidget(props) {
             <span>{"\uD83D\uDD04"} Open at {storeLabel(store)}</span>
             <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 600 }}>{openRepairs.length} active</span>
           </div>
+
+          {/* Stats line: avg turnaround for closed this month at this store */}
+          {storeStats && storeStats.avg_turnaround_days !== null && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 10px", marginBottom: 10,
+              background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6,
+              fontSize: 11, color: "var(--text-muted)",
+            }}>
+              <span style={{ color: "#7B2FFF" }}>{"\u23F1"}</span>
+              <span>
+                Avg turnaround: <strong style={{ color: "var(--text-primary)" }}>{storeStats.avg_turnaround_days} day{storeStats.avg_turnaround_days === 1 ? "" : "s"}</strong>
+                {storeStats.turnaround_sample_size > 0 && (
+                  <span style={{ color: "var(--text-muted)" }}> · across {storeStats.turnaround_sample_size} repair{storeStats.turnaround_sample_size === 1 ? "" : "s"} closed this month</span>
+                )}
+              </span>
+            </div>
+          )}
+
           {openRepairs.length === 0 ? (
             <div style={{ color: "var(--text-muted)", fontSize: 12, padding: "16px 0", textAlign: "center" }}>
               No active advanced repairs at this store.
             </div>
           ) : (
             <div>
-              {openRepairs.slice(0, 6).map(function(r, idx) {
+              {openRepairs.slice(0, 3).map(function(r, idx) {
                 var statusColor = r.status === "open" ? "var(--text-muted)" : r.status === "in_transit" ? "#00D4FF" : "#7B2FFF";
                 var editable = canEdit(r);
+                // Queue age color: amber after 5 days, red after 10
+                var daysInQueue = r.days_in_queue;
+                var ageColor = "var(--text-muted)";
+                if (daysInQueue !== null && daysInQueue !== undefined) {
+                  if (daysInQueue >= 10) ageColor = "#DC2626";
+                  else if (daysInQueue >= 5) ageColor = "#D97706";
+                  else ageColor = "var(--text-muted)";
+                }
                 return (
                   <div key={r.id}
                     onClick={editable ? function() { setEditingRepair(r); setShowForm(true); } : undefined}
@@ -284,7 +318,11 @@ export default function AdvancedRepairsWidget(props) {
                         {r.device_repair || "—"}
                       </div>
                       {editable && <span style={{ color: "var(--text-muted)", fontSize: 10 }}>✏️</span>}
-                      <div style={{ color: "var(--text-muted)", fontSize: 10 }}>{fmtDate(r.ticket_created_date)}</div>
+                      {daysInQueue !== null && daysInQueue !== undefined && (
+                        <div style={{ color: ageColor, fontSize: 10, fontWeight: 700, whiteSpace: "nowrap" }}>
+                          {daysInQueue === 0 ? "Today" : daysInQueue + "d in queue"}
+                        </div>
+                      )}
                     </div>
                     <div style={{ color: "var(--text-muted)", fontSize: 11, paddingLeft: 4 }}>
                       {r.customer_name || "Unknown"}
@@ -296,9 +334,9 @@ export default function AdvancedRepairsWidget(props) {
                   </div>
                 );
               })}
-              {openRepairs.length > 6 && (
-                <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 10, paddingTop: 8 }}>
-                  +{openRepairs.length - 6} more
+              {openRepairs.length > 3 && (
+                <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: 10, paddingTop: 8, fontStyle: "italic" }}>
+                  +{openRepairs.length - 3} newer {openRepairs.length - 3 === 1 ? "repair" : "repairs"} in queue
                 </div>
               )}
             </div>
