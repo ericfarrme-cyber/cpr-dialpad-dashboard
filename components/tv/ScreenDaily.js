@@ -44,11 +44,12 @@ export default function ScreenDaily(props) {
 
   // ── Today's call stats — find last entry in dailyCalls ─────────────
   var today = dailyCalls.length > 0 ? dailyCalls[dailyCalls.length - 1] : null;
-  var totalCalls = 0, answered = 0, missed = 0;
+  var totalCalls = 0, answered = 0, missed = 0, afterHoursMissed = 0;
   if (today) {
     totalCalls = today[store + "_total"] || 0;
     answered = today[store + "_answered"] || 0;
     missed = Math.max(0, totalCalls - answered);
+    afterHoursMissed = today[store + "_after_hours_missed"] || 0;
   }
   var answerRate = totalCalls > 0 ? Math.round((answered / totalCalls) * 100) : null;
 
@@ -92,6 +93,9 @@ export default function ScreenDaily(props) {
         <div style={{ display: "flex", gap: "clamp(20px, 3vw, 36px)", marginTop: "clamp(10px, 2vh, 20px)" }}>
           <Stat label="Answered" value={answered} color="#10B981" />
           <Stat label="Missed" value={missed} color={missed > 0 ? "#DC2626" : "#9CA3AF"} />
+          {afterHoursMissed > 0 ? (
+            <Stat label="After-hours" value={afterHoursMissed} color="#9CA3AF" />
+          ) : null}
         </div>
       </Panel>
 
