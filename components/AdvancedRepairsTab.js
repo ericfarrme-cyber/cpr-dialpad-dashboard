@@ -125,6 +125,33 @@ export default function AdvancedRepairsTab() {
     } catch (e) { setMsg({ type: "error", text: e.message }); }
   };
 
+  var [syncing, setSyncing] = useState(false);
+  var syncAll = async function() {
+    setMsg(null);
+    setSyncing(true);
+    try {
+      var res = await fetch("/api/advanced-repairs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reconcile_all" }),
+      });
+      var d = await res.json();
+      if (d.success) {
+        var s = d.summary || {};
+        var parts = [];
+        if (s.auto_closed) parts.push(s.auto_closed + " closed");
+        if (s.reconciled) parts.push(s.reconciled + " updated from RepairQ");
+        if (s.no_match) parts.push(s.no_match + " awaiting RepairQ match");
+        var txt = "Synced " + (s.scanned || 0) + " open repair" + ((s.scanned === 1) ? "" : "s") + (parts.length ? ": " + parts.join(", ") : " — nothing to update") + ".";
+        setMsg({ type: (s.auto_closed ? "success" : "info"), text: txt });
+        load();
+      } else {
+        setMsg({ type: "error", text: d.error || "Sync failed" });
+      }
+    } catch (e) { setMsg({ type: "error", text: e.message }); }
+    setSyncing(false);
+  };
+
   var exportCSV = function() {
     var headers = ["Ticket #", "Date Created", "Customer", "Device/Repair", "Origin", "Current Loc", "Repaired By", "Status", "Price", "Profit", "Bench Fee", "Date Closed", "Notes"];
     var rows = filtered.map(function(r) {
@@ -176,6 +203,10 @@ export default function AdvancedRepairsTab() {
           <button onClick={function() { setEditing("new"); }}
             style={{ background: PINK, color: "#fff", border: "none", padding: "9px 18px", borderRadius: 6, fontWeight: 700, cursor: "pointer", fontSize: 12 }}>
             + Log Advanced Repair
+          </button>
+          <button onClick={syncAll} disabled={syncing}
+            style={{ background: syncing ? "#1A1D23" : "#12141A", color: syncing ? "#6B6F78" : "#00D4FF", border: "1px solid #00D4FF44", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: syncing ? "default" : "pointer", fontSize: 12 }}>
+            {syncing ? "Syncing\u2026" : "\uD83D\uDD04 Sync All from RepairQ"}
           </button>
           <button onClick={exportCSV}
             style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
