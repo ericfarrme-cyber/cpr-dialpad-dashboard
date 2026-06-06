@@ -41,6 +41,27 @@ export default function ScreenDaily(props) {
   var appointments = props.appointments || [];
   var advancedRepairs = props.advancedRepairs || [];
   var advancedStoreStats = props.advancedStoreStats || null;
+  var bonusData = props.bonusData || null;
+
+  // ── Month answer-rate bonus for THIS store ─────────────────────────
+  // bonusData is calendar-month scoped (separate from today's rate above).
+  // Tiers: >=90% $100, >=85% $75, >=80% $50, else $0. Highest tier only.
+  var bonusStore = null;
+  if (bonusData && bonusData.stores) {
+    bonusStore = bonusData.stores.find(function(s) { return s.store === store; }) || null;
+  }
+  var monthRate = bonusStore && bonusStore.answer_rate !== null && bonusStore.answer_rate !== undefined ? bonusStore.answer_rate : null;
+  var monthBonus = bonusStore ? (bonusStore.per_employee_bonus || 0) : 0;
+  // Next threshold to chase (for the "X% away from $Y" nudge).
+  var bonusTiers = (bonusData && bonusData.tiers) ? bonusData.tiers : [{ min: 90, amount: 100 }, { min: 85, amount: 75 }, { min: 80, amount: 50 }];
+  var nextTier = null;
+  if (monthRate !== null) {
+    // tiers are stored high->low; find the lowest tier still above current rate
+    var ascending = bonusTiers.slice().sort(function(a, b) { return a.min - b.min; });
+    for (var ti = 0; ti < ascending.length; ti++) {
+      if (monthRate < ascending[ti].min) { nextTier = ascending[ti]; break; }
+    }
+  }
 
   // ── Today's call stats — find last entry in dailyCalls ─────────────
   var today = dailyCalls.length > 0 ? dailyCalls[dailyCalls.length - 1] : null;
@@ -116,6 +137,36 @@ export default function ScreenDaily(props) {
             answerRate >= 70 ? "Solid — keep pushing" :
             "Pick up the phones! 📞"}
         </div>
+
+        {/* ── Monthly answer-rate bonus indicator ── */}
+        {bonusStore && (
+          <div style={{ marginTop: "clamp(10px, 2vh, 18px)", paddingTop: "clamp(10px, 1.5vh, 16px)", borderTop: "1px solid #E5E7EB" }}>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#7B2FFF", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
+                {"\uD83D\uDCB5 This Month's Bonus"}
+              </div>
+              <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#9CA3AF" }}>
+                {monthRate !== null ? monthRate.toFixed(0) + "% open-hours rate" : "no data yet"}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+              <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, color: monthBonus > 0 ? "#10B981" : "#9CA3AF", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+                {"$" + monthBonus}
+              </div>
+              <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>/ person</div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280" }}>
+              {monthBonus === 0 && nextTier
+                ? "Hit " + nextTier.min + "% \u2192 $" + nextTier.amount + " each"
+                : nextTier
+                  ? "Reach " + nextTier.min + "% \u2192 bump to $" + nextTier.amount + " each"
+                  : monthBonus > 0
+                    ? "Top tier locked in \uD83D\uDD25"
+                    : "Hit 80% \u2192 $50 each"}
+            </div>
+            <BonusTrack rate={monthRate} tiers={bonusTiers} />
+          </div>
+        )}
       </Panel>
 
       {/* ─── BOTTOM LEFT: Next Appointments ─── */}
@@ -182,6 +233,36 @@ export default function ScreenDaily(props) {
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
+function BonusTrack(props) {
+  var rate = props.rate;
+  // Track spans 70%..95% so the 80/85/90 thresholds sit nicely in view.
+  var lo = 70, hi = 95;
+  var clamp = function(v) { return Math.max(0, Math.min(100, v)); };
+  var pct = rate === null || rate === undefined ? 0 : clamp(((rate - lo) / (hi - lo)) * 100);
+  var marks = (props.tiers || []).slice().sort(function(a, b) { return a.min - b.min; });
+  var fillColor = rate >= 90 ? "#10B981" : rate >= 85 ? "#059669" : rate >= 80 ? "#7B2FFF" : "#9CA3AF";
+  return (
+    <div style={{ marginTop: "clamp(8px, 1.5vh, 14px)" }}>
+      <div style={{ position: "relative", background: "#F0F1F3", borderRadius: 6, height: "clamp(8px, 1.4vh, 12px)", overflow: "hidden" }}>
+        <div style={{ width: pct + "%", height: "100%", borderRadius: 6, background: fillColor, transition: "width 0.4s ease" }} />
+      </div>
+      <div style={{ position: "relative", height: "clamp(16px, 2.2vh, 22px)", marginTop: 2 }}>
+        {marks.map(function(m, i) {
+          var left = ((m.min - lo) / (hi - lo)) * 100;
+          var hit = rate !== null && rate !== undefined && rate >= m.min;
+          return (
+            <div key={i} style={{ position: "absolute", left: left + "%", transform: "translateX(-50%)", textAlign: "center" }}>
+              <div style={{ fontSize: "clamp(9px, 1.2vh, 12px)", fontWeight: 700, color: hit ? "#10B981" : "#9CA3AF", whiteSpace: "nowrap" }}>
+                {m.min + "%"}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Panel(props) {
   return (
     <div style={{
