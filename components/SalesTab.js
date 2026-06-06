@@ -61,6 +61,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     var now = new Date();
     return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
   });
+  var [bonusPayout, setBonusPayout] = useState(null);
 
   var loadData = async function(p) {
     setLoading(true);
@@ -89,6 +90,13 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       var cRes = await fetch("/api/dialpad/sales?action=commission_config");
       var cJson = await cRes.json();
       if (cJson.success) setConfig(cJson.config || []);
+    } catch(e) {}
+
+    // Answer-rate bonus payout for this period (admin payroll view).
+    try {
+      var brRes = await fetch("/api/dialpad/answer-rate-bonus?month=" + (p || currentPeriod));
+      var brJson = await brRes.json();
+      if (brJson.success) setBonusPayout(brJson);
     } catch(e) {}
 
     setLoading(false);
@@ -353,6 +361,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       { id: "leaderboard", label: "Leaderboard", icon: "\uD83C\uDFC6" },
       { id: "upload", label: "Import Data", icon: "\uD83D\uDCE4" },
       { id: "commissions", label: "Commission Config", icon: "\u2699\uFE0F" },
+      { id: "answer_bonus", label: "Answer-Rate Bonus", icon: "\uD83D\uDCDE" },
     ];
 
   // Filter to single employee for employee view
@@ -858,6 +867,87 @@ export default function SalesTab({ viewAs, viewEmployee }) {
             })}
             {config.length === 0 && <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No commission config found. Run the SQL migration first.</div>}
           </div>
+        </div>
+      )}
+
+      {view === "answer_bonus" && (
+        <div>
+          <div style={{ marginBottom:16 }}>
+            <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCDE"} Answer-Rate Bonus Payout</div>
+            <div style={{ color:"#8B8F98",fontSize:12 }}>
+              Flat per-employee bonus by store, based on the store's open-hours answer rate this month. Standalone — not part of weighted commission. Tiers: 80% = $50, 85% = $75, 90% = $100 (highest tier only). Each employee is assigned to the store where they worked the most hours this month.
+            </div>
+          </div>
+
+          {!bonusPayout && (
+            <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>Loading bonus data…</div>
+          )}
+
+          {bonusPayout && (
+            <div>
+              {/* Per-store rate + tier */}
+              <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20 }}>
+                {(bonusPayout.stores || []).map(function(s) {
+                  var nm = s.store.charAt(0).toUpperCase() + s.store.slice(1);
+                  var rateColor = s.per_employee_bonus >= 100 ? "#10B981" : s.per_employee_bonus >= 75 ? "#059669" : s.per_employee_bonus >= 50 ? "#7B2FFF" : "#9CA3AF";
+                  return (
+                    <div key={s.store} style={{ background:"#1A1D23",borderRadius:12,padding:16,border:"1px solid #2A2D35" }}>
+                      <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700,marginBottom:8 }}>{nm}</div>
+                      <div style={{ display:"flex",alignItems:"baseline",gap:6 }}>
+                        <span style={{ color:rateColor,fontSize:26,fontWeight:800 }}>{s.answer_rate !== null && s.answer_rate !== undefined ? s.answer_rate.toFixed(0) + "%" : "—"}</span>
+                        <span style={{ color:"#6B6F78",fontSize:11 }}>open-hours rate</span>
+                      </div>
+                      <div style={{ marginTop:8,color:s.per_employee_bonus>0?"#10B981":"#6B6F78",fontSize:15,fontWeight:700 }}>
+                        {"$" + s.per_employee_bonus} / employee
+                      </div>
+                      <div style={{ color:"#6B6F78",fontSize:10,marginTop:4 }}>
+                        {s.answered} answered &middot; {s.open_missed} missed (open hrs){s.after_hours_missed > 0 ? " · " + s.after_hours_missed + " after-hours excluded" : ""}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Per-employee payout table */}
+              <div style={{ background:"#1A1D23",borderRadius:12,border:"1px solid #2A2D35",overflow:"hidden" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderBottom:"1px solid #2A2D35" }}>
+                  <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>Per-Employee Payout</div>
+                  <div style={{ color:"#10B981",fontSize:14,fontWeight:800 }}>
+                    Total: {"$" + ((bonusPayout.totals && bonusPayout.totals.total_payout) || 0)}
+                    <span style={{ color:"#6B6F78",fontSize:11,fontWeight:500,marginLeft:8 }}>
+                      ({(bonusPayout.totals && bonusPayout.totals.employee_count) || 0} employees)
+                    </span>
+                  </div>
+                </div>
+                <table style={{ width:"100%",borderCollapse:"collapse" }}>
+                  <thead>
+                    <tr style={{ background:"#12141A" }}>
+                      <th style={{ textAlign:"left",padding:"9px 16px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Employee</th>
+                      <th style={{ textAlign:"left",padding:"9px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Assigned Store</th>
+                      <th style={{ textAlign:"right",padding:"9px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Hours</th>
+                      <th style={{ textAlign:"right",padding:"9px 16px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Bonus</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(bonusPayout.employees || []).map(function(e, i) {
+                      var nm = e.assigned_store ? e.assigned_store.charAt(0).toUpperCase() + e.assigned_store.slice(1) : "—";
+                      return (
+                        <tr key={i} style={{ borderTop:"1px solid #2A2D35" }}>
+                          <td style={{ padding:"9px 16px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{e.employee}</td>
+                          <td style={{ padding:"9px 12px",color:"#C8CAD0",fontSize:12 }}>{nm}</td>
+                          <td style={{ padding:"9px 12px",textAlign:"right",color:"#8B8F98",fontSize:12 }}>{e.assigned_hours}</td>
+                          <td style={{ padding:"9px 16px",textAlign:"right",color:e.bonus>0?"#10B981":"#6B6F78",fontSize:14,fontWeight:700 }}>{"$" + e.bonus}</td>
+                        </tr>
+                      );
+                    })}
+                    {(bonusPayout.employees || []).length === 0 && (
+                      <tr><td colSpan={4} style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No employees with logged hours this month yet.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
