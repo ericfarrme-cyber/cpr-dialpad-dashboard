@@ -312,11 +312,87 @@ export async function GET(request) {
         }
       }
 
-      console.log("[wheniwork] Synced " + inserted + " shifts (" + errors + " errors)");
+      // ─── ORPHAN CLEANUP ───
+      // WhenIWork sometimes DELETES a shift and RECREATES it with a new
+      // shift_id (e.g. on a position change or schedule edit). The upsert
+      // above (onConflict: shift_id) can't match the old row, so it inserts a
+      // NEW row and leaves the OLD one orphaned — producing two rows for the
+      // same (user_id, date) and inflating hours.
+      //
+      // Fix: WhenIWork is the source of truth for the synced window. For every
+      // (user_id, date) WhenIWork returned, the ONLY valid shift_id(s) are the
+      // ones in this pull. Delete any stored row for those same (user_id, date)
+      // keys whose shift_id is NOT in the current pull.
+      //
+      // Scoped strictly to (user_id, date) pairs present in this pull, so
+      // historical shifts outside the window are never touched.
+      var orphansDeleted = 0;
+      try {
+        // Map user_id -> Set(dates) and (user_id|date) -> Set(valid shift_ids)
+        var validByKey = {};   // "user_id|date" -> [shift_id,...]
+        var datesByUser = {};  // user_id -> Set(date)
+        rows.forEach(function(r) {
+          var key = r.user_id + "|" + r.date;
+          if (!validByKey[key]) validByKey[key] = [];
+          validByKey[key].push(r.shift_id);
+          if (!datesByUser[r.user_id]) datesByUser[r.user_id] = {};
+          datesByUser[r.user_id][r.date] = true;
+        });
+
+        var userIds = Object.keys(datesByUser);
+        if (userIds.length > 0) {
+          // Pull stored rows for these users within the synced window only.
+          var { data: stored, error: selErr } = await getSupabase()
+            .from("employee_shifts")
+            .select("id, shift_id, user_id, date")
+            .in("user_id", userIds)
+            .gte("date", syncStart)
+            .lte("date", syncEnd)
+            .limit(5000);
+
+          if (selErr) {
+            console.error("[wheniwork] Orphan select error:", selErr.message);
+          } else {
+            var toDelete = [];
+            (stored || []).forEach(function(row) {
+              var key = row.user_id + "|" + row.date;
+              var valid = validByKey[key];
+              // Only consider (user_id, date) pairs WhenIWork actually returned.
+              // If WhenIWork returned this day for this user but NOT this
+              // shift_id, the stored row is an orphan from a recreated shift.
+              if (valid && valid.indexOf(String(row.shift_id)) === -1) {
+                toDelete.push(row.id);
+              }
+            });
+
+            for (var di = 0; di < toDelete.length; di += 50) {
+              var delBatch = toDelete.slice(di, di + 50);
+              var { error: delErr } = await getSupabase()
+                .from("employee_shifts")
+                .delete()
+                .in("id", delBatch);
+              if (delErr) {
+                console.error("[wheniwork] Orphan delete error:", delErr.message);
+              } else {
+                orphansDeleted += delBatch.length;
+              }
+            }
+            if (orphansDeleted > 0) {
+              console.log("[wheniwork] Removed " + orphansDeleted + " orphaned duplicate shift(s)");
+            }
+          }
+        }
+      } catch (cleanupErr) {
+        // Never let cleanup failure break the sync result.
+        console.error("[wheniwork] Orphan cleanup exception:", cleanupErr.message);
+      }
+
+      console.log("[wheniwork] Synced " + inserted + " shifts (" + errors + " errors, " + orphansDeleted + " orphans removed)");
       return jsonResponse({
         success: true,
         synced: inserted,
         errors: errors,
+        orphans_removed: orphansDeleted,
         total_from_wiw: rows.length,
         date_range: { start: syncStart, end: syncEnd },
       });
@@ -338,6 +414,35 @@ export async function GET(request) {
 
       var { data: shifts, error } = await query;
       if (error) return jsonResponse({ success: false, error: error.message });
+
+      // ─── DEFENSIVE DEDUP ───
+      // One shift per employee per day is the rule. If any duplicate rows
+      // still exist (e.g. a sync ran before the orphan-cleanup fix shipped),
+      // collapse them here so displayed hours are always correct: keep the
+      // row with the latest synced_at for each (user_id, date).
+      var bestByKey = {};
+      (shifts || []).forEach(function(s) {
+        var key = s.user_id + "|" + s.date;
+        var prev = bestByKey[key];
+        if (!prev) {
+          bestByKey[key] = s;
+        } else {
+          var a = s.synced_at || "";
+          var b = prev.synced_at || "";
+          // Latest synced_at wins; tie-break on higher id.
+          if (a > b || (a === b && (s.id || 0) > (prev.id || 0))) {
+            bestByKey[key] = s;
+          }
+        }
+      });
+      var dedupedShifts = Object.keys(bestByKey).map(function(k) { return bestByKey[k]; });
+      // Preserve original ordering (date asc, then start_time asc)
+      dedupedShifts.sort(function(a, b) {
+        if (a.date < b.date) return -1;
+        if (a.date > b.date) return 1;
+        return (a.start_time || "") < (b.start_time || "") ? -1 : 1;
+      });
+      shifts = dedupedShifts;
 
       // Also compute summary stats
       var byEmployee = {};
