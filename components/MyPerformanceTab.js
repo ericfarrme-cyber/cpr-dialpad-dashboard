@@ -1374,13 +1374,26 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* ═══════════════════════════════════════════════ */}
       {/* ═══ PAYCHECK (COMMISSIONS) ═══ */}
       {/* ═══════════════════════════════════════════════ */}
-      {subTab === "paycheck" && (
+      {subTab === "paycheck" && (() => {
+        // All-in total = base commission + advanced repair bonus + answer-rate bonus.
+        // Both bonuses are standalone (no multiplier). The headline and the Grand
+        // Total row reference THIS same value so they can never disagree.
+        var advExtra = (advancedRepair && advancedRepair.total_amount > 0) ? advancedRepair.total_amount : 0;
+        var arbExtra = (answerRateBonus && answerRateBonus.bonus > 0) ? answerRateBonus.bonus : 0;
+        var bonusExtras = advExtra + arbExtra;
+        var allInTotal = (commission ? commission.total : 0) + bonusExtras;
+        return (
         <div>
           <div style={{ ...card, marginBottom: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Estimated Commission This Period</div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{commission ? fmt(allInTotal) : "$0.00"}</div>
+                {commission && bonusExtras > 0 && (
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginTop: 4 }}>
+                    {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}
+                  </div>
+                )}
                 {commission && commission.hasData && commission.tierMultiplier > 1 && (
                   <div style={{ fontSize: 11, color: "#4ADE80", fontWeight: 700, marginTop: 4 }}>
                     {"\u2728"} Includes {commission.tierMultiplier}x {commission.tier} multiplier (+{fmt(commission.tierBonus)})
@@ -1520,21 +1533,18 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "#10B981", fontSize: 14, fontWeight: 700 }}>+{fmt(answerRateBonus.bonus)}</td>
                       </tr>
                     )}
-                    {/* Grand Total — includes advanced repair + answer-rate bonuses (both standalone) */}
+                    {/* Grand Total — uses the SAME shared bonusExtras/allInTotal as the headline */}
                     {(() => {
-                      var advAmt = (advancedRepair && advancedRepair.total_amount > 0) ? advancedRepair.total_amount : 0;
-                      var arbAmt = (answerRateBonus && answerRateBonus.bonus > 0) ? answerRateBonus.bonus : 0;
-                      var extras = advAmt + arbAmt;
-                      if (extras <= 0) return null;
+                      if (bonusExtras <= 0) return null;
                       var bits = [];
-                      if (advAmt > 0) bits.push("advanced repair");
-                      if (arbAmt > 0) bits.push("answer-rate bonus");
+                      if (advExtra > 0) bits.push("advanced repair");
+                      if (arbExtra > 0) bits.push("answer-rate bonus");
                       return (
                         <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
                           <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
                             Grand Total <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>(incl. {bits.join(" + ")})</span>
                           </td>
-                          <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(commission.total + extras)}</td>
+                          <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(allInTotal)}</td>
                         </tr>
                       );
                     })()}
@@ -1828,7 +1838,8 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════ */}
       {/* ═══ SCORECARD (DEEP DIVE) ═══ */}
