@@ -240,6 +240,7 @@ export default function MyPerformanceTab({ auth, store }) {
   // Advanced repair commission — from /api/advanced-repairs?action=my_commission
   // Counts in calibration mode initially; ALWAYS visible to employee since paid monthly
   var [advancedRepair, setAdvancedRepair] = useState(null);
+  var [answerRateBonus, setAnswerRateBonus] = useState(null);
   // Personal GP data (current period + prior period for comparison) — fetched from gp_leaderboard
   var [gpData, setGpData] = useState(null);
   // Manager → employee private coaching notes (delivered via Performance Command Center)
@@ -360,6 +361,7 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
         fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/answer-rate-bonus?month=" + activePeriod).then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -444,6 +446,24 @@ export default function MyPerformanceTab({ auth, store }) {
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
       if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
       if (results[9] && results[9].status === "fulfilled" && results[9].value.success) setAdvancedRepair(results[9].value);
+      // Answer-rate bonus (standalone, NOT part of weighted commission). Find this
+      // employee in the month's payout list via the same fuzzy name match.
+      if (results[10] && results[10].status === "fulfilled" && results[10].value.success) {
+        var brData = results[10].value;
+        var mine = (brData.employees || []).find(function(e) { return matchName(empName, e.employee); });
+        var myStoreRate = null;
+        if (mine && mine.assigned_store && brData.stores) {
+          var st = brData.stores.find(function(s) { return s.store === mine.assigned_store; });
+          if (st) myStoreRate = st.answer_rate;
+        }
+        setAnswerRateBonus({
+          bonus: mine ? (mine.bonus || 0) : 0,
+          assigned_store: mine ? mine.assigned_store : null,
+          answer_rate: myStoreRate,
+          tiers: brData.tiers || [],
+          found: !!mine,
+        });
+      }
 
       // Fetch private coaching notes from manager (separate, lightweight call — not in main batch
       // because notes are independent of period selection — they're always shown when present)
@@ -1483,14 +1503,41 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "#FBBF24", fontSize: 14, fontWeight: 700 }}>+{fmt(advancedRepair.total_amount)}</td>
                       </tr>
                     )}
-                    {advancedRepair && advancedRepair.total_amount > 0 && (
-                      <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
-                        <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
-                          Grand Total <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>(incl. advanced repair bonus)</span>
+                    {/* Answer-Rate Bonus — standalone, NOT part of weighted commission */}
+                    {answerRateBonus && answerRateBonus.bonus > 0 && (
+                      <tr style={{ borderTop: "1px solid var(--border)", background: "#10B98108" }}>
+                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
+                          {"\uD83D\uDCDE"} Answer-Rate Bonus <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500 }}>(no multiplier)</span>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
+                            {answerRateBonus.answer_rate !== null && answerRateBonus.answer_rate !== undefined
+                              ? "Store at " + answerRateBonus.answer_rate.toFixed(0) + "% open-hours answer rate this month"
+                              : "Based on store open-hours answer rate"}
+                          </div>
                         </td>
-                        <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(commission.total + advancedRepair.total_amount)}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>—</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>flat / store tier</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#10B981", fontSize: 14, fontWeight: 700 }}>+{fmt(answerRateBonus.bonus)}</td>
                       </tr>
                     )}
+                    {/* Grand Total — includes advanced repair + answer-rate bonuses (both standalone) */}
+                    {(() => {
+                      var advAmt = (advancedRepair && advancedRepair.total_amount > 0) ? advancedRepair.total_amount : 0;
+                      var arbAmt = (answerRateBonus && answerRateBonus.bonus > 0) ? answerRateBonus.bonus : 0;
+                      var extras = advAmt + arbAmt;
+                      if (extras <= 0) return null;
+                      var bits = [];
+                      if (advAmt > 0) bits.push("advanced repair");
+                      if (arbAmt > 0) bits.push("answer-rate bonus");
+                      return (
+                        <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
+                          <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
+                            Grand Total <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>(incl. {bits.join(" + ")})</span>
+                          </td>
+                          <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(commission.total + extras)}</td>
+                        </tr>
+                      );
+                    })()}
                   </tbody>
                 </table>
               </div>
