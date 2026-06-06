@@ -1234,16 +1234,17 @@ export default function DialpadDashboard() {
   }, [loadStoredData, loadLiveData]);
 
   var overviewStats = useMemo(function() {
-    var totals = {total:0,answered:0,missed:0};
+    var totals = {total:0,answered:0,missed:0,afterHoursMissed:0};
     var storeStats = {};
-    STORE_KEYS.forEach(function(s){storeStats[s]={total:0,answered:0,missed:0};});
+    STORE_KEYS.forEach(function(s){storeStats[s]={total:0,answered:0,missed:0,afterHoursMissed:0};});
     dailyCalls.forEach(function(d) {
       STORE_KEYS.forEach(function(s) {
         var t = d[s+"_total"]||0;
         var a = d[s+"_answered"]||0;
         var m = d[s+"_missed"]!==undefined ? d[s+"_missed"] : (t-a);
-        storeStats[s].total += t; storeStats[s].answered += a; storeStats[s].missed += m;
-        totals.total += t; totals.answered += a; totals.missed += m;
+        var ah = d[s+"_after_hours_missed"]||0;
+        storeStats[s].total += t; storeStats[s].answered += a; storeStats[s].missed += m; storeStats[s].afterHoursMissed += ah;
+        totals.total += t; totals.answered += a; totals.missed += m; totals.afterHoursMissed += ah;
       });
     });
     return {totals:totals, storeStats:storeStats};
