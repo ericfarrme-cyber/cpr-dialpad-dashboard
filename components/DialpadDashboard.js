@@ -23,6 +23,7 @@ import CoachingTab from "@/components/CoachingTab";
 import LeaderboardTab from "@/components/LeaderboardTab";
 import CallQualityTab from "@/components/CallQualityTab";
 import AdvancedRepairsTab from "@/components/AdvancedRepairsTab";
+import DailyProfitTab from "@/components/DailyProfitTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import {
   fetchLiveStats,
@@ -1359,6 +1360,7 @@ export default function DialpadDashboard() {
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
         {activeTab==="sales" && <SalesTab viewAs={effectiveRole} viewEmployee={previewEmployee} />}
+        {activeTab==="daily_profit" && <DailyProfitTab />}
         {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="insights" && <InsightsTab storeFilter={storeFilter} />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
