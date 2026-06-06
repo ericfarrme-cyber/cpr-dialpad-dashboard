@@ -110,6 +110,79 @@ async function tryReconcile(ticketNumber) {
   };
 }
 
+// ─── Reconcile a single repair row against ticket_grades ───
+// Shared by the single "reconcile" action and the batch "reconcile_all" action
+// so the auto-close guards stay identical in both paths.
+// `repair` is the full advanced_repairs row (must include status, commission_locked,
+// profit, price, repaired_by, device_repair, date_closed, ticket_number, id).
+// Returns { reconciled, status_auto_closed, repair (updated), source, note, error }.
+async function reconcileRepair(repair) {
+  if (!repair) return { reconciled: false, error: "repair not found" };
+  var match = await tryReconcile(repair.ticket_number);
+  if (!match) {
+    return { reconciled: false, message: "No matching ticket in ticket_grades yet." };
+  }
+
+  // Don't overwrite a manually-entered non-zero profit/price with a $0 from RepairQ.
+  var existingProfit = parseFloat(repair.profit || 0);
+  var matchedProfit = parseFloat(match.profit || 0);
+  var existingPrice = parseFloat(repair.price || 0);
+  var matchedPrice = parseFloat(match.price || 0);
+  var keepExistingProfit = existingProfit > 0 && matchedProfit === 0;
+  var keepExistingPrice = existingPrice > 0 && matchedPrice === 0;
+
+  var patch = {
+    reconciled_from_ticket: true,
+    reconciled_at: new Date().toISOString(),
+  };
+  if (!keepExistingPrice) patch.price = matchedPrice;
+  if (!keepExistingProfit) patch.profit = matchedProfit;
+  if (!repair.repaired_by && match.employee_repaired) patch.repaired_by = match.employee_repaired;
+  if (!repair.device_repair && match.device) patch.device_repair = match.device;
+  if (!repair.date_closed && match.date_closed) patch.date_closed = match.date_closed;
+
+  // ─── AUTO-CLOSE on sync ───
+  // In ticket_grades, a non-null date_closed proves RepairQ closed the ticket.
+  // Flip the advanced repair to "closed" so it shows correctly and pays commission
+  // (commission only counts status === "closed"). Guards:
+  //  - Only close when RepairQ actually has a close date.
+  //  - Never override "nonrepairable" (a tech's call — don't pay a repair commission).
+  //  - Skip if already "closed" (no-op) or commission_locked (paid period).
+  var statusAutoClosed = false;
+  if (
+    match.date_closed &&
+    !repair.commission_locked &&
+    repair.status !== "closed" &&
+    repair.status !== "nonrepairable"
+  ) {
+    patch.status = "closed";
+    statusAutoClosed = true;
+  }
+
+  var { data, error } = await supabase
+    .from("advanced_repairs")
+    .update(patch)
+    .eq("id", repair.id)
+    .select()
+    .single();
+  if (error) return { reconciled: false, error: error.message };
+
+  var note = null;
+  if (keepExistingProfit && keepExistingPrice) {
+    note = "RepairQ ticket found but has $0 price and profit (warranty rework or zero-profit ticket). Kept your manually-entered values.";
+  } else if (keepExistingProfit) {
+    note = "RepairQ profit was $0 — kept your manually-entered profit of $" + existingProfit.toFixed(2) + ".";
+  } else if (keepExistingPrice) {
+    note = "RepairQ price was $0 — kept your manually-entered price.";
+  }
+  if (statusAutoClosed) {
+    note = (note ? note + " " : "") + "Marked closed (RepairQ shows this ticket closed on " + match.date_closed + ").";
+  }
+
+  return { reconciled: true, status_auto_closed: statusAutoClosed, repair: data, source: match, note: note };
+}
+
+
 export async function GET(request) {
   try {
     var { searchParams } = new URL(request.url);
@@ -560,55 +633,61 @@ export async function POST(request) {
       if (!body.id) return NextResponse.json({ success: false, error: "id required" });
       var { data: repair } = await supabase.from("advanced_repairs").select("*").eq("id", body.id).single();
       if (!repair) return NextResponse.json({ success: false, error: "repair not found" });
-      var match = await tryReconcile(repair.ticket_number);
-      if (!match) {
-        return NextResponse.json({ success: true, reconciled: false, message: "No matching ticket in ticket_grades yet. Will retry later." });
+
+      var result = await reconcileRepair(repair);
+      if (result.error) return NextResponse.json({ success: false, error: result.error });
+      if (!result.reconciled) {
+        return NextResponse.json({ success: true, reconciled: false, message: result.message || "No matching ticket in ticket_grades yet. Will retry later." });
       }
-      // Build patch — but don't overwrite a manually-entered non-zero profit with a $0 from RepairQ.
-      // This handles warranty reworks and tickets where the extension captured but profit is $0,
-      // protecting the manually-entered value from the original spreadsheet/intake.
-      var existingProfit = parseFloat(repair.profit || 0);
-      var matchedProfit = parseFloat(match.profit || 0);
-      var existingPrice = parseFloat(repair.price || 0);
-      var matchedPrice = parseFloat(match.price || 0);
+      return NextResponse.json({
+        success: true,
+        reconciled: true,
+        repair: result.repair,
+        source: result.source,
+        status_auto_closed: result.status_auto_closed,
+        note: result.note,
+      });
+    }
 
-      // Only reconcile profit/price if we'd be ADDING information, not removing it.
-      // - If existing is 0 and matched > 0: take the matched value.
-      // - If existing > 0 and matched > 0: take the matched value (RepairQ is authoritative).
-      // - If existing > 0 and matched = 0: keep existing (warranty/zero-profit ticket; don't blank it out).
-      // - If existing = 0 and matched = 0: take matched (still zero, no harm).
-      var keepExistingProfit = existingProfit > 0 && matchedProfit === 0;
-      var keepExistingPrice = existingPrice > 0 && matchedPrice === 0;
-
-      var patch = {
-        reconciled_from_ticket: true,
-        reconciled_at: new Date().toISOString(),
-      };
-      if (!keepExistingPrice) patch.price = matchedPrice;
-      if (!keepExistingProfit) patch.profit = matchedProfit;
-      if (!repair.repaired_by && match.employee_repaired) patch.repaired_by = match.employee_repaired;
-      if (!repair.device_repair && match.device) patch.device_repair = match.device;
-      if (!repair.date_closed && match.date_closed) patch.date_closed = match.date_closed;
-
-      var { data, error } = await supabase
+    // ─── RECONCILE ALL: batch-reconcile every open repair against RepairQ ───
+    // One call sweeps all non-closed/non-nonrepairable repairs, pulling final
+    // price/profit and auto-closing any that RepairQ shows closed. Safe to call
+    // repeatedly (idempotent) and safe for a cron to hit on a schedule.
+    // Locked and already-closed repairs are skipped by the shared guards.
+    if (action === "reconcile_all") {
+      var { data: openRepairs, error: listErr } = await supabase
         .from("advanced_repairs")
-        .update(patch)
-        .eq("id", body.id)
-        .select()
-        .single();
-      if (error) return NextResponse.json({ success: false, error: error.message });
+        .select("*")
+        .in("status", ["open", "in_transit", "repaired"]);
+      if (listErr) return NextResponse.json({ success: false, error: listErr.message });
 
-      // Build a more informative message about what happened
-      var note = null;
-      if (keepExistingProfit && keepExistingPrice) {
-        note = "RepairQ ticket found but has $0 price and profit (warranty rework or zero-profit ticket). Kept your manually-entered values.";
-      } else if (keepExistingProfit) {
-        note = "RepairQ profit was $0 — kept your manually-entered profit of $" + existingProfit.toFixed(2) + ".";
-      } else if (keepExistingPrice) {
-        note = "RepairQ price was $0 — kept your manually-entered price.";
+      var summary = {
+        scanned: (openRepairs || []).length,
+        reconciled: 0,
+        auto_closed: 0,
+        no_match: 0,
+        errors: 0,
+      };
+      var closedTickets = [];
+
+      for (var i = 0; i < (openRepairs || []).length; i++) {
+        var r = openRepairs[i];
+        try {
+          var res = await reconcileRepair(r);
+          if (res.error) { summary.errors++; continue; }
+          if (!res.reconciled) { summary.no_match++; continue; }
+          summary.reconciled++;
+          if (res.status_auto_closed) {
+            summary.auto_closed++;
+            closedTickets.push(r.ticket_number);
+          }
+        } catch (e) {
+          summary.errors++;
+        }
       }
 
-      return NextResponse.json({ success: true, reconciled: true, repair: data, source: match, note: note });
+      return NextResponse.json({ success: true, summary: summary, closed_tickets: closedTickets });
+    }
     }
 
     // ─── DELETE ───
