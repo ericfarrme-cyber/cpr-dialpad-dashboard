@@ -688,7 +688,6 @@ export async function POST(request) {
 
       return NextResponse.json({ success: true, summary: summary, closed_tickets: closedTickets });
     }
-    }
 
     // ─── DELETE ───
     if (action === "delete") {
