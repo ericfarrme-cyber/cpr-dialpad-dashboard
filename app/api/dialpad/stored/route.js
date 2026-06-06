@@ -20,15 +20,30 @@ export async function GET(request) {
     // Build daily call volume from TWO sources:
     // 1. dailyRaw (getDailyCallVolume) — has total and answered per day per store
     // 2. missedRaw (getHourlyMissed) — individual missed call records with timestamps
-    // We count missedRaw per day per store to get accurate daily missed counts
-    
-    // Count missed calls per day per store from missedRaw
-    const dailyMissedFromRecords = {};
+    // We count missedRaw per day per store to get accurate daily missed counts.
+    //
+    // AFTER-HOURS HANDLING: Dialpad tags each call with an `availability` value
+    // reflecting the department's configured business hours. Missed calls that
+    // arrived while the store was "closed" are NOT a performance failure, so we
+    // split them out: they are kept in a separate `*_after_hours_missed` stat
+    // and EXCLUDED from `*_missed` (and therefore from `*_total` and the answer
+    // rate). Open-hours missed calls behave exactly as before.
+    function isClosed(row) {
+      return String(row.availability || "").toLowerCase() === "closed";
+    }
+
+    // Count missed calls per day per store from missedRaw, split open vs closed
+    const dailyMissedOpen = {};
+    const dailyAfterHours = {};
     for (const row of missedRaw) {
       if (!row.date_started || !row.store) continue;
       const dateStr = new Date(row.date_started).toISOString().split("T")[0];
       const key = dateStr + "|" + row.store;
-      dailyMissedFromRecords[key] = (dailyMissedFromRecords[key] || 0) + 1;
+      if (isClosed(row)) {
+        dailyAfterHours[key] = (dailyAfterHours[key] || 0) + 1;
+      } else {
+        dailyMissedOpen[key] = (dailyMissedOpen[key] || 0) + 1;
+      }
     }
 
     // Build daily data from dailyRaw, inject accurate missed from missedRaw
@@ -41,13 +56,18 @@ export async function GET(request) {
           dailyMap[dateStr][`${s}_total`] = 0;
           dailyMap[dateStr][`${s}_answered`] = 0;
           dailyMap[dateStr][`${s}_missed`] = 0;
+          dailyMap[dateStr][`${s}_after_hours_missed`] = 0;
         });
       }
       const answered = row.answered || 0;
-      const missedFromRecords = dailyMissedFromRecords[dateStr + "|" + row.store] || 0;
+      const key = dateStr + "|" + row.store;
+      const missedOpen = dailyMissedOpen[key] || 0;
+      const afterHours = dailyAfterHours[key] || 0;
       dailyMap[dateStr][`${row.store}_answered`] = answered;
-      dailyMap[dateStr][`${row.store}_missed`] = missedFromRecords;
-      dailyMap[dateStr][`${row.store}_total`] = answered + missedFromRecords;
+      dailyMap[dateStr][`${row.store}_missed`] = missedOpen;
+      dailyMap[dateStr][`${row.store}_after_hours_missed`] = afterHours;
+      // Total and answer rate use OPEN-hours missed only.
+      dailyMap[dateStr][`${row.store}_total`] = answered + missedOpen;
     }
     
     // Also add days that only appear in missedRaw (in case dailyRaw missed them)
@@ -60,12 +80,14 @@ export async function GET(request) {
           dailyMap[dateStr][`${s}_total`] = 0;
           dailyMap[dateStr][`${s}_answered`] = 0;
           dailyMap[dateStr][`${s}_missed`] = 0;
+          dailyMap[dateStr][`${s}_after_hours_missed`] = 0;
         });
       }
-      // Ensure missed count is set
+      // Ensure open-missed + after-hours counts are set from the split maps
       const key = dateStr + "|" + row.store;
-      dailyMap[dateStr][`${row.store}_missed`] = dailyMissedFromRecords[key] || 0;
-      // Ensure total includes missed
+      dailyMap[dateStr][`${row.store}_missed`] = dailyMissedOpen[key] || 0;
+      dailyMap[dateStr][`${row.store}_after_hours_missed`] = dailyAfterHours[key] || 0;
+      // Total includes OPEN-hours missed only
       dailyMap[dateStr][`${row.store}_total`] = (dailyMap[dateStr][`${row.store}_answered`] || 0) + (dailyMap[dateStr][`${row.store}_missed`] || 0);
     }
 
@@ -73,13 +95,14 @@ export async function GET(request) {
 
     // Per-store aggregate stats
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
-      let total = 0, answered = 0, missed = 0;
+      let total = 0, answered = 0, missed = 0, afterHoursMissed = 0;
       dailyCalls.forEach(d => {
         total += d[`${s}_total`] || 0;
         answered += d[`${s}_answered`] || 0;
         missed += d[`${s}_missed`] || 0;
+        afterHoursMissed += d[`${s}_after_hours_missed`] || 0;
       });
-      return { store: s, total_calls: total, answered, missed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
+      return { store: s, total_calls: total, answered, missed, after_hours_missed: afterHoursMissed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
 
     // Transform hourly missed into dashboard format
