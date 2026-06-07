@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { STORES } from "@/lib/constants";
+import { STORES, storeDeptIds } from "@/lib/constants";
 
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
 const API_KEY = process.env.DIALPAD_API_KEY;
@@ -94,36 +94,41 @@ export async function GET(request) {
 
   if (action === "initiate") {
     const storeConfig = STORES[store];
-    if (!storeConfig || !storeConfig.dialpadId) {
+    const deptIds = storeDeptIds(storeConfig);
+    if (!storeConfig || deptIds.length === 0) {
       return NextResponse.json({ success: false, error: `Unknown store: ${store}` });
     }
     try {
-      const baseBody = {
-        target_id: storeConfig.dialpadId,
-        target_type: "department",
-        export_type: "records",
-        stat_type: "calls",
-        timezone: "America/Indiana/Indianapolis",
-      };
+      // For EACH department belonging to this store, fire a historical + today
+      // pair. The composite requestId encodes every segment in order, joined by
+      // "__". Segment order is [hist1, today1, hist2, today2, ...] — always two
+      // per department — so the poll path can split + poll them all and merge.
+      const initiatePromises = [];
+      deptIds.forEach((deptId) => {
+        const baseBody = {
+          target_id: deptId,
+          target_type: "department",
+          export_type: "records",
+          stat_type: "calls",
+          timezone: "America/Indiana/Indianapolis",
+        };
+        initiatePromises.push(initiateDialpadStats({ ...baseBody, days_ago_start: 7, days_ago_end: 1 }));
+        initiatePromises.push(initiateDialpadStats({ ...baseBody, is_today: true }));
+      });
 
-      // Fire both requests in parallel
-      const [historical, today] = await Promise.all([
-        initiateDialpadStats({ ...baseBody, days_ago_start: 7, days_ago_end: 1 }),
-        initiateDialpadStats({ ...baseBody, is_today: true }),
-      ]);
+      const results = await Promise.all(initiatePromises);
 
-      if (!historical.ok) {
-        return NextResponse.json({ success: false, error: `Historical POST failed (${historical.status})`, raw: historical.raw });
+      // If EVERY request failed, surface an error. Otherwise proceed with the
+      // ones that succeeded (a single dead department shouldn't blank the store).
+      const anyOk = results.some((r) => r.ok && r.requestId);
+      if (!anyOk) {
+        const firstErr = results.find((r) => !r.ok) || {};
+        return NextResponse.json({ success: false, error: `All ${results.length} stats POSTs failed (first status ${firstErr.status})`, raw: firstErr.raw });
       }
-      if (!today.ok) {
-        // If today's request fails, fall back to historical-only — better than nothing
-        console.warn(`[Stats] today initiate failed (${today.status}), proceeding with historical only`);
-        return NextResponse.json({ success: true, store, requestId: historical.requestId, state: "processing" });
-      }
 
-      // Composite requestId encodes both Dialpad requestIds.
-      // Separator is __ (double underscore) — URL-safe and not present in UUIDs.
-      const compositeId = `${historical.requestId}__${today.requestId}`;
+      // Encode each segment; failed segments become "x" placeholders so the
+      // index structure stays intact and the poll path can skip them.
+      const compositeId = results.map((r) => (r.ok && r.requestId ? r.requestId : "x")).join("__");
       return NextResponse.json({ success: true, store, requestId: compositeId, state: "processing" });
     } catch (err) {
       return NextResponse.json({ success: false, error: err.message });
@@ -132,12 +137,12 @@ export async function GET(request) {
 
   if (action === "poll" && requestId) {
     try {
-      // Split composite requestId; legacy single-id requests still work
-      const ids = requestId.split("__");
-      const isComposite = ids.length === 2;
+      // Split composite requestId into segments. "x" marks a segment whose
+      // initiate failed — skip it. Legacy single-id requests (no "__") still work.
+      const segments = requestId.split("__");
 
-      if (!isComposite) {
-        // Legacy path — single requestId, behave exactly like before
+      // Legacy single-id path — behave exactly like before.
+      if (segments.length === 1) {
         const result = await pollDialpadStats(requestId);
         if (result.state === "completed") {
           return NextResponse.json({ success: true, state: "completed", data: result.rows, recordCount: result.rows.length });
@@ -146,66 +151,45 @@ export async function GET(request) {
         return NextResponse.json({ success: true, state: result.state });
       }
 
-      // Composite path — poll both in parallel
-      const [historicalId, todayId] = ids;
-      const [histResult, todayResult] = await Promise.all([
-        pollDialpadStats(historicalId),
-        pollDialpadStats(todayId),
-      ]);
+      // N-segment path (2 per department: [hist1, today1, hist2, today2, ...]).
+      // Poll every real segment in parallel.
+      const pollResults = await Promise.all(
+        segments.map((seg) => (seg && seg !== "x" ? pollDialpadStats(seg) : Promise.resolve({ state: "skipped" })))
+      );
 
-      // Both must be done (or one done + one failed) for us to return.
-      const histDone = histResult.state === "completed";
-      const todayDone = todayResult.state === "completed";
-      const histFailed = histResult.state === "failed";
-      const todayFailed = todayResult.state === "failed";
-
-      if (histFailed && todayFailed) {
-        return NextResponse.json({ success: false, error: "Both exports failed" });
-      }
-
-      // If one side is completed and the other is FAILED, return the completed
-      // side's rows rather than waiting forever for the dead one.
-      if (histDone && todayFailed) {
-        console.warn(`[Stats] today export failed; returning historical only`);
-        return NextResponse.json({
-          success: true,
-          state: "completed",
-          data: histResult.rows,
-          recordCount: histResult.rows.length,
-          breakdown: { historical: histResult.rows.length, today: 0, merged: histResult.rows.length, todayFailed: true },
-        });
-      }
-      if (todayDone && histFailed) {
-        console.warn(`[Stats] historical export failed; returning today only`);
-        return NextResponse.json({
-          success: true,
-          state: "completed",
-          data: todayResult.rows,
-          recordCount: todayResult.rows.length,
-          breakdown: { historical: 0, today: todayResult.rows.length, merged: todayResult.rows.length, historicalFailed: true },
-        });
-      }
-
-      // At least one side is still processing — keep waiting
-      if (!histDone || !todayDone) {
-        const stateLabel = (s) => (s.state === "failed" ? "failed" : s.state);
+      // A segment is "settled" if it's completed, failed, or was skipped.
+      // We can only return once every segment has settled (no segment still
+      // processing) — otherwise we'd drop a department's calls that are still
+      // exporting.
+      const stillProcessing = pollResults.some((r) => r.state === "processing" || r.state === "pending" || r.state === "queued");
+      if (stillProcessing) {
         return NextResponse.json({
           success: true,
           state: "processing",
-          historicalState: stateLabel(histResult),
-          todayState: stateLabel(todayResult),
+          segmentStates: pollResults.map((r) => r.state),
         });
       }
 
-      // Both completed — merge rows, de-dupe by call_id (today's window may overlap
-      // with historical window edge if Dialpad surfaces a call in both)
+      // Every segment has settled. Gather rows from all completed segments.
+      const completed = pollResults.filter((r) => r.state === "completed");
+      if (completed.length === 0) {
+        return NextResponse.json({ success: false, error: "All exports failed" });
+      }
+
+      // Merge all rows, de-dupe by call_id (windows overlap at the today/hist
+      // edge, and a call could in principle surface under multiple departments —
+      // dedupe keeps each unique call once).
       const seen = new Set();
       const merged = [];
-      for (const row of [...histResult.rows, ...todayResult.rows]) {
-        const id = row.call_id;
-        if (id && seen.has(id)) continue;
-        if (id) seen.add(id);
-        merged.push(row);
+      let totalRows = 0;
+      for (const r of completed) {
+        for (const row of r.rows) {
+          totalRows++;
+          const id = row.call_id;
+          if (id && seen.has(id)) continue;
+          if (id) seen.add(id);
+          merged.push(row);
+        }
       }
 
       return NextResponse.json({
@@ -213,7 +197,14 @@ export async function GET(request) {
         state: "completed",
         data: merged,
         recordCount: merged.length,
-        breakdown: { historical: histResult.rows.length, today: todayResult.rows.length, merged: merged.length },
+        breakdown: {
+          segments: segments.length,
+          completedSegments: completed.length,
+          failedSegments: pollResults.filter((r) => r.state === "failed").length,
+          skippedSegments: pollResults.filter((r) => r.state === "skipped").length,
+          rawRows: totalRows,
+          merged: merged.length,
+        },
       });
     } catch (err) {
       return NextResponse.json({ success: false, error: err.message });
