@@ -79,6 +79,18 @@ export async function GET(request) {
       startYMD = b.start;
       endExclusiveYMD = b.endExclusive;
       label = month;
+      // Don't plot days that haven't happened yet. If this is the current (or a
+      // future) month, cap the axis at today+1 (exclusive) so the chart ends at
+      // the present day instead of stretching a false $0 line across the future.
+      // Past months keep their full range (every day has occurred).
+      var todayExclusive = addDaysYMD(todayLocalYMD(), 1);
+      if (endExclusiveYMD > todayExclusive) {
+        endExclusiveYMD = todayExclusive;
+      }
+      // Guard: if the month is entirely in the future, clamp to an empty range.
+      if (endExclusiveYMD < startYMD) {
+        endExclusiveYMD = startYMD;
+      }
     } else {
       var today = todayLocalYMD();
       // window is inclusive of today; endExclusive = today + 1
