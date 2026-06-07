@@ -148,7 +148,7 @@ export default function DailyProfitTab() {
               <div style={{ color: TEXT, fontSize: 14, fontWeight: 700 }}>
                 Daily Gross Profit Trend
                 <span style={{ color: TEXT_DIM, fontSize: 11, fontWeight: 500, marginLeft: 8 }}>
-                  {smoothed ? "7-day rolling average" : "raw daily"}
+                  {smoothed ? "line: 7-day rolling average · hover for actual" : "raw daily"}
                 </span>
               </div>
               <button onClick={function() { setSmoothed(!smoothed); }}
@@ -345,15 +345,28 @@ function hexA(hex, a) {
 // ── Custom chart tooltip ────────────────────────────────────────────
 function TrendTooltip(props) {
   if (!props.active || !props.payload || props.payload.length === 0) return null;
+  // The merged row for this date is on every payload entry's .payload. Read the
+  // RAW daily GP per store from it, so the tooltip always reports the actual
+  // profit for the hovered day — never the rolling average, even in Smoothed
+  // mode (the smoothed line is for trend shape; the tooltip is for truth).
+  var row = props.payload[0] && props.payload[0].payload ? props.payload[0].payload : {};
   return (
     <div style={{ background: "#0E1014", border: "1px solid " + BORDER, borderRadius: 8, padding: "10px 12px", boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-      <div style={{ color: TEXT, fontSize: 11, fontWeight: 700, marginBottom: 6 }}>{fmtDateShort(props.label)}</div>
+      <div style={{ color: TEXT, fontSize: 11, fontWeight: 700, marginBottom: 2 }}>{fmtDateShort(props.label)}</div>
+      <div style={{ color: TEXT_DIM, fontSize: 9, marginBottom: 6 }}>{props.smoothed ? "actual GP (line shows 7-day avg)" : "actual GP"}</div>
       {props.payload.map(function(p, i) {
+        // Each line's dataKey is "<store>_gp" or "<store>_avg"; strip to store key.
+        var key = String(p.dataKey || "").replace(/_avg$|_gp$/, "");
+        var rawVal = row[key + "_gp"];
+        var avgVal = row[key + "_avg"];
         return (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 2 }}>
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.color }} />
             <span style={{ color: TEXT_MUTED, fontSize: 11, minWidth: 70 }}>{p.name}</span>
-            <span style={{ color: TEXT, fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtUSD(p.value)}</span>
+            <span style={{ color: TEXT, fontSize: 11, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{fmtUSD(rawVal != null ? rawVal : p.value)}</span>
+            {props.smoothed && avgVal != null && (
+              <span style={{ color: TEXT_DIM, fontSize: 9, fontVariantNumeric: "tabular-nums" }}>avg {fmtUSD0(avgVal)}</span>
+            )}
           </div>
         );
       })}
