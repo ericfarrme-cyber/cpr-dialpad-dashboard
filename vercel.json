@@ -2,15 +2,15 @@
   "crons": [
     {
       "path": "/api/dialpad/cron?secret=cpr-audit-cron-2026-secret&store=fishers",
-      "schedule": "0 6,11,15,20 * * *"
+      "schedule": "0 12-23 * * *"
     },
     {
       "path": "/api/dialpad/cron?secret=cpr-audit-cron-2026-secret&store=bloomington",
-      "schedule": "10 6,11,15,20 * * *"
+      "schedule": "10 12-23 * * *"
     },
     {
       "path": "/api/dialpad/cron?secret=cpr-audit-cron-2026-secret&store=indianapolis",
-      "schedule": "20 6,11,15,20 * * *"
+      "schedule": "20 12-23 * * *"
     }
   ],
   "functions": {
