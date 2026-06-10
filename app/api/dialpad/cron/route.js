@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
-import { fetchStoreCalls } from "@/lib/dialpad-stats";
+import { fetchStoreCalls, collectPendingExports } from "@/lib/dialpad-stats";
 import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
 
 export const maxDuration = 300;
@@ -159,6 +159,35 @@ export async function GET(request) {
   // same. A mismatched case previously fell through to dispatcher mode
   // silently instead of running the requested store.
   var storeParam = (url.searchParams.get("store") || "").toLowerCase().trim() || null;
+
+  // ── COLLECTOR MODE: /api/dialpad/cron?collect=1 ──
+  // Cheap pass (runs in seconds): polls every store's stashed Dialpad exports
+  // ONCE and saves whatever completed. Exists because today-exports finish
+  // AFTER a full run's poll budget but their results EXPIRE before the next
+  // hourly run — only a frequent collector lands inside that window.
+  if (url.searchParams.get("collect")) {
+    var colSummary = { mode: "collector", stores: {}, totalSaved: 0, errors: [] };
+    var colStores = Object.keys(STORES);
+    for (var csi = 0; csi < colStores.length; csi++) {
+      var colStore = colStores[csi];
+      try {
+        var col = await collectPendingExports(colStore);
+        var colRecords = col.records.map(function(row) { row._storeKey = colStore; return row; });
+        var colSaved = 0;
+        if (colRecords.length > 0) {
+          var colSave = await saveCallRecords(colRecords);
+          colSaved = colSave.saved || 0;
+          await updateCallSyncState(colStore, colSaved);
+        }
+        colSummary.stores[colStore] = { saved: colSaved, ...col.meta };
+        colSummary.totalSaved += colSaved;
+      } catch (colErr) {
+        console.error("[Cron] collector " + colStore + " error:", colErr.message);
+        colSummary.errors.push({ store: colStore, error: colErr.message });
+      }
+    }
+    return NextResponse.json({ success: colSummary.errors.length === 0, ...colSummary, timestamp: new Date().toISOString() });
+  }
 
   // ── SINGLE STORE MODE: /api/dialpad/cron?store=fishers ──
   // Each store gets its own 300s budget
