@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { isCallAudited, saveAuditResult, updateSyncState, saveCallRecords, updateCallSyncState } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
+import { fetchStoreCalls } from "@/lib/dialpad-stats";
 import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
 
 export const maxDuration = 300;
@@ -14,36 +15,27 @@ function dialpadHeaders() {
 }
 
 async function fetchStoreCallData(storeKey, baseUrl, daysBack) {
+  // Direct Dialpad fetch via lib/dialpad-stats — NO self-HTTP. The previous
+  // implementation called this app's own /api/dialpad/stats endpoint (initiate →
+  // 35s wait → six 10s polls). Two failure modes made the dashboards go silently
+  // stale: (a) Vercel functions can't reliably HTTP-call themselves (deployment
+  // URLs / Deployment Protection), and (b) the ~95s poll window was shorter than
+  // Dialpad's export time, so runs exited "success" with 0 records.
+  // fetchStoreCalls polls Dialpad directly with a generous budget and returns
+  // partial results (flagged) rather than nothing when some exports lag.
   try {
-    var initUrl = baseUrl + "/api/dialpad/stats?action=initiate&store=" + storeKey;
-    if (daysBack) initUrl += "&days=" + daysBack;
-    var initRes = await fetch(initUrl);
-    if (!initRes.ok) { console.log("[Cron] initiate failed for " + storeKey + ": " + initRes.status); return []; }
-    var initData = await initRes.json();
-    if (!initData.success || !initData.requestId) { console.log("[Cron] no requestId for " + storeKey); return []; }
-    var requestId = initData.requestId;
-    console.log("[Cron] " + storeKey + ": requestId=" + requestId + ", waiting 35s...");
-
-    await new Promise(function(r) { setTimeout(r, 35000); });
-
-    var records = [];
-    for (var attempt = 0; attempt < 6; attempt++) {
-      var pollUrl = baseUrl + "/api/dialpad/stats?action=poll&requestId=" + requestId;
-      var pollRes = await fetch(pollUrl);
-      if (!pollRes.ok) { await new Promise(function(r) { setTimeout(r, 10000); }); continue; }
-      var pollData = await pollRes.json();
-      console.log("[Cron] " + storeKey + " poll " + (attempt + 1) + ": state=" + (pollData.state || "?") + " records=" + (pollData.data ? pollData.data.length : 0));
-      if (pollData.data && pollData.data.length > 0) {
-        records = pollData.data.map(function(row) { row._storeKey = storeKey; return row; });
-        break;
-      }
-      await new Promise(function(r) { setTimeout(r, 10000); });
+    var result = await fetchStoreCalls(storeKey, { daysBack: daysBack, budgetMs: 180000 });
+    if (result.meta && result.meta.error) {
+      console.error("[Cron] " + storeKey + " fetch error: " + result.meta.error);
     }
-    console.log("[Cron] " + storeKey + ": " + records.length + " records fetched");
-    return records;
+    console.log("[Cron] " + storeKey + ": " + result.records.length + " records fetched directly from Dialpad (" +
+      result.meta.completedSegments + "/" + result.meta.segments + " segments in " + Math.round(result.meta.elapsedMs / 1000) + "s" +
+      (result.meta.partial ? ", PARTIAL" : "") + ")");
+    var records = result.records.map(function(row) { row._storeKey = storeKey; return row; });
+    return { records: records, meta: result.meta };
   } catch (err) {
     console.error("[Cron] " + storeKey + " fetch error:", err.message);
-    return [];
+    return { records: [], meta: { error: err.message, partial: true, segments: 0, completedSegments: 0 } };
   }
 }
 
@@ -158,7 +150,11 @@ export async function GET(request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  var baseUrl = url.origin;
+  // Self-dispatch must target the PRODUCTION alias. url.origin can be a
+  // deployment-specific URL (cpr-dialpad-dashboard-xxxx.vercel.app) when Vercel
+  // invokes the cron, and self-calls to those can hit Deployment Protection and
+  // die silently. Override with CRON_SELF_BASE_URL env var if the domain changes.
+  var baseUrl = process.env.CRON_SELF_BASE_URL || "https://cpr-dialpad-dashboard.vercel.app";
   var storeParam = url.searchParams.get("store");
 
   // ── SINGLE STORE MODE: /api/dialpad/cron?store=fishers ──
@@ -170,12 +166,23 @@ export async function GET(request) {
     console.log("[Cron] Single store mode: " + storeParam + (daysBack ? " (backfill " + daysBack + " days)" : ""));
     var results = { store: storeParam, callSync: {}, auditSync: {}, totalCallsSaved: 0, totalNewAudits: 0, skipped: 0, errors: [] };
     try {
-      var allCalls = await fetchStoreCallData(storeParam, baseUrl, daysBack);
+      var fetchResult = await fetchStoreCallData(storeParam, baseUrl, daysBack);
+      var allCalls = fetchResult.records;
+      results.fetchMeta = fetchResult.meta;
       if (allCalls.length > 0) {
         var saveResult = await saveCallRecords(allCalls);
         results.callSync = { fetched: allCalls.length, saved: saveResult.saved };
         results.totalCallsSaved = saveResult.saved;
         await updateCallSyncState(storeParam, saveResult.saved);
+      } else {
+        // ZERO records is an ERROR, not a quiet success. A store with no synced
+        // calls for a whole run means stale TVs and a wrong answer-rate basis —
+        // surface it loudly in the response and the logs.
+        var zeroMsg = "0 call records fetched for " + storeParam +
+          (fetchResult.meta && fetchResult.meta.error ? " — " + fetchResult.meta.error : "") +
+          (fetchResult.meta ? " (segments completed: " + fetchResult.meta.completedSegments + "/" + fetchResult.meta.segments + ")" : "");
+        console.error("[Cron] " + zeroMsg);
+        results.errors.push({ store: storeParam, error: zeroMsg });
       }
 
       var recorded = allCalls.filter(function(r) {
@@ -214,7 +221,7 @@ export async function GET(request) {
     }
 
     console.log("[Cron] [" + storeParam + "] Done: " + results.totalCallsSaved + " calls, " + results.totalNewAudits + " audits");
-    return NextResponse.json({ success: true, ...results, timestamp: new Date().toISOString() });
+    return NextResponse.json({ success: results.errors.length === 0, ...results, timestamp: new Date().toISOString() });
   }
 
   // ── DISPATCHER MODE: /api/dialpad/cron (no store param) ──
