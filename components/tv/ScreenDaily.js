@@ -63,8 +63,17 @@ export default function ScreenDaily(props) {
     }
   }
 
-  // ── Today's call stats — find last entry in dailyCalls ─────────────
-  var today = dailyCalls.length > 0 ? dailyCalls[dailyCalls.length - 1] : null;
+  // ── Today's call stats — match by ACTUAL DATE, not array position ──
+  // The last entry of dailyCalls is whatever day most recently synced. After an
+  // outage or backfill that can be YESTERDAY — which made the TV show yesterday's
+  // totals under "Calls Today". Select the entry whose date IS today
+  // (Indianapolis tz); if today hasn't synced yet, show the honest zero/"waiting"
+  // state instead of impersonating another day.
+  var todayYMD = todayDateLocalYMD();
+  var today = null;
+  for (var di = dailyCalls.length - 1; di >= 0; di--) {
+    if (String(dailyCalls[di].date).slice(0, 10) === todayYMD) { today = dailyCalls[di]; break; }
+  }
   var totalCalls = 0, answered = 0, missed = 0, afterHoursMissed = 0;
   if (today) {
     totalCalls = today[store + "_total"] || 0;
@@ -83,7 +92,7 @@ export default function ScreenDaily(props) {
   }
 
   // ── Next appointments today (filter to upcoming, sorted by time) ───
-  var todayY = todayDateLocalYMD();
+  var todayY = todayYMD;
   var upcomingAppts = appointments
     .filter(function(a) {
       // Only today, only upcoming (no did_arrive set yet, or empty)
