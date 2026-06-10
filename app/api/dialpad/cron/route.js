@@ -155,7 +155,10 @@ export async function GET(request) {
   // invokes the cron, and self-calls to those can hit Deployment Protection and
   // die silently. Override with CRON_SELF_BASE_URL env var if the domain changes.
   var baseUrl = process.env.CRON_SELF_BASE_URL || "https://cpr-dialpad-dashboard.vercel.app";
-  var storeParam = url.searchParams.get("store");
+  // Normalize store casing: "Bloomington" and "bloomington" must behave the
+  // same. A mismatched case previously fell through to dispatcher mode
+  // silently instead of running the requested store.
+  var storeParam = (url.searchParams.get("store") || "").toLowerCase().trim() || null;
 
   // ── SINGLE STORE MODE: /api/dialpad/cron?store=fishers ──
   // Each store gets its own 300s budget
