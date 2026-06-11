@@ -69,6 +69,15 @@ async function pollDialpadStats(requestId) {
     return { state: json?.state || "processing" };
   }
 
+  // ── Terminal non-200 states — must NOT read as "processing". ──
+  // Dialpad returns 400 "Results have expired. Please re-initiate processing"
+  // after a completed export's results pass their TTL, and 404 for unknown ids.
+  // The old fallthrough mapped every non-200 to "processing", which made expired
+  // exports look eternally in-flight (the root of the June 9-10 today-data outage).
+  // Mirrors the same fix in lib/dialpad-stats.js — keep the two in sync.
+  if (status === 400 && /expired/i.test(rawText)) return { state: "expired", error: "Results expired before collection" };
+  if (status === 404) return { state: "failed", error: "Export not found" };
+  if (status === 400 || status === 410) return { state: "failed", error: `Export rejected (${status})` };
   return { state: "processing" };
 }
 
@@ -162,6 +171,7 @@ export async function GET(request) {
       // processing) — otherwise we'd drop a department's calls that are still
       // exporting.
       const stillProcessing = pollResults.some((r) => r.state === "processing" || r.state === "pending" || r.state === "queued");
+      // ("expired" and "failed" are settled states — they fall through to the merge below.)
       if (stillProcessing) {
         return NextResponse.json({
           success: true,
