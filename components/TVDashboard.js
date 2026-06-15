@@ -29,6 +29,7 @@ export default function TVDashboard(props) {
   var [dailyCalls, setDailyCalls] = useState(null);
   var [appointments, setAppointments] = useState(null);
   var [scorecard, setScorecard] = useState(null);
+  var [callLeaders, setCallLeaders] = useState(null);
   var [advancedRepairs, setAdvancedRepairs] = useState(null);
   var [advancedStoreStats, setAdvancedStoreStats] = useState(null);
   var [bonusData, setBonusData] = useState(null);
@@ -69,6 +70,7 @@ export default function TVDashboard(props) {
         fetchWithTimeout("/api/advanced-repairs?action=public_leaderboard&period=" + period, 8000),
         fetchWithTimeout("/api/advanced-repairs?action=store_stats&store=" + store + "&period=" + period, 8000),
         fetchWithTimeout("/api/dialpad/answer-rate-bonus", 8000),
+        fetchWithTimeout("/api/dialpad/call-leaders?period=" + period, 8000),
       ]);
       var nowTs = Date.now();
       var newAge = Object.assign({}, dataAge);
@@ -93,6 +95,9 @@ export default function TVDashboard(props) {
       }
       if (results[5].status === "fulfilled" && results[5].value.success) {
         setBonusData(results[5].value);
+      }
+      if (results[6].status === "fulfilled" && results[6].value.success) {
+        setCallLeaders(results[6].value);
       }
       setDataAge(newAge);
       // Count successes — if at least one fetch worked, we can show real data
@@ -177,7 +182,7 @@ export default function TVDashboard(props) {
           opacity: screenIdx === 1 ? 1 : 0,
           pointerEvents: screenIdx === 1 ? "auto" : "none",
         })}>
-          <ScreenRankings store={store} storeName={storeName} dailyCalls={dailyCalls} scorecard={scorecard} />
+          <ScreenRankings store={store} storeName={storeName} dailyCalls={dailyCalls} scorecard={scorecard} callLeaders={callLeaders} />
         </div>
       </div>
 
