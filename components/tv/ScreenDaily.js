@@ -158,8 +158,8 @@ export default function ScreenDaily(props) {
                 {monthRate !== null ? monthRate.toFixed(0) + "% open-hours rate" : "no data yet"}
               </div>
             </div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
-              <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, color: monthBonus > 0 ? "#10B981" : "#9CA3AF", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6, paddingBottom: 4, overflow: "visible" }}>
+              <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, color: monthBonus > 0 ? "#10B981" : "#9CA3AF", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
                 {"$" + monthBonus}
               </div>
               <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>/ person</div>
