@@ -19,6 +19,10 @@ var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 var STORE_LABELS = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
 var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#D97706" };
 
+// Accent for the "Calls Handled" (audited) card — distinct from the four
+// category accents (amber / cyan / green / pink).
+var CALLS_COLOR = "#2563EB";
+
 function fmtMoney(n) {
   var v = parseFloat(n || 0);
   return "$" + Math.round(v).toLocaleString();
@@ -106,6 +110,13 @@ export default function ScreenRankings(props) {
   // ── Employee rankings ─────────────────────────────────────────────
   var empScores = (scorecard && scorecard.employeeScores) || [];
 
+  // ── Calls Handled (audited) — from the call-leaders endpoint ──────
+  var callLeaders = props.callLeaders || null;
+  var clStore = (callLeaders && callLeaders.byStore && callLeaders.byStore[store]) || { leaders: [], unknown: 0 };
+  var clLeaders = clStore.leaders || [];
+  var clUnknown = clStore.unknown || 0;
+  var clCompanyTop = (callLeaders && callLeaders.companyTop) || null;
+
   // Filter to this store
   var thisStoreEmps = empScores.filter(function(e) { return e.store === store; });
 
@@ -151,7 +162,7 @@ export default function ScreenRankings(props) {
             No employee data for this period yet
           </div>
         ) : (
-          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: "clamp(8px, 1.2vw, 14px)", overflow: "hidden", minHeight: 0 }}>
+          <div style={{ flex: 1, display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: "clamp(8px, 1.2vw, 14px)", overflow: "hidden", minHeight: 0 }}>
             {categories.map(function(cat) {
               // Local ranking — top 3 at this store for this category
               var localRanked = thisStoreEmps
@@ -210,6 +221,64 @@ export default function ScreenRankings(props) {
                 </div>
               );
             })}
+
+            {/* ─── 5th card: Calls Handled (audited) — own data source ─── */}
+            <div key="calls_handled" style={{ background: "#F9FAFB", borderRadius: 10, padding: "clamp(8px, 1.5vh, 14px)", display: "flex", flexDirection: "column", borderTop: "2px solid " + CALLS_COLOR, border: "1px solid #E5E7EB", overflow: "hidden", minHeight: 0 }}>
+              {/* Category header (single row — keeps medals aligned with siblings) */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: "clamp(6px, 1.2vh, 12px)" }}>
+                <div style={{ fontSize: "clamp(14px, 1.8vh, 18px)" }}>📞</div>
+                <div style={{ color: CALLS_COLOR, fontSize: "clamp(10px, 1.4vh, 13px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  Calls Handled
+                </div>
+                <div style={{ color: "#9CA3AF", fontSize: "clamp(8px, 1.1vh, 10px)", fontWeight: 600, fontStyle: "italic" }}>audited</div>
+              </div>
+
+              {/* Top 3 at this store */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: "clamp(4px, 1vh, 8px)", minHeight: 0, overflow: "hidden" }}>
+                {[0, 1, 2].map(function(idx) {
+                  var emp = clLeaders[idx];
+                  var medal = idx === 0 ? "🥇" : idx === 1 ? "🥈" : "🥉";
+                  var nameColor = idx === 0 ? "#1A2233" : "#6B7280";
+                  var valColor = idx === 0 ? CALLS_COLOR : "#9CA3AF";
+                  return (
+                    <div key={idx} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ fontSize: "clamp(14px, 1.8vh, 18px)" }}>{emp ? medal : ""}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "clamp(12px, 1.7vh, 15px)", fontWeight: 700, color: nameColor, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {emp ? emp.name.split(" ")[0] : "—"}
+                        </div>
+                        <div style={{ fontSize: idx === 0 ? "clamp(16px, 2.5vh, 22px)" : "clamp(12px, 1.8vh, 16px)", fontWeight: 800, color: valColor, fontVariantNumeric: "tabular-nums" }}>
+                          {emp ? emp.calls.toString() : ""}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Unknown coaching flag (Option B) — muted amber nudge, not a ranked row */}
+              {clUnknown > 0 && (
+                <div style={{ marginTop: "clamp(6px, 1.2vh, 10px)", display: "flex", alignItems: "center", gap: 6, padding: "clamp(5px, 1vh, 8px) clamp(6px, 1vh, 9px)", background: "#FEF3C7", borderRadius: 8 }}>
+                  <div style={{ fontSize: "clamp(11px, 1.5vh, 14px)", color: "#B45309" }}>⚠️</div>
+                  <div style={{ fontSize: "clamp(9px, 1.3vh, 12px)", fontWeight: 700, color: "#B45309", lineHeight: 1.2 }}>
+                    {clUnknown} calls — no name said
+                  </div>
+                </div>
+              )}
+
+              {/* Company #1 footer (matches sibling cards) */}
+              {clCompanyTop && (
+                <div style={{ marginTop: "clamp(8px, 1.4vh, 12px)", paddingTop: "clamp(6px, 1.2vh, 10px)", borderTop: "1px solid #E5E7EB" }}>
+                  <div style={{ color: "#9CA3AF", fontSize: "clamp(8px, 1.1vh, 9px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 4 }}>Company #1</div>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 6 }}>
+                    <div style={{ fontSize: "clamp(11px, 1.5vh, 13px)", fontWeight: 700, color: STORE_COLORS[clCompanyTop.store] || "#1A2233", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                      {clCompanyTop.name.split(" ")[0]}
+                    </div>
+                    <div style={{ fontSize: "clamp(11px, 1.6vh, 14px)", fontWeight: 800, color: CALLS_COLOR, fontVariantNumeric: "tabular-nums" }}>{clCompanyTop.calls.toString()}</div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
