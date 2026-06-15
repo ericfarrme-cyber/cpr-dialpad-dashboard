@@ -99,17 +99,21 @@ export async function GET(request) {
       label = "last " + windowDays + " days";
     }
 
-    // Pull graded tickets in range. ticket_grades.date_closed may be a date or
-    // timestamp; query a slightly padded ISO range, then bucket precisely in JS.
-    var startTs = startYMD + "T00:00:00.000Z";
-    var endTs = endExclusiveYMD + "T00:00:00.000Z";
-
+    // Pull graded tickets in range. date_closed is stored as a bare DATE, so we
+    // must compare against bare YYYY-MM-DD bounds — NOT ISO timestamps with a "Z"
+    // suffix. The old "...T00:00:00.000Z" bounds coerced the date column against a
+    // UTC instant, and the upper-bound comparison dropped recent rows (the entire
+    // tail of the 90-day window read as $0), while the This-Month view — which
+    // built bare-date bounds via monthBounds — stayed correct. Matching the column
+    // type fixes the divergence. An explicit order makes the safety limit
+    // deterministic instead of truncating arbitrary rows.
     var res = await supabase
       .from("ticket_grades")
       .select("store, date_closed, gross_profit, gross_sales, total_cost, ticket_number")
       .not("date_closed", "is", null)
-      .gte("date_closed", startTs)
-      .lt("date_closed", endTs)
+      .gte("date_closed", startYMD)
+      .lt("date_closed", endExclusiveYMD)
+      .order("date_closed", { ascending: true })
       .limit(50000);
     if (res.error) return NextResponse.json({ success: false, error: res.error.message });
 
