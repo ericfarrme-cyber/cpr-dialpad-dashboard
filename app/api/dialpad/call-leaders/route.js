@@ -33,8 +33,15 @@ var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 // Aliases that are too risky to credit automatically — generic first names that
 // could be anyone, cross-person ambiguity, or transcription mis-hears. Anything
 // here (and anything unmatched) falls to "Unknown".
+//
+// NOTE: "eric"/"derek" are intentionally NOT here. They are common transcriptions
+// of "Aerick" and are handled as explicit roster aliases on Aerick Long's row.
+// Keeping them off the hard denylist lets the roster decide; they credit nobody
+// unless a roster row lists them, so there's no auto-credit risk. (If owner-Eric
+// is ever audited on the floor, his calls would credit Aerick — visible on-screen,
+// not silent — revisit then.)
 var RISKY_ALIASES = [
-  "melissa", "derek", "eric", "duncan/sam", "fellis",
+  "melissa", "duncan/sam", "fellis",
   "mood", "maud", "mau", "ma", "may", "bendy", "wendy",
 ];
 
