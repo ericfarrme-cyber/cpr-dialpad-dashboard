@@ -11,6 +11,13 @@ function isRoleSplitEra(dateStr) {
   if (!dateStr) return false;
   return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF();
 }
+
+// Indiana-local "today" as YYYY-MM-DD. Used to clamp the current month to
+// month-to-date so we never count shifts that haven't been worked yet.
+function indyTodayYMD() {
+  var d = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
+  return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+}
 function paymentIsNA(t) {
   if (t == null) return false;
   if (parseFloat(t.payment_score) !== 100) return false;
@@ -347,6 +354,14 @@ export async function GET(request) {
       rangeStart = period + "-01";
       var lastDay = new Date(year, month, 0).getDate();
       rangeEnd = period + "-" + String(lastDay).padStart(2, "0");
+      // Month-to-date clamp: if this IS the current month, don't reach past today.
+      // WhenIWork has the whole month's shifts PUBLISHED, so an unclamped end pulls
+      // future scheduled shifts (e.g. the 23rd–30th when it's only the 22nd) and
+      // inflates hours, dragging GP/hour down. Past months are unaffected (today is
+      // already beyond their last day). Tickets can't be closed in the future, so
+      // this only changes the hours window.
+      var todayYMD = indyTodayYMD();
+      if (rangeEnd > todayYMD) rangeEnd = todayYMD;
     } else {
       var now = new Date();
       var y = now.getFullYear(), m = now.getMonth() + 1;
