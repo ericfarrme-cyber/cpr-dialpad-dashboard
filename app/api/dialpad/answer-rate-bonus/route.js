@@ -67,6 +67,22 @@ function currentMonthStr() {
   return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
 }
 
+// Indiana-local "today" as YYYY-MM-DD. Used to clamp the shift window to
+// month-to-date so future PUBLISHED shifts aren't summed.
+function indyTodayYMD() {
+  var now = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
+  return now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-" + String(now.getDate()).padStart(2, "0");
+}
+
+// Inclusive last calendar day of a "YYYY-MM" month as YYYY-MM-DD.
+function lastDayOfMonthYMD(monthStr) {
+  var parts = monthStr.split("-");
+  var year = parseInt(parts[0], 10);
+  var month = parseInt(parts[1], 10); // 1-12
+  var lastDay = new Date(year, month, 0).getDate();
+  return parts[0] + "-" + String(month).padStart(2, "0") + "-" + String(lastDay).padStart(2, "0");
+}
+
 export async function GET(request) {
   if (!supabase) {
     return NextResponse.json({ success: false, error: "Database not configured" });
@@ -149,11 +165,22 @@ export async function GET(request) {
     stores.forEach(function(s) { bonusByStore[s.store] = s.per_employee_bonus; });
 
     // ── 4. Employee -> store assignment (max WhenIWork hours that month) ──
+    // Month-to-date clamp: WhenIWork publishes the whole month's schedule ahead
+    // of time, so an unclamped full-month window sums shifts that haven't been
+    // worked yet. That can mis-assign a mid-month floater to the store they're
+    // SCHEDULED to work most rather than where they've worked most SO FAR — and
+    // the assigned store is what picks the bonus tier. Clamping to today (Indiana
+    // local) matches this route's "as of now" design. Past months are unaffected
+    // (today is already beyond their last day). Only the shift window is clamped;
+    // the call windows above need no clamp since no future calls exist.
+    var shiftLastDay = lastDayOfMonthYMD(month);
+    var todayYMD = indyTodayYMD();
+    var shiftEndIncl = todayYMD < shiftLastDay ? todayYMD : shiftLastDay;
     var shiftRes = await supabase
       .from("employee_shifts")
       .select("employee_name, user_id, store, hours, date, synced_at")
       .gte("date", bounds.start)
-      .lt("date", bounds.endExclusive)
+      .lte("date", shiftEndIncl)
       .limit(5000);
     if (shiftRes.error) return NextResponse.json({ success: false, error: shiftRes.error.message });
 
