@@ -405,7 +405,7 @@ async function optimizeSchedule(weekOf, demandPatterns, floatEmployees) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514", max_tokens: 4000,
+        model: "claude-sonnet-4-6", max_tokens: 4000,
         messages: [{ role: "user", content: `You are a ruthlessly analytical staffing optimizer for 3 cell phone repair stores (Fishers, Bloomington, Indianapolis). Generate the optimal weekly schedule starting ${weekOf}.
 
 CONSTRAINTS:

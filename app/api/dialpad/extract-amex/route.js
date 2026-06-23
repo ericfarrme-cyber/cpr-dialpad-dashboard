@@ -34,7 +34,7 @@ export async function POST(request) {
         "anthropic-version": "2023-06-01",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 4000,
         messages: [{ role: "user", content: [
           { type: "text", text: "Here is text extracted from an American Express business credit card statement for Focused Technologies LLC:\n\n" + text },

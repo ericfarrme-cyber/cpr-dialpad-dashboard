@@ -1057,7 +1057,7 @@ async function draftManagerMessage(body) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-20250514",
+        model: "claude-sonnet-4-6",
         max_tokens: 250,
         messages: [{ role: "user", content: promptLines.join("\n") }],
       }),
