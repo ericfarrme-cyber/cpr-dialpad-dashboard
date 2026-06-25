@@ -202,6 +202,8 @@ export async function GET(request) {
       byStore: byStore,
       companyTop: companyTop,
       fetchMeta: {
+        build: "leaders-v2-2026-06-25",
+        supabaseRef: String(process.env.SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0].slice(0, 12),
         rosterAliases: Object.keys(resolver).length,
         auditRows: totalRows,
         placed: placedRows,
