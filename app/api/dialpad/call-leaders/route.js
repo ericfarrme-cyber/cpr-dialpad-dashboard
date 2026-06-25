@@ -155,15 +155,31 @@ export async function GET(request) {
       return NextResponse.json({ success: false, error: auditRes.error.message });
     }
 
+    // DIAGNOSTIC: a separate HEAD count of the exact same predicate. This returns
+    // the number of rows the query MATCHES, independent of how many rows the data
+    // payload actually returned. If countExact > the fetched rows, the payload is
+    // being limited/capped; if they're equal, the role genuinely only sees that many.
+    var countRes = await supabase
+      .from("audit_results")
+      .select("*", { count: "exact", head: true })
+      .gte("date_started", startTs)
+      .lt("date_started", endTs);
+    var countExact = (countRes && typeof countRes.count === "number") ? countRes.count : null;
+
     // ── 3. Tally per store; resolve each row's name; bucket Unknown ────────
     var perStore = {}; // store -> { canonicalName -> count }
     STORE_KEYS.forEach(function(sk) { perStore[sk] = {}; });
     var unknownByStore = { fishers: 0, bloomington: 0, indianapolis: 0 };
 
     var totalRows = 0, placedRows = 0, unknownRows = 0, skippedStore = 0;
+    var maxDateSeen = null, minDateSeen = null;
 
     (auditRes.data || []).forEach(function(row) {
       totalRows += 1;
+      if (row.date_started) {
+        if (!maxDateSeen || row.date_started > maxDateSeen) maxDateSeen = row.date_started;
+        if (!minDateSeen || row.date_started < minDateSeen) minDateSeen = row.date_started;
+      }
       if (row.excluded === true) return;
       var sk = normalizeStore(row.store);
       if (!sk) { skippedStore += 1; return; } // can't place a call with no real store
@@ -202,8 +218,11 @@ export async function GET(request) {
       byStore: byStore,
       companyTop: companyTop,
       fetchMeta: {
-        build: "leaders-v2-2026-06-25",
+        build: "leaders-v3-2026-06-25",
         supabaseRef: String(process.env.SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0].slice(0, 12),
+        countExact: countExact,
+        maxDateSeen: maxDateSeen,
+        minDateSeen: minDateSeen,
         rosterAliases: Object.keys(resolver).length,
         auditRows: totalRows,
         placed: placedRows,
