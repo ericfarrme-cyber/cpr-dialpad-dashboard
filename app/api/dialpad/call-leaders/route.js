@@ -144,15 +144,28 @@ export async function GET(request) {
     }
     var resolver = buildResolver(rosterRes.data || []);
 
-    // ── 2. Audited calls this month (exclude graded-out rows) ──────────────
-    var auditRes = await supabase
-      .from("audit_results")
-      .select("employee, store, date_started, excluded")
-      .gte("date_started", startTs)
-      .lt("date_started", endTs)
-      .limit(50000);
-    if (auditRes.error) {
-      return NextResponse.json({ success: false, error: auditRes.error.message });
+    // ── 2. Audited calls this month — PAGINATED so we always get EVERY matching
+    //     row regardless of the PostgREST "Max rows" cap (which was silently
+    //     clipping this read to the first ~546). Small page size + stable .order()
+    //     so we never depend on the cap value again.
+    var PAGE = 250;
+    var auditAll = [];
+    var pageFrom = 0;
+    while (true) {
+      var pageRes = await supabase
+        .from("audit_results")
+        .select("employee, store, date_started, excluded")
+        .gte("date_started", startTs)
+        .lt("date_started", endTs)
+        .order("date_started", { ascending: true })
+        .range(pageFrom, pageFrom + PAGE - 1);
+      if (pageRes.error) {
+        return NextResponse.json({ success: false, error: pageRes.error.message });
+      }
+      var pg = pageRes.data || [];
+      for (var pi = 0; pi < pg.length; pi++) auditAll.push(pg[pi]);
+      if (pg.length < PAGE) break; // last (partial) page
+      pageFrom += PAGE;
     }
 
     // DIAGNOSTIC: a separate HEAD count of the exact same predicate. This returns
@@ -174,7 +187,7 @@ export async function GET(request) {
     var totalRows = 0, placedRows = 0, unknownRows = 0, skippedStore = 0;
     var maxDateSeen = null, minDateSeen = null;
 
-    (auditRes.data || []).forEach(function(row) {
+    auditAll.forEach(function(row) {
       totalRows += 1;
       if (row.date_started) {
         if (!maxDateSeen || row.date_started > maxDateSeen) maxDateSeen = row.date_started;
@@ -218,7 +231,7 @@ export async function GET(request) {
       byStore: byStore,
       companyTop: companyTop,
       fetchMeta: {
-        build: "leaders-v3-2026-06-25",
+        build: "leaders-v4-2026-06-25",
         supabaseRef: String(process.env.SUPABASE_URL || "").replace(/^https?:\/\//, "").split(".")[0].slice(0, 12),
         countExact: countExact,
         maxDateSeen: maxDateSeen,
