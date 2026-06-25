@@ -724,6 +724,21 @@ export async function POST(request) {
     }
   }
 
+  if (body.action === "check_graded") {
+    // Given a list of ticket numbers, return which ones already have a grade.
+    // The Chrome extension uses this to skip already-graded tickets during a
+    // batch run, so a re-run after a RepairQ timeout only grades what's left.
+    var nums = Array.isArray(body.ticket_numbers) ? body.ticket_numbers : [];
+    nums = nums.map(function(n) { return String(n).trim(); }).filter(Boolean);
+    if (nums.length === 0) return jsonResponse({ success: true, graded: [] });
+    var checkRes = await supabase.from("ticket_grades")
+      .select("ticket_number")
+      .in("ticket_number", nums);
+    if (checkRes.error) return jsonResponse({ success: false, error: checkRes.error.message });
+    var gradedSet = (checkRes.data || []).map(function(r) { return String(r.ticket_number); });
+    return jsonResponse({ success: true, graded: gradedSet });
+  }
+
   if (body.action === "delete") {
     var { id } = body;
     if (!id) return jsonResponse({ success: false, error: "id required" });
