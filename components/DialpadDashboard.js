@@ -365,6 +365,22 @@ function AuditTab({ rawCallData, storeFilter }) {
     return Object.values(map);
   }, [storePerf]);
 
+  // Headline audit totals — derived from the same server-aggregated store
+  // performance as the per-store cards below, so the top "Calls Audited" / "Avg
+  // Score" numbers are accurate and never clipped by the 1000-row list fetch.
+  var auditHeadline = useMemo(function() {
+    var rows = consolidatedStores.filter(function(s){ return storeFilter === "all" || s.store === storeFilter; });
+    var t = 0, o = 0, c = 0, weighted = 0;
+    rows.forEach(function(s){
+      var n = s.total_audits || 0;
+      t += n;
+      o += (s.opportunity_calls || 0);
+      c += (s.current_calls || 0);
+      weighted += (s.avg_score || 0) * n;
+    });
+    return { total: t, opp: o, curr: c, avg: t > 0 ? (weighted / t) : 0 };
+  }, [consolidatedStores, storeFilter]);
+
   var runAudit = async function(call) {
     setAuditingId(call.call_id); setError(null);
     try {
@@ -663,8 +679,8 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <AISummary type="audit" />
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Calls Audited" value={total} accent="#7B2FFF" sub={oppCount+" opportunity, "+currCount+" current"} />
-            <StatCard label="Avg Score" value={avgScore+" / 4"} accent={parseFloat(avgScore)>=3?"#4ADE80":parseFloat(avgScore)>=2?"#FBBF24":"#F87171"} />
+            <StatCard label="Calls Audited" value={auditHeadline.total} accent="#7B2FFF" sub={auditHeadline.opp+" opportunity, "+auditHeadline.curr+" current"} />
+            <StatCard label="Avg Score" value={(auditHeadline.total>0?auditHeadline.avg.toFixed(2):"--")+" / 4"} accent={auditHeadline.avg>=3?"#4ADE80":auditHeadline.avg>=2?"#FBBF24":"#F87171"} />
             <StatCard label="Unaudited" value={recordedCalls.length} accent="#00D4FF" sub="recorded calls available" />
             <StatCard label="Employees" value={employees.length} accent="#FB923C" />
           </div>
