@@ -104,5 +104,19 @@ export async function POST(request) {
     return json({ success: true, copied: (data || []).length });
   }
 
+  if (action === "clear") {
+    // Delete saved P&L rows for a period. If a store is given, only that store
+    // is cleared; otherwise every store for the period is removed. Revenue is
+    // pulled live from RepairQ per-period, so it re-populates on next load.
+    var clrPeriod = body.period;
+    var clrStore = body.store;
+    if (!clrPeriod) return json({ success: false, error: "Period required" });
+    var delQuery = supabase.from("profitability").delete().eq("period", clrPeriod);
+    if (clrStore && clrStore !== "all") delQuery = delQuery.eq("store", clrStore);
+    var { data, error } = await delQuery.select();
+    if (error) return json({ success: false, error: error.message });
+    return json({ success: true, cleared: (data || []).length, period: clrPeriod, store: clrStore || "all" });
+  }
+
   return json({ success: false, error: "Unknown action" });
 }
