@@ -114,9 +114,20 @@ export default function ProfitabilityTab() {
       }
       if (perRes.success) {
         var p = perRes.periods || [];
-        if (p.indexOf(period) < 0) p = [period].concat(p);
-        p.sort().reverse();
-        setPeriods(p);
+        // Include a continuous range of recent months so a month with no saved
+        // data yet (e.g. one you're about to reconcile) is still selectable.
+        // Otherwise months only appear once they have rows, leaving gaps (June).
+        var nowD = new Date();
+        var baseY = nowD.getFullYear(), baseM = nowD.getMonth();
+        for (var mi = 0; mi < 12; mi++) {
+          var yy = baseY, mm = baseM - mi;
+          while (mm < 0) { mm += 12; yy -= 1; }
+          p.push(yy + "-" + String(mm + 1).padStart(2, "0"));
+        }
+        if (p.indexOf(period) < 0) p.push(period);
+        var uniqP = {};
+        p.forEach(function(m) { if (m) uniqP[m] = true; });
+        setPeriods(Object.keys(uniqP).sort().reverse());
       }
     } catch(e) { console.error(e); }
     setLoading(false);
@@ -138,6 +149,23 @@ export default function ProfitabilityTab() {
     } catch(e) { setMsg({ type: "error", text: e.message }); }
     setSaving(false);
     setTimeout(function() { setMsg(null); }, 3000);
+  };
+
+  var clearMonth = async function(store) {
+    var sName = STORES[store] ? STORES[store].name : store;
+    if (!confirm("Clear all saved P&L data for " + sName + " — " + period + "?\n\nThis deletes the stored expenses and inputs for that store and month. Revenue re-populates from RepairQ automatically. This cannot be undone.")) return;
+    setSaving(true);
+    try {
+      var res = await fetch("/api/dialpad/profitability", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "clear", period: period, store: store }),
+      });
+      var json = await res.json();
+      if (json.success) { setMsg({ type: "success", text: sName + " cleared for " + period }); setEditStore(null); loadData(); }
+      else setMsg({ type: "error", text: json.error || "Clear failed" });
+    } catch(e) { setMsg({ type: "error", text: e.message }); }
+    setSaving(false);
+    setTimeout(function() { setMsg(null); }, 4000);
   };
 
   var copyForward = async function() {
@@ -565,6 +593,15 @@ export default function ProfitabilityTab() {
       {editStore && (
         <StoreForm store={editStore} data={records[editStore] || {}} period={period}
           onSave={function(data) { saveStore(editStore, data); }} saving={saving} />
+      )}
+
+      {editStore && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+          <button onClick={function() { clearMonth(editStore); }} disabled={saving}
+            style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #F8717133", background: "#F8717112", color: "#F87171", fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer", opacity: saving ? 0.5 : 1 }}>
+            Clear {STORES[editStore] ? STORES[editStore].name.replace("CPR ", "") : editStore} — {period}
+          </button>
+        </div>
       )}
 
       {/* ═══ P&L STATEMENT ═══ */}
