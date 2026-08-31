@@ -55,6 +55,7 @@ Use the `ftMoney()` helper for any new amount — it handles all three.
 | **Grade This Ticket** | Grades the ticket you are on. Always re-grades — it never checks whether a grade already exists, so this is the single-ticket re-grade. |
 | **Batch Grade Report Page** | Grades every ticket linked on the current report, **skipping any already in the database** (`check_graded`). Cheap to re-run after a RepairQ timeout. |
 | **Re-grade Report Page** | Same, but skips the already-graded lookup and re-grades **everything** on the page. Two-step: click once to arm, again within 5s to start. |
+| **Re-grade Ticket List…** | Re-grades only the ticket numbers you paste. They are matched against the links already on the open report page, so open a report whose date range covers them first. |
 
 **Use Re-grade after any change to extraction or the grading prompt.** The normal
 batch skips already-graded tickets, so without it, previously-graded tickets keep

@@ -63,7 +63,7 @@ gradeBtn.addEventListener("click", function() {
 // The action popup closes the moment the ticket tab navigates (Chrome force-closes
 // popups on focus loss), so progress is shown in a separate standalone window that
 // the background worker opens. This handler just kicks the batch off.
-function startBatch(btn, idleLabel, force) {
+function startBatch(btn, idleLabel, force, only) {
   btn.disabled = true;
   btn.textContent = force ? "Starting re-grade..." : "Starting batch...";
   showStatus("progress", "Reading ticket links from report page...");
@@ -100,6 +100,24 @@ function startBatch(btn, idleLabel, force) {
         return;
       }
 
+      // Optional filter: only grade tickets whose number is in `only`. Used by
+      // the ticket-list mode. We filter the report's OWN links rather than
+      // building URLs from ticket numbers, so RepairQ's real hrefs are always
+      // used and there is no URL format to guess wrong.
+      var missing = [];
+      if (only) {
+        var have = {};
+        links.forEach(function(l) { have[String(l.ticket_number)] = true; });
+        Object.keys(only).forEach(function(num) { if (!have[num]) missing.push(num); });
+        links = links.filter(function(l) { return only[String(l.ticket_number)]; });
+        if (links.length === 0) {
+          showStatus("error", "None of those " + Object.keys(only).length +
+            " tickets are on this report page. Widen the report's date range so they appear, then try again.");
+          reset();
+          return;
+        }
+      }
+
       showStatus("progress", "Found " + links.length + " tickets. Opening progress window...");
 
       // Store the job, then let the background worker open the progress window
@@ -116,8 +134,14 @@ function startBatch(btn, idleLabel, force) {
         }
       }, function() {
         chrome.runtime.sendMessage({ action: "start_batch", force: !!force });
-        showStatus("success", (force ? "Re-grading all " : "Grading ") + links.length +
-          " tickets — watch the progress window.");
+        var msg = (force ? "Re-grading " : "Grading ") + links.length + " tickets — watch the progress window.";
+        // Never silently drop requested tickets: say which ones were not found.
+        if (missing.length) {
+          msg += " " + missing.length + " of your " + (links.length + missing.length) +
+                 " were not on this page: " + missing.slice(0, 8).join(", ") +
+                 (missing.length > 8 ? "…" : "");
+        }
+        showStatus(missing.length ? "progress" : "success", msg);
         reset();
       });
     });
@@ -152,4 +176,54 @@ regradeBtn.addEventListener("click", function() {
   regradeArmed = false;
   regradeBtn.classList.remove("confirming");
   startBatch(regradeBtn, "Re-grade Report Page", true);
+});
+
+// ═══ RE-GRADE A SPECIFIC LIST OF TICKETS ═══
+// Re-grading a whole report to fix a handful of rows is wasteful: it is one AI
+// call per ticket. This grades only the numbers pasted below, matched against
+// the links already on the current report page.
+var listBtn = document.getElementById("listBtn");
+var listPanel = document.getElementById("listPanel");
+var ticketList = document.getElementById("ticketList");
+var listInfo = document.getElementById("listInfo");
+var listRunBtn = document.getElementById("listRunBtn");
+
+function parseTicketNumbers(text) {
+  var seen = {};
+  var out = [];
+  var parts = String(text || "").split(/[^0-9]+/);
+  for (var i = 0; i < parts.length; i++) {
+    var v = parts[i];
+    if (!v || v.length < 4) continue;   // ticket numbers are 5+ digits
+    if (seen[v]) continue;
+    seen[v] = true;
+    out.push(v);
+  }
+  return out;
+}
+
+function refreshListInfo() {
+  var nums = parseTicketNumbers(ticketList.value);
+  listInfo.textContent = nums.length
+    ? nums.length + " ticket number" + (nums.length === 1 ? "" : "s") + " recognised — they must appear on the report page currently open."
+    : "Paste ticket numbers above. Any separator works; duplicates are ignored.";
+}
+
+listBtn.addEventListener("click", function() {
+  var showing = listPanel.classList.toggle("show");
+  listBtn.textContent = showing ? "Hide Ticket List" : "Re-grade Ticket List…";
+  if (showing) { refreshListInfo(); ticketList.focus(); }
+});
+
+ticketList.addEventListener("input", refreshListInfo);
+
+listRunBtn.addEventListener("click", function() {
+  var nums = parseTicketNumbers(ticketList.value);
+  if (!nums.length) {
+    showStatus("error", "No ticket numbers found in that text.");
+    return;
+  }
+  var only = {};
+  nums.forEach(function(v) { only[v] = true; });
+  startBatch(listRunBtn, "Re-grade these tickets", true, only);
 });
