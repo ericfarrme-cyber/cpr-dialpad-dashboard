@@ -48,7 +48,7 @@ Three traps, all fixed 2026-08-31 — do not reintroduce them:
 
 Use the `ftMoney()` helper for any new amount — it handles all three.
 
-## The three buttons
+## The four buttons
 
 | Button | What it does |
 |---|---|
