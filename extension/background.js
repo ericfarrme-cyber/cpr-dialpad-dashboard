@@ -1,6 +1,13 @@
 // Background service worker — handles batch ticket grading
 var API_BASE = "https://cpr-dialpad-dashboard.vercel.app/api/dialpad/tickets";
 
+// Build stamp. Surfaced in the progress window so a STALE service worker is
+// obvious at a glance — MV3 workers can survive the reload button, and a stale
+// one silently ignores new flags like forceRegrade while looking like it worked.
+// Bump this whenever background.js changes.
+var FT_BUILD = "2026-08-31-d";
+console.log("[FT-bg] service worker started, build " + FT_BUILD);
+
 // Hard ceilings so NO single step can freeze the batch loop. This is the fix for
 // "stops on a ticket and won't continue": every await below is time-bounded, so a
 // slow grade call, an unresponsive content script, or a stuck page fails THAT one
@@ -18,7 +25,9 @@ var HEARTBEAT_MS       = 20000; // keep the MV3 service worker awake during long
 chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   if (msg.action === "start_batch") {
     openProgressWindow();
-    runBatch();
+    // Force can arrive either on the message or on the stored job. Belt and
+    // braces: if one path is ever missed, the other still carries the intent.
+    runBatch(!!msg.force);
   }
   if (msg.action === "grade_ticket") {
     gradeTicket(msg.ticket).then(function(result) {
@@ -30,13 +39,20 @@ chrome.runtime.onMessage.addListener(function(msg, sender, sendResponse) {
   }
 });
 
-async function runBatch() {
+async function runBatch(forceFromMessage) {
   var data = await chrome.storage.local.get("batchJob");
   var job = data.batchJob;
   if (!job || job.status !== "running") return;
 
   var links = job.links;
   var tabId = job.tabId;
+
+  // Stamp the build and the resolved force flag onto the job so the progress
+  // window can display both. If the window shows an old build, the worker is
+  // stale and nothing you changed in this file is actually running.
+  job.forceRegrade = !!(job.forceRegrade || forceFromMessage);
+  job.build = FT_BUILD;
+  await chrome.storage.local.set({ batchJob: job });
 
   // ── Skip already-graded tickets ──
   // Ask the dashboard which of these ticket numbers already have a grade, and

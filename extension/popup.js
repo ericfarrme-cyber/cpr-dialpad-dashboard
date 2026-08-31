@@ -102,7 +102,7 @@ function startBatch(btn, idleLabel, force) {
           forceRegrade: !!force
         }
       }, function() {
-        chrome.runtime.sendMessage({ action: "start_batch" });
+        chrome.runtime.sendMessage({ action: "start_batch", force: !!force });
         showStatus("success", (force ? "Re-grading all " : "Grading ") + links.length +
           " tickets — watch the progress window.");
         reset();

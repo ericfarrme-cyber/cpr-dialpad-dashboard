@@ -26,6 +26,22 @@ function render(job) {
     return;
   }
 
+  // Mode + build. If this line is missing or shows an old build, the MV3 service
+  // worker is stale and is ignoring whatever you just changed in background.js —
+  // which otherwise looks exactly like a successful run that skipped everything.
+  var modeLine = document.getElementById("modeLine");
+  if (modeLine) {
+    var buildTxt = job.build ? ("build " + job.build) : "build UNKNOWN — stale service worker";
+    if (job.forceRegrade) {
+      modeLine.textContent = "FORCE RE-GRADE — ignoring already-graded · " + buildTxt;
+      modeLine.style.color = "#FBBF24";
+    } else {
+      modeLine.textContent = "Normal batch — skips already-graded · " + buildTxt;
+      modeLine.style.color = "#6B6F78";
+    }
+    modeLine.style.display = "block";
+  }
+
   var results = job.results || [];
   var total = (job.links || []).length;
   var done = results.length;
