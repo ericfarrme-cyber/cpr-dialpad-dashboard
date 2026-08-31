@@ -80,7 +80,22 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
 ## 5. OPEN ITEMS (priority order)
 
 ### Priority 1 — Money owed & broken numbers
-1. **Streak bonus not calculating.** Duncan + Alyssa each owed $100 (3 months gold+). Paycheck tab shows "Your streak starts building this month" and no tier history → streak logic isn't reading historical monthly tiers or started counting at deploy. Diagnose with SQL first (what does tier history actually contain per employee per month?), fix lookback, backfill. Eric to pay the $100s manually meanwhile.
+1. ~~**Streak bonus not calculating.**~~ **FIXED + BACKFILLED 2026-08-31.** Root cause was never
+   the streak math — `computeStreaks()` was correct. `employee_tier_history` had **never received a
+   single row**, so every streak was 0. Six defects, all confirmed against the live DB:
+   (a) the snapshot wrote `updated_at`, but the column is `recorded_at` — PostgREST rejected every
+   upsert; (b) `tier_celebrations` **did not exist** (PGRST205), silently no-opping 8 call sites;
+   (c) `snapshotPeriod` HTTP-fetched `/scorecard` and `/sales` from inside a route (gotcha #1) and
+   needed `NEXT_PUBLIC_BASE_URL`, which is not set in Vercel — now invoked in-process;
+   (d) it returned `success:true` with `written:0`, which is how an empty table went unnoticed;
+   (e) `priorPeriod(p, 0)` returned the *previous* month (`n = n || 1`), so backfill skipped the
+   current month and did another twice; (f) streak math read the whole history table instead of
+   history **up to** the period being snapshotted, so a re-run paid the same 3-month run once per
+   period (Aerick briefly showed 5 × $100).
+   **Payout is $500 + 1 PTO day, not the $200 expected** — see § 9. Ran
+   `sql/migration_tier_celebrations.sql`. 43 history rows, 12 events, Mar–Aug 2026.
+   **Still owed: Eric pays these out manually.** Nothing marks them paid yet — use the AdminTab
+   celebration queue (`mark_paid`), which works now that the table exists.
 2. **Daily Profit inaccurate.** 8/14 Fishers: dashboard $1,493.61 vs RepairQ $1,747 vs another view $1,112.35. Candidates: discount double-count/miss, duplicate ticket rows, stale wage rates (Luke's old RepairQ hourly). Feeds GP/hour (reads $75; floor quote is $80) and will feed Duncan's bonus. **Do a one-day line-by-line reconciliation of `ticket_grades` vs RepairQ before touching code.**
 3. **RepairQ sync only pulls active tickets.** Closed tickets don't sync → Matt manually marks closed; Alyssa/Duncan advanced-repair bonuses showed $0. Need: sync closed tickets + "re-sync all" that refreshes financials on stored tickets so wage-rate fixes propagate backward. Loud failures.
 4. **June 15–23 backfill.** Re-run audit cron over the window + batch-grade June 15–23 tickets via extension (skip-graded makes it cheap). Two Fishers conversions depend on it: Timothy Bailey appt 6/16 → ticket #16075332; Jennifer Coffield appt 6/17 → ticket #16079316. `verify-conversions` 14-day window may need manual widen/rerun.
@@ -148,6 +163,46 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
 ---
 
 ## 8. Recent changes log
+- **2026-08-31** — Streak bonuses fixed end-to-end and backfilled (open item 1). One route changed
+  (`tier-history`), one migration added (`tier_celebrations` + `employee_tier_history.is_locked` +
+  `employee_roster.bonus_eligible`). Deployed to production and verified live. Repo had **no
+  `.gitignore`** — added one before any `.env.local` existed. `CLAUDE.md` + `docs/CONTEXT.md`
+  committed to the repo.
 - **2026-08-30** — Migrated workflow to Claude Code (local clone + Supabase MCP read-only). Created `CLAUDE.md` + this file.
 - **2026-07-08** — Extension: bounded awaits, standalone progress window, skip-already-graded, RepairQ keep-alive. Dashboard: Calls Audited headline fix (delivered), Profitability month dropdown + per-store Clear (delivered). `lib/supabase.js` pagination (delivered, unconfirmed).
 - **2026-06-24** — Model string fixed across 12 routes after outage. PostgREST cap → 100k. `call-leaders` paginated.
+
+---
+
+## 9. Tier bonus payouts owed (calculated 2026-08-31, NOT yet paid)
+
+Backfill of Mar–Aug 2026. **$500 cash + 1 PTO day**, across four people.
+
+| Period | Who | Store | Award | Streak |
+|---|---|---|---|---|
+| 2026-05 | Alyssa Parent | fishers | $100 | 3 mo Gold+ |
+| 2026-05 | Luke Stirling | bloomington | $100 | 3 mo Gold+ |
+| 2026-06 | Duncan Hitti | indianapolis | $100 | 3 mo Gold+ |
+| 2026-07 | Aerick Long | fishers | $100 | 3 mo Gold+ |
+| 2026-08 | Alyssa Parent | fishers | $100 | 6 mo Gold+ (second award) |
+| 2026-08 | Alyssa Parent | fishers | 1 PTO day | 3 mo Platinum |
+
+Plus 6 zero-dollar `tier_up` recognition events. Summary artifact for Matt:
+https://claude.ai/code/artifact/b786f32c-534a-4d02-a33b-5270c31f489f
+
+**Rules as implemented (Eric confirmed 2026-08-31):**
+- Gold streak is **recurring** — $100 per completed 3 consecutive months at Gold+, so it pays
+  again at 6, 9, 12. Platinum streak (1 PTO day) works the same way.
+- **Eligibility is `employee_roster.bonus_eligible`, deliberately NOT the `role` label** — a role
+  rename must never silently restore someone's bonuses. Matt Slade is `false` (area manager).
+  Ineligible staff still get `employee_tier_history` rows; they are excluded only from awards.
+
+**Two things to confirm before paying:** Aerick's July $100 and Alyssa's *second* $100 were not
+anticipated (the expectation was $200 total, Duncan + Alyssa). Both are correct on the scores, but
+they are new.
+
+**Related data bug, not fixed:** `employee_roster.role` for Matthew Slade reads `"Technician"`.
+He is the area manager. Payroll is unaffected (eligibility uses `bonus_eligible`), but `role` feeds
+the peer-comparison pools in `flags/route.js` — likely the same stale data behind open item 15
+("Coaching tab showing Matt & Luke incorrectly"). Changing it shifts his peer pool, so it was left
+for Eric to decide.
