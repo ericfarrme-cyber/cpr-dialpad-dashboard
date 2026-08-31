@@ -36,7 +36,9 @@ gradeBtn.addEventListener("click", function() {
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     chrome.tabs.sendMessage(tabs[0].id, { action: "grade_current" }, function(response) {
       if (chrome.runtime.lastError) {
-        showStatus("error", "Not on a RepairQ ticket page, or page not loaded yet.");
+        // Same orphaned-content-script case as the batch path below.
+        showStatus("error", "This page needs a refresh. The extension was reloaded, so the " +
+          "script on this tab is stale. Press F5 here, then try again.");
         gradeBtn.disabled = false;
         gradeBtn.textContent = "Grade This Ticket";
         return;
@@ -74,8 +76,19 @@ function startBatch(btn, idleLabel, force) {
 
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     chrome.tabs.sendMessage(tabs[0].id, { action: "get_report_tickets" }, function(response) {
-      if (chrome.runtime.lastError || !response || !response.success) {
-        showStatus("error", "Not on a profitability report page, or no tickets found.");
+      if (chrome.runtime.lastError) {
+        // The content script is not reachable. Almost always this means the
+        // extension was reloaded while this tab was already open, which orphans
+        // the injected script — it stays on the page but stops receiving
+        // messages. A page refresh re-injects it.
+        showStatus("error", "This page needs a refresh. The extension was reloaded, so the " +
+          "script on this tab is stale. Press F5 here, then try again.");
+        reset();
+        return;
+      }
+      if (!response || !response.success) {
+        showStatus("error", "Couldn't read tickets from this page. Make sure you're on " +
+          "Reports > Ticket Profitability with results showing.");
         reset();
         return;
       }
