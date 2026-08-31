@@ -48,6 +48,19 @@ Three traps, all fixed 2026-08-31 — do not reintroduce them:
 
 Use the `ftMoney()` helper for any new amount — it handles all three.
 
+## The three buttons
+
+| Button | What it does |
+|---|---|
+| **Grade This Ticket** | Grades the ticket you are on. Always re-grades — it never checks whether a grade already exists, so this is the single-ticket re-grade. |
+| **Batch Grade Report Page** | Grades every ticket linked on the current report, **skipping any already in the database** (`check_graded`). Cheap to re-run after a RepairQ timeout. |
+| **Re-grade Report Page** | Same, but skips the already-graded lookup and re-grades **everything** on the page. Two-step: click once to arm, again within 5s to start. |
+
+**Use Re-grade after any change to extraction or the grading prompt.** The normal
+batch skips already-graded tickets, so without it, previously-graded tickets keep
+their old figures forever. It costs one AI call per ticket, which is why it is
+amber and needs two clicks.
+
 ## Which tickets get graded
 
 `getTicketLinksFromReport()` reads ticket links from **whatever RepairQ report is

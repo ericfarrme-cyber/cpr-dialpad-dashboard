@@ -43,15 +43,23 @@ async function runBatch() {
   // skip those. This makes a re-run after a RepairQ timeout cheap: only the
   // ungraded tickets get re-navigated and re-graded. If the lookup fails for any
   // reason, we fall back to grading everything (safe default).
+  // job.forceRegrade skips the lookup entirely and re-grades every ticket on the
+  // page, including ones already in the database. Needed whenever extraction or
+  // the grading prompt changes: without it, previously-graded tickets keep their
+  // old (wrong) figures forever, because the normal path skips them.
   var alreadyGraded = {};
-  try {
-    var nums = links.map(function(l) { return String(l.ticket_number); });
-    var checkRes = await checkGraded(nums, CHECK_TIMEOUT_MS);
-    if (checkRes && checkRes.success && Array.isArray(checkRes.graded)) {
-      checkRes.graded.forEach(function(n) { alreadyGraded[String(n)] = true; });
+  if (job.forceRegrade) {
+    console.log("[FT-batch] FORCE RE-GRADE — skipping the already-graded lookup, re-grading all " + links.length + " tickets.");
+  } else {
+    try {
+      var nums = links.map(function(l) { return String(l.ticket_number); });
+      var checkRes = await checkGraded(nums, CHECK_TIMEOUT_MS);
+      if (checkRes && checkRes.success && Array.isArray(checkRes.graded)) {
+        checkRes.graded.forEach(function(n) { alreadyGraded[String(n)] = true; });
+      }
+    } catch (e) {
+      // ignore — grade everything
     }
-  } catch (e) {
-    // ignore — grade everything
   }
   job.skippedCount = 0;
   await chrome.storage.local.set({ batchJob: job });

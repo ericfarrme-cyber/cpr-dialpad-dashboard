@@ -61,25 +61,29 @@ gradeBtn.addEventListener("click", function() {
 // The action popup closes the moment the ticket tab navigates (Chrome force-closes
 // popups on focus loss), so progress is shown in a separate standalone window that
 // the background worker opens. This handler just kicks the batch off.
-batchBtn.addEventListener("click", function() {
-  batchBtn.disabled = true;
-  batchBtn.textContent = "Starting batch...";
+function startBatch(btn, idleLabel, force) {
+  btn.disabled = true;
+  btn.textContent = force ? "Starting re-grade..." : "Starting batch...";
   showStatus("progress", "Reading ticket links from report page...");
+
+  function reset() {
+    btn.disabled = false;
+    btn.textContent = idleLabel;
+    btn.classList.remove("confirming");
+  }
 
   chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
     chrome.tabs.sendMessage(tabs[0].id, { action: "get_report_tickets" }, function(response) {
       if (chrome.runtime.lastError || !response || !response.success) {
         showStatus("error", "Not on a profitability report page, or no tickets found.");
-        batchBtn.disabled = false;
-        batchBtn.textContent = "Batch Grade Report Page";
+        reset();
         return;
       }
 
       var links = response.links || [];
       if (links.length === 0) {
         showStatus("error", "No ticket links found on this page.");
-        batchBtn.disabled = false;
-        batchBtn.textContent = "Batch Grade Report Page";
+        reset();
         return;
       }
 
@@ -93,14 +97,46 @@ batchBtn.addEventListener("click", function() {
           currentIndex: 0,
           results: [],
           tabId: tabs[0].id,
-          status: "running"
+          status: "running",
+          // Tells runBatch() to skip the already-graded lookup and do them all.
+          forceRegrade: !!force
         }
       }, function() {
         chrome.runtime.sendMessage({ action: "start_batch" });
-        showStatus("success", "Grading " + links.length + " tickets — watch the progress window.");
-        batchBtn.disabled = false;
-        batchBtn.textContent = "Batch Grade Report Page";
+        showStatus("success", (force ? "Re-grading all " : "Grading ") + links.length +
+          " tickets — watch the progress window.");
+        reset();
       });
     });
   });
+}
+
+batchBtn.addEventListener("click", function() {
+  startBatch(batchBtn, "Batch Grade Report Page", false);
+});
+
+// ═══ FORCE RE-GRADE ═══
+// Two-step: re-grading every ticket on a report costs an AI call each and can
+// run for a long time, so one stray click should not start it.
+var regradeBtn = document.getElementById("regradeBtn");
+var regradeArmed = false;
+var regradeTimer = null;
+
+regradeBtn.addEventListener("click", function() {
+  if (!regradeArmed) {
+    regradeArmed = true;
+    regradeBtn.classList.add("confirming");
+    regradeBtn.textContent = "Click again to re-grade ALL";
+    showStatus("progress", "This re-grades every ticket on the page, including ones already graded.");
+    regradeTimer = setTimeout(function() {
+      regradeArmed = false;
+      regradeBtn.classList.remove("confirming");
+      regradeBtn.textContent = "Re-grade Report Page";
+    }, 5000);
+    return;
+  }
+  clearTimeout(regradeTimer);
+  regradeArmed = false;
+  regradeBtn.classList.remove("confirming");
+  startBatch(regradeBtn, "Re-grade Report Page", true);
 });

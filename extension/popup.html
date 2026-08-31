@@ -9,6 +9,10 @@
     .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
     .btn-primary { background: linear-gradient(135deg, #00D4FF, #7B2FFF); color: #FFF; }
     .btn-batch { background: #1A1D23; color: #7B2FFF; border: 1px solid #7B2FFF33; }
+    /* Amber, not purple: this one re-grades everything and costs API calls. */
+    .btn-regrade { background: #1A1D23; color: #FBBF24; border: 1px solid #FBBF2433; }
+    .btn-regrade.confirming { background: #FBBF24; color: #1A1D23; border-color: #FBBF24; }
+    .hint { color: #6B6F78; font-size: 10px; line-height: 1.45; margin: -2px 0 12px; }
     .btn:disabled { opacity: 0.5; cursor: default; }
     .status { padding: 10px; border-radius: 8px; margin-top: 8px; font-size: 12px; display: none; }
     .status.show { display: block; }
@@ -30,6 +34,8 @@
 
   <button id="gradeBtn" class="btn btn-primary">Grade This Ticket</button>
   <button id="batchBtn" class="btn btn-batch">Batch Grade Report Page</button>
+  <button id="regradeBtn" class="btn btn-regrade">Re-grade Report Page</button>
+  <div class="hint">Batch skips tickets already graded. Re-grade forces every ticket on the page to be graded again — use after an extraction or prompt change.</div>
 
   <div id="status" class="status"></div>
 
