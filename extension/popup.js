@@ -215,7 +215,7 @@ function parseTicketNumbers(text) {
 function refreshListInfo() {
   var nums = parseTicketNumbers(ticketList.value);
   listInfo.textContent = nums.length
-    ? nums.length + " ticket number" + (nums.length === 1 ? "" : "s") + " recognised — they must appear on the report page currently open."
+    ? nums.length + " ticket number" + (nums.length === 1 ? "" : "s") + " recognised — each will be opened directly by number."
     : "Paste ticket numbers above. Any separator works; duplicates are ignored.";
 }
 
@@ -227,13 +227,55 @@ listBtn.addEventListener("click", function() {
 
 ticketList.addEventListener("input", refreshListInfo);
 
+// Ticket URLs are built directly rather than harvested from a report page.
+// RepairQ's profitability report paginates at 100 rows, and the content script
+// only sees the page currently rendered — so a list spanning months could never
+// be matched against it. Ticket pages are addressable as /ticket/<number>
+// (confirmed against 16340083), so we navigate straight to each one and the
+// report's pagination stops mattering. You only need to be on any RepairQ page.
+var REPAIRQ_TICKET_URL = "https://cpr.repairq.io/ticket/";
+
 listRunBtn.addEventListener("click", function() {
   var nums = parseTicketNumbers(ticketList.value);
   if (!nums.length) {
     showStatus("error", "No ticket numbers found in that text.");
     return;
   }
-  var only = {};
-  nums.forEach(function(v) { only[v] = true; });
-  startBatch(listRunBtn, "Re-grade these tickets", true, only);
+
+  listRunBtn.disabled = true;
+  listRunBtn.textContent = "Starting re-grade...";
+
+  function reset() {
+    listRunBtn.disabled = false;
+    listRunBtn.textContent = "Re-grade these tickets";
+  }
+
+  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    var tab = tabs && tabs[0];
+    if (!tab || !/^https:\/\/cpr\.repairq\.io\//.test(tab.url || "")) {
+      showStatus("error", "Open any RepairQ page in this tab first — the batch navigates it through each ticket.");
+      reset();
+      return;
+    }
+
+    var links = nums.map(function(v) {
+      return { url: REPAIRQ_TICKET_URL + v, ticket_number: v };
+    });
+
+    chrome.storage.local.set({
+      batchJob: {
+        links: links,
+        currentIndex: 0,
+        results: [],
+        tabId: tab.id,
+        status: "running",
+        forceRegrade: true
+      }
+    }, function() {
+      chrome.runtime.sendMessage({ action: "start_batch", force: true });
+      showStatus("success", "Re-grading " + links.length +
+        " tickets by ticket number — no report page needed. Watch the progress window.");
+      reset();
+    });
+  });
 });
