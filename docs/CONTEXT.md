@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-08-30 (after 8/17 meeting with Matt; Claude Code migration)
+**Last updated:** 2026-08-31 (streak bonuses fixed + backfilled; payouts owed in § 9)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -20,10 +20,10 @@ Seasonality: Sept/Oct Bloomington carries; Nov/Dec Indy + Fishers carry (Thanksg
 ### People
 - **Eric Farr** — owner. Makes all comp decisions. Sign-off required for anything payroll.
 - **Matt Slade** — area manager. Lives downtown Indy now (~10 min from Indy store). Primary dashboard user. Payroll split 1/5 per store + 2/5 corporate overhead. Alternating Saturdays at Fishers with Duncan.
-- **Duncan Hitti** — advanced repair manager (consoles, computers, tablets, soldering). Works Indy; goes to Bloomington ~2x/month minimum for oversight/training. Non-phone repair bonus being built for him. Owed $100 streak bonus (see Open items). Honest about shrinkage; has been cleaning up Indy inventory.
-- **Alyssa Parent** — Fishers. Star employee: ~$93 GP/ticket, $170 Pro Points in one day, does advanced repairs, spent months cleaning Fishers inventory. Does test calls to Fishers (inflates answer rate). Owed $100 streak bonus. Needs to work ≥1 Saturday/month.
-- **Aaron / Aerick Long** — Fishers. Dialpad transcribes name as "Eric" → roster alias `{eric,erik,derek,arick}`. Wrist injury Aug 2026 (basement flood). Reasonable about answer-rate changes.
-- **Luke Stirling** — moved Bloomington → Indy Aug 2026 on short notice; can solder. Old RepairQ hourly rate was polluting ticket profit on older tickets. "Still not amazing" on GP.
+- **Duncan Hitti** — advanced repair manager (consoles, computers, tablets, soldering). Works Indy; goes to Bloomington ~2x/month minimum for oversight/training. Non-phone repair bonus being built for him. **Owed $100 streak bonus** (§ 9). Honest about shrinkage; has been cleaning up Indy inventory.
+- **Alyssa Parent** — Fishers. Star employee: ~$93 GP/ticket, $170 Pro Points in one day, does advanced repairs, spent months cleaning Fishers inventory. Does test calls to Fishers (inflates answer rate). **Owed $200 + 1 PTO day** (§ 9). Needs to work ≥1 Saturday/month.
+- **Aaron / Aerick Long** — Fishers. **Owed $100 streak bonus** (§ 9). Dialpad transcribes name as "Eric" → roster alias `{eric,erik,derek,arick}`. Wrist injury Aug 2026 (basement flood). Reasonable about answer-rate changes.
+- **Luke Stirling** — **Owed $100 streak bonus** (§ 9). Moved Bloomington → Indy Aug 2026 on short notice; can solder. Old RepairQ hourly rate was polluting ticket profit on older tickets. "Still not amazing" on GP.
 - **Alec** — Bloomington. Reliable, initiative, good customer service, learning; forgets to ask for appointment sometimes; needs coaching on ticket notes (final call, "ready for pickup"). Willing to drive to Indy for soldering training.
 - **Andrew** — Bloomington new hire (started ~Aug 18, 2026). Candidate for soldering training alongside Alec.
 - **Sam (Samuel Tomey)** — Indy; can solder.
@@ -50,7 +50,11 @@ With two people per shift: **85% becomes the bonus floor, 90% is the expectation
 - **Blocked until Daily Profit accuracy is fixed and closed-ticket sync works.**
 
 ### Streak / tier bonus
-$100 for 3 consecutive months at gold+ tier. **Currently broken** — see Open items #1.
+$100 per completed run of 3 consecutive months at Gold+ tier. **Recurring** — a sustained streak
+earns again at 6, 9, 12 months (Eric confirmed 2026-08-31). 3 consecutive months at Platinum+ earns
+1 PTO day on the same repeating basis. Eligibility is `employee_roster.bonus_eligible`, NOT the
+`role` label. **Working as of 2026-08-31** (was broken since inception — see Open items #1);
+Mar–Aug backfilled, payouts owed in § 9.
 
 ### Google review bonuses
 10 minimum/month; $5/employee per review above 10; $5/employee per photo review regardless of count.
