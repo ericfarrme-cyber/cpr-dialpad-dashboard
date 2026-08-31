@@ -1,5 +1,17 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { GET as scorecardGET } from "../scorecard/route";
+import { GET as salesGET } from "../sales/route";
+
+// Vercel serverless functions cannot reliably HTTP-call themselves, so sibling
+// route handlers are invoked directly in-process instead of over fetch(). Both
+// handlers read only `request.url`, so a synthetic absolute URL is sufficient
+// and behaviour is identical. This also removes any dependency on
+// NEXT_PUBLIC_BASE_URL / VERCEL_URL being set.
+async function callRouteHandler(handler, path) {
+  var res = await handler(new Request("http://internal" + path));
+  return await res.json();
+}
 
 // ── Tier definitions (must match MyPerformanceTab.js) ───────────────────────
 var TIER_THRESHOLDS = [
@@ -31,8 +43,11 @@ function currentPeriod() {
 }
 
 function priorPeriod(period, n) {
-  // period = 'YYYY-MM', returns the period n months earlier
-  n = n || 1;
+  // period = 'YYYY-MM', returns the period n months earlier.
+  // NOTE: must not use `n = n || 1` — that turns a legitimate n=0 ("this same
+  // period") into 1, which made backfill skip the current month and snapshot
+  // the previous one twice.
+  if (n === undefined || n === null) n = 1;
   var parts = period.split("-");
   var y = parseInt(parts[0]);
   var m = parseInt(parts[1]) - 1; // 0-indexed
@@ -90,42 +105,58 @@ function computeStreaks(historyRows) {
 // ── Snapshot logic: pull current scorecard, write history rows ──────────────
 async function snapshotPeriod(period, opts) {
   opts = opts || {};
-  var origin = opts.origin || process.env.NEXT_PUBLIC_BASE_URL || "";
-  if (!origin) {
-    // Best-effort: derive from VERCEL_URL
-    if (process.env.VERCEL_URL) origin = "https://" + process.env.VERCEL_URL;
-  }
-  if (!origin) {
-    return { success: false, error: "Cannot determine base URL for internal scorecard fetch" };
-  }
 
-  // Fetch scorecard for this period
-  var url = origin + "/api/dialpad/scorecard?period=" + encodeURIComponent(period);
-  var sRes;
+  // Load the scorecard for this period (direct in-process call — see
+  // callRouteHandler above). A failure here means every downstream row would be
+  // wrong, so it throws rather than returning a soft failure.
+  var sData;
   try {
-    sRes = await fetch(url);
+    sData = await callRouteHandler(scorecardGET, "/api/dialpad/scorecard?period=" + encodeURIComponent(period));
   } catch (e) {
-    return { success: false, error: "Scorecard fetch failed: " + e.message };
+    throw new Error("Scorecard load failed for " + period + ": " + e.message);
   }
-  if (!sRes.ok) return { success: false, error: "Scorecard route returned " + sRes.status };
-  var sData = await sRes.json();
-  if (!sData.success) return { success: false, error: "Scorecard route error: " + sData.error };
+  if (!sData || !sData.success) {
+    throw new Error("Scorecard load failed for " + period + ": " + ((sData && sData.error) || "unknown error"));
+  }
 
   var employeeScores = sData.employeeScores || [];
 
   // Pull per-employee commission inputs for the same period (so we can store
   // base_commission and tier_bonus alongside the tier).
-  var commUrl = origin + "/api/dialpad/sales?action=performance&period=" + encodeURIComponent(period);
-  var commRes;
-  try { commRes = await fetch(commUrl); } catch(e) { commRes = null; }
-  var commData = commRes && commRes.ok ? await commRes.json() : null;
-  var commRates = commData && commData.rates ? commData.rates : {};
+  // These feed base_commission / tier_bonus / total_commission, so a silent
+  // failure here would write understated bonus dollars. Fail loudly instead.
+  var commData;
+  try {
+    commData = await callRouteHandler(salesGET, "/api/dialpad/sales?action=performance&period=" + encodeURIComponent(period));
+  } catch (e) {
+    throw new Error("Sales performance load failed for " + period + ": " + e.message);
+  }
+  if (!commData || !commData.success) {
+    throw new Error("Sales performance load failed for " + period + ": " + ((commData && commData.error) || "unknown error"));
+  }
+  var commRates = commData.rates || {};
   function findEmp(arr, name) {
     return (arr || []).find(function(e) { return (e.employee || "").toLowerCase() === (name || "").toLowerCase(); });
   }
 
   var written = 0, eventsCreated = 0, errors = [];
   var KNOWN = ["fishers", "bloomington", "indianapolis"];
+
+  // Bonus eligibility comes from employee_roster.bonus_eligible, NOT from the
+  // role label — a role rename must never silently restore someone's bonuses.
+  // Ineligible people still get an employee_tier_history row (their tier is real
+  // and useful); they are only excluded from award events.
+  var { data: rosterRows, error: rosterErr } = await supabase
+    .from("employee_roster")
+    .select("name, store, bonus_eligible")
+    .eq("active", true);
+  if (rosterErr) {
+    throw new Error("Roster load failed for " + period + ": " + rosterErr.message);
+  }
+  var bonusIneligible = {};
+  (rosterRows || []).forEach(function(r) {
+    if (r.bonus_eligible === false) bonusIneligible[String(r.name).toLowerCase()] = true;
+  });
 
   for (var i = 0; i < employeeScores.length; i++) {
     var emp = employeeScores[i];
@@ -162,7 +193,9 @@ async function snapshotPeriod(period, opts) {
       tier_bonus: Math.round(tierBonus * 100) / 100,
       total_commission: Math.round(totalComm * 100) / 100,
       pto_earned: t.ptoPerMonth,
-      updated_at: new Date().toISOString(),
+      // Column is `recorded_at` — there is no `updated_at` on this table.
+      // Sending an unknown column makes PostgREST reject the whole upsert.
+      recorded_at: new Date().toISOString(),
     };
 
     var { error: upsertErr } = await supabase
@@ -181,6 +214,11 @@ async function snapshotPeriod(period, opts) {
       .select("period, tier, overall_score")
       .eq("employee_name", emp.name)
       .eq("store", row.store)
+      // Only history UP TO the period being snapshotted. Without this, a
+      // backfill re-run lets an earlier period see later months and award a
+      // streak that had not happened yet — the same 3-month run then pays out
+      // once per period processed.
+      .lte("period", period)
       .order("period", { ascending: false })
       .limit(13);
     var hist = histRows || [];
@@ -203,9 +241,13 @@ async function snapshotPeriod(period, opts) {
     }
 
     // 2. Streak events — Gold streak ($100), Platinum streak (1 PTO)
+    // RECURRING: awarded once per completed 3-month run at that level, so a
+    // sustained streak earns again at 6, 9, 12 months. (Eric, 2026-08-31.)
     var streaks = computeStreaks(hist);
+    var isBonusEligible = !bonusIneligible[String(emp.name).toLowerCase()];
+
     // Gold streak: every 3 consecutive months at Gold or higher = $100
-    if (streaks.gold > 0 && streaks.gold % 3 === 0) {
+    if (isBonusEligible && streaks.gold > 0 && streaks.gold % 3 === 0) {
       var { error: gErr } = await supabase.from("tier_celebrations").upsert({
         employee_name: emp.name,
         store: row.store,
@@ -220,7 +262,7 @@ async function snapshotPeriod(period, opts) {
       if (!gErr) eventsCreated++;
     }
     // Platinum streak: every 3 consecutive months at Platinum or higher = 1 PTO day
-    if (streaks.platinum > 0 && streaks.platinum % 3 === 0) {
+    if (isBonusEligible && streaks.platinum > 0 && streaks.platinum % 3 === 0) {
       var { error: pErr } = await supabase.from("tier_celebrations").upsert({
         employee_name: emp.name,
         store: row.store,
@@ -240,7 +282,7 @@ async function snapshotPeriod(period, opts) {
     var diamondMonthsThisYear = (hist || []).filter(function(h) {
       return h.period.indexOf(year + "-") === 0 && h.tier === "Diamond";
     }).length;
-    if (diamondMonthsThisYear >= 6) {
+    if (isBonusEligible && diamondMonthsThisYear >= 6) {
       var { error: plErr } = await supabase.from("tier_celebrations").upsert({
         employee_name: emp.name,
         store: row.store,
@@ -256,7 +298,59 @@ async function snapshotPeriod(period, opts) {
     }
   }
 
-  return { success: true, period: period, written: written, events_created: eventsCreated, errors: errors };
+  // Loud, not silent: a run that wrote nothing, or hit any row error, is a
+  // failure. Previously this returned success:true with written:0, which is how
+  // an empty employee_tier_history went unnoticed.
+  if (errors.length > 0) {
+    console.error("[tier-history] snapshot " + period + " had " + errors.length + " row error(s):", errors);
+  }
+  if (written === 0) {
+    console.error("[tier-history] snapshot " + period + " wrote 0 rows (" + employeeScores.length + " employee scores in)");
+  }
+  return {
+    success: errors.length === 0 && written > 0,
+    period: period,
+    written: written,
+    events_created: eventsCreated,
+    errors: errors,
+  };
+}
+
+// Run one snapshot and turn it into an HTTP response. A failed snapshot returns
+// 5xx instead of a 200 carrying success:false, so cron logs and the browser both
+// show it as broken.
+async function snapshotResponse(period) {
+  var r;
+  try {
+    r = await snapshotPeriod(period);
+  } catch (e) {
+    console.error("[tier-history] snapshot " + period + " threw:", e);
+    return NextResponse.json({ success: false, period: period, error: e.message }, { status: 500 });
+  }
+  return NextResponse.json(r, { status: r.success ? 200 : 500 });
+}
+
+// Backfill N periods. Each period reports its own outcome; the overall response
+// is 5xx if any single period failed.
+async function backfillResponse(months) {
+  var results = [];
+  var cur = currentPeriod();
+  // OLDEST → NEWEST. computeStreaks anchors on the most recent period present
+  // and walks backwards, so feeding history in reverse attributes each streak
+  // award to the wrong month. Snapshot chronologically so streaks accumulate the
+  // way they actually did.
+  for (var i = months - 1; i >= 0; i--) {
+    var p = priorPeriod(cur, i);
+    try {
+      var r = await snapshotPeriod(p);
+      results.push({ period: p, written: r.written || 0, events: r.events_created || 0, ok: r.success, errors: r.errors || [] });
+    } catch (e) {
+      console.error("[tier-history] backfill " + p + " threw:", e);
+      results.push({ period: p, written: 0, events: 0, ok: false, errors: [e.message] });
+    }
+  }
+  var allOk = results.length > 0 && results.every(function(x) { return x.ok; });
+  return NextResponse.json({ success: allOk, periods: results }, { status: allOk ? 200 : 500 });
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -336,7 +430,6 @@ export async function GET(request) {
   // ── Browser-friendly snapshot/backfill triggers (no curl needed) ──
   // These mirror the POST actions so admins can hit them from a URL bar.
   // Protected by SECRET param matching CRON_SECRET env var if set.
-  var origin = new URL(request.url).origin;
   function checkSecret() {
     var expected = process.env.CRON_SECRET;
     if (!expected) return true; // No secret configured = open
@@ -345,30 +438,19 @@ export async function GET(request) {
 
   if (action === "snapshot_current_month") {
     if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
-    var cur = currentPeriod();
-    var rCur = await snapshotPeriod(cur, { origin: origin });
-    return NextResponse.json(rCur);
+    return await snapshotResponse(currentPeriod());
   }
 
   if (action === "snapshot") {
     if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
     var pParam = searchParams.get("period");
-    if (!pParam) return NextResponse.json({ success: false, error: "period required (YYYY-MM)" });
-    var rPer = await snapshotPeriod(pParam, { origin: origin });
-    return NextResponse.json(rPer);
+    if (!pParam) return NextResponse.json({ success: false, error: "period required (YYYY-MM)" }, { status: 400 });
+    return await snapshotResponse(pParam);
   }
 
   if (action === "backfill") {
     if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
-    var months = parseInt(searchParams.get("months") || "6");
-    var resultsBf = [];
-    var curBf = currentPeriod();
-    for (var i = 0; i < months; i++) {
-      var p = priorPeriod(curBf, i);
-      var r = await snapshotPeriod(p, { origin: origin });
-      resultsBf.push({ period: p, written: r.written || 0, events: r.events_created || 0, error: r.error || null });
-    }
-    return NextResponse.json({ success: true, periods: resultsBf });
+    return await backfillResponse(parseInt(searchParams.get("months") || "6"));
   }
 
   return NextResponse.json({ success: false, error: "Invalid action. Use: streaks, celebration_queue, history, snapshot_current_month, snapshot, backfill" });
@@ -380,7 +462,6 @@ export async function GET(request) {
 export async function POST(request) {
   if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" });
 
-  var origin = new URL(request.url).origin;
   var body;
   try { body = await request.json(); } catch(e) { body = {}; }
   var action = body.action;
@@ -388,30 +469,18 @@ export async function POST(request) {
   // ── Snapshot a specific period (idempotent) ──
   if (action === "snapshot") {
     var period = body.period;
-    if (!period) return NextResponse.json({ success: false, error: "period required (YYYY-MM)" });
-    var result = await snapshotPeriod(period, { origin: origin });
-    return NextResponse.json(result);
+    if (!period) return NextResponse.json({ success: false, error: "period required (YYYY-MM)" }, { status: 400 });
+    return await snapshotResponse(period);
   }
 
   // ── Snapshot the current month — designed to be called by cron daily ──
   if (action === "snapshot_current_month") {
-    var cur = currentPeriod();
-    var result = await snapshotPeriod(cur, { origin: origin });
-    return NextResponse.json(result);
+    return await snapshotResponse(currentPeriod());
   }
 
   // ── Backfill: snapshot the past N months ──
   if (action === "backfill") {
-    var months = parseInt(body.months) || 6;
-    var results = [];
-    var cur = currentPeriod();
-    // Walk backwards from current month
-    for (var i = 0; i < months; i++) {
-      var p = priorPeriod(cur, i);
-      var r = await snapshotPeriod(p, { origin: origin });
-      results.push({ period: p, written: r.written || 0, events: r.events_created || 0, error: r.error || null });
-    }
-    return NextResponse.json({ success: true, periods: results });
+    return await backfillResponse(parseInt(body.months) || 6);
   }
 
   // ── Lock a period (prevents auto-refresh after month closes) ──
@@ -420,7 +489,7 @@ export async function POST(request) {
     if (!lp) return NextResponse.json({ success: false, error: "period required" });
     var { data: locked, error: lErr } = await supabase
       .from("employee_tier_history")
-      .update({ is_locked: true, updated_at: new Date().toISOString() })
+      .update({ is_locked: true, recorded_at: new Date().toISOString() })
       .eq("period", lp)
       .select();
     if (lErr) return NextResponse.json({ success: false, error: lErr.message });
