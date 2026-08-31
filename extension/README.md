@@ -39,7 +39,8 @@ Three traps, all fixed 2026-08-31 — do not reintroduce them:
 1. **`\b` before `Total` is load-bearing.** `/Total[:\s]*\$/i` also matches the
    "total" inside **Subtotal**, which silently made `total_collected` equal the
    subtotal on all 815 discounted tickets in the table.
-2. **Money amounts can be negative.** `([\d,.]+)` cannot capture a minus sign, so
+2. **Money amounts can be negative, and RepairQ writes losses in ACCOUNTING PARENTHESES on the line AFTER the label** — `"Gross Profit:
+($ 198.38)"`, verified on ticket 15304992. `([\d,.]+)` cannot capture a minus sign, so
    a negative gross profit failed to match, was never assigned, and landed in the
    database as `0`. Five tickets sat at `$0.00` because of this. RepairQ renders
    negatives as both `-$28.70` and `$-28.70`, and sometimes with an en dash.

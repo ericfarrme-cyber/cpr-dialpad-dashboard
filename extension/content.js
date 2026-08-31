@@ -752,20 +752,28 @@
     // Strategy 1: Find the Totals panel on the right sidebar
     var fullPageText = document.body ? document.body.innerText : "";
 
-    // Money label matcher. Captures an optional minus BEFORE the $ and one
-    // AFTER it, because RepairQ renders negatives both ways ("-$28.70" and
-    // "$-28.70"). The old pattern was ([\d,.]+) with no sign, so a NEGATIVE
-    // gross profit simply failed to match, data.gross_profit was never assigned,
-    // and the server's `parseFloat(x || 0)` stored 0. That is the whole reason
-    // five tickets sat at $0.00 instead of their real (negative) profit.
+    // Money label matcher.
+    //
+    // RepairQ renders a LOSS in accounting style with parentheses, and puts the
+    // value on the line AFTER the label:
+    //     "Total Cost:\n$ 423.62\nGross Profit:\n($ 198.38)"
+    // Verified on the page for ticket 15304992, 2026-08-31.
+    //
+    // So the sign can be "-", an en dash, or an opening paren, before or (for
+    // the dashes) after the $. Miss it and the whole pattern fails to match,
+    // data.gross_profit is never assigned, and the server's `parseFloat(x || 0)`
+    // silently stores 0 — which is why no row in 4,124 had ever been negative
+    // and $4,538.90 of real losses were booked as break-even.
+    //
+    // `[:\s]*` spans the newline between label and value (\s matches \n).
     // Commas are stripped globally — .replace(",", "") only drops the first.
-    var FT_MONEY = "[:\\s]*([-–]?)\\s*\\$\\s*([-–]?)\\s*([\\d,.]+)";
+    var FT_MONEY = "[:\\s]*([-–(]?)\\s*\\$\\s*([-–]?)\\s*([\\d,.]+)";
     function ftMoney(label) {
       var m = fullPageText.match(new RegExp(label + FT_MONEY, "i"));
       if (!m) return null;                       // null = label absent, not zero
       var n = parseFloat(String(m[3]).replace(/,/g, ""));
       if (!isFinite(n)) return null;
-      return /[-–]/.test((m[1] || "") + (m[2] || "")) ? -n : n;
+      return /[-–(]/.test((m[1] || "") + (m[2] || "")) ? -n : n;
     }
 
     var vSubtotal = ftMoney("Subtotal");
