@@ -607,10 +607,44 @@ export async function POST(request) {
     var resolvedRepaired = resolveEmpName(ticket.employee_repaired);
     ticket.employee_added = resolvedAdded.name;
     ticket.employee_repaired = resolvedRepaired.name;
-    // ALWAYS derive store from roster — the extension's store detection is unreliable
-    var rosterStore = resolvedRepaired.store || resolvedAdded.store;
-    if (rosterStore) ticket.store = rosterStore;
-    console.log("[tickets] RESOLVED -> added:", JSON.stringify(ticket.employee_added), "repaired:", JSON.stringify(ticket.employee_repaired), "store:", JSON.stringify(ticket.store));
+    // ── Store = WHERE THE WORK HAPPENED ────────────────────────────────────
+    // Taken from the ticket page itself (content.js reads #summary .location,
+    // which is the ticket's own location, not the navbar's active-location
+    // selector). The roster is only a fallback for when the page value is
+    // missing or unrecognised.
+    //
+    // This previously did the opposite — it ALWAYS overwrote the page value with
+    // the employee's roster store, on the grounds that extension store detection
+    // was unreliable. That was true when written and is not any more, and the
+    // workaround had become the bug: every employee's tickets landed on their
+    // home store and nowhere else (4,122 tickets, zero cross-store, verified
+    // 2026-08-31). Matt's area-manager work all fell on Bloomington, Luke's
+    // post-move Indy work still counted as Bloomington, and Duncan's Bloomington
+    // trips counted as Indy. Per-store Daily Profit, compliance and the store
+    // scorecard were all wrong by that amount.
+    //
+    // Forward-only by Eric's decision (2026-08-31): rows already in the table
+    // keep their old attribution until they are re-graded.
+    var KNOWN_STORES = ["fishers", "bloomington", "indianapolis"];
+    var pageStore = String(ticket.store || "").toLowerCase().trim();
+    if (KNOWN_STORES.indexOf(pageStore) >= 0) {
+      ticket.store = pageStore;
+      ticket._store_source = "ticket_page";
+    } else {
+      var rosterStore = resolvedRepaired.store || resolvedAdded.store;
+      if (rosterStore) {
+        ticket.store = rosterStore;
+        ticket._store_source = "roster_fallback";
+        console.warn("[tickets] Ticket " + ticket.ticket_number + ": page store was " +
+          JSON.stringify(ticket.store) + " (unrecognised) — fell back to the roster store " +
+          JSON.stringify(rosterStore) + ". If this is common the page selector has drifted.");
+      } else {
+        ticket._store_source = "none";
+        console.error("[tickets] Ticket " + ticket.ticket_number +
+          ": no store from the page AND no roster store. Stored with an empty store.");
+      }
+    }
+    console.log("[tickets] RESOLVED -> added:", JSON.stringify(ticket.employee_added), "repaired:", JSON.stringify(ticket.employee_repaired), "store:", JSON.stringify(ticket.store), "source:", ticket._store_source);
 
     // Build the prompt with ticket data
     var ticketContext = "TICKET #" + ticket.ticket_number + "\n";
