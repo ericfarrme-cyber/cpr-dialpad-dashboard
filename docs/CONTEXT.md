@@ -39,6 +39,14 @@ Seasonality: Sept/Oct Bloomington carries; Nov/Dec Indy + Fishers carry (Thanksg
 
 ### Answer-rate bonus — CURRENT (in code)
 ≥90% = $100, ≥85% = $75, ≥80% = $50. Highest tier only. Employee assigned to their max-hours store.
+**Answered calls under 15 seconds are excluded from 2026-09 forward** (Eric, 2026-08-31) — test
+calls, hangups, misdials, wrong numbers. **Forward-only**: retroactively this drops Fishers and
+Bloomington under 80% in July and Bloomington in August, clawing back $50 bonuses already earned.
+Constants live at the top of `answer-rate-bonus/route.js`
+(`SHORT_CALL_EFFECTIVE_PERIOD`, `SHORT_CALL_MIN_MINUTES`). ⚠ `talk_duration` is in **MINUTES** —
+15s is `0.25`; writing `< 15` matches every call ever recorded and zeroes every rate.
+Expected first clean month: **September 2026**. Measured effect if it had applied:
+Jul 80.4/80.4/79.2 → 77.6/79.1/77.6 · Aug 87.5/80.4/82.0 → 85.4/79.7/80.5.
 
 ### Answer-rate bonus — AGREED DIRECTION (NOT YET IMPLEMENTED, exact table pending Eric)
 With two people per shift: **85% becomes the bonus floor, 90% is the expectation, <80% is poor performance.** Eric has NOT confirmed the exact new tier table or effective month. **Sequencing: test-call scrub first → one clean month → then re-tier.**
@@ -101,11 +109,23 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
    **Still owed: Eric pays these out manually.** Nothing marks them paid yet — use the AdminTab
    celebration queue (`mark_paid`), which works now that the table exists.
 2. **Daily Profit inaccurate.** **DIAGNOSED 2026-08-31 — it is a COVERAGE bug, not a math bug.** The $1,112.35 "third view" is simply **8/13's total**, not a competing figure for 8/14. Verified ticket 16346808 against RepairQ: our stored `gross_profit` ($241.06) matches RepairQ's own Analytics panel to the penny, so `gross_profit = gross_sales − discount − cost` is CORRECT and the discount is **not** double-counted (an earlier theory, disproved). Since every captured ticket matches, the $253.39 gap can only be tickets never captured → this is a subset of item 3. Two real bugs remain, **both in the Chrome extension's scraping, not in this repo** (`tickets/route.js` stores what the extension sends, unmodified): (a) `total_collected` is `gross_sales` verbatim on 815/815 discounted tickets — 16346808 stores $403.99 but the customer paid $313.32; it IS shown to employees in MyPerformanceTab. (b) 13 rows compute GP wrongly — 5 floored at $0.00 where the result goes negative, 4 drop `total_cost` entirely. **Ticket numbers are franchise-global (0.042% density), so missing tickets CANNOT be found by gap analysis** — diff against RepairQ's day view instead. Superseded:  Candidates: discount double-count/miss, duplicate ticket rows, stale wage rates (Luke's old RepairQ hourly). Feeds GP/hour (reads $75; floor quote is $80) and will feed Duncan's bonus. **Do a one-day line-by-line reconciliation of `ticket_grades` vs RepairQ before touching code.**
-3. **RepairQ sync only pulls active tickets.** Closed tickets don't sync → Matt manually marks closed; Alyssa/Duncan advanced-repair bonuses showed $0. Need: sync closed tickets + "re-sync all" that refreshes financials on stored tickets so wage-rate fixes propagate backward. Loud failures.
+3. **RepairQ sync only pulls active tickets.** **REFRAMED 2026-08-31 - this is probably NOT a code
+   bug.** `getTicketLinksFromReport()` in `extension/content.js` scrapes ticket links from whatever
+   RepairQ report is on screen; there is **no status filter anywhere in the extension**. So "only
+   active" is a consequence of which report the batch is run against. Try running it on a report
+   whose date range + status cover closed tickets before writing any sync code - `check_graded`
+   skips already-graded tickets, so a wider re-run is cheap. This is also the cause of the Daily
+   Profit gap in item 2. Original note: Closed tickets don't sync → Matt manually marks closed; Alyssa/Duncan advanced-repair bonuses showed $0. Need: sync closed tickets + "re-sync all" that refreshes financials on stored tickets so wage-rate fixes propagate backward. Loud failures.
 4. **June 15–23 backfill.** Re-run audit cron over the window + batch-grade June 15–23 tickets via extension (skip-graded makes it cheap). Two Fishers conversions depend on it: Timothy Bailey appt 6/16 → ticket #16075332; Jennifer Coffield appt 6/17 → ticket #16079316. `verify-conversions` 14-day window may need manual widen/rerun.
 
 ### Priority 2 — Answer-rate integrity (before re-tier)
-5. **Test-call detection.** Staff will say only "test" on test calls (Matt owns telling them). Dashboard: flag transcript-is-just-"test" as third category (not opportunity, not existing), exclude from answer-rate denominator, **display test-call count** so testing stays visible/praised. Going-forward only, no retroactive scrub.
+5. **Test-call detection.** **PARTIALLY SHIPPED 2026-08-31** - the duration half is live: answered
+   calls under 15s are excluded from the answer rate from 2026-09 (see § 2), and the response now
+   returns `short_calls_excluded` / `answered_before_short_exclusion` so the count can be displayed.
+   **Still open:** the transcript-based half (flag transcript-is-just-"test" as a third category),
+   and actually surfacing the excluded count in the UI. Note the duration filter is a broader net
+   than test-call detection - it also removes hangups, misdials and wrong numbers, which is
+   intended but means the excluded count is NOT purely test calls. Original spec: Staff will say only "test" on test calls (Matt owns telling them). Dashboard: flag transcript-is-just-"test" as third category (not opportunity, not existing), exclude from answer-rate denominator, **display test-call count** so testing stays visible/praised. Going-forward only, no retroactive scrub.
 6. **Store-level opportunity/existing split** in Call Performance summary (exists at employee level; surface at store level).
 7. ~~**Verify short-call filter**~~ **ANSWERED 2026-08-31: there is NO short-call filter anywhere.**
    The denominator is `answered` (from the `daily_call_volume` view) + open missed. Neither consults
@@ -187,6 +207,13 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
 ---
 
 ## 8. Recent changes log
+- **2026-08-31 (evening)** - Answer rate now excludes sub-15s answered calls from 2026-09 forward
+  (payroll, Eric-approved; forward-only so no bonus is clawed back - verified Jul/Aug return
+  byte-identical figures). Chrome extension moved into `extension/` and version controlled for the
+  first time; fixed three financial-extraction bugs in `content.js` (Subtotal/Total regex collision,
+  negative amounts unparseable, single-comma strip), added `popup.js` header comment and
+  `extension/README.md`. **The extension must be re-loaded in chrome://extensions by Eric - pushing
+  to Vercel does NOT deploy it.**
 - **2026-08-31 (later)** — Diagnosed open item 2 (Daily Profit): it is a **coverage** problem, a subset
   of item 3, not a calculation error. GP verified against RepairQ to the penny. Answered open item 7:
   no short-call filter exists, and found that `talk_duration` is stored in **minutes** — a filter
