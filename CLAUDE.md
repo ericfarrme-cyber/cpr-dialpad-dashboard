@@ -60,7 +60,24 @@ Full business context, personnel, comp structures, open items, and the current p
 - **Data sources for totals:** `store_performance` (server-aggregated, all-time, uncapped) is trustworthy for headline totals. `getAuditResults` is a windowed + capped list — fine for lists, never for totals.
 - **Profitability tab:** revenue/COGS are pulled live from RepairQ per period; only expense inputs, labor, and notes are stored rows. `copy_forward` zeroes revenue, other income, and hours.
 - **RepairQ sync currently pulls only ACTIVE tickets.** Closed tickets are not synced — this is a known bug (see open items).
+- **`call_records.talk_duration` and `ringing_duration` are in MINUTES, not seconds.** Verified
+  2026-08-31: 0 rows above 60 across all 28,853 records; median answered call 1.68 (≈101s), max
+  32.72 (≈33 min). A filter written as `talk_duration < 60` to mean "under a minute" matches
+  **every call ever recorded** and silently zeroes the answer rate. Under one minute is `< 1.0`.
+  `lib/dialpad-stats.js:221` divides Dialpad's ms `duration` by 1000 (→ seconds), which does not
+  match what is stored — verify the unit before trusting either path.
+- **`ticket_grades` is written verbatim from the Chrome extension.** `tickets/route.js` does
+  `parseFloat(ticket.gross_profit)` etc. with no computation, so a wrong number there is a scraping
+  bug in the extension, not a server bug. Check the extension before editing any route.
+- **Ticket numbers are franchise-global** (~0.042% density within a store-day), so missing tickets
+  can NOT be found by looking for gaps in the sequence. Diff against RepairQ's day view instead.
 - **`sed` fails on multi-line patterns and Unicode.** For scripted edits use Python `content.replace()`.
+  Also avoid `python -c "..."` from bash for anything containing quotes — write the script to a file
+  and run it. And PowerShell here-strings (`@'...'@`) are a syntax error in bash; use a heredoc.
+- **`claude.ps1` silently drops a bare `--`.** The npm shim forwards args as `& claude.exe $args`,
+  and PowerShell's array splat discards the separator, so `claude mcp add ... -- npx ...` fails with
+  `unknown option '-y'`. Use **`claude.cmd`** (which uses `%*`) for any command containing `--`.
+  PowerShell itself is not at fault, and `--%` does not help.
 - **When something breaks right after an update, check simple causes first** (file swap, wrong env var name, stale deploy) before deep debugging. But prove it — don't guess.
 
 ---

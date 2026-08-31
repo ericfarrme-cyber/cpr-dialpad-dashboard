@@ -100,14 +100,34 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
    `sql/migration_tier_celebrations.sql`. 43 history rows, 12 events, Mar–Aug 2026.
    **Still owed: Eric pays these out manually.** Nothing marks them paid yet — use the AdminTab
    celebration queue (`mark_paid`), which works now that the table exists.
-2. **Daily Profit inaccurate.** 8/14 Fishers: dashboard $1,493.61 vs RepairQ $1,747 vs another view $1,112.35. Candidates: discount double-count/miss, duplicate ticket rows, stale wage rates (Luke's old RepairQ hourly). Feeds GP/hour (reads $75; floor quote is $80) and will feed Duncan's bonus. **Do a one-day line-by-line reconciliation of `ticket_grades` vs RepairQ before touching code.**
+2. **Daily Profit inaccurate.** **DIAGNOSED 2026-08-31 — it is a COVERAGE bug, not a math bug.** The $1,112.35 "third view" is simply **8/13's total**, not a competing figure for 8/14. Verified ticket 16346808 against RepairQ: our stored `gross_profit` ($241.06) matches RepairQ's own Analytics panel to the penny, so `gross_profit = gross_sales − discount − cost` is CORRECT and the discount is **not** double-counted (an earlier theory, disproved). Since every captured ticket matches, the $253.39 gap can only be tickets never captured → this is a subset of item 3. Two real bugs remain, **both in the Chrome extension's scraping, not in this repo** (`tickets/route.js` stores what the extension sends, unmodified): (a) `total_collected` is `gross_sales` verbatim on 815/815 discounted tickets — 16346808 stores $403.99 but the customer paid $313.32; it IS shown to employees in MyPerformanceTab. (b) 13 rows compute GP wrongly — 5 floored at $0.00 where the result goes negative, 4 drop `total_cost` entirely. **Ticket numbers are franchise-global (0.042% density), so missing tickets CANNOT be found by gap analysis** — diff against RepairQ's day view instead. Superseded:  Candidates: discount double-count/miss, duplicate ticket rows, stale wage rates (Luke's old RepairQ hourly). Feeds GP/hour (reads $75; floor quote is $80) and will feed Duncan's bonus. **Do a one-day line-by-line reconciliation of `ticket_grades` vs RepairQ before touching code.**
 3. **RepairQ sync only pulls active tickets.** Closed tickets don't sync → Matt manually marks closed; Alyssa/Duncan advanced-repair bonuses showed $0. Need: sync closed tickets + "re-sync all" that refreshes financials on stored tickets so wage-rate fixes propagate backward. Loud failures.
 4. **June 15–23 backfill.** Re-run audit cron over the window + batch-grade June 15–23 tickets via extension (skip-graded makes it cheap). Two Fishers conversions depend on it: Timothy Bailey appt 6/16 → ticket #16075332; Jennifer Coffield appt 6/17 → ticket #16079316. `verify-conversions` 14-day window may need manual widen/rerun.
 
 ### Priority 2 — Answer-rate integrity (before re-tier)
 5. **Test-call detection.** Staff will say only "test" on test calls (Matt owns telling them). Dashboard: flag transcript-is-just-"test" as third category (not opportunity, not existing), exclude from answer-rate denominator, **display test-call count** so testing stays visible/praised. Going-forward only, no retroactive scrub.
 6. **Store-level opportunity/existing split** in Call Performance summary (exists at employee level; surface at store level).
-7. **Verify short-call filter** — unclear whether sub-60s calls are already excluded from total answer rate. One diagnostic query.
+7. ~~**Verify short-call filter**~~ **ANSWERED 2026-08-31: there is NO short-call filter anywhere.**
+   The denominator is `answered` (from the `daily_call_volume` view) + open missed. Neither consults
+   `talk_duration` or `ringing_duration`, and `is_answered` is set purely from the category string in
+   `saveCallRecords`.
+   **⚠ UNITS TRAP — `call_records.talk_duration` and `ringing_duration` are stored in MINUTES, not
+   seconds.** Verified: **0 rows above 60 across all 28,853 records**; median answered call 1.68
+   (≈101s), max 32.72 (≈33 min); ringing median 0.17 (≈10s). Writing `talk_duration < 60` to mean
+   "under a minute" matches EVERY call and zeroes the answer rate. Under one minute is `< 1.0`.
+   Note `lib/dialpad-stats.js:221` divides Dialpad's ms `duration` by 1000 (→ seconds), which does
+   **not** match what is actually stored — check the unit before trusting either path.
+
+   Measured impact of excluding answered calls under 60s (Aug 2026) — lands in the predicted 5–10% band:
+
+   | store | answered | <15s | <60s | open missed | rate now | excl <60s | delta |
+   |---|---|---|---|---|---|---|---|
+   | fishers | 456 | 76 | 186 | 65 | 87.5% | 80.6% | −6.9 |
+   | bloomington | 414 | 17 | 79 | 101 | 80.4% | 76.8% | −3.6 |
+   | indianapolis | 498 | 49 | 152 | 109 | 82.0% | 76.0% | −6.0 |
+
+   Fishers has **16.7%** of answered calls under 15s vs Bloomington **4.1%** — 4×, consistent with
+   the test-call theory in item 5. The 87.5% also corroborates the "88%" in § 7.
 8. Expectation: rates drop ~5–10% when clean. Matt frames it as "your real number was always this."
 
 ### Priority 3 — Comp changes (need Eric sign-off)
@@ -167,6 +187,12 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
 ---
 
 ## 8. Recent changes log
+- **2026-08-31 (later)** — Diagnosed open item 2 (Daily Profit): it is a **coverage** problem, a subset
+  of item 3, not a calculation error. GP verified against RepairQ to the penny. Answered open item 7:
+  no short-call filter exists, and found that `talk_duration` is stored in **minutes** — a filter
+  written as `< 60` would zero the answer rate. Excluding sub-60s answered calls moves rates
+  −6.9 / −3.6 / −6.0 points, matching the predicted 5–10% drop. No code changed; both remaining
+  Daily Profit bugs live in the Chrome extension, which is not in this repo.
 - **2026-08-31** — Streak bonuses fixed end-to-end and backfilled (open item 1). One route changed
   (`tier-history`), one migration added (`tier_celebrations` + `employee_tier_history.is_locked` +
   `employee_roster.bonus_eligible`). Deployed to production and verified live. Repo had **no
