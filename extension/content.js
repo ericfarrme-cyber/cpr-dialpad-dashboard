@@ -22,9 +22,29 @@
   function extractTicketData() {
     var data = {};
 
-    // Ticket number from URL
-    var urlMatch = window.location.pathname.match(/\/ticket\/(\d+)/);
+    // Ticket number — URL first, then fall back to the page itself.
+    // The old pattern was /\/ticket\/(\d+)/ against the pathname only. When it
+    // missed, ticket_number went out empty and the server rejected the whole
+    // grade with "ticket_number required" — an error that says nothing about the
+    // real cause and looks like a server problem. Accept /ticket/ and /tickets/
+    // and common query-string forms, then fall back to the "Repair Ticket #N"
+    // heading and finally the document title.
+    var urlPath = window.location.pathname + window.location.search;
+    var urlMatch = urlPath.match(/\/tickets?\/(\d+)/i) ||
+                   urlPath.match(/[?&](?:id|ticket|ticket_id|ticketNumber)=(\d+)/i);
     data.ticket_number = urlMatch ? urlMatch[1] : "";
+    if (!data.ticket_number) {
+      var hdrMatch = (document.body ? document.body.innerText : "").match(/Repair\s+Ticket\s*#\s*(\d+)/i);
+      if (hdrMatch) data.ticket_number = hdrMatch[1];
+    }
+    if (!data.ticket_number) {
+      var titleMatch = (document.title || "").match(/#\s*(\d+)/);
+      if (titleMatch) data.ticket_number = titleMatch[1];
+    }
+    if (!data.ticket_number) {
+      console.error("[FT-extract] Could not determine ticket_number from URL (" + urlPath +
+        "), page heading, or title. The grade will be rejected by the server.");
+    }
 
     // Store — extract from the ticket's Summary section on the left sidebar
     // Strategy: get the text of the left column/sidebar only, find CPR [Store] there
@@ -1216,7 +1236,23 @@
   });
 
   async function extractAndGrade() {
-    var data = extractTicketData();
+    // Loud, not silent. Previously a throw in extractTicketData() rejected this
+    // promise, sendResponse() never fired, and the popup showed whatever the
+    // server said about an absent ticket — which hid the real failure.
+    var data;
+    try {
+      data = extractTicketData();
+    } catch (e) {
+      console.error("[FT-extract] extraction threw:", e);
+      return { success: false, error: "Extraction failed on this page: " + (e && e.message ? e.message : String(e)) };
+    }
+    if (!data || !data.ticket_number) {
+      return {
+        success: false,
+        error: "Could not read a ticket number from this page. Open the ticket itself " +
+               "(not a list or report) and reload the page, then try again.",
+      };
+    }
     return await gradeTicket(data);
   }
 
