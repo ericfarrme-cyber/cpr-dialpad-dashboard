@@ -13,15 +13,25 @@ function showStatus(type, text) {
 
 function scoreColor(s) { return s >= 80 ? "#4ADE80" : s >= 60 ? "#FBBF24" : "#F87171"; }
 
-function showScore(grade) {
-  overallScore.textContent = grade.overall_score + "/100";
-  overallScore.style.color = scoreColor(grade.overall_score);
-  scoreDetails.innerHTML = [
-    { label: "Diagnostics", score: grade.diagnostics_score },
-    { label: "Payment", score: grade.payment_score },
-    { label: "Notes", score: grade.notes_score },
-    { label: "Categorization", score: grade.categorization_score },
-  ].map(function(item) {
+// `grade` is the raw model output, whose fields are named repair_notes_score /
+// pickup_* etc. `saved` is the row actually written to the database, using the
+// column names. Prefer saved: it is both correctly named and the thing that will
+// show up on the dashboard. Reading the raw object is why Notes and
+// Categorization displayed "undefined" while the stored values were fine.
+function showScore(grade, saved) {
+  var s = saved || grade || {};
+  var pick = function(a, b) { return s[a] != null ? s[a] : (grade && grade[b] != null ? grade[b] : null); };
+  var overall = pick("overall_score", "overall_score");
+  overallScore.textContent = (overall == null ? "—" : overall + "/100");
+  overallScore.style.color = scoreColor(overall || 0);
+  var rows = [
+    { label: "Diagnostics", score: pick("diagnostics_score", "diagnostics_score") },
+    { label: "Payment", score: pick("payment_score", "payment_score") },
+    { label: "Notes", score: pick("notes_score", "repair_notes_score") },
+    { label: "Categorization", score: pick("categorization_score", "categorization_score") },
+    { label: "Contact", score: pick("contact_score", "contact_score") },
+  ].filter(function(r) { return r.score != null; });
+  scoreDetails.innerHTML = rows.map(function(item) {
     return '<div class="score-row"><span class="score-label">' + item.label + '</span><span class="score-val" style="color:' + scoreColor(item.score) + '">' + item.score + '</span></div>';
   }).join("");
   scorePreview.className = "score-preview show";
@@ -45,7 +55,7 @@ gradeBtn.addEventListener("click", function() {
       }
       if (response && response.success && response.grade) {
         showStatus("success", "Ticket graded and saved to dashboard!");
-        showScore(response.grade);
+        showScore(response.grade, response.saved);
         gradeBtn.textContent = "✓ Graded";
       } else {
         showStatus("error", response ? (response.error || "Unknown error") : "No response from page");
