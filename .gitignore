@@ -32,3 +32,6 @@ yarn-error.log*
 
 .vercel
 .env*
+
+# profitability import rollback snapshots
+rollback-ticket-financials.json
