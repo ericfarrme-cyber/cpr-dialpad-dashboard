@@ -37,6 +37,27 @@ var BONUS_TIERS = [
 
 var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 
+// ── Short-call exclusion (Eric, 2026-08-31) ─────────────────────────────────
+// Answered calls shorter than 15 seconds are not real answered opportunities —
+// they are test calls, hangups, misdials and wrong numbers. From the effective
+// period forward they are removed from BOTH sides of the rate (they are in the
+// answered count, never the missed count, so removing them lowers the rate).
+//
+// FORWARD-ONLY, and that is deliberate. Applied retroactively this would have
+// pushed Fishers and Bloomington below 80% in July, and Bloomington in August,
+// clawing back $50 bonuses that were already earned. Periods before the
+// effective month are returned exactly as they were.
+//
+// ⚠ UNITS: call_records.talk_duration is stored in MINUTES, not seconds.
+// 15 seconds is 0.25. Writing `< 15` here would match every call ever recorded
+// and drive every answer rate to zero. See CLAUDE.md gotchas.
+var SHORT_CALL_EFFECTIVE_PERIOD = "2026-09";   // YYYY-MM, inclusive
+var SHORT_CALL_MIN_MINUTES = 0.25;             // 15 seconds
+
+function shortCallFilterApplies(monthStr) {
+  return String(monthStr) >= SHORT_CALL_EFFECTIVE_PERIOD;
+}
+
 // Map a rate (0-100) to the highest tier reached. Returns { amount, tier }.
 function tierForRate(rate) {
   for (var i = 0; i < BONUS_TIERS.length; i++) {
@@ -115,6 +136,34 @@ export async function GET(request) {
       .limit(20000);
     if (missedRes.error) return NextResponse.json({ success: false, error: missedRes.error.message });
 
+    // ── 2b. Short answered calls to exclude (effective period forward) ──
+    // Subtractive on purpose: `answered` keeps coming from daily_call_volume so
+    // the existing baseline cannot drift. Verified 2026-08-31 that the view and
+    // call_records agree exactly (456/414/498 for Aug), so the two populations
+    // line up and this subtracts the right rows.
+    var shortByStore = {};
+    STORE_KEYS.forEach(function(s) { shortByStore[s] = 0; });
+    var shortFilterOn = shortCallFilterApplies(month);
+    if (shortFilterOn) {
+      var shortRes = await supabase
+        .from("call_records")
+        .select("store, talk_duration, categories")
+        .eq("target_type", "department")
+        .eq("direction", "inbound")
+        .eq("is_answered", true)
+        .lt("talk_duration", SHORT_CALL_MIN_MINUTES)
+        .gte("date_started", startTs)
+        .lt("date_started", endTs)
+        .limit(20000);
+      if (shortRes.error) return NextResponse.json({ success: false, error: shortRes.error.message }, { status: 500 });
+      (shortRes.data || []).forEach(function(row) {
+        if (!row.store || shortByStore[row.store] === undefined) return;
+        var cats = (row.categories || "").toLowerCase().split(/[,\s|]+/);
+        if (cats.indexOf("dismissed") >= 0) return;
+        shortByStore[row.store] += 1;
+      });
+    }
+
     // Open-hours missed per store (exclude availability=closed; also drop
     // answered/dismissed transfer artifacts — same rule as getHourlyMissed).
     var answeredByStore = {};
@@ -145,7 +194,11 @@ export async function GET(request) {
 
     // ── 3. Per-store rate + tier ──
     var stores = STORE_KEYS.map(function(s) {
-      var answered = answeredByStore[s];
+      var answeredRaw = answeredByStore[s];
+      var shortExcluded = shortByStore[s];
+      // Short calls sit in the answered count only, never in missed, so removing
+      // them shrinks the numerator and the denominator by the same amount.
+      var answered = answeredRaw - shortExcluded;
       var openMissed = openMissedByStore[s];
       var total = answered + openMissed;
       var rate = total > 0 ? (answered / total) * 100 : 0;
@@ -153,6 +206,11 @@ export async function GET(request) {
       return {
         store: s,
         answered: answered,
+        // Surfaced so testing stays visible and praised rather than invisible.
+        answered_before_short_exclusion: answeredRaw,
+        short_calls_excluded: shortExcluded,
+        short_call_filter_applied: shortFilterOn,
+        short_call_threshold_seconds: Math.round(SHORT_CALL_MIN_MINUTES * 60),
         open_missed: openMissed,
         after_hours_missed: closedMissedByStore[s],
         total_open: total,

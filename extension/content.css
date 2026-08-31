@@ -1,0 +1,11 @@
+#ft-grade-overlay {
+  animation: ft-slide-in 0.3s ease;
+}
+@keyframes ft-slide-in {
+  from { transform: translateX(100px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+#ft-grade-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 6px 20px rgba(123, 47, 255, 0.4);
+}

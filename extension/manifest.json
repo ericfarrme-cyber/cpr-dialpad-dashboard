@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Focused Technologies - Ticket Grader",
+  "version": "1.0.0",
+  "description": "Grade RepairQ tickets for process compliance",
+  "permissions": ["activeTab", "storage", "tabs"],
+  "host_permissions": ["https://cpr.repairq.io/*"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://cpr.repairq.io/*"],
+      "js": ["content.js"],
+      "css": ["content.css"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

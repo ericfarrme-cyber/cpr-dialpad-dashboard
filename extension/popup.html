@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { width: 320px; padding: 16px; background: #0F1117; color: #F0F1F3; font-family: -apple-system, sans-serif; margin: 0; }
+    h1 { font-size: 15px; margin: 0 0 4px; font-weight: 800; }
+    .sub { color: #6B6F78; font-size: 11px; margin-bottom: 16px; }
+    .btn { width: 100%; padding: 12px; border-radius: 8px; border: none; font-size: 13px; font-weight: 700; cursor: pointer; margin-bottom: 8px; }
+    .btn-primary { background: linear-gradient(135deg, #00D4FF, #7B2FFF); color: #FFF; }
+    .btn-batch { background: #1A1D23; color: #7B2FFF; border: 1px solid #7B2FFF33; }
+    .btn:disabled { opacity: 0.5; cursor: default; }
+    .status { padding: 10px; border-radius: 8px; margin-top: 8px; font-size: 12px; display: none; }
+    .status.show { display: block; }
+    .status.success { background: #4ADE8012; border: 1px solid #4ADE8033; color: #4ADE80; }
+    .status.error { background: #F8717112; border: 1px solid #F8717133; color: #F87171; }
+    .status.progress { background: #FBBF2412; border: 1px solid #FBBF2433; color: #FBBF24; }
+    .score-preview { display: none; margin-top: 12px; background: #1A1D23; border-radius: 10px; padding: 14px; }
+    .score-preview.show { display: block; }
+    .score-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12px; }
+    .score-label { color: #8B8F98; }
+    .score-val { font-weight: 700; }
+    .divider { border-top: 1px solid #2A2D35; margin: 12px 0; }
+    a { color: #7B2FFF; text-decoration: none; font-size: 11px; }
+  </style>
+</head>
+<body>
+  <h1>🔧 Ticket Grader</h1>
+  <div class="sub">Focused Technologies</div>
+
+  <button id="gradeBtn" class="btn btn-primary">Grade This Ticket</button>
+  <button id="batchBtn" class="btn btn-batch">Batch Grade Report Page</button>
+
+  <div id="status" class="status"></div>
+
+  <div id="scorePreview" class="score-preview">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <span style="font-size:12px;font-weight:700;">Compliance Score</span>
+      <span id="overallScore" style="font-size:22px;font-weight:800;"></span>
+    </div>
+    <div id="scoreDetails"></div>
+  </div>
+
+  <div class="divider"></div>
+  <a href="https://cpr-dialpad-dashboard.vercel.app" target="_blank">Open Dashboard →</a>
+
+  <script src="popup.js"></script>
+</body>
+</html>
