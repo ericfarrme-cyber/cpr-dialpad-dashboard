@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
-import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
 
 // Hardcoded brand palette — matches ScorecardTab and other DialpadDashboard tabs
 var CYAN = "#00D4FF";
@@ -192,17 +191,12 @@ export default function AdvancedRepairsTab() {
 
   return (
     <div>
-      {/* Non-phone repair TRAFFIC — read-only, computed from ticket_grades.
-          Deliberately separate from the commission tracking below, which is
-          manual entry on the advanced_repairs table and a different comp model. */}
-      <AdvancedRepairTrafficSummary />
-
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, color: "#F0F1F3", fontWeight: 700 }}>{"\uD83D\uDD27"} Advanced Repairs</h2>
+          <h2 style={{ margin: 0, fontSize: 20, color: "#F0F1F3", fontWeight: 700 }}>{"\uD83D\uDD27"} Advanced Repair Log</h2>
           <div style={{ color: "#6B6F78", fontSize: 12, marginTop: 4 }}>
-            High-skill soldering & board-level repairs. Commission paid monthly on closed tickets only.
+            Per-repair commission log. Traffic and profit totals live on the Advanced Repair Traffic tab.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>

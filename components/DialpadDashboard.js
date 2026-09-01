@@ -23,6 +23,7 @@ import CoachingTab from "@/components/CoachingTab";
 import LeaderboardTab from "@/components/LeaderboardTab";
 import CallQualityTab from "@/components/CallQualityTab";
 import AdvancedRepairsTab from "@/components/AdvancedRepairsTab";
+import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
 import DailyProfitTab from "@/components/DailyProfitTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import {
@@ -1356,7 +1357,10 @@ export default function DialpadDashboard() {
           <button onClick={function(){setActiveTab("callquality");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="callquality"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="callquality"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFA7"}</span>Call Quality</button>
         )}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("advanced_repairs");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repairs"?"#FBBF24":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repairs"?"2px solid #FBBF24":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDD27"}</span>Advanced Repairs</button>
+          <button onClick={function(){setActiveTab("advanced_repairs");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repairs"?"#FBBF24":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repairs"?"2px solid #FBBF24":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCCB"}</span>Advanced Repair Log</button>
+        )}
+        {isAdmin && !isPreviewing && (
+          <button onClick={function(){setActiveTab("advanced_repair_traffic");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repair_traffic"?"#00D4FF":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repair_traffic"?"2px solid #00D4FF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC8"}</span>Advanced Repair Traffic</button>
         )}
         {visibleTabs.slice(1).map(function(tab) {
           return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
@@ -1387,6 +1391,7 @@ export default function DialpadDashboard() {
         {activeTab==="leaderboard" && <LeaderboardTab />}
         {activeTab==="callquality" && <CallQualityTab />}
         {activeTab==="advanced_repairs" && <AdvancedRepairsTab />}
+        {activeTab==="advanced_repair_traffic" && <AdvancedRepairTrafficSummary />}
         {activeTab==="admin" && <AdminTab onPreview={function(role, name, store){
           setPreviewRole(role === "admin" ? null : role);
           setPreviewEmployee(role === "employee" ? name : "");
