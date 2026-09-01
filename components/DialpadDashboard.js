@@ -10,7 +10,6 @@ import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
 import { useAuth } from "@/components/AuthProvider";
 import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
-import VoicemailTab from "@/components/VoicemailTab";
 import SalesTab from "@/components/SalesTab";
 import ScorecardTab from "@/components/ScorecardTab";
 import ComplianceTab from "@/components/ComplianceTab";
@@ -31,7 +30,7 @@ import {
   transformToDailyCalls, transformToHourlyMissed,
   transformToDOWMissed, transformToCallbackData, transformToProblemCalls,
   SAMPLE_HOURLY_MISSED, SAMPLE_DAILY_CALLS,
-  SAMPLE_CALLBACK_DATA, SAMPLE_PROBLEM_CALLS, SAMPLE_DOW_DATA
+  SAMPLE_CALLBACK_DATA, SAMPLE_DOW_DATA
 } from "@/lib/data";
 
 const STORE_KEYS = Object.keys(STORES);
@@ -145,115 +144,6 @@ function AISummary({ type, dashboardData }) {
   );
 }
 
-function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
-  return (
-    <div>
-      <AISummary type="overview" dashboardData={{ overviewStats:overviewStats }} />
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-        <StatCard label="Total Calls (30d)" value={(overviewStats.totals.answered+overviewStats.totals.missed).toLocaleString()} accent="#7B2FFF" />
-        <StatCard label="Answer Rate" value={((overviewStats.totals.answered+overviewStats.totals.missed)>0?((overviewStats.totals.answered/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1):"0")+"%"} accent="#4ADE80" sub={overviewStats.totals.answered.toLocaleString()+" answered"} />
-        <StatCard label="Missed Calls" value={overviewStats.totals.missed.toLocaleString()} accent="#F87171" />
-        <StatCard label="Avg Calls / Day" value={Math.round((overviewStats.totals.answered+overviewStats.totals.missed)/30)} accent="#00D4FF" sub="across all stores" />
-      </div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
-        {Object.entries(STORES).map(function([key,store]) {
-          var s = overviewStats.storeStats[key];
-          var realTotal = s.answered + s.missed;
-          var rate = realTotal > 0 ? ((s.answered/realTotal)*100).toFixed(1) : "0.0";
-          return (
-            <div key={key} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-              <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:14 }}>
-                <div style={{ width:36,height:36,borderRadius:10,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800,fontSize:16 }}>{store.icon}</div>
-                <div>
-                  <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{store.name}</div>
-                  <div style={{ color:"#6B6F78",fontSize:11 }}>{realTotal} total calls</div>
-                </div>
-              </div>
-              <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10 }}>
-                <div><div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Answered</div><div style={{ color:"#4ADE80",fontSize:20,fontWeight:700 }}>{s.answered}</div></div>
-                <div><div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Missed</div><div style={{ color:"#F87171",fontSize:20,fontWeight:700 }}>{s.missed}</div></div>
-                <div><div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Rate</div><div style={{ color:store.color,fontSize:20,fontWeight:700 }}>{rate}%</div></div>
-              </div>
-              <div style={{ marginTop:12,background:"#12141A",borderRadius:6,height:8,overflow:"hidden" }}><div style={{ width:rate+"%",height:"100%",background:store.color,borderRadius:6 }} /></div>
-            </div>
-          );
-        })}
-      </div>
-      <SectionHeader title="Daily Call Volume" subtitle="Last 30 days — answered vs missed" icon="📊" />
-      <div style={{ background:"#1A1D23",borderRadius:12,padding:20,height:300 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={dailyCalls}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" />
-            <XAxis dataKey="date" tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} interval={4} />
-            <YAxis tick={{ fill:"#6B6F78",fontSize:10 }} tickLine={false} axisLine={false} />
-            <Tooltip content={<CustomTooltip />} />
-            <Legend wrapperStyle={{ fontSize:10, color:"#8B8F98" }} />
-            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Bar key={key+"_a"} stackId={key} dataKey={key+"_answered"} name={STORES[key].name.replace("CPR ","")+" Answered"} fill={STORES[key].color} radius={[0,0,0,0]} /> : null; })}
-            {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Bar key={key+"_m"} stackId={key} dataKey={key+"_missed"} name={STORES[key].name.replace("CPR ","")+" Missed"} fill="#F87171" radius={[2,2,0,0]} /> : null; })}
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function MissedTab({ storeFilter, overviewStats, hourlyMissed, dowData }) {
-  return (
-    <div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
-        {Object.entries(STORES).map(function([key,store]){ var s=overviewStats.storeStats[key]; var rt=s.answered+s.missed; return <StatCard key={key} label={store.name+" Missed"} value={s.missed} accent={store.color} sub={rt?((s.missed/rt)*100).toFixed(1)+"% miss rate":""} />; })}
-      </div>
-      <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:20 }}>
-        <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-          <SectionHeader title="Missed by Hour" icon="🕐" />
-          <div style={{ height:280 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={hourlyMissed}><CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" /><XAxis dataKey="hour" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} /><YAxis tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} /><Tooltip content={<CustomTooltip />} />{STORE_KEYS.map(function(k){return(storeFilter==="all"||storeFilter===k)?<Bar key={k} dataKey={k} name={STORES[k].name.replace("CPR ","")} fill={STORES[k].color} radius={[4,4,0,0]} barSize={14} />:null;})}</BarChart></ResponsiveContainer></div>
-        </div>
-        <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-          <SectionHeader title="Missed by Day" icon="📅" />
-          <div style={{ height:280 }}><ResponsiveContainer width="100%" height="100%"><RadarChart data={dowData} cx="50%" cy="50%" outerRadius={100}><PolarGrid stroke="#2A2D35" /><PolarAngleAxis dataKey="day" tick={{fill:"#8B8F98",fontSize:11}} /><PolarRadiusAxis tick={{fill:"#6B6F78",fontSize:9}} axisLine={false} />{STORE_KEYS.map(function(k){return(storeFilter==="all"||storeFilter===k)?<Radar key={k} name={STORES[k].name.replace("CPR ","")} dataKey={k} stroke={STORES[k].color} fill={STORES[k].color} fillOpacity={0.15} strokeWidth={2} />:null;})}<Legend iconType="circle" iconSize={8} /><Tooltip content={<CustomTooltip />} /></RadarChart></ResponsiveContainer></div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function CallbacksTab({ callbackData }) {
-  return (
-    <div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:28 }}>
-        {callbackData.map(function(cb){ var store=STORES[cb.store]; if(!store) return null; var rate=cb.missed>0?((cb.calledBack/cb.missed)*100).toFixed(1):"0.0"; return (
-          <div key={cb.store} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
-            <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}><div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{store.name}</div><div style={{ padding:"4px 10px",borderRadius:6,background:parseFloat(rate)>=80?"#4ADE8022":"#F8717122",color:parseFloat(rate)>=80?"#4ADE80":"#F87171",fontSize:14,fontWeight:700 }}>{rate}%</div></div>
-            {[{l:"Within 30 min",v:cb.within30,c:"#4ADE80"},{l:"30-60 min",v:cb.within60,c:"#FBBF24"},{l:"60+ min",v:cb.later,c:"#FB923C"},{l:"Never",v:cb.never,c:"#F87171"}].map(function(item,i){ return (
-              <div key={i} style={{ marginTop:10 }}><div style={{ display:"flex",justifyContent:"space-between",marginBottom:3 }}><span style={{ color:"#8B8F98",fontSize:11 }}>{item.l}</span><span style={{ color:item.c,fontSize:12,fontWeight:700 }}>{item.v}</span></div><div style={{ background:"#12141A",borderRadius:4,height:6,overflow:"hidden" }}><div style={{ width:cb.missed>0?(item.v/cb.missed*100)+"%":"0%",height:"100%",background:item.c,borderRadius:4 }} /></div></div>
-            ); })}
-          </div>
-        ); })}
-      </div>
-    </div>
-  );
-}
-
-function ProblemsTab({ overviewStats, problemCalls }) {
-  var tp = problemCalls.reduce(function(s,p){return s+STORE_KEYS.reduce(function(ss,k){return ss+(p[k]||0);},0);},0);
-  return (
-    <div>
-      <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:28 }}>
-        <StatCard label="Problem Calls" value={tp} accent="#F87171" />
-        <StatCard label="% of All Calls" value={(overviewStats.totals.answered+overviewStats.totals.missed)>0?((tp/(overviewStats.totals.answered+overviewStats.totals.missed))*100).toFixed(1)+"%":"0%"} accent="#FB923C" />
-        <StatCard label="Top Issue" value={problemCalls[0]?problemCalls[0].type:"N/A"} accent="#00D4FF" />
-      </div>
-      <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-        <SectionHeader title="Problem Call Types" icon="🔥" />
-        <div style={{ height:300 }}><ResponsiveContainer width="100%" height="100%"><BarChart data={problemCalls} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} /><XAxis type="number" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} /><YAxis type="category" dataKey="type" tick={{fill:"#8B8F98",fontSize:10}} width={140} tickLine={false} axisLine={false} /><Tooltip content={<CustomTooltip />} />{STORE_KEYS.map(function(k){return <Bar key={k} dataKey={k} name={STORES[k].name.replace("CPR ","")} fill={STORES[k].color} radius={[0,4,4,0]} barSize={10} />;})}</BarChart></ResponsiveContainer></div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════
-// AUDIT TAB
-// ═══════════════════════════════════════════
 function AuditTab({ rawCallData, storeFilter }) {
   var [audits, setAudits] = useState([]);
   var [employees, setEmployees] = useState([]);
@@ -1132,7 +1022,6 @@ export default function DialpadDashboard() {
   var [hourlyMissed, setHourlyMissed] = useState(SAMPLE_HOURLY_MISSED);
   var [dowData, setDowData] = useState(SAMPLE_DOW_DATA);
   var [callbackData, setCallbackData] = useState(SAMPLE_CALLBACK_DATA);
-  var [problemCalls, setProblemCalls] = useState(SAMPLE_PROBLEM_CALLS);
 
   // Preview mode — admin can simulate other roles
   var [previewRole, setPreviewRole] = useState(null); // null = no preview, "manager", "employee"
@@ -1198,7 +1087,6 @@ export default function DialpadDashboard() {
         if(d.hourlyMissed&&d.hourlyMissed.length>0) setHourlyMissed(d.hourlyMissed);
         if(d.dowData&&d.dowData.length>0) setDowData(d.dowData);
         if(d.callbackData&&d.callbackData.length>0) setCallbackData(d.callbackData);
-        if(d.problemCalls&&d.problemCalls.length>0) setProblemCalls(d.problemCalls);
         setIsStored(true); setLastSync(json.lastSync);
         return true;
       }
@@ -1216,8 +1104,7 @@ export default function DialpadDashboard() {
         var hourly = transformToHourlyMissed(data); if(hourly.some(function(h){return STORE_KEYS.some(function(k){return h[k]>0;});})) setHourlyMissed(hourly);
         var dow = transformToDOWMissed(data); if(dow.some(function(d){return STORE_KEYS.some(function(k){return d[k]>0;});})) setDowData(dow);
         var cbs = transformToCallbackData(data); if(cbs.some(function(c){return c.missed>0;})) setCallbackData(cbs);
-        var probs = transformToProblemCalls(data); if(probs.some(function(p){return STORE_KEYS.some(function(k){return p[k]>0;});})) setProblemCalls(probs);
-        setIsLive(true); setIsStored(false);
+        var probs = transformToProblemCalls(data);        setIsLive(true); setIsStored(false);
         autoAuditPending.current = true;
       }
     } catch(e) { console.error(e); }
@@ -1351,17 +1238,13 @@ export default function DialpadDashboard() {
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
-        {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} problemCalls={problemCalls} />}
-        {activeTab==="missed" && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} />}
-        {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
-        {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
+        {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
         {activeTab==="sales" && <SalesTab viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="daily_profit" && <DailyProfitTab />}
         {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="insights" && <InsightsTab storeFilter={storeFilter} />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
-        {activeTab==="voicemails" && <VoicemailTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
         {activeTab==="profitability" && <ProfitabilityTab />}
         {activeTab==="coaching" && <CoachingTab />}

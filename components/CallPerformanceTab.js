@@ -29,7 +29,7 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCalls, hourlyMissed, dowData, callbackData, problemCalls }) {
+export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCalls, hourlyMissed, dowData, callbackData }) {
   var [subTab, setSubTab] = useState("executive");
   var [scheduleData, setScheduleData] = useState(null);
   var [employeeData, setEmployeeData] = useState(null);
