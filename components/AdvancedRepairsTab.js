@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
 
 // Hardcoded brand palette — matches ScorecardTab and other DialpadDashboard tabs
 var CYAN = "#00D4FF";
@@ -191,6 +192,11 @@ export default function AdvancedRepairsTab() {
 
   return (
     <div>
+      {/* Non-phone repair TRAFFIC — read-only, computed from ticket_grades.
+          Deliberately separate from the commission tracking below, which is
+          manual entry on the advanced_repairs table and a different comp model. */}
+      <AdvancedRepairTrafficSummary />
+
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
