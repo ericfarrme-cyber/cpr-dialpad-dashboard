@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-08-31 (streak bonuses fixed + backfilled; payouts owed in § 9)
+**Last updated:** 2026-09-01 (streak bonuses fixed; ticket financials reconciled to RepairQ — § 10)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -263,3 +263,63 @@ He is the area manager. Payroll is unaffected (eligibility uses `bonus_eligible`
 the peer-comparison pools in `flags/route.js` — likely the same stale data behind open item 15
 ("Coaching tab showing Matt & Luke incorrectly"). Changing it shifts his peer pool, so it was left
 for Eric to decide.
+
+---
+
+## 10. Ticket financials: RepairQ is the source of truth (2026-08-31/09-01)
+
+**The report, not the ticket page, is authoritative for money.** The Chrome extension
+scrapes the ticket page, which shows the transaction as originally rung — list prices,
+before returns, adjustments and no-charge discounts. RepairQ's **Profitability by Ticket**
+export shows what actually moved. Reconciled for the first time on 2026-08-31:
+`ticket_grades` was understating gross profit by **$106,719** across 4,125 tickets, with
+another **$86,109** on 1,060 tickets never graded at all.
+
+Import with `tools/import-profitability.py` (dry run by default, `--apply` to write; see
+`tools/README.md`). After the import, April–August reconcile to **$0.00**.
+
+**`tickets/route.js` no longer writes financial columns on a re-grade** — only on first
+insert — or every re-grade would silently revert the imported figures to scraped ones.
+
+### Four scraping bugs found and fixed the same day
+1. `/Total[:\s]*\$/i` matched the "total" inside **Subtotal**, so `total_collected` was the
+   subtotal on all 815 discounted tickets. Needs `\b`, and prefer the **Payments** line.
+2. **RepairQ writes losses in accounting parentheses on the line AFTER the label** —
+   `"Gross Profit:\n($ 198.38)"`. The sign group didn't accept `(`, so the match failed,
+   the field was never assigned, and the server's `|| 0` stored **0**. No row in 4,124 had
+   ever been negative; $4,538.90 of real losses sat as break-even.
+3. `.replace(",", "")` dropped only the first comma — `$1,234,567.89` parsed as `1234`.
+4. **Unclosed tickets were counted as booked revenue** (see below).
+
+### ⚠ date_closed was being invented on open tickets
+The extension assigned whatever single date it found in the Summary sidebar to
+`date_closed`, **including on tickets that had not closed**. An open ticket showing only its
+created date was indistinguishable from a completed sale, and `daily-profit` buckets on
+`date_closed` and calls it "the revenue event".
+
+121 unclosed tickets carried **$28,276 of gross sales / $11,421 of gross profit** as if
+booked — 48 of them `waiting_for_payment`, money not yet collected. 101 sat in August and
+accounted for the entire August discrepancy. **This was also the original 8/14 Fishers
+question** ($1,747 vs $1,493.61) — never a discount-math problem.
+
+`content.js` now reads ticket status and discards the date unless the ticket is closed.
+`tools/clear-unclosed-dates.py` remediated the existing rows. August now reconciles at
+804 vs RepairQ's 813 tickets, 0.07% on gross sales; the 9 remaining are ungraded.
+
+**Optional, not yet run:** `alter table public.ticket_grades add column if not exists status text;`
+The extension already sends `ticket_status`; the server does not persist it yet.
+
+### Store attribution
+`tickets/route.js` used to **always** overwrite the ticket's store with the employee's
+roster store. Every employee had 100% of their tickets at their home store and zero
+elsewhere — Matt's 597 area-manager tickets all on Bloomington, Luke's post-move Indy work
+still Bloomington. Fixed forward 2026-08-31: the ticket page wins, roster is the fallback.
+**History keeps its old attribution until re-graded.**
+
+### Gotchas the export taught us
+- The export's **`Date` column is the CREATED date**, not the close date — a Feb–Aug
+  close-date filter returns rows dated 2025. Never group months by it.
+- **The export has no location column.** Per-store figures need one export per location.
+- The report paginates at **100 rows** in the browser; the extension's batch only sees the
+  rendered page. Use the extension's **Re-grade Ticket List** mode, which goes straight to
+  `/ticket/<number>` and ignores pagination.
