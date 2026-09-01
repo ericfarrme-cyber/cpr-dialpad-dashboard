@@ -30,7 +30,7 @@ import {
   fetchLiveStats,
   transformToDailyCalls, transformToHourlyMissed,
   transformToDOWMissed, transformToCallbackData, transformToProblemCalls,
-  SAMPLE_KEYWORDS, SAMPLE_HOURLY_MISSED, SAMPLE_DAILY_CALLS,
+  SAMPLE_HOURLY_MISSED, SAMPLE_DAILY_CALLS,
   SAMPLE_CALLBACK_DATA, SAMPLE_PROBLEM_CALLS, SAMPLE_DOW_DATA
 } from "@/lib/data";
 
@@ -192,27 +192,6 @@ function OverviewTab({ storeFilter, overviewStats, dailyCalls }) {
             {STORE_KEYS.map(function(key) { return (storeFilter==="all"||storeFilter===key) ? <Bar key={key+"_m"} stackId={key} dataKey={key+"_missed"} name={STORES[key].name.replace("CPR ","")+" Missed"} fill="#F87171" radius={[2,2,0,0]} /> : null; })}
           </BarChart>
         </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function KeywordsTab({ keywords }) {
-  var [cat, setCat] = useState("All");
-  var categories = ["All"].concat([...new Set(keywords.map(function(k){return k.category;}))]);
-  var filtered = useMemo(function() { var kw = keywords; if(cat!=="All") kw=kw.filter(function(k){return k.category===cat;}); return [...kw].sort(function(a,b){return STORE_KEYS.reduce(function(s,k){return s+(b[k]||0);},0)-STORE_KEYS.reduce(function(s,k){return s+(a[k]||0);},0);}); }, [cat, keywords]);
-  var catColors = { Service:"#7B2FFF",Sales:"#4ADE80",Support:"#FBBF24",Operations:"#00D4FF",Problem:"#F87171" };
-  return (
-    <div>
-      <div style={{ display:"flex",gap:6,marginBottom:20,flexWrap:"wrap" }}>
-        {categories.map(function(c){ return <button key={c} onClick={function(){setCat(c);}} style={{ padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",background:cat===c?"#7B2FFF22":"#1A1D23",color:cat===c?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{c}</button>; })}
-      </div>
-      <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-        <SectionHeader title="Keyword Frequency" icon="🏷️" />
-        <table style={{ width:"100%",borderCollapse:"collapse" }}>
-          <thead><tr style={{ borderBottom:"1px solid #2A2D35" }}><th style={{ textAlign:"left",padding:"8px 10px",color:"#6B6F78",fontSize:10 }}>Keyword</th>{STORE_KEYS.map(function(k){return <th key={k} style={{ textAlign:"right",padding:"8px 6px",color:STORES[k].color,fontSize:10 }}>{STORES[k].icon}</th>;})}<th style={{ textAlign:"right",padding:"8px 10px",color:"#8B8F98",fontSize:10 }}>Total</th></tr></thead>
-          <tbody>{filtered.map(function(k,i){ var total=STORE_KEYS.reduce(function(s,sk){return s+(k[sk]||0);},0); return <tr key={i} style={{ borderBottom:"1px solid #1E2028" }}><td style={{ padding:"10px",color:"#E8E9EC",fontSize:13,fontWeight:600 }}>{k.keyword}</td>{STORE_KEYS.map(function(sk){return <td key={sk} style={{ textAlign:"right",padding:"10px 6px",color:"#C8CAD0",fontSize:13 }}>{k[sk]||0}</td>;})}<td style={{ textAlign:"right",padding:"10px",color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{total}</td></tr>; })}</tbody>
-        </table>
       </div>
     </div>
   );
@@ -1153,7 +1132,6 @@ export default function DialpadDashboard() {
   var [hourlyMissed, setHourlyMissed] = useState(SAMPLE_HOURLY_MISSED);
   var [dowData, setDowData] = useState(SAMPLE_DOW_DATA);
   var [callbackData, setCallbackData] = useState(SAMPLE_CALLBACK_DATA);
-  var [keywords, setKeywords] = useState(SAMPLE_KEYWORDS);
   var [problemCalls, setProblemCalls] = useState(SAMPLE_PROBLEM_CALLS);
 
   // Preview mode — admin can simulate other roles
@@ -1374,7 +1352,6 @@ export default function DialpadDashboard() {
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} problemCalls={problemCalls} />}
-        {activeTab==="keywords" && <KeywordsTab keywords={keywords} />}
         {activeTab==="missed" && <MissedTab storeFilter={storeFilter} overviewStats={overviewStats} hourlyMissed={hourlyMissed} dowData={dowData} />}
         {activeTab==="callbacks" && <CallbacksTab callbackData={callbackData} />}
         {activeTab==="problems" && <ProblemsTab overviewStats={overviewStats} problemCalls={problemCalls} />}
