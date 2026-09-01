@@ -54,6 +54,11 @@ function fmt(n) { return "$" + (n || 0).toLocaleString(undefined, { minimumFract
 function sc(v, g, w) { return v >= g ? "#4ADE80" : v >= w ? "#FBBF24" : "#F87171"; }
 
 // Fuzzy name matching — handles "Alyssa Parent" vs "Parent, Alyssa" vs "Alyssa"
+// The non-phone monthly threshold bonus is paid to one person (Eric, 2026-09-01).
+// Matched with the same fuzzy matcher used everywhere else so "Hitti, Duncan"
+// and "Duncan" both resolve.
+var NON_PHONE_BONUS_EMPLOYEE = "Duncan Hitti";
+
 function matchName(empName, candidateName) {
   if (!empName || !candidateName) return false;
   var a = empName.toLowerCase().trim();
@@ -241,6 +246,11 @@ export default function MyPerformanceTab({ auth, store }) {
   // Counts in calibration mode initially; ALWAYS visible to employee since paid monthly
   var [advancedRepair, setAdvancedRepair] = useState(null);
   var [answerRateBonus, setAnswerRateBonus] = useState(null);
+  // Non-phone monthly THRESHOLD bonus — $100 at $15,000 of non-phone repair
+  // profit, then $50 per full $1,000 above. Paid to Duncan only (Eric,
+  // 2026-09-01) and stacked on top of the per-repair advanced-repair
+  // commission, which is a separate model. No multiplier.
+  var [nonPhoneBonus, setNonPhoneBonus] = useState(null);
   // Personal GP data (current period + prior period for comparison) — fetched from gp_leaderboard
   var [gpData, setGpData] = useState(null);
   // Manager → employee private coaching notes (delivered via Performance Command Center)
@@ -362,6 +372,7 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
         fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/answer-rate-bonus?month=" + activePeriod).then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/advanced-repair-traffic?months=14").then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -446,6 +457,16 @@ export default function MyPerformanceTab({ auth, store }) {
       if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
       if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
       if (results[9] && results[9].status === "fulfilled" && results[9].value.success) setAdvancedRepair(results[9].value);
+      // Non-phone threshold bonus. Deliberately strict: Duncan only, and never
+      // on a month whose device_category coverage is too low to trust — paying
+      // a bonus off data we know is incomplete is worse than paying it late.
+      if (results[11] && results[11].status === "fulfilled" && results[11].value && results[11].value.success) {
+        var npbAll = results[11].value.months || [];
+        var npbMonth = npbAll.find(function(m) { return m.month === activePeriod; });
+        var isBonusEmployee = matchName(empName, NON_PHONE_BONUS_EMPLOYEE);
+        if (npbMonth && isBonusEmployee) setNonPhoneBonus(npbMonth);
+        else setNonPhoneBonus(null);
+      } else setNonPhoneBonus(null);
       // Answer-rate bonus (standalone, NOT part of weighted commission). Find this
       // employee in the month's payout list via the same fuzzy name match.
       if (results[10] && results[10].status === "fulfilled" && results[10].value.success) {
@@ -1380,7 +1401,10 @@ export default function MyPerformanceTab({ auth, store }) {
         // Total row reference THIS same value so they can never disagree.
         var advExtra = (advancedRepair && advancedRepair.total_amount > 0) ? advancedRepair.total_amount : 0;
         var arbExtra = (answerRateBonus && answerRateBonus.bonus > 0) ? answerRateBonus.bonus : 0;
-        var bonusExtras = advExtra + arbExtra;
+        // Only pays on a month we can stand behind — see the fetch guard above.
+        var npbPayable = !!(nonPhoneBonus && nonPhoneBonus.complete && nonPhoneBonus.bonus && nonPhoneBonus.bonus.amount > 0);
+        var npbExtra = npbPayable ? nonPhoneBonus.bonus.amount : 0;
+        var bonusExtras = advExtra + arbExtra + npbExtra;
         var allInTotal = (commission ? commission.total : 0) + bonusExtras;
         return (
         <div>
@@ -1391,7 +1415,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{commission ? fmt(allInTotal) : "$0.00"}</div>
                 {commission && bonusExtras > 0 && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginTop: 4 }}>
-                    {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}
+                    {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}{npbExtra > 0 ? " + " + fmt(npbExtra) + " non-phone bonus" : ""}
                   </div>
                 )}
                 {commission && commission.hasData && commission.tierMultiplier > 1 && (
@@ -1533,12 +1557,40 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "#10B981", fontSize: 14, fontWeight: 700 }}>+{fmt(answerRateBonus.bonus)}</td>
                       </tr>
                     )}
+                    {/* Non-phone threshold bonus — Duncan only, standalone, no multiplier */}
+                    {npbPayable && (
+                      <tr style={{ borderTop: "1px solid var(--border)", background: "#00D4FF08" }}>
+                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
+                          {"\uD83D\uDD27"} Non-Phone Repair Bonus <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500 }}>(no multiplier)</span>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
+                            {fmt(nonPhoneBonus.profit)} of non-phone repair profit across all stores &middot; {fmt(nonPhoneBonus.bonus.over)} over target
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{nonPhoneBonus.tickets}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>{fmt(nonPhoneBonus.profit)}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>$100 at {fmt(nonPhoneBonus.bonus.threshold)} + $50/$1k</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#00D4FF", fontSize: 14, fontWeight: 700 }}>+{fmt(npbExtra)}</td>
+                      </tr>
+                    )}
+                    {/* Threshold not reached, or the month is not trustworthy — say so
+                        rather than showing nothing, so a missing bonus is never a mystery. */}
+                    {nonPhoneBonus && !npbPayable && (
+                      <tr style={{ borderTop: "1px solid var(--border)" }}>
+                        <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12 }}>
+                          {"\uD83D\uDD27"} Non-Phone Repair Bonus &mdash; {nonPhoneBonus.complete
+                            ? fmt(Math.abs(nonPhoneBonus.bonus.over)) + " short of the " + fmt(nonPhoneBonus.bonus.threshold) + " target"
+                            : "not calculated — only " + nonPhoneBonus.coverage_pct + "% of this month's tickets are categorised"}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-muted)", fontSize: 13 }}>&mdash;</td>
+                      </tr>
+                    )}
                     {/* Grand Total — uses the SAME shared bonusExtras/allInTotal as the headline */}
                     {(() => {
                       if (bonusExtras <= 0) return null;
                       var bits = [];
                       if (advExtra > 0) bits.push("advanced repair");
                       if (arbExtra > 0) bits.push("answer-rate bonus");
+                      if (npbExtra > 0) bits.push("non-phone bonus");
                       return (
                         <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
                           <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
