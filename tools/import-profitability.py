@@ -71,6 +71,7 @@ for r in rows[1:]:
         "net_sales":    money(r[idx["Net Sales"]]),
         "cogs":         money(r[idx["COGS"]]),
         "gp":           money(r[idx["GP"]]),
+        "gpm":          (lambda v: round(float(str(v).replace("%","").strip() or 0), 2))(r[idx["GPM %"]]),
     }
 print("export rows: %d" % len(recs))
 
@@ -135,7 +136,8 @@ n = 0
 for tn, cur, v, delta in changes:
     api("ticket_grades?id=eq.%d" % cur["id"], method="PATCH",
         body={"gross_sales": v["gross_sales"], "total_cost": v["cogs"],
-              "discount_amount": v["discount"], "gross_profit": v["gp"]},
+              "discount_amount": v["discount"], "gross_profit": v["gp"],
+              "gpm_pct": v["gpm"]},
         extra={"Prefer": "return=minimal"})
     n += 1
     if n % 250 == 0: print("  ...%d / %d" % (n, len(changes)))

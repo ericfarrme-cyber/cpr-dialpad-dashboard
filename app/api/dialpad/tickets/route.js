@@ -747,6 +747,32 @@ export async function POST(request) {
         graded_by: "extension",
       };
 
+      // ── Do not clobber imported financials on a re-grade ──────────────────
+      // RepairQ's "Profitability by Ticket" export is the source of truth for
+      // money (see tools/import-profitability.py). The ticket PAGE shows the
+      // transaction as originally rung — list prices, before returns,
+      // adjustments and no-charge discounts — so scraping it disagrees with the
+      // report on roughly half of all tickets. On 2026-08-31 that gap was
+      // $106,719 of understated gross profit across 4,125 tickets.
+      //
+      // These columns are still written when the ticket is NEW, so a freshly
+      // graded ticket is not blank until the next import. But on a RE-grade they
+      // are left alone, otherwise every re-grade silently reverts the imported
+      // figures to scraped ones and the correction erodes.
+      var FINANCIAL_COLS = ["gross_sales", "gross_profit", "gpm_pct", "discount_amount", "total_cost"];
+      var existingRes = await supabase
+        .from("ticket_grades")
+        .select("id")
+        .eq("ticket_number", record.ticket_number)
+        .limit(1);
+      if (existingRes.error) return jsonResponse({ success: false, error: existingRes.error.message });
+      var isRegrade = !!(existingRes.data && existingRes.data.length);
+      if (isRegrade) {
+        FINANCIAL_COLS.forEach(function(c) { delete record[c]; });
+        console.log("[tickets] " + record.ticket_number +
+          ": re-grade — leaving imported financials untouched (" + FINANCIAL_COLS.join(", ") + ")");
+      }
+
       var { data, error } = await supabase.from("ticket_grades")
         .upsert(record, { onConflict: "ticket_number" }).select();
       if (error) return jsonResponse({ success: false, error: error.message });
