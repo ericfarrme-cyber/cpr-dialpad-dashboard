@@ -23,6 +23,7 @@ import LeaderboardTab from "@/components/LeaderboardTab";
 import CallQualityTab from "@/components/CallQualityTab";
 import AdvancedRepairsTab from "@/components/AdvancedRepairsTab";
 import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
+import MorningBrief from "@/components/MorningBrief";
 import DailyProfitTab from "@/components/DailyProfitTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import {
@@ -1237,6 +1238,8 @@ export default function DialpadDashboard() {
       </div>
       <div style={{ padding:28 }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
+        {/* Yesterday at a glance, above whatever tab is open. Managers only. */}
+        {!isPreviewing && (auth && (auth.role === "admin" || auth.role === "manager")) && <MorningBrief />}
         {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}
