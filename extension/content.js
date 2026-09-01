@@ -504,6 +504,31 @@
         data.date_closed = dateMatches[0];
       }
     }
+
+    // ── A ticket that is not closed has no close date ────────────────────────
+    // The block above assigns whatever date it finds to date_closed, including
+    // on tickets that have not closed — an open ticket showing only its created
+    // date came out looking exactly like a completed sale. daily-profit buckets
+    // on date_closed and treats it as "the revenue event", so 121 unclosed
+    // tickets were being counted as $28,276 of booked revenue, 48 of them
+    // waiting_for_payment (money not yet collected). Measured 2026-08-31 against
+    // RepairQ's own report, which excludes them.
+    var FT_STATUSES = ["closed", "waiting for payment", "on hold", "new",
+                       "pending notification", "in repair", "in diagnosis",
+                       "pending approval", "ready for pickup", "invoiced"];
+    data.ticket_status = "";
+    var statusText = summaryArea ? getText(summaryArea).toLowerCase() : "";
+    for (var si = 0; si < FT_STATUSES.length; si++) {
+      if (statusText.indexOf(FT_STATUSES[si]) >= 0) {
+        data.ticket_status = FT_STATUSES[si].replace(/ /g, "_");
+        break;   // list is ordered so "closed" wins if present
+      }
+    }
+    if (data.ticket_status && data.ticket_status !== "closed" && data.date_closed) {
+      console.warn("[FT-extract] Ticket " + data.ticket_number + " is '" + data.ticket_status +
+        "', not closed — discarding the scraped date so it is not counted as revenue.");
+      data.date_closed = "";
+    }
     
     // Strategy 2: Fallback to time elements
     if (!data.date_closed) {
