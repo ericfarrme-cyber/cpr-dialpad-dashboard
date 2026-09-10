@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { STORES } from "@/lib/constants";
+import ProfitabilityTrend from "@/components/ProfitabilityTrend";
 
 var STORE_KEYS = Object.keys(STORES);
 var fmt = function(v) { var n = parseFloat(v) || 0; var neg = n < 0; return (neg ? "(" : "") + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (neg ? ")" : ""); };
@@ -10,7 +11,10 @@ var pctColor = function(v) { var p = parseFloat(v) || 0; return p >= 0.6 ? "#4AD
 var profitColor = function(v) { return parseFloat(v) >= 0 ? "#4ADE80" : "#F87171"; };
 
 // ═══ COMPUTE FUNCTION ═══
-function compute(r) {
+// Exported so the trend chart runs the SAME arithmetic as the statement below.
+// Two implementations of net profit would drift, and the chart would quietly
+// disagree with the table it sits above.
+export function compute(r) {
   if (!r) r = {};
   var g = function(k) { return parseFloat(r[k]) || 0; };
 
@@ -350,6 +354,25 @@ export default function ProfitabilityTab() {
 
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Loading...</div>;
 
+  // Open a store's entry form and jump straight to one field. The form mounts on
+  // the next render, so the focus is deferred; it retries briefly because the
+  // first paint can land after the initial timeout on a cold load.
+  function openEditorField(storeKey, fieldKey) {
+    setEditStore(storeKey);
+    var tries = 0;
+    var seek = function() {
+      var el = document.querySelector('input[data-field="' + fieldKey + '"]');
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        el.focus();
+        el.select();
+        return;
+      }
+      if (++tries < 12) setTimeout(seek, 80);
+    };
+    setTimeout(seek, 80);
+  }
+
   // ═══ TABLE HELPERS ═══
   var cs = { padding: "7px 12px", fontSize: 12, borderBottom: "1px solid #1E2028" };
   var hc = Object.assign({}, cs, { color: "#8B8F98", fontSize: 10, textTransform: "uppercase", fontWeight: 700 });
@@ -365,15 +388,34 @@ export default function ProfitabilityTab() {
     var bg = props.bg || "transparent";
     var borderTop = props.borderTop;
     var prefix = props.prefix || ""; // e.g. "+" to show "+$120.00" for additive lines
+    // editField: makes this row's per-store cells clickable, opening that store's
+    // entry form focused on the matching input. Without this the statement looks
+    // editable but isn't, which is how both Eric and Matt got stuck.
+    var editField = props.editField;
     return (
       <tr style={{ background: bg, borderTop: borderTop || "none" }}>
-        <td style={Object.assign({}, cs, { color: (indent || indent2) ? "#8B8F98" : color, fontWeight: bold ? 800 : (indent || indent2) ? 400 : 600, paddingLeft: indent2 ? 44 : indent ? 28 : 12, fontSize: bold ? 13 : indent2 ? 11 : 12 })}>{label}</td>
+        <td style={Object.assign({}, cs, { color: (indent || indent2) ? "#8B8F98" : color, fontWeight: bold ? 800 : (indent || indent2) ? 400 : 600, paddingLeft: indent2 ? 44 : indent ? 28 : 12, fontSize: bold ? 13 : indent2 ? 11 : 12 })}>
+          {label}
+          {editField && <span style={{ color: "#4A4E57", fontSize: 9, marginLeft: 6, whiteSpace: "nowrap" }}>click to edit</span>}
+        </td>
         {values.map(function(v, i) {
           var c = isPct ? pctColor(v) : (typeof color === "function" ? color(v) : color);
           var displayVal = isPct ? fmtPct(v) : fmt(v);
           // Only apply prefix to non-zero values so empty rows don't show "+$0.00"
           if (prefix && !isPct && v) displayVal = prefix + displayVal;
-          return <td key={i} style={Object.assign({}, cs, { textAlign: "right", color: c, fontWeight: bold ? 800 : 600, fontSize: bold ? 13 : 12 })}>{displayVal}</td>;
+          // The last column is the company roll-up, which has no store to edit.
+          var storeKey = editField && i < STORE_KEYS.length ? STORE_KEYS[i] : null;
+          var tdStyle = Object.assign({}, cs, { textAlign: "right", color: c, fontWeight: bold ? 800 : 600, fontSize: bold ? 13 : 12 });
+          if (storeKey) {
+            tdStyle.cursor = "pointer";
+            tdStyle.textDecoration = "underline";
+            tdStyle.textDecorationStyle = "dotted";
+            tdStyle.textDecorationColor = "#4A4E57";
+            tdStyle.textUnderlineOffset = "3px";
+          }
+          return <td key={i} style={tdStyle}
+            title={storeKey ? "Edit " + label + " for " + STORES[storeKey].name.replace("CPR ", "") : undefined}
+            onClick={storeKey ? function() { openEditorField(storeKey, editField); } : undefined}>{displayVal}</td>;
         })}
       </tr>
     );
@@ -581,8 +623,10 @@ export default function ProfitabilityTab() {
         </div>
       )}
 
-      {/* Store entry buttons */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+      {/* Store entry buttons. Labelled explicitly: the statement below is read-only,
+          and without a label nobody could tell these chips were the way in. */}
+      <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
+        <span style={{ color: "#8B8F98", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Enter / edit data:</span>
         {STORE_KEYS.map(function(k) {
           var st = STORES[k];
           var hasData = records[k] && ((parseFloat(records[k].repair_revenue) || 0) > 0 || (parseFloat(records[k].rent) || 0) > 0);
@@ -610,7 +654,12 @@ export default function ProfitabilityTab() {
       )}
 
       {/* ═══ P&L STATEMENT ═══ */}
-      <div style={{ background: "#1A1D23", borderRadius: 14, overflow: "hidden", marginTop: editStore ? 20 : 0 }}>
+      {/* Six-month trend, above the single-month statement. Clicking a month
+          drives the period selector, so the chart is a way in, not just a picture. */}
+      <div style={{ marginTop: editStore ? 20 : 0 }}>
+        <ProfitabilityTrend period={period} onSelectPeriod={function(p) { setPeriod(p); }} />
+      </div>
+      <div style={{ background: "#1A1D23", borderRadius: 14, overflow: "hidden" }}>
         <div style={{ padding: "16px 16px 8px", borderBottom: "1px solid #2A2D35" }}>
           <div style={{ color: "#F0F1F3", fontSize: 15, fontWeight: 800 }}>{periodLabel} — Profit & Loss Statement</div>
           <div style={{ color: "#6B6F78", fontSize: 10, marginTop: 2 }}>Focused Technologies — All Stores</div>
@@ -680,12 +729,12 @@ export default function ProfitabilityTab() {
             })()}
             <Row label="Utilities" values={vals("utilities")} indent color="#F87171" />
             <Row label="Marketing" values={vals("marketing")} indent color="#F87171" />
-            <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" />
+            <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" editField="shrinkage" />
             {/* Damage / shrinkage / voided break out only once something is entered, so a
                 month with no reconciliation yet stays as one clean zero line. */}
-            {co.damaged > 0 && <Row label="Damage" values={vals("damaged")} indent2 color="#F8717199" />}
-            {co.shrinkage > 0 && <Row label="Shrinkage" values={vals("shrinkage")} indent2 color="#F8717199" />}
-            {co.voided > 0 && <Row label="Voided" values={vals("voided")} indent2 color="#F8717199" />}
+            {co.damaged > 0 && <Row label="Damage" values={vals("damaged")} indent2 color="#F8717199" editField="damaged" />}
+            {co.shrinkage > 0 && <Row label="Shrinkage" values={vals("shrinkage")} indent2 color="#F8717199" editField="shrinkage" />}
+            {co.voided > 0 && <Row label="Voided" values={vals("voided")} indent2 color="#F8717199" editField="voided" />}
             <Row label="Other" values={vals("otherExpenses")} indent color="#F87171" />
             <Row label="Total Operating Expenses" values={vals("totalExpenses")} bold bg="#12141A" color="#F87171" />
 
@@ -700,8 +749,8 @@ export default function ProfitabilityTab() {
             <Row label="Profit Less Fees" values={vals("profitLessFees")} color={profitColor} bg="#1E202833" />
             {/* Other Income — adds to NET PROFIT but doesn't affect Gross Profit / GPM */}
             <SectionRow label="Other Income" color="#4ADE80" />
-            <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="#4ADE80" prefix="+" />
-            <Row label="LCD Credits" values={vals("lcdCredits")} indent color="#4ADE80" prefix="+" />
+            <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="#4ADE80" prefix="+" editField="fieldprint_payout" />
+            <Row label="LCD Credits" values={vals("lcdCredits")} indent color="#4ADE80" prefix="+" editField="lcd_credits" />
             {co.otherIncome > 0 && <Row label="Total Other Income" values={vals("otherIncome")} bold bg="#12141A" color="#4ADE80" prefix="+" />}
             <tr style={{ background: "linear-gradient(90deg, #7B2FFF08, #00D4FF08)", borderTop: "2px solid #7B2FFF44" }}>
               <td style={Object.assign({}, cs, { fontWeight: 900, fontSize: 15, color: "#F0F1F3", padding: "12px" })}>NET PROFIT</td>
@@ -805,7 +854,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
   function field(label, key) {
     return (<div>
       <label style={labelStyle}>{label}</label>
-      <input type="number" step="0.01" value={form[key] || ""} onChange={function(e) { set(key, e.target.value); }} placeholder="0.00" style={inputStyle} />
+      <input type="number" step="0.01" data-field={key} value={form[key] === 0 || form[key] ? form[key] : ""} onChange={function(e) { set(key, e.target.value); }} placeholder="0.00" style={inputStyle} />
     </div>);
   }
 
