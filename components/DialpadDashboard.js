@@ -8,6 +8,7 @@ import {
 } from "recharts";
 import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
 import { ThemeToggle } from "@/components/ThemeProvider";
+import PriceDemandTab from "@/components/PriceDemandTab";
 import { useAuth } from "@/components/AuthProvider";
 import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
@@ -1251,6 +1252,7 @@ export default function DialpadDashboard() {
         {activeTab==="sales" && <SalesTab viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="daily_profit" && <DailyProfitTab />}
         {activeTab==="compliance" && <ComplianceTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
+        {activeTab==="price_demand" && <PriceDemandTab storeFilter={storeFilter} />}
         {activeTab==="insights" && <InsightsTab storeFilter={storeFilter} />}
         {activeTab==="employees" && <EmployeeTab storeFilter={storeFilter} />}
         {activeTab==="schedule" && <ScheduleTab storeFilter={storeFilter} />}
