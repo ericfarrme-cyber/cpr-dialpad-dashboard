@@ -2,12 +2,16 @@
 
 import { useState, useEffect, useMemo } from "react";
 import ZeroProfitTickets from "@/components/ZeroProfitTickets";
+import { useThemeColors } from "@/lib/theme-colors";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
 
 function scoreColor(s) { return s >= 80 ? "var(--green)" : s >= 60 ? "var(--yellow)" : s >= 40 ? "var(--orange)" : "var(--red)"; }
+// Same thresholds, but resolved to literal hex for Recharts, which puts the
+// value straight into an SVG fill attribute where var() renders black.
+function chartScoreColor(s, C) { return s >= 80 ? C["--green"] : s >= 60 ? C["--yellow"] : s >= 40 ? C["--orange"] : C["--red"]; }
 function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 // ── Role-split scoring helpers (April 2026) ──
@@ -50,6 +54,7 @@ function StatCard({ label, value, sub, accent }) {
 
 export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
   var isEmployeeView = viewAs === "employee" && viewEmployee;
+  var C = useThemeColors(); // literal colours for the chart marks
   var [view, setView] = useState("overview");
   var [stats, setStats] = useState(null);
   var [tickets, setTickets] = useState([]);
@@ -146,13 +151,13 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                   <div style={{ height:Math.max(200, empChartData.length * 36) }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={empChartData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-                        <XAxis type="number" domain={[0,100]} tick={{fill:"var(--text-muted)",fontSize:10}} />
-                        <YAxis type="category" dataKey="name" tick={{fill:"var(--text-body)",fontSize:11}} width={120} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={C["--border"]} horizontal={false} />
+                        <XAxis type="number" domain={[0,100]} tick={{fill:C["--text-muted"],fontSize:10}} />
+                        <YAxis type="category" dataKey="name" tick={{fill:C["--text-body"],fontSize:11}} width={120} />
                         <Tooltip contentStyle={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8}} formatter={function(v){return v+"/100";}} />
                         <Bar dataKey="avg_score" name="Compliance Score" barSize={16} radius={[0,4,4,0]}>
                           {empChartData.map(function(entry, i) {
-                            return <Cell key={i} fill={scoreColor(entry.avg_score)} />;
+                            return <Cell key={i} fill={chartScoreColor(entry.avg_score, C)} />;
                           })}
                         </Bar>
                       </BarChart>

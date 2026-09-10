@@ -7,6 +7,7 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
 import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
+import { ThemeToggle } from "@/components/ThemeProvider";
 import { useAuth } from "@/components/AuthProvider";
 import ScheduleTab from "@/components/ScheduleTab";
 import EmployeeTab from "@/components/EmployeeTab";
@@ -1159,6 +1160,7 @@ export default function DialpadDashboard() {
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
         <a href="/appointments" style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
+        <ThemeToggle style={{ marginLeft: 4 }} />
         {auth && (
           <div style={{ display:"flex",alignItems:"center",gap:10,marginLeft:12 }}>
             <div style={{ textAlign:"right" }}>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from "react";
 import AuthProvider, { useAuth } from "@/components/AuthProvider";
 import ErrorBoundary from "@/components/ErrorBoundary";
-import ThemeProvider, { useTheme, ThemeToggle } from "@/components/ThemeProvider";
+import { useTheme, ThemeToggle } from "@/components/ThemeProvider";
 import MyPerformanceTab from "@/components/MyPerformanceTab";
 import AdvancedRepairsWidget from "@/components/AdvancedRepairsWidget";
 import { STORES } from "@/lib/constants";
@@ -2070,5 +2070,8 @@ function StoreDashboard() {
 }
 
 export default function AppointmentsPage() {
-  return <ErrorBoundary><ThemeProvider><AuthProvider><StoreDashboard /></AuthProvider></ThemeProvider></ErrorBoundary>;
+  // ThemeProvider now wraps the whole app in app/layout.js. Nesting a second one
+  // here would give this page its own theme state, so its toggle would move the
+  // inner provider while the outer kept re-applying the old value.
+  return <ErrorBoundary><AuthProvider><StoreDashboard /></AuthProvider></ErrorBoundary>;
 }
