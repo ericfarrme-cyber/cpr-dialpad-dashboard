@@ -89,8 +89,8 @@ export default function AuthProvider({ children }) {
     return (
       <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0B0D11" }}>
         <div style={{ textAlign:"center" }}>
-          <div style={{ width:40,height:40,margin:"0 auto 16px",border:"3px solid #7B2FFF",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite" }} />
-          <div style={{ color:"#6B6F78",fontSize:13 }}>Loading...</div>
+          <div style={{ width:40,height:40,margin:"0 auto 16px",border:"3px solid var(--purple)",borderTopColor:"transparent",borderRadius:"50%",animation:"spin 1s linear infinite" }} />
+          <div style={{ color:"var(--text-muted)",fontSize:13 }}>Loading...</div>
           <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
         </div>
       </div>
@@ -109,15 +109,15 @@ export default function AuthProvider({ children }) {
       <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0B0D11",fontFamily:"-apple-system,sans-serif" }}>
         <div style={{ maxWidth:420,textAlign:"center",padding:20 }}>
           <div style={{ fontSize:48,marginBottom:16 }}>{"\uD83D\uDD12"}</div>
-          <h1 style={{ color:"#F0F1F3",fontSize:20,fontWeight:700,margin:"0 0 8px" }}>Access Denied</h1>
-          <p style={{ color:"#8B8F98",fontSize:14,margin:"0 0 16px" }}>
+          <h1 style={{ color:"var(--text-primary)",fontSize:20,fontWeight:700,margin:"0 0 8px" }}>Access Denied</h1>
+          <p style={{ color:"var(--text-secondary)",fontSize:14,margin:"0 0 16px" }}>
             {userInfo && userInfo.error ? userInfo.error : "Your account is not authorized to access this dashboard."}
           </p>
-          <p style={{ color:"#6B6F78",fontSize:12,margin:"0 0 24px" }}>
+          <p style={{ color:"var(--text-muted)",fontSize:12,margin:"0 0 24px" }}>
             Signed in as: {user.email}
           </p>
           <button onClick={signOut}
-            style={{ padding:"10px 24px",borderRadius:8,border:"1px solid #2A2D35",background:"transparent",color:"#F0F1F3",fontSize:13,cursor:"pointer" }}>
+            style={{ padding:"10px 24px",borderRadius:8,border:"1px solid var(--border)",background:"transparent",color:"var(--text-primary)",fontSize:13,cursor:"pointer" }}>
             Sign Out
           </button>
         </div>
@@ -132,7 +132,7 @@ export default function AuthProvider({ children }) {
       window.location.replace("/appointments");
       return (
         <div style={{ minHeight:"100vh",display:"flex",alignItems:"center",justifyContent:"center",background:"#0B0D11" }}>
-          <div style={{ color:"#6B6F78",fontSize:13 }}>Redirecting to store dashboard...</div>
+          <div style={{ color:"var(--text-muted)",fontSize:13 }}>Redirecting to store dashboard...</div>
         </div>
       );
     }

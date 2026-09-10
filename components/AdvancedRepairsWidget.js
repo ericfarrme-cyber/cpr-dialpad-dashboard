@@ -130,7 +130,7 @@ export default function AdvancedRepairsWidget(props) {
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 20 }}>{"\uD83D\uDD27"}</span>
             <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 17, fontWeight: 700 }}>Advanced Repairs</h3>
-            <span style={{ background: "#FBBF2422", color: "#FBBF24", padding: "3px 9px", borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <span style={{ background: "#FBBF2422", color: "var(--yellow)", padding: "3px 9px", borderRadius: 999, fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
               Bonus Program
             </span>
           </div>
@@ -140,7 +140,7 @@ export default function AdvancedRepairsWidget(props) {
         </div>
         {canLog && (
           <button onClick={function() { setEditingRepair(null); setShowForm(true); }}
-            style={{ background: "linear-gradient(135deg, #FBBF24, #FF2D95)", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
+            style={{ background: "linear-gradient(135deg, var(--yellow), var(--pink))", color: "#fff", border: "none", padding: "9px 16px", borderRadius: 8, fontWeight: 700, cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>
             + Log Advanced Repair
           </button>
         )}
@@ -151,7 +151,7 @@ export default function AdvancedRepairsWidget(props) {
         <div style={{
           padding: 10, borderRadius: 6, marginBottom: 14, fontSize: 12,
           background: msg.type === "error" ? "#F8717122" : msg.type === "success" ? "#4ADE8022" : "#00D4FF22",
-          color: msg.type === "error" ? "#F87171" : msg.type === "success" ? "#4ADE80" : "#00D4FF",
+          color: msg.type === "error" ? "var(--red)" : msg.type === "success" ? "var(--green)" : "var(--cyan)",
         }}>
           {msg.text}
           <button onClick={function() { setMsg(null); }} style={{ float: "right", background: "none", border: "none", color: "inherit", cursor: "pointer", fontWeight: 700 }}>×</button>
@@ -167,7 +167,7 @@ export default function AdvancedRepairsWidget(props) {
           marginBottom: 14,
           border: "1px solid " + (myCommission.total_amount > 0 ? "#FBBF2444" : "var(--border)"),
         }}>
-          <div style={{ color: myCommission.total_amount > 0 ? "#FBBF24" : "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
+          <div style={{ color: myCommission.total_amount > 0 ? "var(--yellow)" : "var(--text-muted)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>
             Your Advanced Repair Earnings This Month
           </div>
           {myCommission.total_amount > 0 ? (
@@ -178,11 +178,11 @@ export default function AdvancedRepairsWidget(props) {
               <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>
                 <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{myCommission.primary_repairs}</span> repair{myCommission.primary_repairs === 1 ? "" : "s"} completed
                 {myCommission.overhead_amount > 0 && (
-                  <span> · <span style={{ color: "#7B2FFF", fontWeight: 600 }}>{fmt(myCommission.overhead_amount)}</span> from supporting others</span>
+                  <span> · <span style={{ color: "var(--purple)", fontWeight: 600 }}>{fmt(myCommission.overhead_amount)}</span> from supporting others</span>
                 )}
               </div>
               {myRank > 0 && (
-                <div style={{ marginLeft: "auto", background: myRank === 1 ? "#FBBF24" : myRank <= 3 ? "#00D4FF" : "var(--text-muted)", color: "#0F1116", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
+                <div style={{ marginLeft: "auto", background: myRank === 1 ? "var(--yellow)" : myRank <= 3 ? "var(--cyan)" : "var(--text-muted)", color: "var(--bg-page)", padding: "4px 12px", borderRadius: 999, fontSize: 12, fontWeight: 700 }}>
                   {myRank === 1 ? "🏆 #1" : myRank === 2 ? "🥈 #2" : myRank === 3 ? "🥉 #3" : "#" + myRank}
                 </div>
               )}
@@ -207,7 +207,7 @@ export default function AdvancedRepairsWidget(props) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
         {/* Leaderboard */}
         <div style={{ background: "var(--bg-card-inner)", borderRadius: 10, padding: 14, border: "1px solid var(--border)" }}>
-          <div style={{ color: "#FBBF24", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ color: "var(--yellow)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>{"\uD83C\uDFC6"} This Month's Leaderboard</span>
             <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 600 }}>{leaderboard.length} earning</span>
           </div>
@@ -228,8 +228,8 @@ export default function AdvancedRepairsWidget(props) {
                   }}>
                     <div style={{
                       width: 26, height: 26, borderRadius: "50%",
-                      background: idx === 0 ? "#FBBF24" : idx === 1 ? "#C0C0C0" : idx === 2 ? "#CD7F32" : "var(--bg-card)",
-                      color: idx <= 2 ? "#0F1116" : "var(--text-primary)",
+                      background: idx === 0 ? "var(--yellow)" : idx === 1 ? "#C0C0C0" : idx === 2 ? "#CD7F32" : "var(--bg-card)",
+                      color: idx <= 2 ? "var(--bg-page)" : "var(--text-primary)",
                       fontSize: 12, fontWeight: 700,
                       display: "flex", alignItems: "center", justifyContent: "center",
                       flexShrink: 0,
@@ -237,13 +237,13 @@ export default function AdvancedRepairsWidget(props) {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
                         {row.employee}
-                        {isYou && <span style={{ color: "#FBBF24", fontSize: 10, marginLeft: 6, fontWeight: 700 }}>YOU</span>}
+                        {isYou && <span style={{ color: "var(--yellow)", fontSize: 10, marginLeft: 6, fontWeight: 700 }}>YOU</span>}
                       </div>
                       <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
                         {row.repairs} repair{row.repairs === 1 ? "" : "s"} · {fmt(row.profit)} GP
                       </div>
                     </div>
-                    <div style={{ color: "#4ADE80", fontWeight: 700, fontSize: 14, fontFamily: "ui-monospace, monospace" }}>
+                    <div style={{ color: "var(--green)", fontWeight: 700, fontSize: 14, fontFamily: "ui-monospace, monospace" }}>
                       {fmtShort(row.commission)}
                     </div>
                   </div>
@@ -260,7 +260,7 @@ export default function AdvancedRepairsWidget(props) {
 
         {/* Open at this store */}
         <div style={{ background: "var(--bg-card-inner)", borderRadius: 10, padding: 14, border: "1px solid var(--border)" }}>
-          <div style={{ color: "#00D4FF", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div style={{ color: "var(--cyan)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <span>{"\uD83D\uDD04"} Open at {storeLabel(store)}</span>
             <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 600 }}>{openRepairs.length} active</span>
           </div>
@@ -273,7 +273,7 @@ export default function AdvancedRepairsWidget(props) {
               background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 6,
               fontSize: 11, color: "var(--text-muted)",
             }}>
-              <span style={{ color: "#7B2FFF" }}>{"\u23F1"}</span>
+              <span style={{ color: "var(--purple)" }}>{"\u23F1"}</span>
               <span>
                 Avg turnaround: <strong style={{ color: "var(--text-primary)" }}>{storeStats.avg_turnaround_days} day{storeStats.avg_turnaround_days === 1 ? "" : "s"}</strong>
                 {storeStats.turnaround_sample_size > 0 && (
@@ -290,7 +290,7 @@ export default function AdvancedRepairsWidget(props) {
           ) : (
             <div>
               {openRepairs.slice(0, 3).map(function(r, idx) {
-                var statusColor = r.status === "open" ? "var(--text-muted)" : r.status === "in_transit" ? "#00D4FF" : "#7B2FFF";
+                var statusColor = r.status === "open" ? "var(--text-muted)" : r.status === "in_transit" ? "var(--cyan)" : "var(--purple)";
                 var editable = canEdit(r);
                 // Queue age color: amber after 5 days, red after 10
                 var daysInQueue = r.days_in_queue;
@@ -327,7 +327,7 @@ export default function AdvancedRepairsWidget(props) {
                     <div style={{ color: "var(--text-muted)", fontSize: 11, paddingLeft: 4 }}>
                       {r.customer_name || "Unknown"}
                       {r.current_location && r.current_location !== r.origin_store && (
-                        <span style={{ color: "#00D4FF" }}> · at {storeLabel(r.current_location)}</span>
+                        <span style={{ color: "var(--cyan)" }}> · at {storeLabel(r.current_location)}</span>
                       )}
                       {r.repaired_by && <span> · {r.repaired_by}</span>}
                     </div>
@@ -345,7 +345,7 @@ export default function AdvancedRepairsWidget(props) {
       </div>
 
       <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)", color: "var(--text-muted)", fontSize: 11, textAlign: "center" }}>
-        {"\uD83D\uDCA1"} These are high-profit repairs (avg <span style={{ color: "#4ADE80", fontWeight: 700 }}>80%+ margin</span>). Bonus paid monthly when ticket closes. Want training? Ask Duncan.
+        {"\uD83D\uDCA1"} These are high-profit repairs (avg <span style={{ color: "var(--green)", fontWeight: 700 }}>80%+ margin</span>). Bonus paid monthly when ticket closes. Want training? Ask Duncan.
       </div>
 
       {/* Quick form modal */}
@@ -518,7 +518,7 @@ function QuickRepairForm(props) {
               style={inputSt}
               autoFocus={isNew}
             />
-            {lookupHint && <div style={{ color: "#4ADE80", fontSize: 11, marginTop: 4 }}>{lookupHint}</div>}
+            {lookupHint && <div style={{ color: "var(--green)", fontSize: 11, marginTop: 4 }}>{lookupHint}</div>}
             {isNew && !lookupHint && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>Paste from the URL after creating the RepairQ ticket. We'll auto-fill customer and device if we know them.</div>}
           </div>
 
@@ -558,7 +558,7 @@ function QuickRepairForm(props) {
           {/* Toggle for advanced fields */}
           <button onClick={function() { setShowAdvanced(!showAdvanced); }}
             type="button"
-            style={{ background: "transparent", border: "none", color: "#7B2FFF", fontSize: 11, cursor: "pointer", padding: 0, textAlign: "left", textDecoration: "underline" }}>
+            style={{ background: "transparent", border: "none", color: "var(--purple)", fontSize: 11, cursor: "pointer", padding: 0, textAlign: "left", textDecoration: "underline" }}>
             {showAdvanced ? "Hide advanced fields" : "Show advanced fields (status, repaired by, profit, dates)"}
           </button>
 
@@ -619,7 +619,7 @@ function QuickRepairForm(props) {
           <div>
             {!isNew && !form.commission_locked && (
               <button onClick={del} disabled={saving}
-                style={{ background: "transparent", color: "#F87171", border: "1px solid #F87171", padding: "8px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                style={{ background: "transparent", color: "var(--red)", border: "1px solid var(--red)", padding: "8px 14px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
                 Delete
               </button>
             )}
@@ -630,7 +630,7 @@ function QuickRepairForm(props) {
               Cancel
             </button>
             <button onClick={save} disabled={saving || !form.ticket_number || !form.device_repair}
-              style={{ background: "linear-gradient(135deg, #FBBF24, #FF2D95)", color: "#fff", border: "none", padding: "8px 22px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
+              style={{ background: "linear-gradient(135deg, var(--yellow), var(--pink))", color: "#fff", border: "none", padding: "8px 22px", borderRadius: 6, fontSize: 12, cursor: "pointer", fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
               {saving ? "Saving..." : (isNew ? "Log Repair" : "Save Changes")}
             </button>
           </div>

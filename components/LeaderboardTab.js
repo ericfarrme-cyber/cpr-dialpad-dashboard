@@ -9,8 +9,8 @@ import { STORES } from "@/lib/constants";
 // Sortable columns; default sort = GP/hour descending (the headline metric).
 // ─────────────────────────────────────────────────────────────────
 
-var card = { background: "#0F1117", borderRadius: 12, padding: 20, border: "1px solid #1E2028" };
-var cardInner = { background: "#12141A", borderRadius: 8, padding: 14 };
+var card = { background: "var(--bg-page)", borderRadius: 12, padding: 20, border: "1px solid var(--border-light)" };
+var cardInner = { background: "var(--bg-card-inner)", borderRadius: 8, padding: 14 };
 
 // Build last 12 months as period options (current month first)
 function buildPeriodOptions() {
@@ -80,28 +80,28 @@ export default function LeaderboardTab() {
   var isCurrentPeriod = period === periodOpts[0].value;
 
   return (
-    <div style={{ padding: 24, color: "#F0F1F3" }}>
+    <div style={{ padding: 24, color: "var(--text-primary)" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800 }}>{"\uD83D\uDCB0"} Gross Profit Leaderboard</div>
-          <div style={{ color: "#8B8F98", fontSize: 12, marginTop: 4, maxWidth: 700 }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 4, maxWidth: 700 }}>
             Per-employee GP earned and labor productivity. Repair tickets credit the repair tech;
             sale tickets credit whoever rang them up. Hours come from WhenIWork shifts. Default sort is GP per hour worked.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select value={storeFilter} onChange={function(e) { setStoreFilter(e.target.value); }}
-            style={{ padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#F0F1F3", border: "1px solid #2A2D36", fontSize: 12 }}>
+            style={{ padding: "6px 12px", borderRadius: 6, background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid #2A2D36", fontSize: 12 }}>
             <option value="all">All Stores</option>
             {Object.keys(STORES).map(function(k) { return <option key={k} value={k}>{STORES[k].name}</option>; })}
           </select>
           <select value={sortField} onChange={function(e) { setSortField(e.target.value); }}
-            style={{ padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#F0F1F3", border: "1px solid #2A2D36", fontSize: 12 }}>
+            style={{ padding: "6px 12px", borderRadius: 6, background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid #2A2D36", fontSize: 12 }}>
             {SORT_FIELDS.map(function(s) { return <option key={s.key} value={s.key}>Sort: {s.label}</option>; })}
           </select>
           <select value={period} onChange={function(e) { setPeriod(e.target.value); }}
-            style={{ padding: "6px 12px", borderRadius: 6, background: isCurrentPeriod ? "#12141A" : "#FBBF2415", color: "#F0F1F3", border: "1px solid " + (isCurrentPeriod ? "#2A2D36" : "#FBBF24"), fontSize: 12 }}>
+            style={{ padding: "6px 12px", borderRadius: 6, background: isCurrentPeriod ? "var(--bg-card-inner)" : "#FBBF2415", color: "var(--text-primary)", border: "1px solid " + (isCurrentPeriod ? "#2A2D36" : "var(--yellow)"), fontSize: 12 }}>
             {periodOpts.map(function(p) { return <option key={p.value} value={p.value}>{p.label}</option>; })}
           </select>
         </div>
@@ -109,24 +109,24 @@ export default function LeaderboardTab() {
 
       {/* Period banner if historical */}
       {!isCurrentPeriod && (
-        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid #FBBF24", marginBottom: 16, fontSize: 12, color: "#FBBF24" })}>
+        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid var(--yellow)", marginBottom: 16, fontSize: 12, color: "var(--yellow)" })}>
           {"\uD83D\uDCC5"} Viewing historical period. Hours and tickets are scoped to this calendar month only.
         </div>
       )}
 
       {error && (
-        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid #F87171", marginBottom: 16, color: "#F87171", fontSize: 12 })}>
+        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid var(--red)", marginBottom: 16, color: "var(--red)", fontSize: 12 })}>
           {"\u2717"} {error}
         </div>
       )}
 
       {loading ? (
-        <div style={{ color: "#8B8F98", textAlign: "center", padding: 40 }}>Loading leaderboard…</div>
+        <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Loading leaderboard…</div>
       ) : !data || displayRows.length === 0 ? (
         <div style={Object.assign({}, card, { textAlign: "center", padding: 60 })}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>{"\uD83D\uDCCA"}</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>No data for this period yet</div>
-          <div style={{ color: "#8B8F98", fontSize: 12 }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12 }}>
             {storeFilter !== "all"
               ? "No tickets or hours for this store in this period. Try All Stores."
               : "No graded tickets in this period yet. Check the Ticket Compliance tab to see what's been graded."}
@@ -136,18 +136,18 @@ export default function LeaderboardTab() {
         <>
           {/* Summary cards */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 20 }}>
-            <SummaryCard label="Total GP" value={fmtCurrency(data.summary.total_gp)} color="#4ADE80" />
-            <SummaryCard label="Total Hours" value={fmtNum(data.summary.total_hours, 1) + "h"} color="#00D4FF" />
-            <SummaryCard label="Tickets" value={fmtNum(data.summary.total_tickets)} color="#7B2FFF" />
-            <SummaryCard label="Avg GP / Hour" value={fmtCurrency(data.summary.avg_gp_per_hour)} color="#FF2D95" />
-            <SummaryCard label="Avg GP / Ticket" value={fmtCurrency(data.summary.avg_gp_per_ticket)} color="#FBBF24" />
+            <SummaryCard label="Total GP" value={fmtCurrency(data.summary.total_gp)} color="var(--green)" />
+            <SummaryCard label="Total Hours" value={fmtNum(data.summary.total_hours, 1) + "h"} color="var(--cyan)" />
+            <SummaryCard label="Tickets" value={fmtNum(data.summary.total_tickets)} color="var(--purple)" />
+            <SummaryCard label="Avg GP / Hour" value={fmtCurrency(data.summary.avg_gp_per_hour)} color="var(--pink)" />
+            <SummaryCard label="Avg GP / Ticket" value={fmtCurrency(data.summary.avg_gp_per_ticket)} color="var(--yellow)" />
           </div>
 
           {/* Leaderboard table */}
           <div style={Object.assign({}, card, { padding: 0, overflow: "hidden" })}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ background: "#12141A" }}>
+                <tr style={{ background: "var(--bg-card-inner)" }}>
                   <Th>#</Th>
                   <Th>Employee</Th>
                   <Th>Store</Th>
@@ -165,22 +165,22 @@ export default function LeaderboardTab() {
                   var top3 = idx < 3;
                   var medal = idx === 0 ? "\uD83E\uDD47" : idx === 1 ? "\uD83E\uDD48" : idx === 2 ? "\uD83E\uDD49" : null;
                   return (
-                    <tr key={r.employee} style={{ borderTop: "1px solid #1E2028", background: top3 ? "#7B2FFF08" : "transparent" }}>
+                    <tr key={r.employee} style={{ borderTop: "1px solid var(--border-light)", background: top3 ? "#7B2FFF08" : "transparent" }}>
                       <Td>
-                        {medal ? <span style={{ fontSize: 16 }}>{medal}</span> : <span style={{ color: "#6B6F78", fontSize: 11 }}>{r.display_rank}</span>}
+                        {medal ? <span style={{ fontSize: 16 }}>{medal}</span> : <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{r.display_rank}</span>}
                       </Td>
                       <Td>
-                        <div style={{ fontWeight: 700, color: top3 ? "#F0F1F3" : "#F0F1F3" }}>{r.employee}</div>
-                        {r.role && <div style={{ fontSize: 9, color: "#6B6F78", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>{r.role}</div>}
+                        <div style={{ fontWeight: 700, color: top3 ? "var(--text-primary)" : "var(--text-primary)" }}>{r.employee}</div>
+                        {r.role && <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>{r.role}</div>}
                       </Td>
                       <Td>
-                        {store ? <span style={{ color: store.color, fontSize: 11, fontWeight: 600 }}>{store.name.replace("CPR ", "")}</span> : <span style={{ color: "#6B6F78", fontSize: 11 }}>—</span>}
+                        {store ? <span style={{ color: store.color, fontSize: 11, fontWeight: 600 }}>{store.name.replace("CPR ", "")}</span> : <span style={{ color: "var(--text-muted)", fontSize: 11 }}>—</span>}
                       </Td>
                       <Td align="right" muted>{fmtNum(r.hours, 1)}h</Td>
                       <Td align="right" muted>
                         {r.ticket_count}
                         {r.repair_tickets > 0 && r.sale_tickets > 0 && (
-                          <div style={{ fontSize: 9, color: "#6B6F78", marginTop: 2 }}>
+                          <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 2 }}>
                             {r.repair_tickets}r / {r.sale_tickets}s
                           </div>
                         )}
@@ -188,7 +188,7 @@ export default function LeaderboardTab() {
                       <Td align="right" bold>{fmtCurrency(r.total_gp)}</Td>
                       <Td align="right" muted>{fmtCurrency(r.avg_gp_per_ticket)}</Td>
                       <Td align="right" highlight={sortField === "gp_per_hour"}>
-                        <span style={{ color: r.gp_per_hour >= data.summary.avg_gp_per_hour ? "#4ADE80" : "#FB923C", fontWeight: 800 }}>
+                        <span style={{ color: r.gp_per_hour >= data.summary.avg_gp_per_hour ? "var(--green)" : "var(--orange)", fontWeight: 800 }}>
                           {fmtCurrency(r.gp_per_hour)}
                         </span>
                       </Td>
@@ -201,7 +201,7 @@ export default function LeaderboardTab() {
           </div>
 
           {/* Footnote */}
-          <div style={{ marginTop: 16, fontSize: 10, color: "#6B6F78", textAlign: "center", lineHeight: 1.6 }}>
+          <div style={{ marginTop: 16, fontSize: 10, color: "var(--text-muted)", textAlign: "center", lineHeight: 1.6 }}>
             <div>{"\u2014"} Repair tickets credit the repair tech; sale tickets credit who rang them up. Multi-role tickets credit the repair tech.</div>
             <div>{"\u2014"} Hours come from WhenIWork stored shifts. Employees with no shifts in this period don't show GP/hour.</div>
             <div>{"\u2014"} Green GP/Hour = above average; orange = below average.</div>
@@ -214,9 +214,9 @@ export default function LeaderboardTab() {
 
 function SummaryCard(props) {
   return (
-    <div style={Object.assign({}, cardInner, { borderTop: "3px solid " + (props.color || "#7B2FFF") })}>
-      <div style={{ fontSize: 9, color: "#8B8F98", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{props.label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, color: props.color || "#F0F1F3", marginTop: 6 }}>{props.value}</div>
+    <div style={Object.assign({}, cardInner, { borderTop: "3px solid " + (props.color || "var(--purple)") })}>
+      <div style={{ fontSize: 9, color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{props.label}</div>
+      <div style={{ fontSize: 20, fontWeight: 800, color: props.color || "var(--text-primary)", marginTop: 6 }}>{props.value}</div>
     </div>
   );
 }
@@ -227,11 +227,11 @@ function Th(props) {
       padding: "12px 14px",
       textAlign: props.align || "left",
       fontSize: 10,
-      color: props.highlight ? "#FF2D95" : "#8B8F98",
+      color: props.highlight ? "var(--pink)" : "var(--text-secondary)",
       fontWeight: 700,
       textTransform: "uppercase",
       letterSpacing: "0.05em",
-      borderBottom: "1px solid #1E2028",
+      borderBottom: "1px solid var(--border-light)",
     }}>
       {props.children}
     </th>
@@ -243,7 +243,7 @@ function Td(props) {
     <td style={{
       padding: "10px 14px",
       textAlign: props.align || "left",
-      color: props.muted ? "#8B8F98" : "#F0F1F3",
+      color: props.muted ? "var(--text-secondary)" : "var(--text-primary)",
       fontWeight: props.bold ? 700 : 400,
       background: props.highlight ? "#FF2D9508" : "transparent",
     }}>

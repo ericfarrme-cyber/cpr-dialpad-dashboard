@@ -4,14 +4,14 @@ import { useState, useEffect } from "react";
 import { ScatterChart, Scatter, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
 
-function scoreColor(s) { return s >= 80 ? "#4ADE80" : s >= 60 ? "#FBBF24" : s >= 40 ? "#FB923C" : "#F87171"; }
+function scoreColor(s) { return s >= 80 ? "var(--green)" : s >= 60 ? "var(--yellow)" : s >= 40 ? "var(--orange)" : "var(--red)"; }
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em" }}>{label}</div>
+      <div style={{ color:"var(--text-primary)",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>{sub}</div>}
     </div>
   );
 }
@@ -72,8 +72,8 @@ export default function InsightsTab({ storeFilter }) {
     { id: "callbacks", label: "Post-Repair Callbacks", icon: "\u260E\uFE0F" },
   ];
 
-  if (loading) return (<div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Analyzing patterns across all data...</div>);
-  if (!data) return (<div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>No insights data available.</div>);
+  if (loading) return (<div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Analyzing patterns across all data...</div>);
+  if (!data) return (<div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>No insights data available.</div>);
 
   var summary = data.summary || {};
   var callbacks = data.callbacks || [];
@@ -93,34 +93,34 @@ export default function InsightsTab({ storeFilter }) {
     <div>
       <div style={{ display:"flex",gap:4,marginBottom:20 }}>
         {SUBTABS.map(function(v) {
-          return (<button key={v.id} onClick={function(){setView(v.id); if(v.id==="journey") loadJourneys();}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>);
+          return (<button key={v.id} onClick={function(){setView(v.id); if(v.id==="journey") loadJourneys();}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"var(--bg-card)",color:view===v.id?"var(--purple)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>);
         })}
       </div>
 
       {view === "overview" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:24 }}>
-            <StatCard label="Tickets Analyzed" value={summary.totalTickets || 0} accent="#7B2FFF" />
-            <StatCard label="Post-Repair Callbacks" value={summary.totalCallbacks || 0} accent={summary.totalCallbacks > 5 ? "#F87171" : "#4ADE80"} sub={summary.callbackRate + "% callback rate"} />
+            <StatCard label="Tickets Analyzed" value={summary.totalTickets || 0} accent="var(--purple)" />
+            <StatCard label="Post-Repair Callbacks" value={summary.totalCallbacks || 0} accent={summary.totalCallbacks > 5 ? "var(--red)" : "var(--green)"} sub={summary.callbackRate + "% callback rate"} />
             <StatCard label="Avg Compliance" value={(summary.avgCompliance || 0) + "/100"} accent={scoreColor(summary.avgCompliance || 0)} />
-            <StatCard label="Device Types" value={devices.length} accent="#00D4FF" sub="with 2+ tickets" />
+            <StatCard label="Device Types" value={devices.length} accent="var(--cyan)" sub="with 2+ tickets" />
           </div>
 
           {callbacks.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #F8717122" }}>
-              <div style={{ color:"#F87171",fontSize:14,fontWeight:700,marginBottom:12 }}>{"\u26A0\uFE0F Recent Post-Repair Callbacks"}</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #F8717122" }}>
+              <div style={{ color:"var(--red)",fontSize:14,fontWeight:700,marginBottom:12 }}>{"\u26A0\uFE0F Recent Post-Repair Callbacks"}</div>
               {callbacks.slice(0, 5).map(function(cb) {
                 var store = STORES[cb.store];
                 return (
-                  <div key={cb.ticket_number} style={{ padding:"10px 0",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div key={cb.ticket_number} style={{ padding:"10px 0",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div>
-                      <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{"#" + cb.ticket_number}</span>
-                      <span style={{ color:"#6B6F78",fontSize:11,marginLeft:8 }}>{cb.customer_name}</span>
+                      <span style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700 }}>{"#" + cb.ticket_number}</span>
+                      <span style={{ color:"var(--text-muted)",fontSize:11,marginLeft:8 }}>{cb.customer_name}</span>
                       {store && <span style={{ color:store.color,fontSize:10,marginLeft:8 }}>{store.name.replace("CPR ","")}</span>}
                     </div>
                     <div style={{ textAlign:"right" }}>
-                      <div style={{ color:"#F87171",fontSize:13,fontWeight:700 }}>{cb.callback_count + " callback" + (cb.callback_count > 1 ? "s" : "")}</div>
-                      <div style={{ color:"#6B6F78",fontSize:10 }}>{cb.days_after + " days after close"}</div>
+                      <div style={{ color:"var(--red)",fontSize:13,fontWeight:700 }}>{cb.callback_count + " callback" + (cb.callback_count > 1 ? "s" : "")}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:10 }}>{cb.days_after + " days after close"}</div>
                     </div>
                   </div>
                 );
@@ -129,30 +129,30 @@ export default function InsightsTab({ storeFilter }) {
           )}
 
           {employees.filter(function(e){return e.coaching.length > 0;}).length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#FBBF24",fontSize:14,fontWeight:700,marginBottom:12 }}>{"\uD83C\uDFAF Coaching Opportunities"}</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
+              <div style={{ color:"var(--yellow)",fontSize:14,fontWeight:700,marginBottom:12 }}>{"\uD83C\uDFAF Coaching Opportunities"}</div>
               {employees.filter(function(e){return e.coaching.length > 0;}).map(function(emp) {
                 var store = STORES[emp.store];
                 return (
-                  <div key={emp.name} style={{ padding:"10px 0",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div key={emp.name} style={{ padding:"10px 0",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div>
-                      <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{emp.name}</span>
+                      <span style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700 }}>{emp.name}</span>
                       {store && <span style={{ color:store.color,fontSize:10,marginLeft:8 }}>{store.name.replace("CPR ","")}</span>}
                       <div style={{ marginTop:4 }}>
                         {emp.coaching.map(function(c, i) {
                           var isGood = c.includes("Top performer");
-                          return (<span key={i} style={{ display:"inline-block",padding:"2px 8px",borderRadius:4,background:isGood?"#4ADE8018":"#FBBF2418",color:isGood?"#4ADE80":"#FBBF24",fontSize:10,marginRight:4,marginBottom:2 }}>{c}</span>);
+                          return (<span key={i} style={{ display:"inline-block",padding:"2px 8px",borderRadius:4,background:isGood?"#4ADE8018":"#FBBF2418",color:isGood?"var(--green)":"var(--yellow)",fontSize:10,marginRight:4,marginBottom:2 }}>{c}</span>);
                         })}
                       </div>
                     </div>
                     <div style={{ display:"flex",gap:12,textAlign:"center" }}>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Audit</div>
-                        <div style={{ color:emp.avg_audit !== null ? scoreColor(emp.avg_audit) : "#6B6F78",fontSize:14,fontWeight:700 }}>{emp.avg_audit !== null ? emp.avg_audit : "\u2014"}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Audit</div>
+                        <div style={{ color:emp.avg_audit !== null ? scoreColor(emp.avg_audit) : "var(--text-muted)",fontSize:14,fontWeight:700 }}>{emp.avg_audit !== null ? emp.avg_audit : "\u2014"}</div>
                       </div>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Compliance</div>
-                        <div style={{ color:emp.avg_compliance !== null ? scoreColor(emp.avg_compliance) : "#6B6F78",fontSize:14,fontWeight:700 }}>{emp.avg_compliance !== null ? emp.avg_compliance : "\u2014"}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Compliance</div>
+                        <div style={{ color:emp.avg_compliance !== null ? scoreColor(emp.avg_compliance) : "var(--text-muted)",fontSize:14,fontWeight:700 }}>{emp.avg_compliance !== null ? emp.avg_compliance : "\u2014"}</div>
                       </div>
                     </div>
                   </div>
@@ -167,63 +167,63 @@ export default function InsightsTab({ storeFilter }) {
       {view === "journey" && (
         <div>
           {journeyLoading ? (
-            <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Cross-referencing calls and tickets by phone number...</div>
+            <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Cross-referencing calls and tickets by phone number...</div>
           ) : journeyData ? (
             <div>
               {/* Stats row */}
               <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
-                <StatCard label="Customers Matched" value={journeyData.stats.total_customers_cross_referenced} accent="#7B2FFF" sub={"calls \u2194 tickets linked"} />
+                <StatCard label="Customers Matched" value={journeyData.stats.total_customers_cross_referenced} accent="var(--purple)" sub={"calls \u2194 tickets linked"} />
                 <StatCard label="Avg CX Score" value={journeyData.stats.avg_cx_score !== null ? journeyData.stats.avg_cx_score + "/100" : "\u2014"} accent={scoreColor(journeyData.stats.avg_cx_score || 0)} />
-                <StatCard label="Flagged Customers" value={journeyData.stats.total_flagged} accent={journeyData.stats.total_flagged > 0 ? "#F87171" : "#4ADE80"} sub="need attention" />
-                <StatCard label="Data Points" value={journeyData.stats.total_calls_analyzed + journeyData.stats.total_tickets_analyzed} accent="#00D4FF" sub={journeyData.stats.total_calls_analyzed + " calls + " + journeyData.stats.total_tickets_analyzed + " tickets"} />
+                <StatCard label="Flagged Customers" value={journeyData.stats.total_flagged} accent={journeyData.stats.total_flagged > 0 ? "var(--red)" : "var(--green)"} sub="need attention" />
+                <StatCard label="Data Points" value={journeyData.stats.total_calls_analyzed + journeyData.stats.total_tickets_analyzed} accent="var(--cyan)" sub={journeyData.stats.total_calls_analyzed + " calls + " + journeyData.stats.total_tickets_analyzed + " tickets"} />
               </div>
 
               {/* Detail panel */}
               {selectedJourney && (
-                <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #7B2FFF33" }}>
+                <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #7B2FFF33" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
                     <div>
-                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{journeyDetail ? journeyDetail.customer_name || "Unknown Customer" : "Loading..."}</div>
-                      <div style={{ color:"#8B8F98",fontSize:12 }}>{selectedJourney.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</div>
+                      <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>{journeyDetail ? journeyDetail.customer_name || "Unknown Customer" : "Loading..."}</div>
+                      <div style={{ color:"var(--text-secondary)",fontSize:12 }}>{selectedJourney.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</div>
                     </div>
                     <button onClick={function(){ setSelectedJourney(null); setJourneyDetail(null); }}
-                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Close</button>
+                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Close</button>
                   </div>
 
                   {detailLoading ? (
-                    <div style={{ padding:20,textAlign:"center",color:"#6B6F78" }}>Loading timeline...</div>
+                    <div style={{ padding:20,textAlign:"center",color:"var(--text-muted)" }}>Loading timeline...</div>
                   ) : journeyDetail ? (
                     <div>
                       {/* CX Summary */}
-                      <div style={{ display:"flex",gap:16,marginBottom:16,padding:12,background:"#12141A",borderRadius:8 }}>
+                      <div style={{ display:"flex",gap:16,marginBottom:16,padding:12,background:"var(--bg-card-inner)",borderRadius:8 }}>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>CX Score</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>CX Score</div>
                           <div style={{ color:scoreColor(journeyDetail.cx_score || 0),fontSize:24,fontWeight:800 }}>{journeyDetail.cx_score !== null ? journeyDetail.cx_score : "\u2014"}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Calls</div>
-                          <div style={{ color:"#F0F1F3",fontSize:24,fontWeight:800 }}>{journeyDetail.total_calls}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Calls</div>
+                          <div style={{ color:"var(--text-primary)",fontSize:24,fontWeight:800 }}>{journeyDetail.total_calls}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Tickets</div>
-                          <div style={{ color:"#F0F1F3",fontSize:24,fontWeight:800 }}>{journeyDetail.total_tickets}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Tickets</div>
+                          <div style={{ color:"var(--text-primary)",fontSize:24,fontWeight:800 }}>{journeyDetail.total_tickets}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Avg Call</div>
-                          <div style={{ color:journeyDetail.avg_call_score !== null ? scoreColor(journeyDetail.avg_call_score / 4 * 100) : "#6B6F78",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_call_score !== null ? journeyDetail.avg_call_score.toFixed(1) + "/4" : "\u2014"}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Avg Call</div>
+                          <div style={{ color:journeyDetail.avg_call_score !== null ? scoreColor(journeyDetail.avg_call_score / 4 * 100) : "var(--text-muted)",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_call_score !== null ? journeyDetail.avg_call_score.toFixed(1) + "/4" : "\u2014"}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Avg Ticket</div>
-                          <div style={{ color:journeyDetail.avg_ticket_score !== null ? scoreColor(journeyDetail.avg_ticket_score) : "#6B6F78",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_ticket_score !== null ? journeyDetail.avg_ticket_score : "\u2014"}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Avg Ticket</div>
+                          <div style={{ color:journeyDetail.avg_ticket_score !== null ? scoreColor(journeyDetail.avg_ticket_score) : "var(--text-muted)",fontSize:24,fontWeight:800 }}>{journeyDetail.avg_ticket_score !== null ? journeyDetail.avg_ticket_score : "\u2014"}</div>
                         </div>
                       </div>
 
                       {/* Timeline */}
-                      <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase",marginBottom:8,letterSpacing:"0.05em" }}>Timeline</div>
+                      <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase",marginBottom:8,letterSpacing:"0.05em" }}>Timeline</div>
                       <div style={{ maxHeight:500,overflowY:"auto" }}>
                         {journeyDetail.timeline.map(function(event, i) {
                           var isCall = event.type === "call";
-                          var color = isCall ? "#00D4FF" : "#7B2FFF";
+                          var color = isCall ? "var(--cyan)" : "var(--purple)";
                           var icon = isCall ? "\uD83D\uDCDE" : "\uD83C\uDFAB";
                           var d = new Date(event.date);
                           var store = STORES[event.store];
@@ -231,12 +231,12 @@ export default function InsightsTab({ storeFilter }) {
                           var isExpanded = expandedEvent === eventKey;
                           var ed = event.data || {};
                           return (
-                            <div key={i} style={{ borderBottom:"1px solid #1E2028" }}>
+                            <div key={i} style={{ borderBottom:"1px solid var(--border-light)" }}>
                               <div onClick={function(){setExpandedEvent(isExpanded ? null : eventKey);}}
                                 style={{ display:"flex",gap:12,padding:"10px 0",cursor:"pointer" }}>
                                 <div style={{ display:"flex",flexDirection:"column",alignItems:"center",minWidth:24 }}>
                                   <span style={{ fontSize:14 }}>{icon}</span>
-                                  {i < journeyDetail.timeline.length - 1 && <div style={{ width:1,flex:1,background:"#2A2D35",marginTop:4 }} />}
+                                  {i < journeyDetail.timeline.length - 1 && <div style={{ width:1,flex:1,background:"var(--border)",marginTop:4 }} />}
                                 </div>
                                 <div style={{ flex:1 }}>
                                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
@@ -248,9 +248,9 @@ export default function InsightsTab({ storeFilter }) {
                                           onClick={function(e){e.stopPropagation();}}
                                           style={{ color:color,fontSize:11,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed " + color }}>{"Ticket #" + event.ticket_number}</a>
                                       )}
-                                      {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
+                                      {isCall && event.call_type && <span style={{ padding:"1px 6px",borderRadius:3,fontSize:9,fontWeight:600,background:event.call_type==="opportunity"?"#7B2FFF18":"#FBBF2418",color:event.call_type==="opportunity"?"var(--purple)":"var(--yellow)" }}>{event.call_type==="current_customer"?"Current":"Opportunity"}</span>}
                                       {store && <span style={{ color:store.color,fontSize:9 }}>{store.name.replace("CPR ","")}</span>}
-                                      <span style={{ color:"#6B6F78",fontSize:9,transform:isExpanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s" }}>{"\u25B6"}</span>
+                                      <span style={{ color:"var(--text-muted)",fontSize:9,transform:isExpanded?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.15s" }}>{"\u25B6"}</span>
                                     </div>
                                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                                       {isCall ? (
@@ -260,34 +260,34 @@ export default function InsightsTab({ storeFilter }) {
                                       )}
                                     </div>
                                   </div>
-                                  <div style={{ color:"#6B6F78",fontSize:10,marginTop:2 }}>
+                                  <div style={{ color:"var(--text-muted)",fontSize:10,marginTop:2 }}>
                                     {d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"})}
                                     {event.employee && <span style={{ marginLeft:8 }}>{event.employee}</span>}
                                     {isCall && ed.talk_duration ? <span style={{ marginLeft:8 }}>{parseFloat(ed.talk_duration).toFixed(1) + " min"}</span> : null}
                                   </div>
-                                  {event.detail && <div style={{ color:"#8B8F98",fontSize:11,marginTop:4 }}>{isCall ? "Inquiry: " : "Device: "}{event.detail}</div>}
-                                  {isCall && event.outcome && <div style={{ color:"#8B8F98",fontSize:11 }}>Outcome: {event.outcome}</div>}
+                                  {event.detail && <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:4 }}>{isCall ? "Inquiry: " : "Device: "}{event.detail}</div>}
+                                  {isCall && event.outcome && <div style={{ color:"var(--text-secondary)",fontSize:11 }}>Outcome: {event.outcome}</div>}
                                 </div>
                               </div>
 
                               {/* EXPANDED DETAIL */}
                               {isExpanded && (
-                                <div style={{ marginLeft:36,padding:"8px 12px 14px",background:"#12141A",borderRadius:8,marginBottom:8 }}>
+                                <div style={{ marginLeft:36,padding:"8px 12px 14px",background:"var(--bg-card-inner)",borderRadius:8,marginBottom:8 }}>
                                   {isCall ? (
                                     <div>
                                       {/* Call audit details */}
                                       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10 }}>
                                         <div style={{ textAlign:"center" }}>
-                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Score</div>
+                                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Score</div>
                                           <div style={{ color:scoreColor(event.score/4*100),fontSize:18,fontWeight:800 }}>{event.score.toFixed(2)}/4</div>
                                         </div>
                                         <div style={{ textAlign:"center" }}>
-                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Confidence</div>
-                                          <div style={{ color:ed.confidence >= 70 ? "#4ADE80" : "#FBBF24",fontSize:18,fontWeight:800 }}>{ed.confidence || "—"}%</div>
+                                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Confidence</div>
+                                          <div style={{ color:ed.confidence >= 70 ? "var(--green)" : "var(--yellow)",fontSize:18,fontWeight:800 }}>{ed.confidence || "—"}%</div>
                                         </div>
                                         <div style={{ textAlign:"center" }}>
-                                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Duration</div>
-                                          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:800 }}>{ed.talk_duration ? parseFloat(ed.talk_duration).toFixed(1) + "m" : "—"}</div>
+                                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Duration</div>
+                                          <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:800 }}>{ed.talk_duration ? parseFloat(ed.talk_duration).toFixed(1) + "m" : "—"}</div>
                                         </div>
                                       </div>
                                       {/* Criteria */}
@@ -308,8 +308,8 @@ export default function InsightsTab({ storeFilter }) {
                                       {/* Transcript */}
                                       {ed.transcript_preview && (
                                         <div>
-                                          <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Transcript</div>
-                                          <div style={{ padding:10,background:"#0F1117",borderRadius:6,maxHeight:200,overflowY:"auto",fontFamily:"monospace",fontSize:10,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                                          <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase",marginBottom:4 }}>Transcript</div>
+                                          <div style={{ padding:10,background:"var(--bg-page)",borderRadius:6,maxHeight:200,overflowY:"auto",fontFamily:"monospace",fontSize:10,color:"var(--text-body)",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
                                             {ed.transcript_preview}
                                           </div>
                                         </div>
@@ -327,8 +327,8 @@ export default function InsightsTab({ storeFilter }) {
                                           {l:"Overall",s:ed.overall_score},
                                         ].map(function(cat) {
                                           return (
-                                            <div key={cat.l} style={{ textAlign:"center",padding:"6px 4px",background:"#0F1117",borderRadius:6 }}>
-                                              <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>{cat.l}</div>
+                                            <div key={cat.l} style={{ textAlign:"center",padding:"6px 4px",background:"var(--bg-page)",borderRadius:6 }}>
+                                              <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>{cat.l}</div>
                                               <div style={{ color:scoreColor(cat.s || 0),fontSize:16,fontWeight:800 }}>{cat.s || 0}</div>
                                             </div>
                                           );
@@ -337,22 +337,22 @@ export default function InsightsTab({ storeFilter }) {
                                       {/* Detail notes */}
                                       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
                                         {[
-                                          {l:"Intake Notes",v:ed.diagnostics_notes,c:"#7B2FFF"},
-                                          {l:"Repair Notes",v:ed.notes_detail,c:"#00D4FF"},
-                                          {l:"Pickup Notes",v:ed.categorization_notes,c:"#FF2D95"},
-                                          {l:"Payment Notes",v:ed.payment_notes,c:"#FBBF24"},
+                                          {l:"Intake Notes",v:ed.diagnostics_notes,c:"var(--purple)"},
+                                          {l:"Repair Notes",v:ed.notes_detail,c:"var(--cyan)"},
+                                          {l:"Pickup Notes",v:ed.categorization_notes,c:"var(--pink)"},
+                                          {l:"Payment Notes",v:ed.payment_notes,c:"var(--yellow)"},
                                         ].filter(function(n){return n.v;}).map(function(note) {
                                           return (
-                                            <div key={note.l} style={{ padding:8,background:"#0F1117",borderRadius:6,borderLeft:"2px solid "+note.c }}>
+                                            <div key={note.l} style={{ padding:8,background:"var(--bg-page)",borderRadius:6,borderLeft:"2px solid "+note.c }}>
                                               <div style={{ color:note.c,fontSize:9,fontWeight:700,marginBottom:3 }}>{note.l}</div>
-                                              <div style={{ color:"#8B8F98",fontSize:10,lineHeight:1.4 }}>{note.v}</div>
+                                              <div style={{ color:"var(--text-secondary)",fontSize:10,lineHeight:1.4 }}>{note.v}</div>
                                             </div>
                                           );
                                         })}
                                       </div>
-                                      {ed.device && <div style={{ color:"#6B6F78",fontSize:10,marginTop:8 }}>Device: {ed.device}</div>}
+                                      {ed.device && <div style={{ color:"var(--text-muted)",fontSize:10,marginTop:8 }}>Device: {ed.device}</div>}
                                       <a href={"https://cpr.repairq.io/ticket/" + event.ticket_number} target="_blank" rel="noopener noreferrer"
-                                        style={{ display:"inline-block",marginTop:8,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"#7B2FFF",fontSize:10,fontWeight:600,textDecoration:"none" }}>
+                                        style={{ display:"inline-block",marginTop:8,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"var(--purple)",fontSize:10,fontWeight:600,textDecoration:"none" }}>
                                         View in RepairQ →
                                       </a>
                                     </div>
@@ -362,7 +362,7 @@ export default function InsightsTab({ storeFilter }) {
                             </div>
                           );
                         })}
-                        {journeyDetail.timeline.length === 0 && <div style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:12 }}>No events found</div>}
+                        {journeyDetail.timeline.length === 0 && <div style={{ padding:20,textAlign:"center",color:"var(--text-muted)",fontSize:12 }}>No events found</div>}
                       </div>
                     </div>
                   ) : null}
@@ -377,12 +377,12 @@ export default function InsightsTab({ storeFilter }) {
                   { id:"recent",label:"Most Recent" },
                   { id:"calls",label:"Most Calls" },
                 ].map(function(s) {
-                  return <button key={s.id} onClick={function(){setJourneySort(s.id);}} style={{ padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",background:journeySort===s.id?"#7B2FFF22":"#1A1D23",color:journeySort===s.id?"#7B2FFF":"#8B8F98",fontSize:10,fontWeight:600 }}>{s.label}</button>;
+                  return <button key={s.id} onClick={function(){setJourneySort(s.id);}} style={{ padding:"5px 10px",borderRadius:6,border:"none",cursor:"pointer",background:journeySort===s.id?"#7B2FFF22":"var(--bg-card)",color:journeySort===s.id?"var(--purple)":"var(--text-secondary)",fontSize:10,fontWeight:600 }}>{s.label}</button>;
                 })}
               </div>
 
               {/* Customer list */}
-              <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,overflow:"hidden" }}>
                 {(function() {
                   var sorted = (journeyData.journeys || []).slice();
                   if (journeySort === "cx") sorted.sort(function(a,b){ return (a.cx_score||999) - (b.cx_score||999); });
@@ -394,11 +394,11 @@ export default function InsightsTab({ storeFilter }) {
                   var isSelected = selectedJourney === j.phone;
                   return (
                     <div key={j.phone} onClick={function(){ loadJourneyDetail(j.phone); }}
-                      style={{ padding:"14px 20px",borderBottom:"1px solid #1E2028",cursor:"pointer",background:isSelected?"#7B2FFF08":"transparent",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                      style={{ padding:"14px 20px",borderBottom:"1px solid var(--border-light)",cursor:"pointer",background:isSelected?"#7B2FFF08":"transparent",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                       <div>
                         <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
-                          <span style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>{j.customer_name || "Unknown"}</span>
-                          <span style={{ color:"#6B6F78",fontSize:11 }}>{j.phone.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</span>
+                          <span style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700 }}>{j.customer_name || "Unknown"}</span>
+                          <span style={{ color:"var(--text-muted)",fontSize:11 }}>{j.phone.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</span>
                           {j.stores.map(function(sk) {
                             var st = STORES[sk];
                             return st ? <span key={sk} style={{ width:6,height:6,borderRadius:"50%",background:st.color }} /> : null;
@@ -407,50 +407,50 @@ export default function InsightsTab({ storeFilter }) {
                         {j.flags.length > 0 && (
                           <div style={{ display:"flex",gap:4,marginTop:4,flexWrap:"wrap" }}>
                             {j.flags.map(function(f, fi) {
-                              return <span key={fi} style={{ padding:"2px 6px",borderRadius:4,background:"#F8717118",border:"1px solid #F8717133",color:"#F87171",fontSize:9,fontWeight:600 }}>{"\u26A0\uFE0F " + f}</span>;
+                              return <span key={fi} style={{ padding:"2px 6px",borderRadius:4,background:"#F8717118",border:"1px solid #F8717133",color:"var(--red)",fontSize:9,fontWeight:600 }}>{"\u26A0\uFE0F " + f}</span>;
                             })}
                           </div>
                         )}
                       </div>
                       <div style={{ display:"flex",gap:14,alignItems:"center" }}>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>CX</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>CX</div>
                           <div style={{ color:cxColor,fontSize:16,fontWeight:800 }}>{j.cx_score !== null ? j.cx_score : "\u2014"}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Calls</div>
-                          <div style={{ color:"#00D4FF",fontSize:14,fontWeight:700 }}>{j.total_calls}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Calls</div>
+                          <div style={{ color:"var(--cyan)",fontSize:14,fontWeight:700 }}>{j.total_calls}</div>
                         </div>
                         <div style={{ textAlign:"center" }}>
-                          <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Tickets</div>
-                          <div style={{ color:"#7B2FFF",fontSize:14,fontWeight:700 }}>{j.total_tickets}</div>
+                          <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Tickets</div>
+                          <div style={{ color:"var(--purple)",fontSize:14,fontWeight:700 }}>{j.total_tickets}</div>
                         </div>
                       </div>
                     </div>
                   );
                 })}
                 {(journeyData.journeys || []).length === 0 && (
-                  <div style={{ padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No cross-referenced customers found yet. Grade more tickets and audit more calls to enable journey tracking.</div>
+                  <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>No cross-referenced customers found yet. Grade more tickets and audit more calls to enable journey tracking.</div>
                 )}
               </div>
             </div>
           ) : (
-            <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Failed to load journey data.</div>
+            <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Failed to load journey data.</div>
           )}
         </div>
       )}
 
       {view === "devices" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>Device and Repair Patterns</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:16 }}>Sorted by callback rate</div>
+          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:4 }}>Device and Repair Patterns</div>
+          <div style={{ color:"var(--text-muted)",fontSize:12,marginBottom:16 }}>Sorted by callback rate</div>
           {devices.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,overflow:"hidden" }}>
               <table style={{ width:"100%",borderCollapse:"collapse" }}>
                 <thead>
-                  <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                  <tr style={{ borderBottom:"1px solid var(--border)" }}>
                     {["Device / Type","Tickets","Avg Score","Callbacks","Callback Rate","Low Scores"].map(function(h,i){
-                      return (<th key={i} style={{ textAlign:i===0?"left":"right",padding:"10px 14px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>);
+                      return (<th key={i} style={{ textAlign:i===0?"left":"right",padding:"10px 14px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase" }}>{h}</th>);
                     })}
                   </tr>
                 </thead>
@@ -458,16 +458,16 @@ export default function InsightsTab({ storeFilter }) {
                   {devices.map(function(d,i) {
                     var hasIssue = d.callback_rate > 15 || d.low_score_rate > 30;
                     return (
-                      <tr key={i} style={{ borderBottom:"1px solid #1E2028",background:hasIssue?"#F8717108":"transparent" }}>
+                      <tr key={i} style={{ borderBottom:"1px solid var(--border-light)",background:hasIssue?"#F8717108":"transparent" }}>
                         <td style={{ padding:"12px 14px" }}>
-                          <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{d.device}</div>
-                          <div style={{ color:"#6B6F78",fontSize:10 }}>{d.type}</div>
+                          <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{d.device}</div>
+                          <div style={{ color:"var(--text-muted)",fontSize:10 }}>{d.type}</div>
                         </td>
-                        <td style={{ padding:"12px 14px",textAlign:"right",color:"#F0F1F3",fontSize:13 }}>{d.tickets}</td>
+                        <td style={{ padding:"12px 14px",textAlign:"right",color:"var(--text-primary)",fontSize:13 }}>{d.tickets}</td>
                         <td style={{ padding:"12px 14px",textAlign:"right",color:scoreColor(d.avg_score),fontSize:13,fontWeight:700 }}>{d.avg_score}</td>
-                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.callbacks > 0?"#F87171":"#4ADE80",fontSize:13,fontWeight:700 }}>{d.callbacks}</td>
-                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.callback_rate > 15?"#F87171":"#4ADE80",fontSize:13,fontWeight:700 }}>{d.callback_rate + "%"}</td>
-                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.low_score_rate > 30?"#F87171":"#8B8F98",fontSize:13 }}>{d.low_scores + " (" + d.low_score_rate + "%)"}</td>
+                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.callbacks > 0?"var(--red)":"var(--green)",fontSize:13,fontWeight:700 }}>{d.callbacks}</td>
+                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.callback_rate > 15?"var(--red)":"var(--green)",fontSize:13,fontWeight:700 }}>{d.callback_rate + "%"}</td>
+                        <td style={{ padding:"12px 14px",textAlign:"right",color:d.low_score_rate > 30?"var(--red)":"var(--text-secondary)",fontSize:13 }}>{d.low_scores + " (" + d.low_score_rate + "%)"}</td>
                       </tr>
                     );
                   })}
@@ -475,18 +475,18 @@ export default function InsightsTab({ storeFilter }) {
               </table>
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>Need more graded tickets to show patterns.</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>Need more graded tickets to show patterns.</div>
           )}
         </div>
       )}
 
       {view === "employees" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>Employee Quality Correlation</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:16 }}>Phone audit score vs ticket compliance</div>
+          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:4 }}>Employee Quality Correlation</div>
+          <div style={{ color:"var(--text-muted)",fontSize:12,marginBottom:16 }}>Phone audit score vs ticket compliance</div>
 
           {scatterData.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
               <div style={{ height:320 }}>
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart>
@@ -496,10 +496,10 @@ export default function InsightsTab({ storeFilter }) {
                     <Tooltip content={function(props) {
                       var payload = props.payload && props.payload[0] ? props.payload[0].payload : null;
                       if (!payload) return null;
-                      return (<div style={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8,padding:10}}>
-                        <div style={{color:"#F0F1F3",fontWeight:700,fontSize:13}}>{payload.name}</div>
-                        <div style={{color:"#8B8F98",fontSize:11}}>{"Audit: " + payload.x + " | Compliance: " + payload.y}</div>
-                        <div style={{color:"#8B8F98",fontSize:11}}>{"Callback rate: " + payload.callbacks + "%"}</div>
+                      return (<div style={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8,padding:10}}>
+                        <div style={{color:"var(--text-primary)",fontWeight:700,fontSize:13}}>{payload.name}</div>
+                        <div style={{color:"var(--text-secondary)",fontSize:11}}>{"Audit: " + payload.x + " | Compliance: " + payload.y}</div>
+                        <div style={{color:"var(--text-secondary)",fontSize:11}}>{"Callback rate: " + payload.callbacks + "%"}</div>
                       </div>);
                     }} />
                     <Scatter data={scatterData} fill="#7B2FFF">
@@ -516,50 +516,50 @@ export default function InsightsTab({ storeFilter }) {
                   var store = STORES[sk];
                   return (<div key={sk} style={{ display:"flex",alignItems:"center",gap:4 }}>
                     <span style={{ width:8,height:8,borderRadius:"50%",background:store.color }} />
-                    <span style={{ color:"#8B8F98",fontSize:10 }}>{store.name.replace("CPR ","")}</span>
+                    <span style={{ color:"var(--text-secondary)",fontSize:10 }}>{store.name.replace("CPR ","")}</span>
                   </div>);
                 })}
               </div>
             </div>
           )}
 
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
             {employees.map(function(emp) {
               var store = STORES[emp.store];
               return (
-                <div key={emp.name} style={{ padding:"14px 0",borderBottom:"1px solid #1E2028" }}>
+                <div key={emp.name} style={{ padding:"14px 0",borderBottom:"1px solid var(--border-light)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                     <div>
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                        <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</span>
+                        <span style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{emp.name}</span>
                         {store && <span style={{ color:store.color,fontSize:10 }}>{store.name.replace("CPR ","")}</span>}
-                        {emp.role && <span style={{ color:"#6B6F78",fontSize:10 }}>{emp.role}</span>}
+                        {emp.role && <span style={{ color:"var(--text-muted)",fontSize:10 }}>{emp.role}</span>}
                       </div>
                       {emp.coaching.length > 0 && (
                         <div style={{ marginTop:6 }}>
                           {emp.coaching.map(function(c,i) {
                             var isGood = c.includes("Top performer");
-                            return (<span key={i} style={{ display:"inline-block",padding:"2px 8px",borderRadius:4,background:isGood?"#4ADE8018":"#FBBF2418",color:isGood?"#4ADE80":"#FBBF24",fontSize:10,marginRight:4 }}>{c}</span>);
+                            return (<span key={i} style={{ display:"inline-block",padding:"2px 8px",borderRadius:4,background:isGood?"#4ADE8018":"#FBBF2418",color:isGood?"var(--green)":"var(--yellow)",fontSize:10,marginRight:4 }}>{c}</span>);
                           })}
                         </div>
                       )}
                     </div>
                     <div style={{ display:"flex",gap:14,textAlign:"center" }}>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Audit</div>
-                        <div style={{ color:emp.avg_audit !== null ? scoreColor(emp.avg_audit) : "#6B6F78",fontSize:16,fontWeight:800 }}>{emp.avg_audit !== null ? emp.avg_audit : "\u2014"}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Audit</div>
+                        <div style={{ color:emp.avg_audit !== null ? scoreColor(emp.avg_audit) : "var(--text-muted)",fontSize:16,fontWeight:800 }}>{emp.avg_audit !== null ? emp.avg_audit : "\u2014"}</div>
                       </div>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Compliance</div>
-                        <div style={{ color:emp.avg_compliance !== null ? scoreColor(emp.avg_compliance) : "#6B6F78",fontSize:16,fontWeight:800 }}>{emp.avg_compliance !== null ? emp.avg_compliance : "\u2014"}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Compliance</div>
+                        <div style={{ color:emp.avg_compliance !== null ? scoreColor(emp.avg_compliance) : "var(--text-muted)",fontSize:16,fontWeight:800 }}>{emp.avg_compliance !== null ? emp.avg_compliance : "\u2014"}</div>
                       </div>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Repairs</div>
-                        <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:800 }}>{emp.repair_count}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Repairs</div>
+                        <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:800 }}>{emp.repair_count}</div>
                       </div>
                       <div>
-                        <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase" }}>Callbacks</div>
-                        <div style={{ color:emp.callback_rate > 15 ? "#F87171" : "#4ADE80",fontSize:16,fontWeight:800 }}>{emp.callback_rate + "%"}</div>
+                        <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase" }}>Callbacks</div>
+                        <div style={{ color:emp.callback_rate > 15 ? "var(--red)" : "var(--green)",fontSize:16,fontWeight:800 }}>{emp.callback_rate + "%"}</div>
                       </div>
                     </div>
                   </div>
@@ -572,30 +572,30 @@ export default function InsightsTab({ storeFilter }) {
 
       {view === "callbacks" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:4 }}>Post-Repair Callbacks</div>
-          <div style={{ color:"#6B6F78",fontSize:12,marginBottom:16 }}>Customers who called back 1-14 days after ticket closed</div>
+          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:4 }}>Post-Repair Callbacks</div>
+          <div style={{ color:"var(--text-muted)",fontSize:12,marginBottom:16 }}>Customers who called back 1-14 days after ticket closed</div>
           {callbacks.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,overflow:"hidden" }}>
               {callbacks.map(function(cb) {
                 var store = STORES[cb.store];
                 return (
-                  <div key={cb.ticket_number} style={{ padding:"16px 20px",borderBottom:"1px solid #1E2028" }}>
+                  <div key={cb.ticket_number} style={{ padding:"16px 20px",borderBottom:"1px solid var(--border-light)" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                       <div>
                         <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                          <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{"#" + cb.ticket_number}</span>
-                          <span style={{ color:"#6B6F78",fontSize:12 }}>{cb.customer_name}</span>
+                          <span style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{"#" + cb.ticket_number}</span>
+                          <span style={{ color:"var(--text-muted)",fontSize:12 }}>{cb.customer_name}</span>
                           {store && <span style={{ color:store.color,fontSize:10 }}>{store.name.replace("CPR ","")}</span>}
                         </div>
-                        <div style={{ color:"#8B8F98",fontSize:11,marginTop:4 }}>
+                        <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:4 }}>
                           {cb.device && <span>{cb.device}</span>}
                           {cb.employee_repaired && <span style={{ marginLeft:8 }}>{"Repaired by: " + cb.employee_repaired}</span>}
                         </div>
                       </div>
                       <div style={{ textAlign:"right" }}>
-                        <div style={{ color:"#F87171",fontSize:16,fontWeight:800 }}>{cb.callback_count + " callback" + (cb.callback_count > 1 ? "s" : "")}</div>
-                        <div style={{ color:"#6B6F78",fontSize:11 }}>{"First: " + cb.days_after + " days after close"}</div>
-                        <div style={{ color:"#6B6F78",fontSize:10 }}>{"Ticket score: " + cb.overall_score + "/100"}</div>
+                        <div style={{ color:"var(--red)",fontSize:16,fontWeight:800 }}>{cb.callback_count + " callback" + (cb.callback_count > 1 ? "s" : "")}</div>
+                        <div style={{ color:"var(--text-muted)",fontSize:11 }}>{"First: " + cb.days_after + " days after close"}</div>
+                        <div style={{ color:"var(--text-muted)",fontSize:10 }}>{"Ticket score: " + cb.overall_score + "/100"}</div>
                       </div>
                     </div>
                   </div>
@@ -603,7 +603,7 @@ export default function InsightsTab({ storeFilter }) {
               })}
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No post-repair callbacks detected. Grade more tickets with the Chrome extension to enable callback tracking.</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>No post-repair callbacks detected. Grade more tickets with the Chrome extension to enable callback tracking.</div>
           )}
         </div>
       )}

@@ -24,7 +24,7 @@ function locationToStore(locName) {
 
 function fmtTime(d) { if (!d) return "--"; return new Date(d).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
 function fmtDate(d) { return d.getFullYear() + "-" + String(d.getMonth()+1).padStart(2,"0") + "-" + String(d.getDate()).padStart(2,"0"); }
-function sc(v, g, y) { return v >= g ? "#4ADE80" : v >= y ? "#FBBF24" : "#EF4444"; }
+function sc(v, g, y) { return v >= g ? "var(--green)" : v >= y ? "var(--yellow)" : "#EF4444"; }
 
 function getWeekStart(date) {
   var d = new Date(date); d.setDate(d.getDate() - d.getDay() + 1); // Monday
@@ -34,7 +34,7 @@ function getWeekStart(date) {
 function getWeekEnd(d) { var e = new Date(d); e.setDate(e.getDate() + 6); return e; }
 
 function severity_color(sev) {
-  return sev === "CRITICAL" ? "#EF4444" : sev === "WATCH" ? "#FBBF24" : "#4ADE8033";
+  return sev === "CRITICAL" ? "#EF4444" : sev === "WATCH" ? "var(--yellow)" : "#4ADE8033";
 }
 function severity_bg(sev) {
   return sev === "CRITICAL" ? "#EF444422" : sev === "WATCH" ? "#FBBF2418" : "transparent";
@@ -697,14 +697,14 @@ export default function ScheduleTab({ selectedStore }) {
   ];
 
   // ═══ STYLES ═══
-  var card = { background: "#1A1D23", borderRadius: 12, padding: 20, marginBottom: 16 };
-  var miniCard = { background: "#12141A", borderRadius: 8, padding: 12, flex: 1 };
-  var sectionTitle = { fontSize: 14, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 };
+  var card = { background: "var(--bg-card)", borderRadius: 12, padding: 20, marginBottom: 16 };
+  var miniCard = { background: "var(--bg-card-inner)", borderRadius: 8, padding: 12, flex: 1 };
+  var sectionTitle = { fontSize: 14, fontWeight: 700, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12 };
   var metricBig = { fontSize: 28, fontWeight: 800 };
-  var metricLabel = { fontSize: 11, color: "#6B7280", marginTop: 2 };
+  var metricLabel = { fontSize: 11, color: "var(--text-faint)", marginTop: 2 };
   var badge = function(color) { return { fontSize: 10, padding: "2px 6px", borderRadius: 4, background: color + "22", color: color, fontWeight: 700 }; };
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Loading labor intelligence...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>Loading labor intelligence...</div>;
 
   return (
     <div>
@@ -714,12 +714,12 @@ export default function ScheduleTab({ selectedStore }) {
           {SUB_TABS.map(function(t) {
             return <button key={t.id} onClick={function() { setSubTab(t.id); }} style={{
               padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer", whiteSpace: "nowrap",
-              background: subTab === t.id ? "#7B2FFF22" : "#1A1D23", color: subTab === t.id ? "#7B2FFF" : "#9CA3AF",
+              background: subTab === t.id ? "#7B2FFF22" : "var(--bg-card)", color: subTab === t.id ? "var(--purple)" : "var(--text-dim)",
               fontSize: 13, fontWeight: subTab === t.id ? 700 : 500, transition: "all 0.2s",
             }}>{t.icon} {t.label}</button>;
           })}
         </div>
-        <div style={{ fontSize: 12, color: wiwConnected ? "#4ADE80" : "#6B7280" }}>
+        <div style={{ fontSize: 12, color: wiwConnected ? "var(--green)" : "var(--text-faint)" }}>
           {wiwConnected ? "● WhenIWork Connected" : "○ WhenIWork Disconnected"}
         </div>
       </div>
@@ -737,13 +737,13 @@ export default function ScheduleTab({ selectedStore }) {
                 <div key={sk} style={card}>
                   <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 12, color: STORES[sk].color }}>{STORES[sk].name}</div>
                   <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-                    <div><div style={{ ...metricBig, color: cov.onShift.length > 0 ? "#4ADE80" : "#EF4444" }}>{cov.onShift.length}</div><div style={metricLabel}>On Shift Now</div></div>
-                    <div><div style={{ ...metricBig, color: "#9CA3AF" }}>{cov.totalToday}</div><div style={metricLabel}>Total Today</div></div>
+                    <div><div style={{ ...metricBig, color: cov.onShift.length > 0 ? "var(--green)" : "#EF4444" }}>{cov.onShift.length}</div><div style={metricLabel}>On Shift Now</div></div>
+                    <div><div style={{ ...metricBig, color: "var(--text-dim)" }}>{cov.totalToday}</div><div style={metricLabel}>Total Today</div></div>
                   </div>
                   {cov.onShift.length > 0 ? (
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                       {cov.onShift.map(function(name) {
-                        return <span key={name} style={{ fontSize: 12, padding: "4px 8px", background: "#4ADE8022", color: "#4ADE80", borderRadius: 6 }}>{name}{floatMap[name] ? " 🔀" : ""}</span>;
+                        return <span key={name} style={{ fontSize: 12, padding: "4px 8px", background: "#4ADE8022", color: "var(--green)", borderRadius: 6 }}>{name}{floatMap[name] ? " 🔀" : ""}</span>;
                       })}
                     </div>
                   ) : (
@@ -772,11 +772,11 @@ export default function ScheduleTab({ selectedStore }) {
                           var maxCalls = 10;
                           var height = Math.max(4, Math.min(60, (calls / maxCalls) * 60));
                           var staff = hourlyStaffing[fmtDate(new Date())]?.[h] || 0;
-                          var color = staff >= (d.recommendedStaff || 1) ? "#4ADE80" : staff > 0 ? "#FBBF24" : "#EF4444";
+                          var color = staff >= (d.recommendedStaff || 1) ? "var(--green)" : staff > 0 ? "var(--yellow)" : "#EF4444";
                           return <div key={h} title={h + ":00 — " + calls + " calls, " + staff + " staff"} style={{ width: 16, height: height, background: color, borderRadius: 2, opacity: 0.8 }}/>;
                         })}
                       </div>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "#6B7280", marginTop: 4 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: "var(--text-faint)", marginTop: 4 }}>
                         <span>9AM</span><span>2PM</span><span>7PM</span>
                       </div>
                     </div>
@@ -794,7 +794,7 @@ export default function ScheduleTab({ selectedStore }) {
       {subTab === "reality" && (
         <div style={card}>
           <div style={sectionTitle}>STAFFING LEVEL vs ANSWER RATE CORRELATION</div>
-          <p style={{ color: "#9CA3AF", fontSize: 13, marginBottom: 16 }}>
+          <p style={{ color: "var(--text-dim)", fontSize: 13, marginBottom: 16 }}>
             Compares days with 1 staff vs 2+ staff against call answer rates. The data doesn't lie.
           </p>
           {STORE_KEYS.map(function(sk) {
@@ -831,14 +831,14 @@ export default function ScheduleTab({ selectedStore }) {
             var multiRate = multiStaffDays > 0 ? Math.round(multiStaffAnswerSum / multiStaffDays) : 0;
 
             return (
-              <div key={sk} style={{ display: "flex", gap: 16, marginBottom: 12, padding: 12, background: "#12141A", borderRadius: 8 }}>
+              <div key={sk} style={{ display: "flex", gap: 16, marginBottom: 12, padding: 12, background: "var(--bg-card-inner)", borderRadius: 8 }}>
                 <div style={{ width: 120, fontWeight: 700, color: STORES[sk].color }}>{STORES[sk].name}</div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", gap: 16 }}>
-                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(singleRate, 80, 60) }}>{singleRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>1 staff ({singleStaffDays}d)</span></div>
-                    <div style={{ fontSize: 20, color: "#6B7280" }}>→</div>
-                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(multiRate, 80, 60) }}>{multiRate}%</span><span style={{ fontSize: 11, color: "#6B7280", marginLeft: 4 }}>2+ staff ({multiStaffDays}d)</span></div>
-                    {multiRate > singleRate && <span style={badge("#4ADE80")}>+{multiRate - singleRate}%</span>}
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(singleRate, 80, 60) }}>{singleRate}%</span><span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 4 }}>1 staff ({singleStaffDays}d)</span></div>
+                    <div style={{ fontSize: 20, color: "var(--text-faint)" }}>→</div>
+                    <div><span style={{ fontSize: 20, fontWeight: 800, color: sc(multiRate, 80, 60) }}>{multiRate}%</span><span style={{ fontSize: 11, color: "var(--text-faint)", marginLeft: 4 }}>2+ staff ({multiStaffDays}d)</span></div>
+                    {multiRate > singleRate && <span style={badge("var(--green)")}>+{multiRate - singleRate}%</span>}
                   </div>
                 </div>
               </div>
@@ -854,14 +854,14 @@ export default function ScheduleTab({ selectedStore }) {
         <div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={sectionTitle}>REVENUE PER LABOR HOUR — WHO EARNS THEIR KEEP</div>
-            <div style={{ display: "flex", gap: 2, background: "#1A1D23", borderRadius: 8, padding: 2 }}>
+            <div style={{ display: "flex", gap: 2, background: "var(--bg-card)", borderRadius: 8, padding: 2 }}>
               <button onClick={function(){setProdPeriod("mtd");}} style={{
                 padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                background: prodPeriod === "mtd" ? "#FF2D95" : "transparent", color: prodPeriod === "mtd" ? "#fff" : "#8B8F98",
+                background: prodPeriod === "mtd" ? "var(--pink)" : "transparent", color: prodPeriod === "mtd" ? "#fff" : "var(--text-secondary)",
               }}>This Month</button>
               <button onClick={function(){setProdPeriod("last");}} style={{
                 padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                background: prodPeriod === "last" ? "#7B2FFF" : "transparent", color: prodPeriod === "last" ? "#fff" : "#8B8F98",
+                background: prodPeriod === "last" ? "var(--purple)" : "transparent", color: prodPeriod === "last" ? "#fff" : "var(--text-secondary)",
               }}>Last Month</button>
             </div>
           </div>
@@ -874,9 +874,9 @@ export default function ScheduleTab({ selectedStore }) {
                   <div key={emp.name} style={{ ...card, flex: 1, textAlign: "center" }}>
                     <div style={{ fontSize: 32 }}>{medals[i]}</div>
                     <div style={{ fontSize: 16, fontWeight: 700 }}>{emp.name}</div>
-                    <div style={{ fontSize: 11, color: STORES[emp.store]?.color || "#6B7280" }}>{STORES[emp.store]?.name || emp.store}</div>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: "#4ADE80", marginTop: 8 }}>${emp.revPerHour}/hr</div>
-                    <div style={{ fontSize: 11, color: "#6B7280" }}>{emp.repairs} repairs in {Math.round(emp.hours)}h</div>
+                    <div style={{ fontSize: 11, color: STORES[emp.store]?.color || "var(--text-faint)" }}>{STORES[emp.store]?.name || emp.store}</div>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: "var(--green)", marginTop: 8 }}>${emp.revPerHour}/hr</div>
+                    <div style={{ fontSize: 11, color: "var(--text-faint)" }}>{emp.repairs} repairs in {Math.round(emp.hours)}h</div>
                   </div>
                 );
               })}
@@ -885,23 +885,23 @@ export default function ScheduleTab({ selectedStore }) {
           {/* Full table */}
           <div style={card}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+              <thead><tr style={{ borderBottom: "1px solid var(--border)" }}>
                 {["#","Employee","Store","Score","Hours","Repairs","Accy GP","Total Rev","Rev/Hr","Rep/Hr","Audit","Compliance"].map(function(h) {
-                  return <th key={h} style={{ padding: "8px 6px", textAlign: h === "Employee" || h === "Store" ? "left" : "right", color: "#6B7280", fontSize: 11 }}>{h}</th>;
+                  return <th key={h} style={{ padding: "8px 6px", textAlign: h === "Employee" || h === "Store" ? "left" : "right", color: "var(--text-faint)", fontSize: 11 }}>{h}</th>;
                 })}
               </tr></thead>
               <tbody>
                 {productivity.map(function(emp, i) {
                   return (
-                    <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
-                      <td style={{ padding: "8px 6px", textAlign: "right", color: "#6B7280" }}>{i + 1}</td>
+                    <tr key={emp.name} style={{ borderBottom: "1px solid var(--bg-card)" }}>
+                      <td style={{ padding: "8px 6px", textAlign: "right", color: "var(--text-faint)" }}>{i + 1}</td>
                       <td style={{ padding: "8px 6px", fontWeight: 600 }}>{emp.name}{floatMap[emp.name] ? " 🔀" : ""}</td>
                       <td style={{ padding: "8px 6px", color: STORES[emp.store]?.color }}>{STORES[emp.store]?.name || emp.store}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.score, 80, 60) }}>{emp.score}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{Math.round(emp.hours)}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairs}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.accyGP.toLocaleString()}</td>
-                      <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.totalRev.toLocaleString()}{emp.revenueSource === "estimated" ? <span style={{ fontSize: 8, color: "#6B7280", marginLeft: 2 }}>est</span> : ""}</td>
+                      <td style={{ padding: "8px 6px", textAlign: "right" }}>${emp.totalRev.toLocaleString()}{emp.revenueSource === "estimated" ? <span style={{ fontSize: 8, color: "var(--text-faint)", marginLeft: 2 }}>est</span> : ""}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", fontWeight: 700, color: sc(emp.revPerHour, 40, 25) }}>${emp.revPerHour}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right" }}>{emp.repairsPerHour}</td>
                       <td style={{ padding: "8px 6px", textAlign: "right", color: sc(emp.auditScore, 85, 70) }}>{emp.auditScore}</td>
@@ -912,8 +912,8 @@ export default function ScheduleTab({ selectedStore }) {
               </tbody>
             </table>
             {productivity.length >= 2 && (
-              <div style={{ marginTop: 12, padding: 10, background: "#12141A", borderRadius: 8, fontSize: 12, color: "#9CA3AF" }}>
-                💡 Top producer <strong style={{ color: "#4ADE80" }}>{productivity[0].name}</strong> generates <strong>${productivity[0].revPerHour}/hr</strong>.
+              <div style={{ marginTop: 12, padding: 10, background: "var(--bg-card-inner)", borderRadius: 8, fontSize: 12, color: "var(--text-dim)" }}>
+                💡 Top producer <strong style={{ color: "var(--green)" }}>{productivity[0].name}</strong> generates <strong>${productivity[0].revPerHour}/hr</strong>.
                 Lowest is <strong style={{ color: "#EF4444" }}>{productivity[productivity.length - 1].name}</strong> at <strong>${productivity[productivity.length - 1].revPerHour}/hr</strong>
                 {productivity[0].revPerHour > 0 ? " — a " + Math.round((1 - productivity[productivity.length - 1].revPerHour / productivity[0].revPerHour) * 100) + "% gap." : "."}
               </div>
@@ -930,14 +930,14 @@ export default function ScheduleTab({ selectedStore }) {
           {/* Period toggle */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
             <div style={sectionTitle}>LABOR ECONOMICS</div>
-            <div style={{ display: "flex", gap: 2, background: "#1A1D23", borderRadius: 8, padding: 2 }}>
+            <div style={{ display: "flex", gap: 2, background: "var(--bg-card)", borderRadius: 8, padding: 2 }}>
               <button onClick={function(){setEconPeriod("last");}} style={{
                 padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                background: econPeriod === "last" ? "#7B2FFF" : "transparent", color: econPeriod === "last" ? "#fff" : "#8B8F98",
+                background: econPeriod === "last" ? "var(--purple)" : "transparent", color: econPeriod === "last" ? "#fff" : "var(--text-secondary)",
               }}>Last Month</button>
               <button onClick={function(){setEconPeriod("mtd");}} style={{
                 padding: "6px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                background: econPeriod === "mtd" ? "#FF2D95" : "transparent", color: econPeriod === "mtd" ? "#fff" : "#8B8F98",
+                background: econPeriod === "mtd" ? "var(--pink)" : "transparent", color: econPeriod === "mtd" ? "#fff" : "var(--text-secondary)",
               }}>This Month</button>
             </div>
           </div>
@@ -946,7 +946,7 @@ export default function ScheduleTab({ selectedStore }) {
             <>
               {/* Period indicator */}
               {econPeriod === "mtd" && (
-                <div style={{ padding: "8px 12px", background: "#FF2D9512", border: "1px solid #FF2D9533", borderRadius: 8, marginBottom: 16, fontSize: 12, color: "#FF2D95" }}>
+                <div style={{ padding: "8px 12px", background: "#FF2D9512", border: "1px solid #FF2D9533", borderRadius: 8, marginBottom: 16, fontSize: 12, color: "var(--pink)" }}>
                   📊 Month-to-date — {(function() { var e = Object.values(laborEcon)[0]; return e ? e.daysInPeriod + " days" : ""; })()} into the month
                   {(function() { var e = Object.values(laborEcon)[0]; return e && e.revenue === 0 ? " (profitability data not yet imported for this month)" : ""; })()}
                 </div>
@@ -956,12 +956,12 @@ export default function ScheduleTab({ selectedStore }) {
                 {STORE_KEYS.map(function(sk) {
                   var e = laborEcon[sk];
                   var cmp = econPeriod === "mtd" ? (laborEconLast || {})[sk] : (laborEconMTD || {})[sk]; // comparison period
-                  if (!e) return <div key={sk} style={card}><div style={{ color: "#6B7280" }}>No data for {STORES[sk].name}</div></div>;
+                  if (!e) return <div key={sk} style={card}><div style={{ color: "var(--text-faint)" }}>No data for {STORES[sk].name}</div></div>;
 
                   function delta(cur, prev) {
                     if (!prev || prev === 0) return null;
                     var diff = cur - prev;
-                    return { diff: diff, pct: Math.round(diff / prev * 100), color: diff >= 0 ? "#4ADE80" : "#EF4444", arrow: diff >= 0 ? "↑" : "↓" };
+                    return { diff: diff, pct: Math.round(diff / prev * 100), color: diff >= 0 ? "var(--green)" : "#EF4444", arrow: diff >= 0 ? "↑" : "↓" };
                   }
 
                   var revDelta = cmp ? delta(e.revPerHour, cmp.revPerHour) : null;
@@ -971,35 +971,35 @@ export default function ScheduleTab({ selectedStore }) {
                     <div key={sk} style={card}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                         <div style={{ fontSize: 14, fontWeight: 700, color: STORES[sk].color }}>{STORES[sk].name}</div>
-                        {e.isPartial && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#FF2D9522", color: "#FF2D95" }}>MTD</span>}
+                        {e.isPartial && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 4, background: "#FF2D9522", color: "var(--pink)" }}>MTD</span>}
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                         <div>
-                          <div style={{ ...metricBig, color: "#4ADE80", fontSize: 22 }}>${e.revPerHour}</div>
+                          <div style={{ ...metricBig, color: "var(--green)", fontSize: 22 }}>${e.revPerHour}</div>
                           <div style={metricLabel}>Revenue/Man Hour</div>
                           {revDelta && <div style={{ fontSize: 10, color: revDelta.color, marginTop: 2 }}>{revDelta.arrow} {revDelta.diff >= 0 ? "+" : ""}{revDelta.diff} vs {econPeriod === "mtd" ? "last mo" : "MTD"}</div>}
                         </div>
                         <div>
                           <div style={{ ...metricBig, color: sc(100 - e.laborPct, 70, 60), fontSize: 22 }}>{e.laborPct}%</div>
                           <div style={metricLabel}>Labor % of Rev</div>
-                          {laborDelta && <div style={{ fontSize: 10, color: laborDelta.diff <= 0 ? "#4ADE80" : "#EF4444", marginTop: 2 }}>{laborDelta.diff <= 0 ? "↓" : "↑"} {Math.abs(laborDelta.diff)}pts vs {econPeriod === "mtd" ? "last mo" : "MTD"}</div>}
+                          {laborDelta && <div style={{ fontSize: 10, color: laborDelta.diff <= 0 ? "var(--green)" : "#EF4444", marginTop: 2 }}>{laborDelta.diff <= 0 ? "↓" : "↑"} {Math.abs(laborDelta.diff)}pts vs {econPeriod === "mtd" ? "last mo" : "MTD"}</div>}
                         </div>
                         <div>
-                          <div style={{ ...metricBig, color: e.profitPerHour > 0 ? "#4ADE80" : "#EF4444", fontSize: 22 }}>${e.profitPerHour}</div>
+                          <div style={{ ...metricBig, color: e.profitPerHour > 0 ? "var(--green)" : "#EF4444", fontSize: 22 }}>${e.profitPerHour}</div>
                           <div style={metricLabel}>Profit/Hour</div>
                         </div>
                         <div>
-                          <div style={{ ...metricBig, fontSize: 22, color: "#9CA3AF" }}>{e.totalHours}h</div>
+                          <div style={{ ...metricBig, fontSize: 22, color: "var(--text-dim)" }}>{e.totalHours}h</div>
                           <div style={metricLabel}>Total Hours</div>
                         </div>
                         {e.revenue > 0 && (
                           <>
                             <div>
-                              <div style={{ fontSize: 16, fontWeight: 700, color: "#00D4FF" }}>${Math.round(e.revenue).toLocaleString()}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--cyan)" }}>${Math.round(e.revenue).toLocaleString()}</div>
                               <div style={metricLabel}>Revenue</div>
                             </div>
                             <div>
-                              <div style={{ fontSize: 16, fontWeight: 700, color: "#FBBF24" }}>${Math.round(e.payroll).toLocaleString()}</div>
+                              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--yellow)" }}>${Math.round(e.payroll).toLocaleString()}</div>
                               <div style={metricLabel}>Payroll</div>
                             </div>
                           </>
@@ -1019,17 +1019,17 @@ export default function ScheduleTab({ selectedStore }) {
                       var r = staffingROI[sk];
                       if (!r) return null;
                       return (
-                        <div key={sk} style={{ padding: 16, background: "#12141A", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "#4ADE80" : "#EF4444") }}>
+                        <div key={sk} style={{ padding: 16, background: "var(--bg-card-inner)", borderRadius: 8, borderLeft: "3px solid " + (r.justified ? "var(--green)" : "#EF4444") }}>
                           <div style={{ fontWeight: 700, color: STORES[sk].color, marginBottom: 8 }}>{STORES[sk].name}</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>{r.missedCalls} missed calls/mo × 25% conv × ${r.avgTicket.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} avg ticket</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>= <strong style={{ color: "#fff" }}>${r.grossRevRecoverable.toLocaleString()}</strong> recoverable revenue</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 4 }}>× <strong style={{ color: "#00D4FF" }}>{r.repairGPM}% repair GPM</strong> = <strong style={{ color: "#fff" }}>${r.grossProfitRecoverable.toLocaleString()}</strong> gross profit</div>
-                          <div style={{ fontSize: 12, color: "#9CA3AF", marginBottom: 8 }}>− ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "#4ADE80" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "#4ADE80" : "#EF4444" }}>
+                          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 4 }}>{r.missedCalls} missed calls/mo × 25% conv × ${r.avgTicket.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} avg ticket</div>
+                          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 4 }}>= <strong style={{ color: "#fff" }}>${r.grossRevRecoverable.toLocaleString()}</strong> recoverable revenue</div>
+                          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 4 }}>× <strong style={{ color: "var(--cyan)" }}>{r.repairGPM}% repair GPM</strong> = <strong style={{ color: "#fff" }}>${r.grossProfitRecoverable.toLocaleString()}</strong> gross profit</div>
+                          <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>− ${r.fteCost.toLocaleString()} FTE cost = <strong style={{ color: r.netROI >= 0 ? "var(--green)" : "#EF4444" }}>{r.netROI >= 0 ? "+" : ""}${r.netROI.toLocaleString()}</strong></div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: r.justified ? "var(--green)" : "#EF4444" }}>
                             {r.justified ? "✅ Hire — pays for itself" : "❌ Not justified yet"} ({r.paybackPct}%)
                           </div>
                           {/* Data source attribution — surfaces whether this is real data or fallback */}
-                          <div style={{ fontSize: 9, color: "#6B7280", marginTop: 6, fontStyle: "italic" }}>
+                          <div style={{ fontSize: 9, color: "var(--text-faint)", marginTop: 6, fontStyle: "italic" }}>
                             {r.dataSource === "profitability" && "\u2713 Using profitability P&L"}
                             {r.dataSource === "ticket_grades" && "\u2713 Using last 30 days of graded tickets"}
                             {r.dataSource === "fallback" && "\u26A0 Using $175 fallback (no real data available)"}
@@ -1042,7 +1042,7 @@ export default function ScheduleTab({ selectedStore }) {
               )}
             </>
           ) : (
-            <div style={card}><div style={{ color: "#6B7280" }}>No profitability data available. Import via Profitability tab.</div></div>
+            <div style={card}><div style={{ color: "var(--text-faint)" }}>No profitability data available. Import via Profitability tab.</div></div>
           )}
         </div>
       )}
@@ -1055,14 +1055,14 @@ export default function ScheduleTab({ selectedStore }) {
           {/* Week nav + controls */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <button onClick={function() { setWeekOffset(weekOffset - 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>◀</button>
+              <button onClick={function() { setWeekOffset(weekOffset - 1); }} style={{ background: "var(--bg-card)", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>◀</button>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 800 }}>Weekly Schedule</div>
-                <div style={{ fontSize: 12, color: "#6B7280" }}>{weekLabel}</div>
+                <div style={{ fontSize: 12, color: "var(--text-faint)" }}>{weekLabel}</div>
               </div>
-              <button onClick={function() { setWeekOffset(weekOffset + 1); }} style={{ background: "#1A1D23", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>▶</button>
+              <button onClick={function() { setWeekOffset(weekOffset + 1); }} style={{ background: "var(--bg-card)", border: "none", color: "#fff", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 16 }}>▶</button>
               {weekOffset !== 0 && (
-                <button onClick={function() { setWeekOffset(0); }} style={{ background: "#7B2FFF22", border: "none", color: "#7B2FFF", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>Today</button>
+                <button onClick={function() { setWeekOffset(0); }} style={{ background: "#7B2FFF22", border: "none", color: "var(--purple)", padding: "4px 10px", borderRadius: 6, cursor: "pointer", fontSize: 11 }}>Today</button>
               )}
             </div>
 
@@ -1070,7 +1070,7 @@ export default function ScheduleTab({ selectedStore }) {
               {/* Demand overlay toggle */}
               <button onClick={function() { setShowDemandOverlay(!showDemandOverlay); }} style={{
                 padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
-                background: showDemandOverlay ? "#FF2D9522" : "#1A1D23", color: showDemandOverlay ? "#FF2D95" : "#6B7280",
+                background: showDemandOverlay ? "#FF2D9522" : "var(--bg-card)", color: showDemandOverlay ? "var(--pink)" : "var(--text-faint)",
               }}>
                 {showDemandOverlay ? "📊 Demand ON" : "📊 Demand OFF"}
               </button>
@@ -1080,7 +1080,7 @@ export default function ScheduleTab({ selectedStore }) {
                 {[{ key: "all", label: "All Stores" }].concat(STORE_KEYS.map(function(sk) { return { key: sk, label: STORES[sk].name }; })).map(function(s) {
                   return <button key={s.key} onClick={function() { setWeekStore(s.key); }} style={{
                     padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12,
-                    background: weekStore === s.key ? "#00D4FF22" : "#1A1D23", color: weekStore === s.key ? "#00D4FF" : "#6B7280",
+                    background: weekStore === s.key ? "#00D4FF22" : "var(--bg-card)", color: weekStore === s.key ? "var(--cyan)" : "var(--text-faint)",
                   }}>{s.label}</button>;
                 })}
               </div>
@@ -1088,7 +1088,7 @@ export default function ScheduleTab({ selectedStore }) {
               {/* AI Optimize */}
               <button onClick={handleOptimize} disabled={optimizing} style={{
                 padding: "6px 16px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700,
-                background: "linear-gradient(135deg, #7B2FFF, #FF2D95)", color: "#fff", opacity: optimizing ? 0.6 : 1,
+                background: "linear-gradient(135deg, var(--purple), var(--pink))", color: "#fff", opacity: optimizing ? 0.6 : 1,
               }}>
                 {optimizing ? "🧠 Optimizing..." : "🧠 AI Optimize Next Week"}
               </button>
@@ -1100,7 +1100,7 @@ export default function ScheduleTab({ selectedStore }) {
             <div style={{ background: "#EF444422", border: "1px solid #EF444444", borderRadius: 8, padding: 12, marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <div>
                 <span style={{ fontSize: 14, fontWeight: 700, color: "#EF4444" }}>⚠ {coverageSummary.criticalHours} CRITICAL gap hours</span>
-                <span style={{ fontSize: 12, color: "#9CA3AF", marginLeft: 8 }}>({coverageSummary.totalGapHours} total understaffed hours this week)</span>
+                <span style={{ fontSize: 12, color: "var(--text-dim)", marginLeft: 8 }}>({coverageSummary.totalGapHours} total understaffed hours this week)</span>
               </div>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#EF4444" }}>
                 ${coverageSummary.revenueAtRisk.toLocaleString()} revenue at risk
@@ -1111,7 +1111,7 @@ export default function ScheduleTab({ selectedStore }) {
           {/* ── Float Employees Banner ── */}
           {floatEmployees.filter(function(e) { return e.isFloat; }).length > 0 && (
             <div style={{ background: "#7B2FFF12", border: "1px solid #7B2FFF33", borderRadius: 8, padding: 10, marginBottom: 16, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-              <span style={{ fontSize: 12, fontWeight: 700, color: "#7B2FFF" }}>🔀 Float Employees:</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--purple)" }}>🔀 Float Employees:</span>
               {floatEmployees.filter(function(e) { return e.isFloat; }).map(function(e) {
                 return <span key={e.name} style={{ fontSize: 11, padding: "3px 8px", background: "#7B2FFF22", color: "#C4B5FD", borderRadius: 4 }}>
                   {e.name} ({e.storeList.map(function(s) { return STORES[s]?.name?.[0] || s[0]; }).join("/")})
@@ -1137,22 +1137,22 @@ export default function ScheduleTab({ selectedStore }) {
             return (
             <div style={{ ...card, padding: 12, marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#FF2D95", textTransform: "uppercase", letterSpacing: 1 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "var(--pink)", textTransform: "uppercase", letterSpacing: 1 }}>
                   HOURLY DEMAND PATTERN (30-day avg) — Calls by Hour
                 </div>
-                <div style={{ fontSize: 10, color: "#6B7280" }}>Peak: {globalMax.toFixed(1)} calls/hr</div>
+                <div style={{ fontSize: 10, color: "var(--text-faint)" }}>Peak: {globalMax.toFixed(1)} calls/hr</div>
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "100px repeat(7, 1fr)", gap: 3 }}>
                 {/* Header row with day labels */}
-                <div style={{ fontSize: 10, color: "#6B7280", padding: 4 }}>STORE</div>
+                <div style={{ fontSize: 10, color: "var(--text-faint)", padding: 4 }}>STORE</div>
                 {weekDates.map(function(dt, i) {
                   var isToday = fmtDate(dt) === fmtDate(new Date());
-                  return <div key={i} style={{ fontSize: 10, color: isToday ? "#00D4FF" : "#6B7280", textAlign: "center", padding: 4, fontWeight: isToday ? 700 : 400 }}>{DAYS[dt.getDay()]} {dt.getDate()}</div>;
+                  return <div key={i} style={{ fontSize: 10, color: isToday ? "var(--cyan)" : "var(--text-faint)", textAlign: "center", padding: 4, fontWeight: isToday ? 700 : 400 }}>{DAYS[dt.getDay()]} {dt.getDate()}</div>;
                 })}
 
                 {storeKeys.map(function(sk) {
                   return [
-                    <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk]?.color || "#9CA3AF", padding: "8px 4px", fontWeight: 600 }}>{STORES[sk]?.name || sk}</div>,
+                    <div key={sk + "-label"} style={{ fontSize: 11, color: STORES[sk]?.color || "var(--text-dim)", padding: "8px 4px", fontWeight: 600 }}>{STORES[sk]?.name || sk}</div>,
                     ...weekDates.map(function(dt, di) {
                       var dow = FULL_DAYS[dt.getDay()];
                       var dayPattern = effectiveDemand[sk]?.[dow] || {};
@@ -1173,12 +1173,12 @@ export default function ScheduleTab({ selectedStore }) {
                               var height = Math.max(2, (calls / globalMax) * 36);
                               var staff = hourlyStaffing[fmtDate(dt)]?.[h] || 0;
                               var needed = d.recommendedStaff || 1;
-                              var color = staff >= needed ? "#4ADE80" : staff > 0 ? "#FBBF24" : "#EF4444";
+                              var color = staff >= needed ? "var(--green)" : staff > 0 ? "var(--yellow)" : "#EF4444";
                               return <div key={h} title={h + ":00 — " + calls.toFixed(1) + " calls, " + (d.avgMissed||0).toFixed(1) + " missed\nStaff: " + staff + " / " + needed + " needed"} style={{ flex: 1, height: height, background: color + "BB", borderRadius: 1, transition: "height 0.3s" }}/>;
                             })}
                           </div>
                           {/* Daily summary */}
-                          <div style={{ textAlign: "center", marginTop: 3, fontSize: 9, color: dailyTotal > 0 ? "#9CA3AF" : "#3A3D45" }}>
+                          <div style={{ textAlign: "center", marginTop: 3, fontSize: 9, color: dailyTotal > 0 ? "var(--text-dim)" : "var(--border-heavy)" }}>
                             {dailyTotal > 0 ? Math.round(dailyTotal) + " calls" : "—"}
                           </div>
                         </div>
@@ -1189,9 +1189,9 @@ export default function ScheduleTab({ selectedStore }) {
               </div>
               {/* Legend + time axis */}
               <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8 }}>
-                <div style={{ display: "flex", gap: 16, fontSize: 10, color: "#6B7280" }}>
-                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#4ADE80", borderRadius: 2, marginRight: 4 }}/>Staffed</span>
-                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#FBBF24", borderRadius: 2, marginRight: 4 }}/>Understaffed</span>
+                <div style={{ display: "flex", gap: 16, fontSize: 10, color: "var(--text-faint)" }}>
+                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "var(--green)", borderRadius: 2, marginRight: 4 }}/>Staffed</span>
+                  <span><span style={{ display: "inline-block", width: 8, height: 8, background: "var(--yellow)", borderRadius: 2, marginRight: 4 }}/>Understaffed</span>
                   <span><span style={{ display: "inline-block", width: 8, height: 8, background: "#EF4444", borderRadius: 2, marginRight: 4 }}/>No Coverage</span>
                 </div>
                 <div style={{ fontSize: 9, color: "#4B5563" }}>Each bar = 1 hour (9AM→7PM)</div>
@@ -1204,30 +1204,30 @@ export default function ScheduleTab({ selectedStore }) {
           <div style={{ ...card, padding: 0, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <thead>
-                <tr style={{ borderBottom: "2px solid #2A2D35" }}>
-                  <th style={{ padding: "10px 12px", textAlign: "left", color: "#6B7280", fontSize: 11, width: 150 }}>EMPLOYEE</th>
+                <tr style={{ borderBottom: "2px solid var(--border)" }}>
+                  <th style={{ padding: "10px 12px", textAlign: "left", color: "var(--text-faint)", fontSize: 11, width: 150 }}>EMPLOYEE</th>
                   {weekDates.map(function(dt, i) {
                     var isToday = fmtDate(dt) === fmtDate(new Date());
-                    return <th key={i} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, color: isToday ? "#00D4FF" : "#6B7280", fontWeight: isToday ? 800 : 600 }}>
+                    return <th key={i} style={{ padding: "10px 8px", textAlign: "center", fontSize: 11, color: isToday ? "var(--cyan)" : "var(--text-faint)", fontWeight: isToday ? 800 : 600 }}>
                       {DAYS[dt.getDay()]} {dt.getDate()}
                     </th>;
                   })}
-                  <th style={{ padding: "10px 8px", textAlign: "right", color: "#6B7280", fontSize: 11 }}>TOTAL</th>
+                  <th style={{ padding: "10px 8px", textAlign: "right", color: "var(--text-faint)", fontSize: 11 }}>TOTAL</th>
                 </tr>
               </thead>
               <tbody>
                 {weeklySchedule.map(function(emp) {
                   var isFloat = floatMap[emp.name];
                   var storeColors = {};
-                  emp.stores.forEach(function(s) { storeColors[s] = STORES[s]?.color || "#6B7280"; });
-                  var primaryColor = STORES[emp.store]?.color || "#6B7280";
+                  emp.stores.forEach(function(s) { storeColors[s] = STORES[s]?.color || "var(--text-faint)"; });
+                  var primaryColor = STORES[emp.store]?.color || "var(--text-faint)";
 
                   return (
-                    <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
+                    <tr key={emp.name} style={{ borderBottom: "1px solid var(--bg-card)" }}>
                       <td style={{ padding: "8px 12px" }}>
                         <div style={{ fontWeight: 600, fontSize: 13 }}>
                           {emp.name}
-                          {isFloat && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>🔀 FLOAT</span>}
+                          {isFloat && <span style={{ marginLeft: 4, ...badge("var(--purple)") }}>🔀 FLOAT</span>}
                         </div>
                         <div style={{ fontSize: 10, color: primaryColor }}>{STORES[emp.store]?.name || emp.store}</div>
                       </td>
@@ -1235,11 +1235,11 @@ export default function ScheduleTab({ selectedStore }) {
                         var dateStr = fmtDate(dt);
                         var shift = emp.shifts[dateStr];
                         if (!shift) return <td key={di} style={{ padding: "6px 4px", textAlign: "center" }}>
-                          <div style={{ color: "#2A2D35", fontSize: 10 }}>—</div>
+                          <div style={{ color: "var(--border)", fontSize: 10 }}>—</div>
                         </td>;
 
                         var shiftStore = shift.store || emp.store;
-                        var shiftColor = STORES[shiftStore]?.color || "#6B7280";
+                        var shiftColor = STORES[shiftStore]?.color || "var(--text-faint)";
 
                         // Coverage check for this cell
                         var coverageInfo = coverageData?.stores?.[shiftStore]?.days?.[dateStr];
@@ -1260,7 +1260,7 @@ export default function ScheduleTab({ selectedStore }) {
                               position: "relative",
                             }}>
                               <div style={{ fontSize: 12, fontWeight: 600, color: shiftColor }}>{shift.start}</div>
-                              <div style={{ fontSize: 10, color: "#6B7280" }}>{shift.hours}h</div>
+                              <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{shift.hours}h</div>
                               {shiftStore !== emp.store && (
                                 <div style={{ fontSize: 9, color: STORES[shiftStore]?.color, fontWeight: 700 }}>→ {STORES[shiftStore]?.name?.[0]}</div>
                               )}
@@ -1271,7 +1271,7 @@ export default function ScheduleTab({ selectedStore }) {
                           </td>
                         );
                       })}
-                      <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 700, color: emp.totalHours >= 40 ? "#FBBF24" : emp.totalHours >= 35 ? "#4ADE80" : "#9CA3AF" }}>
+                      <td style={{ padding: "8px 8px", textAlign: "right", fontWeight: 700, color: emp.totalHours >= 40 ? "var(--yellow)" : emp.totalHours >= 35 ? "var(--green)" : "var(--text-dim)" }}>
                         {emp.totalHours.toFixed(1)}h
                       </td>
                     </tr>
@@ -1282,8 +1282,8 @@ export default function ScheduleTab({ selectedStore }) {
 
             {/* ── Per-day staffing summary row ── */}
             {showDemandOverlay && (
-              <div style={{ display: "grid", gridTemplateColumns: "150px repeat(7, 1fr) 60px", borderTop: "2px solid #2A2D35", padding: "8px 0" }}>
-                <div style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, color: "#FF2D95" }}>DAILY RISK</div>
+              <div style={{ display: "grid", gridTemplateColumns: "150px repeat(7, 1fr) 60px", borderTop: "2px solid var(--border)", padding: "8px 0" }}>
+                <div style={{ padding: "4px 12px", fontSize: 10, fontWeight: 700, color: "var(--pink)" }}>DAILY RISK</div>
                 {weekDates.map(function(dt, i) {
                   var dateStr = fmtDate(dt);
                   var dow = FULL_DAYS[dt.getDay()];
@@ -1297,7 +1297,7 @@ export default function ScheduleTab({ selectedStore }) {
                   return (
                     <div key={i} style={{ textAlign: "center", padding: "4px 4px" }}>
                       {totalRisk > 0 ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: totalRisk > 200 ? "#EF4444" : "#FBBF24" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: totalRisk > 200 ? "#EF4444" : "var(--yellow)" }}>
                           -${totalRisk}
                         </span>
                       ) : (
@@ -1313,45 +1313,45 @@ export default function ScheduleTab({ selectedStore }) {
 
           {/* ── AI OPTIMIZATION RESULTS ── */}
           {optimization && (
-            <div style={{ ...card, borderLeft: "3px solid #7B2FFF" }}>
+            <div style={{ ...card, borderLeft: "3px solid var(--purple)" }}>
               <div style={sectionTitle}>🧠 AI-OPTIMIZED SCHEDULE — NEXT WEEK</div>
               {optimization.error ? (
                 <div style={{ color: "#EF4444" }}>{optimization.error}</div>
               ) : (
                 <>
                   {optimization.rationale && (
-                    <div style={{ padding: 12, background: "#12141A", borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#C4B5FD", lineHeight: 1.6 }}>
+                    <div style={{ padding: 12, background: "var(--bg-card-inner)", borderRadius: 8, marginBottom: 16, fontSize: 13, color: "#C4B5FD", lineHeight: 1.6 }}>
                       {optimization.rationale}
                     </div>
                   )}
                   {optimization.expectedMetrics && (
                     <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
-                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#4ADE80" }}>{optimization.expectedMetrics.totalLaborHours}h</div><div style={metricLabel}>Total Labor</div></div>
-                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#00D4FF" }}>{optimization.expectedMetrics.coverageScore}%</div><div style={metricLabel}>Coverage Score</div></div>
-                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "#7B2FFF" }}>{optimization.expectedMetrics.estimatedAnswerRate}%</div><div style={metricLabel}>Est. Answer Rate</div></div>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "var(--green)" }}>{optimization.expectedMetrics.totalLaborHours}h</div><div style={metricLabel}>Total Labor</div></div>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "var(--cyan)" }}>{optimization.expectedMetrics.coverageScore}%</div><div style={metricLabel}>Coverage Score</div></div>
+                      <div style={miniCard}><div style={{ fontSize: 20, fontWeight: 800, color: "var(--purple)" }}>{optimization.expectedMetrics.estimatedAnswerRate}%</div><div style={metricLabel}>Est. Answer Rate</div></div>
                     </div>
                   )}
                   {optimization.schedule && (
                     <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                      <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
-                        <th style={{ padding: 8, textAlign: "left", color: "#6B7280", fontSize: 10 }}>Employee</th>
+                      <thead><tr style={{ borderBottom: "1px solid var(--border)" }}>
+                        <th style={{ padding: 8, textAlign: "left", color: "var(--text-faint)", fontSize: 10 }}>Employee</th>
                         {["Mon","Tue","Wed","Thu","Fri","Sat"].map(function(d) {
-                          return <th key={d} style={{ padding: 8, textAlign: "center", color: "#6B7280", fontSize: 10 }}>{d}</th>;
+                          return <th key={d} style={{ padding: 8, textAlign: "center", color: "var(--text-faint)", fontSize: 10 }}>{d}</th>;
                         })}
                       </tr></thead>
                       <tbody>
                         {optimization.schedule.map(function(row) {
                           return (
-                            <tr key={row.employee} style={{ borderBottom: "1px solid #1A1D23" }}>
+                            <tr key={row.employee} style={{ borderBottom: "1px solid var(--bg-card)" }}>
                               <td style={{ padding: "6px 8px", fontWeight: 600 }}>{row.employee}</td>
                               {["monday","tuesday","wednesday","thursday","friday","saturday"].map(function(day) {
                                 var d = row[day];
-                                if (!d) return <td key={day} style={{ padding: 4, textAlign: "center", color: "#2A2D35" }}>OFF</td>;
+                                if (!d) return <td key={day} style={{ padding: 4, textAlign: "center", color: "var(--border)" }}>OFF</td>;
                                 return (
                                   <td key={day} style={{ padding: 4, textAlign: "center" }}>
-                                    <div style={{ background: (STORES[d.store]?.color || "#6B7280") + "18", borderRadius: 4, padding: "4px 2px" }}>
-                                      <div style={{ fontSize: 10, color: STORES[d.store]?.color || "#6B7280", fontWeight: 700 }}>{STORES[d.store]?.name?.[0] || d.store}</div>
-                                      <div style={{ fontSize: 10, color: "#9CA3AF" }}>{d.start}-{d.end}</div>
+                                    <div style={{ background: (STORES[d.store]?.color || "var(--text-faint)") + "18", borderRadius: 4, padding: "4px 2px" }}>
+                                      <div style={{ fontSize: 10, color: STORES[d.store]?.color || "var(--text-faint)", fontWeight: 700 }}>{STORES[d.store]?.name?.[0] || d.store}</div>
+                                      <div style={{ fontSize: 10, color: "var(--text-dim)" }}>{d.start}-{d.end}</div>
                                     </div>
                                   </td>
                                 );
@@ -1376,28 +1376,28 @@ export default function ScheduleTab({ selectedStore }) {
         <div style={card}>
           <div style={sectionTitle}>HOURS TRACKING — THIS WEEK</div>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-            <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
+            <thead><tr style={{ borderBottom: "1px solid var(--border)" }}>
               {["Employee","Fishers","Bloomington","Indianapolis","Total","Status"].map(function(h) {
-                return <th key={h} style={{ padding: "8px 10px", textAlign: h === "Employee" ? "left" : "right", color: "#6B7280", fontSize: 11 }}>{h}</th>;
+                return <th key={h} style={{ padding: "8px 10px", textAlign: h === "Employee" ? "left" : "right", color: "var(--text-faint)", fontSize: 11 }}>{h}</th>;
               })}
             </tr></thead>
             <tbody>
               {weekHoursByEmployee.map(function(emp) {
                 var isOT = emp.total > 40;
                 return (
-                  <tr key={emp.name} style={{ borderBottom: "1px solid #1A1D23" }}>
+                  <tr key={emp.name} style={{ borderBottom: "1px solid var(--bg-card)" }}>
                     <td style={{ padding: "8px 10px", fontWeight: 600 }}>
                       {emp.name}
-                      {floatMap[emp.name] && <span style={{ marginLeft: 4, ...badge("#7B2FFF") }}>🔀</span>}
+                      {floatMap[emp.name] && <span style={{ marginLeft: 4, ...badge("var(--purple)") }}>🔀</span>}
                     </td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.fishers > 0 ? STORES.fishers.color : "#2A2D35" }}>{emp.fishers > 0 ? emp.fishers.toFixed(1) : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.bloomington > 0 ? STORES.bloomington.color : "#2A2D35" }}>{emp.bloomington > 0 ? emp.bloomington.toFixed(1) : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.indianapolis > 0 ? STORES.indianapolis.color : "#2A2D35" }}>{emp.indianapolis > 0 ? emp.indianapolis.toFixed(1) : "—"}</td>
-                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: isOT ? "#EF4444" : emp.total >= 35 ? "#4ADE80" : "#FBBF24" }}>{emp.total.toFixed(1)}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.fishers > 0 ? STORES.fishers.color : "var(--border)" }}>{emp.fishers > 0 ? emp.fishers.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.bloomington > 0 ? STORES.bloomington.color : "var(--border)" }}>{emp.bloomington > 0 ? emp.bloomington.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", color: emp.indianapolis > 0 ? STORES.indianapolis.color : "var(--border)" }}>{emp.indianapolis > 0 ? emp.indianapolis.toFixed(1) : "—"}</td>
+                    <td style={{ padding: "8px 10px", textAlign: "right", fontWeight: 700, color: isOT ? "#EF4444" : emp.total >= 35 ? "var(--green)" : "var(--yellow)" }}>{emp.total.toFixed(1)}</td>
                     <td style={{ padding: "8px 10px", textAlign: "right" }}>
                       {isOT ? <span style={badge("#EF4444")}>⚠ OT +{(emp.total - 40).toFixed(1)}h</span> :
-                       emp.total >= 35 ? <span style={badge("#4ADE80")}>Full</span> :
-                       <span style={badge("#FBBF24")}>Under</span>}
+                       emp.total >= 35 ? <span style={badge("var(--green)")}>Full</span> :
+                       <span style={badge("var(--yellow)")}>Under</span>}
                     </td>
                   </tr>
                 );

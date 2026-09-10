@@ -39,10 +39,10 @@ const STORE_KEYS = Object.keys(STORES);
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
+      <div style={{ color:"var(--text-primary)",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>{sub}</div>}
     </div>
   );
 }
@@ -52,8 +52,8 @@ function SectionHeader({ title, subtitle, icon }) {
     <div style={{ marginBottom:16,display:"flex",alignItems:"center",gap:10 }}>
       <span style={{ fontSize:20 }}>{icon}</span>
       <div>
-        <h2 style={{ color:"#F0F1F3",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
-        {subtitle && <p style={{ color:"#6B6F78",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
+        <h2 style={{ color:"var(--text-primary)",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
+        {subtitle && <p style={{ color:"var(--text-muted)",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
       </div>
     </div>
   );
@@ -62,13 +62,13 @@ function SectionHeader({ title, subtitle, icon }) {
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div style={{ background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8,padding:"10px 14px" }}>
-      <div style={{ color:"#8B8F98",fontSize:11,marginBottom:6 }}>{label}</div>
+    <div style={{ background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 14px" }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,marginBottom:6 }}>{label}</div>
       {payload.map(function(p, i) {
         return (
           <div key={i} style={{ display:"flex",alignItems:"center",gap:8,marginTop:3 }}>
             <span style={{ width:8,height:8,borderRadius:"50%",background:p.color }} />
-            <span style={{ color:"#C8CAD0",fontSize:12 }}>{p.name}: <strong style={{ color:"#F0F1F3" }}>{p.value}</strong></span>
+            <span style={{ color:"var(--text-body)",fontSize:12 }}>{p.name}: <strong style={{ color:"var(--text-primary)" }}>{p.value}</strong></span>
           </div>
         );
       })}
@@ -78,11 +78,11 @@ function CustomTooltip({ active, payload, label }) {
 
 function StoreToggle({ selected, onChange }) {
   return (
-    <div style={{ display:"flex",gap:6,background:"#12141A",borderRadius:10,padding:4,flexWrap:"wrap" }}>
-      <button onClick={function(){onChange("all");}} style={{ padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:selected==="all"?"#2A2D35":"transparent",color:selected==="all"?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,fontFamily:"'Space Grotesk',sans-serif" }}>All Stores</button>
+    <div style={{ display:"flex",gap:6,background:"var(--bg-card-inner)",borderRadius:10,padding:4,flexWrap:"wrap" }}>
+      <button onClick={function(){onChange("all");}} style={{ padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:selected==="all"?"var(--border)":"transparent",color:selected==="all"?"var(--text-primary)":"var(--text-muted)",fontSize:13,fontWeight:600,fontFamily:"'Space Grotesk',sans-serif" }}>All Stores</button>
       {Object.entries(STORES).map(function([key,s]) {
         return (
-          <button key={key} onClick={function(){onChange(key);}} style={{ padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:selected===key?s.color+"22":"transparent",color:selected===key?s.color:"#6B6F78",fontSize:13,fontWeight:600,fontFamily:"'Space Grotesk',sans-serif",display:"flex",alignItems:"center",gap:6 }}>
+          <button key={key} onClick={function(){onChange(key);}} style={{ padding:"7px 16px",borderRadius:8,border:"none",cursor:"pointer",background:selected===key?s.color+"22":"transparent",color:selected===key?s.color:"var(--text-muted)",fontSize:13,fontWeight:600,fontFamily:"'Space Grotesk',sans-serif",display:"flex",alignItems:"center",gap:6 }}>
             <span style={{ width:8,height:8,borderRadius:"50%",background:s.color,display:"inline-block" }} />
             {s.name.replace("CPR ","")}
           </button>
@@ -95,19 +95,19 @@ function StoreToggle({ selected, onChange }) {
 function DataBanner({ isLive, isLoading, isStored, lastSync, onRefresh, onLiveRefresh }) {
   var bgColor = isStored ? "#7B2FFF12" : isLive ? "#4ADE8012" : "#FBBF2412";
   var borderColor = isStored ? "#7B2FFF33" : isLive ? "#4ADE8033" : "#FBBF2433";
-  var dotColor = isStored ? "#7B2FFF" : isLive ? "#4ADE80" : "#FBBF24";
+  var dotColor = isStored ? "var(--purple)" : isLive ? "var(--green)" : "var(--yellow)";
   var statusText = isLoading ? "Fetching live data..." : isStored ? ("Stored data - Synced " + (lastSync ? new Date(lastSync).toLocaleString() : "unknown")) : isLive ? "Live data from Dialpad API" : "Sample data";
   return (
     <div style={{ margin:"0 0 20px",padding:"10px 16px",borderRadius:8,background:bgColor,border:"1px solid "+borderColor,display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:8 }}>
       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
         <span style={{ width:8,height:8,borderRadius:"50%",background:dotColor,animation:isLoading?"pulse 1.5s infinite":"none" }} />
-        <span style={{ color:"#C8CAD0",fontSize:12 }}>{statusText}</span>
+        <span style={{ color:"var(--text-body)",fontSize:12 }}>{statusText}</span>
       </div>
       <div style={{ display:"flex",gap:6 }}>
         {!isLoading && (
           <>
-            <button onClick={onRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Reload</button>
-            <button onClick={onLiveRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#7B2FFF18",color:"#7B2FFF",fontSize:11,cursor:"pointer" }}>Live Refresh</button>
+            <button onClick={onRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Reload</button>
+            <button onClick={onLiveRefresh} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#7B2FFF18",color:"var(--purple)",fontSize:11,cursor:"pointer" }}>Live Refresh</button>
           </>
         )}
       </div>
@@ -129,19 +129,19 @@ function AISummary({ type, dashboardData }) {
     setLoading(false);
   };
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #00D4FF33" }}>
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #00D4FF33" }}>
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:summary?16:0 }}>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
           <span style={{ fontSize:20 }}>{"🤖"}</span>
           <div>
-            <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{"AI " + (type === "audit" ? "Coaching Report" : "Executive Summary")}</div>
-            <div style={{ color:"#6B6F78",fontSize:11 }}>Powered by Claude</div>
+            <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700 }}>{"AI " + (type === "audit" ? "Coaching Report" : "Executive Summary")}</div>
+            <div style={{ color:"var(--text-muted)",fontSize:11 }}>Powered by Claude</div>
           </div>
         </div>
-        <button onClick={generate} disabled={loading} style={{ padding:"8px 18px",borderRadius:8,border:"none",cursor:loading?"default":"pointer",background:loading?"#00D4FF22":"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:loading?"#00D4FF":"#FFF",fontSize:12,fontWeight:700,animation:loading?"pulse 1.5s infinite":"none" }}>{loading?"Generating...":summary?"Refresh":"Generate Insights"}</button>
+        <button onClick={generate} disabled={loading} style={{ padding:"8px 18px",borderRadius:8,border:"none",cursor:loading?"default":"pointer",background:loading?"#00D4FF22":"linear-gradient(135deg,var(--purple),var(--cyan))",color:loading?"var(--cyan)":"#FFF",fontSize:12,fontWeight:700,animation:loading?"pulse 1.5s infinite":"none" }}>{loading?"Generating...":summary?"Refresh":"Generate Insights"}</button>
       </div>
-      {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"#F87171",fontSize:12,marginTop:12 }}>{error}</div>}
-      {summary && <div style={{ color:"#C8CAD0",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginTop:8 }}>{summary}</div>}
+      {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"var(--red)",fontSize:12,marginTop:12 }}>{error}</div>}
+      {summary && <div style={{ color:"var(--text-body)",fontSize:13,lineHeight:1.7,whiteSpace:"pre-wrap",marginTop:8 }}>{summary}</div>}
     </div>
   );
 }
@@ -491,7 +491,7 @@ function AuditTab({ rawCallData, storeFilter }) {
 
   function CriteriaGrid({ audit }) {
     if (audit.call_type === "non_scorable") {
-      return <div style={{ padding:"8px 12px",borderRadius:6,background:"#6B6F7812",color:"#6B6F78",fontSize:12 }}>Non-scorable call (wrong number, disconnected, or insufficient transcript)</div>;
+      return <div style={{ padding:"8px 12px",borderRadius:6,background:"#6B6F7812",color:"var(--text-muted)",fontSize:12 }}>Non-scorable call (wrong number, disconnected, or insufficient transcript)</div>;
     }
     var isOpp = audit.call_type !== "current_customer";
     var items = isOpp
@@ -503,8 +503,8 @@ function AuditTab({ rawCallData, storeFilter }) {
           var pass = audit[item.k];
           return (
             <div key={item.k} style={{ padding:"6px 8px",borderRadius:6,background:pass?"#4ADE8012":"#F8717112",border:"1px solid "+(pass?"#4ADE8033":"#F8717133") }}>
-              <div style={{ display:"flex",justifyContent:"space-between" }}><span style={{ color:"#8B8F98",fontSize:10 }}>{item.l}</span><span style={{ color:pass?"#4ADE80":"#F87171",fontSize:10,fontWeight:700 }}>{pass?"PASS":"FAIL"}</span></div>
-              <div style={{ color:"#6B6F78",fontSize:9,marginTop:2 }}>{audit[item.n]||""}</div>
+              <div style={{ display:"flex",justifyContent:"space-between" }}><span style={{ color:"var(--text-secondary)",fontSize:10 }}>{item.l}</span><span style={{ color:pass?"var(--green)":"var(--red)",fontSize:10,fontWeight:700 }}>{pass?"PASS":"FAIL"}</span></div>
+              <div style={{ color:"var(--text-muted)",fontSize:9,marginTop:2 }}>{audit[item.n]||""}</div>
             </div>
           );
         })}
@@ -521,7 +521,7 @@ function AuditTab({ rawCallData, storeFilter }) {
     {id:"history",label:"Audit History",icon:"📋"},
   ];
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading audit data...</div>;
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading audit data...</div>;
 
   return (
     <div>
@@ -529,19 +529,19 @@ function AuditTab({ rawCallData, storeFilter }) {
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
           {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setAuditView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:auditView===v.id?"#7B2FFF22":"#1A1D23",color:auditView===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+            return <button key={v.id} onClick={function(){setAuditView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:auditView===v.id?"#7B2FFF22":"var(--bg-card)",color:auditView===v.id?"var(--purple)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
           })}
         </div>
         {(auditView==="overview"||auditView==="history") && (
           <div style={{ display:"flex",gap:4 }}>
-            {["all","opportunity","current_customer"].map(function(f){ var label=f==="all"?"All":f==="opportunity"?"Opportunity":"Current"; return <button key={f} onClick={function(){setCallTypeFilter(f);}} style={{ padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",background:callTypeFilter===f?"#2A2D35":"transparent",color:callTypeFilter===f?"#F0F1F3":"#6B6F78",fontSize:11,fontWeight:600 }}>{label}</button>; })}
+            {["all","opportunity","current_customer"].map(function(f){ var label=f==="all"?"All":f==="opportunity"?"Opportunity":"Current"; return <button key={f} onClick={function(){setCallTypeFilter(f);}} style={{ padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",background:callTypeFilter===f?"var(--border)":"transparent",color:callTypeFilter===f?"var(--text-primary)":"var(--text-muted)",fontSize:11,fontWeight:600 }}>{label}</button>; })}
           </div>
         )}
       </div>
 
       {/* Global action message */}
       {actionMsg && auditView !== "review" && auditView !== "history" && (
-        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
           {actionMsg.text}
         </div>
       )}
@@ -551,24 +551,24 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <AISummary type="audit" />
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="Calls Audited" value={auditHeadline.total} accent="#7B2FFF" sub={auditHeadline.opp+" opportunity, "+auditHeadline.curr+" current"} />
-            <StatCard label="Avg Score" value={(auditHeadline.total>0?auditHeadline.avg.toFixed(2):"--")+" / 4"} accent={auditHeadline.avg>=3?"#4ADE80":auditHeadline.avg>=2?"#FBBF24":"#F87171"} />
-            <StatCard label="Unaudited" value={recordedCalls.length} accent="#00D4FF" sub="recorded calls available" />
-            <StatCard label="Employees" value={employees.length} accent="#FB923C" />
+            <StatCard label="Calls Audited" value={auditHeadline.total} accent="var(--purple)" sub={auditHeadline.opp+" opportunity, "+auditHeadline.curr+" current"} />
+            <StatCard label="Avg Score" value={(auditHeadline.total>0?auditHeadline.avg.toFixed(2):"--")+" / 4"} accent={auditHeadline.avg>=3?"var(--green)":auditHeadline.avg>=2?"var(--yellow)":"var(--red)"} />
+            <StatCard label="Unaudited" value={recordedCalls.length} accent="var(--cyan)" sub="recorded calls available" />
+            <StatCard label="Employees" value={employees.length} accent="var(--orange)" />
           </div>
           {consolidatedStores.length > 0 && (
             <div style={{ display:"grid",gridTemplateColumns:"repeat("+Math.min(consolidatedStores.length,3)+",1fr)",gap:14,marginBottom:20 }}>
               {consolidatedStores.map(function(sp) {
                 var store = STORES[sp.store]; if(!store) return null;
-                var sc = (sp.avg_score||0)>=3?"#4ADE80":(sp.avg_score||0)>=2?"#FBBF24":"#F87171";
+                var sc = (sp.avg_score||0)>=3?"var(--green)":(sp.avg_score||0)>=2?"var(--yellow)":"var(--red)";
                 return (
-                  <div key={sp.store} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                  <div key={sp.store} style={{ background:"var(--bg-card)",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                         <div style={{ width:32,height:32,borderRadius:8,background:store.color+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store.color,fontWeight:800 }}>{store.icon}</div>
                         <div>
-                          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{store.name}</div>
-                          <div style={{ color:"#6B6F78",fontSize:11 }}>{sp.total_audits||0} audited, {sp.opportunity_calls||0} opp, {sp.current_calls||0} curr</div>
+                          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{store.name}</div>
+                          <div style={{ color:"var(--text-muted)",fontSize:11 }}>{sp.total_audits||0} audited, {sp.opportunity_calls||0} opp, {sp.current_calls||0} curr</div>
                         </div>
                       </div>
                       <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:18,fontWeight:800 }}>{parseFloat(sp.avg_score||0).toFixed(2)}</div>
@@ -580,19 +580,19 @@ function AuditTab({ rawCallData, storeFilter }) {
           )}
 
           {/* Re-Audit Panel */}
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginTop:20,border:"1px solid #F8717122" }}>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginTop:20,border:"1px solid #F8717122" }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
               <div>
-                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Re-Audit All Calls</div>
-                <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>Clear all existing scores and re-audit every call with the latest prompt. Takes 5-10 minutes.</div>
+                <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Re-Audit All Calls</div>
+                <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>Clear all existing scores and re-audit every call with the latest prompt. Takes 5-10 minutes.</div>
               </div>
               {reauditRunning ? (
-                <div style={{ padding:"8px 20px",borderRadius:6,background:"#FBBF2422",color:"#FBBF24",fontSize:12,fontWeight:700 }}>
+                <div style={{ padding:"8px 20px",borderRadius:6,background:"#FBBF2422",color:"var(--yellow)",fontSize:12,fontWeight:700 }}>
                   Re-audit in progress... refresh to see results
                 </div>
               ) : (
                 <button onClick={triggerFullReaudit}
-                  style={{ padding:"8px 20px",borderRadius:6,border:"1px solid #F87171",background:"#F8717122",color:"#F87171",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>
+                  style={{ padding:"8px 20px",borderRadius:6,border:"1px solid var(--red)",background:"#F8717122",color:"var(--red)",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap" }}>
                   Re-Audit All
                 </button>
               )}
@@ -606,15 +606,15 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <SectionHeader title="Employee Leaderboard" subtitle="Click to expand" icon="🏆" />
           {actionMsg && (
-            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
               {actionMsg.text}
             </div>
           )}
           {employees.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
               {employees.map(function(emp, i) {
                 var store = STORES[emp.store];
-                var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
+                var sc = (emp.avg_score||0)>=3?"var(--green)":(emp.avg_score||0)>=2?"var(--yellow)":"var(--red)";
                 var medal = i===0?"\uD83E\uDD47":i===1?"\uD83E\uDD48":i===2?"\uD83E\uDD49":"#"+(i+1);
                 var empKey = emp.employee+"__"+emp.store;
                 var isExpanded = expandedEmp === empKey;
@@ -624,100 +624,100 @@ function AuditTab({ rawCallData, storeFilter }) {
                 var isStray = !isOnRoster(emp.employee);
                 var isLinkingThis = linkingName === empKey;
                 return (
-                  <div key={empKey} style={{ borderBottom:"1px solid #1E2028" }}>
-                    <div onClick={function(){if(!isLinkingThis)setExpandedEmp(isExpanded?null:empKey);}} style={{ padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:isExpanded?"#12141A":"transparent" }}>
+                  <div key={empKey} style={{ borderBottom:"1px solid var(--border-light)" }}>
+                    <div onClick={function(){if(!isLinkingThis)setExpandedEmp(isExpanded?null:empKey);}} style={{ padding:"14px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",cursor:"pointer",background:isExpanded?"var(--bg-card-inner)":"transparent" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:16 }}>
                         <span style={{ fontSize:18,width:28,textAlign:"center" }}>{medal}</span>
                         <div style={{ minWidth:120 }}>
                           <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                            <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.employee}</span>
-                            {isStray && <span style={{ padding:"1px 6px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:9,fontWeight:600 }}>unmatched</span>}
+                            <span style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{emp.employee}</span>
+                            {isStray && <span style={{ padding:"1px 6px",borderRadius:4,background:"#FBBF2418",color:"var(--yellow)",fontSize:9,fontWeight:600 }}>unmatched</span>}
                           </div>
                           <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>{(emp.stores||[emp.store]).map(function(s){var st=STORES[s];return st?<span key={s} style={{ display:"inline-flex",alignItems:"center",gap:4,fontSize:10,color:st.color }}><span style={{width:6,height:6,borderRadius:"50%",background:st.color}} />{st.name.replace("CPR ","")}</span>:null;})}</div>
                         </div>
-                        <div style={{ textAlign:"center",minWidth:40 }}><div style={{ color:"#8B8F98",fontSize:9 }}>CALLS</div><div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div></div>
-                        <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"#8B8F98",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"#7B2FFF" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"#FBBF24" }}>{emp.current_calls||0} curr</span></div></div>
+                        <div style={{ textAlign:"center",minWidth:40 }}><div style={{ color:"var(--text-secondary)",fontSize:9 }}>CALLS</div><div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>{emp.total_calls}</div></div>
+                        <div style={{ textAlign:"center",minWidth:80 }}><div style={{ color:"var(--text-secondary)",fontSize:9 }}>SPLIT</div><div style={{ fontSize:11 }}><span style={{ color:"var(--purple)" }}>{emp.opportunity_calls||0} opp</span>{" "}<span style={{ color:"var(--yellow)" }}>{emp.current_calls||0} curr</span></div></div>
                       </div>
                       <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                         {isStray && (
                           <div style={{ display:"flex",gap:4 }}>
                             <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinkingThis?null:empKey);}}
-                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinkingThis?"#7B2FFF22":"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinkingThis?"#7B2FFF22":"transparent",color:"var(--purple)",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
                               {isLinkingThis ? "Cancel" : "Link"}
                             </button>
                             <button onClick={function(e){e.stopPropagation(); deleteAudits(emp.employee, emp.store);}}
-                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+                              style={{ padding:"4px 10px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:10,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
                               Delete
                             </button>
                           </div>
                         )}
-                        <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>APPT</div><div style={{ color:parseFloat(emp.appt_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</div></div>
-                        <div style={{ textAlign:"center" }}><div style={{ color:"#8B8F98",fontSize:9 }}>WARR</div><div style={{ color:parseFloat(emp.warranty_rate||0)>=70?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</div></div>
+                        <div style={{ textAlign:"center" }}><div style={{ color:"var(--text-secondary)",fontSize:9 }}>APPT</div><div style={{ color:parseFloat(emp.appt_rate||0)>=70?"var(--green)":"var(--red)",fontSize:13,fontWeight:700 }}>{parseFloat(emp.appt_rate||0).toFixed(0)}%</div></div>
+                        <div style={{ textAlign:"center" }}><div style={{ color:"var(--text-secondary)",fontSize:9 }}>WARR</div><div style={{ color:parseFloat(emp.warranty_rate||0)>=70?"var(--green)":"var(--red)",fontSize:13,fontWeight:700 }}>{parseFloat(emp.warranty_rate||0).toFixed(0)}%</div></div>
                         <div style={{ padding:"5px 14px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{parseFloat(emp.avg_score||0).toFixed(2)}</div>
                       </div>
                     </div>
                     {/* Link dropdown */}
                     {isLinkingThis && (
                       <div style={{ padding:"12px 12px 12px 56px" }}>
-                        <div style={{ padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7B2FFF22" }}>
-                          <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{emp.employee}" as an alias of:</div>
+                        <div style={{ padding:12,background:"var(--bg-card-inner)",borderRadius:8,border:"1px solid #7B2FFF22" }}>
+                          <div style={{ color:"var(--text-secondary)",fontSize:11,marginBottom:8 }}>Link "{emp.employee}" as an alias of:</div>
                           <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                             {roster.map(function(r) {
                               var st = STORES[r.store];
                               return (
                                 <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(emp.employee, r.id, r);}}
-                                  style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
-                                  <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                  style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                  <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"var(--text-secondary)" }}></span>
                                   <span style={{ fontWeight:700 }}>{r.name}</span>
-                                  <span style={{ color:st?st.color:"#6B6F78",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
+                                  <span style={{ color:st?st.color:"var(--text-muted)",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
                                 </button>
                               );
                             })}
                           </div>
-                          {roster.length === 0 && <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees yet. Add them in the Employees tab first.</div>}
+                          {roster.length === 0 && <div style={{ color:"var(--text-muted)",fontSize:12 }}>No roster employees yet. Add them in the Employees tab first.</div>}
                         </div>
                       </div>
                     )}
                     {isExpanded && (
                       <div style={{ padding:"0 12px 20px 56px" }}>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginTop:8 }}>
-                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #7B2FFF22" }}>
-                            <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Opportunity Calls ("+empOpp.length+")"}</div>
+                          <div style={{ background:"var(--bg-page)",borderRadius:10,padding:16,border:"1px solid #7B2FFF22" }}>
+                            <div style={{ color:"var(--purple)",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Opportunity Calls ("+empOpp.length+")"}</div>
                             {empOpp.length>0 ? (
                               <div>
                                 {[{l:"Appt Offered",r:emp.appt_rate,pts:1.25},{l:"Discount",r:emp.discount_rate,pts:0.92},{l:"Warranty",r:emp.warranty_rate,pts:0.92},{l:"Fast Turn.",r:emp.turnaround_rate,pts:0.92}].map(function(item,j){
                                   var earned = (parseFloat(item.r||0)/100*item.pts).toFixed(2);
-                                  return <div key={j} style={{ marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3 }}><span style={{ color:"#C8CAD0",fontSize:11 }}>{item.l}<span style={{ color:"#6B6F78",fontSize:9,marginLeft:4 }}>{item.pts} pts</span></span><span style={{ display:"flex",alignItems:"baseline",gap:6 }}><span style={{ color:"#8B8F98",fontSize:10 }}>{earned+" / "+item.pts}</span><span style={{ color:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",fontSize:12,fontWeight:700 }}>{parseFloat(item.r||0).toFixed(0)}%</span></span></div><div style={{ background:"#1A1D23",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:(item.r||0)+"%",height:"100%",background:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",borderRadius:3 }} /></div></div>;
+                                  return <div key={j} style={{ marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3 }}><span style={{ color:"var(--text-body)",fontSize:11 }}>{item.l}<span style={{ color:"var(--text-muted)",fontSize:9,marginLeft:4 }}>{item.pts} pts</span></span><span style={{ display:"flex",alignItems:"baseline",gap:6 }}><span style={{ color:"var(--text-secondary)",fontSize:10 }}>{earned+" / "+item.pts}</span><span style={{ color:parseFloat(item.r||0)>=70?"var(--green)":"var(--red)",fontSize:12,fontWeight:700 }}>{parseFloat(item.r||0).toFixed(0)}%</span></span></div><div style={{ background:"var(--bg-card)",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:(item.r||0)+"%",height:"100%",background:parseFloat(item.r||0)>=70?"var(--green)":"var(--red)",borderRadius:3 }} /></div></div>;
                                 })}
                                 <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"#7B2FFF0A",border:"1px solid #7B2FFF18",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                                  <span style={{ color:"#8B8F98",fontSize:11 }}>Weighted Avg</span>
-                                  <span style={{ color:((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=3?"#4ADE80":((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=2?"#FBBF24":"#F87171",fontSize:14,fontWeight:800 }}>
+                                  <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Weighted Avg</span>
+                                  <span style={{ color:((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=3?"var(--green)":((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92))>=2?"var(--yellow)":"var(--red)",fontSize:14,fontWeight:800 }}>
                                     {((parseFloat(emp.appt_rate||0)/100*1.25)+(parseFloat(emp.discount_rate||0)/100*0.92)+(parseFloat(emp.warranty_rate||0)/100*0.92)+(parseFloat(emp.turnaround_rate||0)/100*0.92)).toFixed(2)+" / 4.01"}
                                   </span>
                                 </div>
-                                <div style={{ marginTop:12,borderTop:"1px solid #1E2028",paddingTop:10,color:"#8B8F98",fontSize:10 }}>Recent:</div>
-                                {empOpp.slice(0,3).map(function(a,j){ return <div key={j} style={{ fontSize:11,color:"#C8CAD0",marginBottom:4 }}><span style={{ color:parseFloat(a.score)>=3?"#4ADE80":"#F87171",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span>{" - "+(a.inquiry||"N/A")}</div>; })}
+                                <div style={{ marginTop:12,borderTop:"1px solid var(--border-light)",paddingTop:10,color:"var(--text-secondary)",fontSize:10 }}>Recent:</div>
+                                {empOpp.slice(0,3).map(function(a,j){ return <div key={j} style={{ fontSize:11,color:"var(--text-body)",marginBottom:4 }}><span style={{ color:parseFloat(a.score)>=3?"var(--green)":"var(--red)",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span>{" - "+(a.inquiry||"N/A")}</div>; })}
                               </div>
-                            ) : <div style={{ color:"#6B6F78",fontSize:11 }}>No opportunity calls yet</div>}
+                            ) : <div style={{ color:"var(--text-muted)",fontSize:11 }}>No opportunity calls yet</div>}
                           </div>
-                          <div style={{ background:"#0F1117",borderRadius:10,padding:16,border:"1px solid #FBBF2422" }}>
-                            <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Current Customer ("+empCurr.length+")"}</div>
+                          <div style={{ background:"var(--bg-page)",borderRadius:10,padding:16,border:"1px solid #FBBF2422" }}>
+                            <div style={{ color:"var(--yellow)",fontSize:12,fontWeight:700,marginBottom:10 }}>{"Current Customer ("+empCurr.length+")"}</div>
                             {empCurr.length>0 ? (
                               <div>
                                 {[{l:"Status Update",r:emp.status_rate,pts:1.00},{l:"ETA Given",r:emp.eta_rate,pts:1.00},{l:"Prof. Tone",r:emp.tone_rate,pts:1.00},{l:"Next Steps",r:emp.next_steps_rate,pts:1.00}].map(function(item,j){
                                   var earned = (parseFloat(item.r||0)/100*item.pts).toFixed(2);
-                                  return <div key={j} style={{ marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3 }}><span style={{ color:"#C8CAD0",fontSize:11 }}>{item.l}<span style={{ color:"#6B6F78",fontSize:9,marginLeft:4 }}>{item.pts.toFixed(2)} pts</span></span><span style={{ display:"flex",alignItems:"baseline",gap:6 }}><span style={{ color:"#8B8F98",fontSize:10 }}>{earned+" / "+item.pts.toFixed(2)}</span><span style={{ color:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",fontSize:12,fontWeight:700 }}>{parseFloat(item.r||0).toFixed(0)}%</span></span></div><div style={{ background:"#1A1D23",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:(item.r||0)+"%",height:"100%",background:parseFloat(item.r||0)>=70?"#4ADE80":"#F87171",borderRadius:3 }} /></div></div>;
+                                  return <div key={j} style={{ marginBottom:8 }}><div style={{ display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:3 }}><span style={{ color:"var(--text-body)",fontSize:11 }}>{item.l}<span style={{ color:"var(--text-muted)",fontSize:9,marginLeft:4 }}>{item.pts.toFixed(2)} pts</span></span><span style={{ display:"flex",alignItems:"baseline",gap:6 }}><span style={{ color:"var(--text-secondary)",fontSize:10 }}>{earned+" / "+item.pts.toFixed(2)}</span><span style={{ color:parseFloat(item.r||0)>=70?"var(--green)":"var(--red)",fontSize:12,fontWeight:700 }}>{parseFloat(item.r||0).toFixed(0)}%</span></span></div><div style={{ background:"var(--bg-card)",borderRadius:3,height:5,overflow:"hidden" }}><div style={{ width:(item.r||0)+"%",height:"100%",background:parseFloat(item.r||0)>=70?"var(--green)":"var(--red)",borderRadius:3 }} /></div></div>;
                                 })}
                                 <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"#FBBF240A",border:"1px solid #FBBF2418",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                                  <span style={{ color:"#8B8F98",fontSize:11 }}>Weighted Avg</span>
-                                  <span style={{ color:((parseFloat(emp.status_rate||0)/100)+(parseFloat(emp.eta_rate||0)/100)+(parseFloat(emp.tone_rate||0)/100)+(parseFloat(emp.next_steps_rate||0)/100))>=3?"#4ADE80":((parseFloat(emp.status_rate||0)/100)+(parseFloat(emp.eta_rate||0)/100)+(parseFloat(emp.tone_rate||0)/100)+(parseFloat(emp.next_steps_rate||0)/100))>=2?"#FBBF24":"#F87171",fontSize:14,fontWeight:800 }}>
+                                  <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Weighted Avg</span>
+                                  <span style={{ color:((parseFloat(emp.status_rate||0)/100)+(parseFloat(emp.eta_rate||0)/100)+(parseFloat(emp.tone_rate||0)/100)+(parseFloat(emp.next_steps_rate||0)/100))>=3?"var(--green)":((parseFloat(emp.status_rate||0)/100)+(parseFloat(emp.eta_rate||0)/100)+(parseFloat(emp.tone_rate||0)/100)+(parseFloat(emp.next_steps_rate||0)/100))>=2?"var(--yellow)":"var(--red)",fontSize:14,fontWeight:800 }}>
                                     {((parseFloat(emp.status_rate||0)/100*1)+(parseFloat(emp.eta_rate||0)/100*1)+(parseFloat(emp.tone_rate||0)/100*1)+(parseFloat(emp.next_steps_rate||0)/100*1)).toFixed(2)+" / 4.00"}
                                   </span>
                                 </div>
-                                <div style={{ marginTop:12,borderTop:"1px solid #1E2028",paddingTop:10,color:"#8B8F98",fontSize:10 }}>Recent:</div>
-                                {empCurr.slice(0,3).map(function(a,j){ return <div key={j} style={{ fontSize:11,color:"#C8CAD0",marginBottom:4 }}><span style={{ color:parseFloat(a.score)>=3?"#4ADE80":"#F87171",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span>{" - "+(a.inquiry||"N/A")}{a.device_type&&a.device_type!=="Not mentioned"?" ("+a.device_type+")":""}</div>; })}
+                                <div style={{ marginTop:12,borderTop:"1px solid var(--border-light)",paddingTop:10,color:"var(--text-secondary)",fontSize:10 }}>Recent:</div>
+                                {empCurr.slice(0,3).map(function(a,j){ return <div key={j} style={{ fontSize:11,color:"var(--text-body)",marginBottom:4 }}><span style={{ color:parseFloat(a.score)>=3?"var(--green)":"var(--red)",fontWeight:700 }}>{parseFloat(a.score).toFixed(2)}</span>{" - "+(a.inquiry||"N/A")}{a.device_type&&a.device_type!=="Not mentioned"?" ("+a.device_type+")":""}</div>; })}
                               </div>
-                            ) : <div style={{ color:"#6B6F78",fontSize:11 }}>No current customer calls yet</div>}
+                            ) : <div style={{ color:"var(--text-muted)",fontSize:11 }}>No current customer calls yet</div>}
                           </div>
                         </div>
                       </div>
@@ -726,7 +726,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                 );
               })}
             </div>
-          ) : <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No employee data yet. Run Audit All first.</div>}
+          ) : <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)" }}>No employee data yet. Run Audit All first.</div>}
         </div>
       )}
 
@@ -735,55 +735,55 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <SectionHeader title="Dropped Ball Tracker" subtitle="Customers who called multiple times" icon="🚨" />
           {!repeatCallers ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center" }}>
               <div style={{ fontSize:32,marginBottom:12 }}>{"🚨"}</div>
-              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>Detect repeat callers</div>
-              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>Scans the last 7 days for customers who called the same store multiple times.</div>
-              <button onClick={loadRepeatCallers} disabled={repeatLoading} style={{ padding:"10px 24px",borderRadius:8,border:"none",cursor:repeatLoading?"default":"pointer",background:repeatLoading?"#F8717122":"linear-gradient(135deg,#F87171,#FB923C)",color:repeatLoading?"#F87171":"#FFF",fontSize:13,fontWeight:700,animation:repeatLoading?"pulse 1.5s infinite":"none" }}>{repeatLoading?"Scanning...":"Scan for Dropped Balls"}</button>
+              <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:8 }}>Detect repeat callers</div>
+              <div style={{ color:"var(--text-muted)",fontSize:13,marginBottom:16 }}>Scans the last 7 days for customers who called the same store multiple times.</div>
+              <button onClick={loadRepeatCallers} disabled={repeatLoading} style={{ padding:"10px 24px",borderRadius:8,border:"none",cursor:repeatLoading?"default":"pointer",background:repeatLoading?"#F8717122":"linear-gradient(135deg,var(--red),var(--orange))",color:repeatLoading?"var(--red)":"#FFF",fontSize:13,fontWeight:700,animation:repeatLoading?"pulse 1.5s infinite":"none" }}>{repeatLoading?"Scanning...":"Scan for Dropped Balls"}</button>
             </div>
           ) : (
             <div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:20 }}>
-                <StatCard label="Repeat Callers" value={repeatCallers.summary?repeatCallers.summary.total_repeat_callers:0} accent="#F87171" />
-                <StatCard label="High Severity" value={repeatCallers.summary?repeatCallers.summary.high_severity:0} accent="#F87171" sub="3+ calls, no callback" />
-                <StatCard label="Never Called Back" value={repeatCallers.summary?repeatCallers.summary.never_called_back:0} accent="#FB923C" />
+                <StatCard label="Repeat Callers" value={repeatCallers.summary?repeatCallers.summary.total_repeat_callers:0} accent="var(--red)" />
+                <StatCard label="High Severity" value={repeatCallers.summary?repeatCallers.summary.high_severity:0} accent="var(--red)" sub="3+ calls, no callback" />
+                <StatCard label="Never Called Back" value={repeatCallers.summary?repeatCallers.summary.never_called_back:0} accent="var(--orange)" />
               </div>
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Flagged Customers</div>
-                  <button onClick={loadRepeatCallers} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Rescan</button>
+                  <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Flagged Customers</div>
+                  <button onClick={loadRepeatCallers} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Rescan</button>
                 </div>
                 <div style={{ maxHeight:500,overflowY:"auto" }}>
                   {(repeatCallers.repeatCallers||[]).map(function(rc, i) {
                     var store = STORES[rc.store];
-                    var sevColor = rc.severity==="high"?"#F87171":rc.severity==="medium"?"#FBBF24":"#6B6F78";
+                    var sevColor = rc.severity==="high"?"var(--red)":rc.severity==="medium"?"var(--yellow)":"var(--text-muted)";
                     return (
-                      <div key={i} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35" }}>
+                      <div key={i} style={{ padding:"14px 0",borderBottom:"1px solid var(--border)" }}>
                         <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
                           <div>
                             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
                               <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:sevColor+"22",color:sevColor,textTransform:"uppercase" }}>{rc.severity}</span>
-                              <span style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{rc.customer_name!=="Unknown"?rc.customer_name:rc.phone}</span>
+                              <span style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{rc.customer_name!=="Unknown"?rc.customer_name:rc.phone}</span>
                             </div>
-                            <div style={{ fontSize:11,color:"#8B8F98" }}>
-                              <span style={{ color:store?store.color:"#8B8F98" }}>{store?store.name:rc.store}</span>
+                            <div style={{ fontSize:11,color:"var(--text-secondary)" }}>
+                              <span style={{ color:store?store.color:"var(--text-secondary)" }}>{store?store.name:rc.store}</span>
                               {rc.device_type!=="Unknown" && (" | "+rc.device_type)}
                               {" | "+rc.time_span_hours+"h span"}
                             </div>
                           </div>
                           <div style={{ textAlign:"right" }}>
-                            <div style={{ color:"#F0F1F3",fontSize:20,fontWeight:800 }}>{rc.total_calls}x</div>
-                            <div style={{ fontSize:10,color:rc.we_called_back?"#4ADE80":"#F87171" }}>{rc.we_called_back?"Called back":"Never called back"}</div>
+                            <div style={{ color:"var(--text-primary)",fontSize:20,fontWeight:800 }}>{rc.total_calls}x</div>
+                            <div style={{ fontSize:10,color:rc.we_called_back?"var(--green)":"var(--red)" }}>{rc.we_called_back?"Called back":"Never called back"}</div>
                           </div>
                         </div>
-                        <div style={{ marginTop:10,paddingLeft:8,borderLeft:"2px solid #2A2D35" }}>
+                        <div style={{ marginTop:10,paddingLeft:8,borderLeft:"2px solid var(--border)" }}>
                           {rc.calls.slice(0,5).map(function(c, j) {
                             return (
                               <div key={j} style={{ display:"flex",alignItems:"center",gap:8,padding:"4px 0",fontSize:11 }}>
-                                <span style={{ width:6,height:6,borderRadius:"50%",background:c.answered?"#4ADE80":"#F87171",flexShrink:0 }} />
-                                <span style={{ color:"#6B6F78",minWidth:120 }}>{new Date(c.date).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
-                                <span style={{ color:c.answered?"#C8CAD0":"#F87171" }}>{c.answered?"Answered":"Missed"}</span>
-                                {c.employee && <span style={{ color:"#8B8F98" }}>{"- "+c.employee}</span>}
+                                <span style={{ width:6,height:6,borderRadius:"50%",background:c.answered?"var(--green)":"var(--red)",flexShrink:0 }} />
+                                <span style={{ color:"var(--text-muted)",minWidth:120 }}>{new Date(c.date).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</span>
+                                <span style={{ color:c.answered?"var(--text-body)":"var(--red)" }}>{c.answered?"Answered":"Missed"}</span>
+                                {c.employee && <span style={{ color:"var(--text-secondary)" }}>{"- "+c.employee}</span>}
                               </div>
                             );
                           })}
@@ -791,7 +791,7 @@ function AuditTab({ rawCallData, storeFilter }) {
                       </div>
                     );
                   })}
-                  {(repeatCallers.repeatCallers||[]).length===0 && <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No repeat callers detected!</div>}
+                  {(repeatCallers.repeatCallers||[]).length===0 && <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>No repeat callers detected!</div>}
                 </div>
               </div>
             </div>
@@ -802,21 +802,21 @@ function AuditTab({ rawCallData, storeFilter }) {
       {/* AUDIT CALLS */}
       {auditView==="calls" && (
         <div>
-          {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"#F87171",fontSize:12,marginBottom:12 }}>{error}</div>}
+          {error && <div style={{ padding:"8px 12px",borderRadius:6,background:"#F8717122",color:"var(--red)",fontSize:12,marginBottom:12 }}>{error}</div>}
           {batchRunning && (
-            <div style={{ background:"#1A1D23",borderRadius:8,padding:"12px 16px",marginBottom:16,border:"1px solid #7B2FFF33" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:8,padding:"12px 16px",marginBottom:16,border:"1px solid #7B2FFF33" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
-                <span style={{ color:"#C8CAD0",fontSize:13,fontWeight:600 }}>{"Batch: "+batchProgress.done+" / "+batchProgress.total}</span>
-                <button onClick={function(){batchAbort.current=true;}} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #F8717144",background:"#F8717118",color:"#F87171",fontSize:11,cursor:"pointer" }}>Stop</button>
+                <span style={{ color:"var(--text-body)",fontSize:13,fontWeight:600 }}>{"Batch: "+batchProgress.done+" / "+batchProgress.total}</span>
+                <button onClick={function(){batchAbort.current=true;}} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #F8717144",background:"#F8717118",color:"var(--red)",fontSize:11,cursor:"pointer" }}>Stop</button>
               </div>
-              <div style={{ background:"#12141A",borderRadius:4,height:8,overflow:"hidden" }}><div style={{ width:(batchProgress.total>0?(batchProgress.done/batchProgress.total*100):0)+"%",height:"100%",background:"#7B2FFF",borderRadius:4 }} /></div>
+              <div style={{ background:"var(--bg-card-inner)",borderRadius:4,height:8,overflow:"hidden" }}><div style={{ width:(batchProgress.total>0?(batchProgress.done/batchProgress.total*100):0)+"%",height:"100%",background:"var(--purple)",borderRadius:4 }} /></div>
             </div>
           )}
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
               <SectionHeader title="Recorded Calls" subtitle={recordedCalls.length+" unaudited"} icon="🎙️" />
               {recordedCalls.length>0 && !batchRunning && (
-                <button onClick={runBatch} style={{ padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:13,fontWeight:700 }}>{"Audit All ("+recordedCalls.length+")"}</button>
+                <button onClick={runBatch} style={{ padding:"8px 20px",borderRadius:8,border:"none",cursor:"pointer",background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:13,fontWeight:700 }}>{"Audit All ("+recordedCalls.length+")"}</button>
               )}
             </div>
             <div style={{ maxHeight:600,overflowY:"auto" }}>
@@ -825,16 +825,16 @@ function AuditTab({ rawCallData, storeFilter }) {
                 var d = new Date(call.date_started);
                 var store = STORES[call._storeKey];
                 return (
-                  <div key={i} style={{ padding:"12px 0",borderBottom:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div key={i} style={{ padding:"12px 0",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div>
-                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ width:8,height:8,borderRadius:"50%",background:store?store.color:"#8B8F98" }} /><span style={{ color:"#E8E9EC",fontSize:13,fontWeight:600 }}>{call.external_number}</span><span style={{ color:"#6B6F78",fontSize:11 }}>{"-> "+call.name}</span></div>
-                      <div style={{ color:"#6B6F78",fontSize:11,marginTop:2 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{call.talk_duration?" | "+parseFloat(call.talk_duration).toFixed(1)+" min":""}</div>
+                      <div style={{ display:"flex",alignItems:"center",gap:8 }}><span style={{ width:8,height:8,borderRadius:"50%",background:store?store.color:"var(--text-secondary)" }} /><span style={{ color:"#E8E9EC",fontSize:13,fontWeight:600 }}>{call.external_number}</span><span style={{ color:"var(--text-muted)",fontSize:11 }}>{"-> "+call.name}</span></div>
+                      <div style={{ color:"var(--text-muted)",fontSize:11,marginTop:2 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}{call.talk_duration?" | "+parseFloat(call.talk_duration).toFixed(1)+" min":""}</div>
                     </div>
-                    <button onClick={function(){if(!isA&&!batchRunning) runAudit(call);}} disabled={isA||batchRunning} style={{ padding:"6px 14px",borderRadius:6,border:"none",cursor:isA||batchRunning?"default":"pointer",background:isA?"#7B2FFF22":"#7B2FFF",color:isA?"#7B2FFF":"#FFF",fontSize:12,fontWeight:600,animation:isA?"pulse 1.5s infinite":"none" }}>{isA?"Scoring...":"Audit"}</button>
+                    <button onClick={function(){if(!isA&&!batchRunning) runAudit(call);}} disabled={isA||batchRunning} style={{ padding:"6px 14px",borderRadius:6,border:"none",cursor:isA||batchRunning?"default":"pointer",background:isA?"#7B2FFF22":"var(--purple)",color:isA?"var(--purple)":"#FFF",fontSize:12,fontWeight:600,animation:isA?"pulse 1.5s infinite":"none" }}>{isA?"Scoring...":"Audit"}</button>
                   </div>
                 );
               })}
-              {recordedCalls.length===0 && <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>All calls audited!</div>}
+              {recordedCalls.length===0 && <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>All calls audited!</div>}
             </div>
           </div>
         </div>
@@ -845,33 +845,33 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <SectionHeader title="Needs Review" subtitle="Low-confidence audits that may be misclassified" icon="⚠️" />
           {actionMsg && (
-            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
               {actionMsg.text}
             </div>
           )}
           {!reviewLoading && reviewAudits.length===0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:30,textAlign:"center" }}>
-              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:12 }}>No low-confidence audits loaded yet.</div>
-              <button onClick={loadReviewAudits} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Load Audits Needing Review</button>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:30,textAlign:"center" }}>
+              <div style={{ color:"var(--text-muted)",fontSize:13,marginBottom:12 }}>No low-confidence audits loaded yet.</div>
+              <button onClick={loadReviewAudits} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"var(--purple)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Load Audits Needing Review</button>
             </div>
           )}
-          {reviewLoading && <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading...</div>}
+          {reviewLoading && <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading...</div>}
           {reviewAudits.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,maxHeight:700,overflowY:"auto" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,maxHeight:700,overflowY:"auto" }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
-                <div style={{ color:"#8B8F98",fontSize:12 }}>{reviewAudits.length} audits with confidence &lt; 70</div>
-                <button onClick={loadReviewAudits} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Refresh</button>
+                <div style={{ color:"var(--text-secondary)",fontSize:12 }}>{reviewAudits.length} audits with confidence &lt; 70</div>
+                <button onClick={loadReviewAudits} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Refresh</button>
               </div>
               {reviewAudits.map(function(audit, i) {
                 var score = parseFloat(audit.score||0);
-                var sc = score>=3?"#4ADE80":score>=2?"#FBBF24":"#F87171";
+                var sc = score>=3?"var(--green)":score>=2?"var(--yellow)":"var(--red)";
                 var store = STORES[audit.store];
                 var d = new Date(audit.date_started||audit.date);
                 var conf = audit.confidence || 0;
-                var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
-                var typeBg = audit.call_type==="opportunity"?"#7B2FFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+                var confColor = conf >= 70 ? "var(--green)" : conf >= 50 ? "var(--yellow)" : "var(--red)";
+                var typeBg = audit.call_type==="opportunity"?"var(--purple)":audit.call_type==="current_customer"?"var(--yellow)":"var(--text-muted)";
                 return (
-                  <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35" }}>
+                  <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid var(--border)" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:8 }}>
                       <div>
                         <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
@@ -879,25 +879,25 @@ function AuditTab({ rawCallData, storeFilter }) {
                           <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
                           <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:confColor+"18",color:confColor }}>{"Conf: "+conf+"%"}</span>
                         </div>
-                        <div style={{ color:"#6B6F78",fontSize:11 }}>
+                        <div style={{ color:"var(--text-muted)",fontSize:11 }}>
                           {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
-                          <span style={{ color:store?store.color:"#8B8F98" }}>{store?store.name:audit.store}</span>
+                          <span style={{ color:store?store.color:"var(--text-secondary)" }}>{store?store.name:audit.store}</span>
                           {" | "+audit.phone}
                         </div>
-                        {audit.confidence_reason && <div style={{ color:"#FBBF24",fontSize:11,marginTop:4,fontStyle:"italic" }}>{audit.confidence_reason}</div>}
+                        {audit.confidence_reason && <div style={{ color:"var(--yellow)",fontSize:11,marginTop:4,fontStyle:"italic" }}>{audit.confidence_reason}</div>}
                       </div>
                       <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)}</div>
                     </div>
-                    <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}</div>
+                    <div style={{ color:"var(--text-body)",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}</div>
                     {audit.transcript_preview && (
                       <div style={{ marginBottom:10 }}>
                         <button onClick={function(){setExpandedTranscript(expandedTranscript===audit.call_id?null:audit.call_id);}}
-                          style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                          style={{ padding:"4px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
                           <span style={{ transform:expandedTranscript===audit.call_id?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block" }}>▶</span>
                           {expandedTranscript===audit.call_id?"Hide Transcript":"View Transcript"}
                         </button>
                         {expandedTranscript===audit.call_id && (
-                          <div style={{ marginTop:6,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #2A2D35",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                          <div style={{ marginTop:6,padding:12,background:"var(--bg-card-inner)",borderRadius:8,border:"1px solid var(--border)",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"var(--text-body)",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
                             {audit.transcript_preview}
                           </div>
                         )}
@@ -905,24 +905,24 @@ function AuditTab({ rawCallData, storeFilter }) {
                     )}
                     <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                       <button onClick={function(){excludeCall(audit.call_id,"Low confidence — excluded by manager");}}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                         Exclude from Scoring
                       </button>
                       <button onClick={function(){overrideCall(audit.call_id,"non_scorable","Manager review: not a real customer call");}}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #6B6F7833",background:"transparent",color:"#6B6F78",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #6B6F7833",background:"transparent",color:"var(--text-muted)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                         Mark Non-Scorable
                       </button>
                       <button onClick={function(){overrideCall(audit.call_id,"opportunity","Manager review: reclassified as opportunity");}}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"transparent",color:"var(--purple)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                         → Opportunity
                       </button>
                       <button onClick={function(){overrideCall(audit.call_id,"current_customer","Manager review: reclassified as current customer");}}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #FBBF2433",background:"transparent",color:"#FBBF24",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #FBBF2433",background:"transparent",color:"var(--yellow)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                         → Current Customer
                       </button>
                       <button onClick={function(){reauditCall(audit.call_id, { direction:audit.direction, external_number:audit.phone, date_started:audit.date_started, name:audit.store_name, _storeKey:audit.store, talk_duration:audit.talk_duration });}}
                         disabled={auditingId===audit.call_id}
-                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #00D4FF33",background:"transparent",color:auditingId===audit.call_id?"#6B6F78":"#00D4FF",fontSize:11,cursor:auditingId===audit.call_id?"wait":"pointer",fontWeight:600 }}>
+                        style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #00D4FF33",background:"transparent",color:auditingId===audit.call_id?"var(--text-muted)":"var(--cyan)",fontSize:11,cursor:auditingId===audit.call_id?"wait":"pointer",fontWeight:600 }}>
                         {auditingId===audit.call_id?"Re-auditing...":"Re-Audit"}
                       </button>
                     </div>
@@ -939,34 +939,34 @@ function AuditTab({ rawCallData, storeFilter }) {
         <div>
           <SectionHeader title="Audit History" subtitle={filteredAudits.length+" calls"} icon="📋" />
           {actionMsg && (
-            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+            <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
               {actionMsg.text}
             </div>
           )}
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,maxHeight:600,overflowY:"auto" }}>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,maxHeight:600,overflowY:"auto" }}>
             {filteredAudits.map(function(audit, i) {
               var score = parseFloat(audit.score||0);
-              var sc = score>=3?"#4ADE80":score>=2?"#FBBF24":"#F87171";
+              var sc = score>=3?"var(--green)":score>=2?"var(--yellow)":"var(--red)";
               var store = STORES[audit.store];
               var d = new Date(audit.date_started||audit.date);
-              var typeBg = audit.call_type==="opportunity"?"#7B2FFF":audit.call_type==="current_customer"?"#FBBF24":"#6B6F78";
+              var typeBg = audit.call_type==="opportunity"?"var(--purple)":audit.call_type==="current_customer"?"var(--yellow)":"var(--text-muted)";
               var conf = audit.confidence || 0;
-              var confColor = conf >= 70 ? "#4ADE80" : conf >= 50 ? "#FBBF24" : "#F87171";
+              var confColor = conf >= 70 ? "var(--green)" : conf >= 50 ? "var(--yellow)" : "var(--red)";
               var isExcluded = audit.excluded;
               return (
-                <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid #2A2D35",opacity:isExcluded?0.5:1 }}>
+                <div key={audit.call_id||i} style={{ padding:16,borderBottom:"1px solid var(--border)",opacity:isExcluded?0.5:1 }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10 }}>
                     <div>
                       <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:2 }}>
                         <span style={{ color:"#E8E9EC",fontSize:13,fontWeight:700 }}>{audit.employee||"Unknown"}{" - "+audit.phone}</span>
                         <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:typeBg+"18",color:typeBg }}>{audit.call_type==="current_customer"?"Current Customer":audit.call_type==="non_scorable"?"Non-Scorable":"Opportunity"}</span>
                         {conf > 0 && <span style={{ padding:"2px 6px",borderRadius:4,fontSize:9,fontWeight:700,background:confColor+"18",color:confColor }}>{conf+"%"}</span>}
-                        {isExcluded && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#F8717118",color:"#F87171" }}>EXCLUDED</span>}
-                        {audit.manager_override && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#00D4FF18",color:"#00D4FF" }}>OVERRIDE</span>}
+                        {isExcluded && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#F8717118",color:"var(--red)" }}>EXCLUDED</span>}
+                        {audit.manager_override && <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:600,background:"#00D4FF18",color:"var(--cyan)" }}>OVERRIDE</span>}
                       </div>
-                      <div style={{ color:"#6B6F78",fontSize:11 }}>
+                      <div style={{ color:"var(--text-muted)",fontSize:11 }}>
                         {d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})+" | "}
-                        <span style={{ color:store?store.color:"#8B8F98" }}>{store?store.name:audit.store}</span>
+                        <span style={{ color:store?store.color:"var(--text-secondary)" }}>{store?store.name:audit.store}</span>
                         {audit.customer_name&&audit.customer_name!=="Unknown"?" | Customer: "+audit.customer_name:""}
                         {audit.device_type&&audit.device_type!=="Not mentioned"?" | "+audit.device_type:""}
                       </div>
@@ -974,32 +974,32 @@ function AuditTab({ rawCallData, storeFilter }) {
                     <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                       {!isExcluded && audit.call_type !== "non_scorable" && (
                         <button onClick={function(e){e.stopPropagation(); excludeCall(audit.call_id, "Manually excluded");}}
-                          style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>Exclude</button>
+                          style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:9,cursor:"pointer" }}>Exclude</button>
                       )}
                       <div style={{ padding:"6px 12px",borderRadius:8,background:sc+"22",color:sc,fontSize:16,fontWeight:800 }}>{score.toFixed(2)+" / 4"}</div>
                     </div>
                   </div>
-                  <div style={{ color:"#C8CAD0",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}<br /><strong>Outcome:</strong> {audit.outcome||"-"}</div>
+                  <div style={{ color:"var(--text-body)",fontSize:12,marginBottom:8 }}><strong>Inquiry:</strong> {audit.inquiry||"-"}<br /><strong>Outcome:</strong> {audit.outcome||"-"}</div>
                   <CriteriaGrid audit={audit} />
                   {audit.transcript_preview && (
                     <div style={{ marginTop:8 }}>
                       <button onClick={function(){setExpandedTranscript(expandedTranscript===audit.call_id?null:audit.call_id);}}
-                        style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
+                        style={{ padding:"4px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer",display:"flex",alignItems:"center",gap:4 }}>
                         <span style={{ transform:expandedTranscript===audit.call_id?"rotate(90deg)":"rotate(0deg)",transition:"transform 0.2s",display:"inline-block" }}>▶</span>
                         {expandedTranscript===audit.call_id?"Hide Transcript":"View Transcript"}
                       </button>
                       {expandedTranscript===audit.call_id && (
-                        <div style={{ marginTop:6,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #2A2D35",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"#C8CAD0",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
+                        <div style={{ marginTop:6,padding:12,background:"var(--bg-card-inner)",borderRadius:8,border:"1px solid var(--border)",maxHeight:300,overflowY:"auto",fontFamily:"monospace",fontSize:11,color:"var(--text-body)",whiteSpace:"pre-wrap",lineHeight:1.5 }}>
                           {audit.transcript_preview}
                         </div>
                       )}
                     </div>
                   )}
-                  {audit.exclude_reason && <div style={{ color:"#F87171",fontSize:10,marginTop:6,fontStyle:"italic" }}>Excluded: {audit.exclude_reason}</div>}
+                  {audit.exclude_reason && <div style={{ color:"var(--red)",fontSize:10,marginTop:6,fontStyle:"italic" }}>Excluded: {audit.exclude_reason}</div>}
                 </div>
               );
             })}
-            {filteredAudits.length===0 && <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No history yet.</div>}
+            {filteredAudits.length===0 && <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>No history yet.</div>}
           </div>
         </div>
       )}
@@ -1137,9 +1137,9 @@ export default function DialpadDashboard() {
 
   return (
     <ErrorBoundary>
-    <div style={{ background:"#0F1117",minHeight:"100vh",color:"#F0F1F3",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
+    <div style={{ background:"var(--bg-page)",minHeight:"100vh",color:"var(--text-primary)",fontFamily:"'Space Grotesk',-apple-system,sans-serif" }}>
       <style>{"@keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:0.3 } }"}</style>
-      <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12 }}>
+      <div style={{ background:"var(--bg-card-inner)",borderBottom:"1px solid var(--border-light)",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:12 }}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
           <svg width="38" height="38" viewBox="46 56 148 148" xmlns="http://www.w3.org/2000/svg">
             <defs>
@@ -1156,19 +1156,19 @@ export default function DialpadDashboard() {
             <line x1="46" y1="130" x2="80" y2="130" stroke="url(#hg1)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
             <line x1="160" y1="130" x2="194" y2="130" stroke="url(#hg2)" strokeWidth="1.8" strokeLinecap="round" opacity="0.8"/>
           </svg>
-          <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"#6B6F78",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
+          <div><h1 style={{ margin:0,fontSize:19,fontWeight:800 }}>{APP_NAME || "Focused Technologies"}</h1><p style={{ margin:0,color:"var(--text-muted)",fontSize:12 }}>{APP_SUBTITLE || "CPR Store Operations Dashboard"}</p></div>
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
-        <a href="/appointments" style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
+        <a href="/appointments" style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--green),var(--cyan))",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
         <ThemeToggle style={{ marginLeft: 4 }} />
         {auth && (
           <div style={{ display:"flex",alignItems:"center",gap:10,marginLeft:12 }}>
             <div style={{ textAlign:"right" }}>
-              <div style={{ color:"#F0F1F3",fontSize:11,fontWeight:600 }}>{auth.userInfo ? auth.userInfo.name || auth.user.email : ""}</div>
-              <div style={{ color:"#6B6F78",fontSize:9,textTransform:"capitalize" }}>{auth.role || ""}</div>
+              <div style={{ color:"var(--text-primary)",fontSize:11,fontWeight:600 }}>{auth.userInfo ? auth.userInfo.name || auth.user.email : ""}</div>
+              <div style={{ color:"var(--text-muted)",fontSize:9,textTransform:"capitalize" }}>{auth.role || ""}</div>
             </div>
             <button onClick={auth.signOut}
-              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer",whiteSpace:"nowrap" }}>
               Sign Out
             </button>
           </div>
@@ -1177,8 +1177,8 @@ export default function DialpadDashboard() {
 
       {/* Preview banner — admin only */}
       {isAdmin && (
-        <div style={{ background:isPreviewing?"#FF2D9515":"#12141A",borderBottom:"1px solid "+(isPreviewing?"#FF2D9533":"#1E2028"),padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap" }}>
-          <span style={{ color:"#8B8F98",fontSize:11,fontWeight:600 }}>View as:</span>
+        <div style={{ background:isPreviewing?"#FF2D9515":"var(--bg-card-inner)",borderBottom:"1px solid "+(isPreviewing?"#FF2D9533":"var(--border-light)"),padding:"8px 28px",display:"flex",alignItems:"center",gap:12,flexWrap:"wrap" }}>
+          <span style={{ color:"var(--text-secondary)",fontSize:11,fontWeight:600 }}>View as:</span>
           {[
             { id: null, label: "Admin (You)" },
             { id: "manager", label: "Manager" },
@@ -1188,14 +1188,14 @@ export default function DialpadDashboard() {
             return <button key={p.id || "admin"} onClick={function(){
               setPreviewRole(p.id);
               if (!p.id) { setPreviewEmployee(""); setPreviewStore(""); }
-            }} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid "+(isActive?"#FF2D9555":"#2A2D35"),background:isActive?"#FF2D9518":"transparent",color:isActive?"#FF2D95":"#8B8F98",fontSize:10,fontWeight:600,cursor:"pointer" }}>{p.label}</button>;
+            }} style={{ padding:"4px 12px",borderRadius:6,border:"1px solid "+(isActive?"#FF2D9555":"var(--border)"),background:isActive?"#FF2D9518":"transparent",color:isActive?"var(--pink)":"var(--text-secondary)",fontSize:10,fontWeight:600,cursor:"pointer" }}>{p.label}</button>;
           })}
           {previewRole === "employee" && (
             <select value={previewEmployee} onChange={function(e){
               setPreviewEmployee(e.target.value);
               var emp = rosterList.find(function(r){return r.name === e.target.value;});
               if (emp) setPreviewStore(emp.store);
-            }} style={{ padding:"4px 8px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:10 }}>
+            }} style={{ padding:"4px 8px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:10 }}>
               <option value="">Select employee...</option>
               {rosterList.filter(function(r){return r.active;}).map(function(r) {
                 return <option key={r.name} value={r.name}>{r.name + " (" + (r.store || "all") + ")"}</option>;
@@ -1203,42 +1203,45 @@ export default function DialpadDashboard() {
             </select>
           )}
           {isPreviewing && (
-            <span style={{ color:"#FF2D95",fontSize:10,fontStyle:"italic" }}>
+            <span style={{ color:"var(--pink)",fontSize:10,fontStyle:"italic" }}>
               {previewRole === "employee" && previewEmployee ? "Viewing as: " + previewEmployee : "Previewing " + previewRole + " view"}
             </span>
           )}
         </div>
       )}
 
-      <div style={{ background:"#12141A",borderBottom:"1px solid #1E2028",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
+      <div style={{ background:"var(--bg-card-inner)",borderBottom:"1px solid var(--border-light)",padding:"0 28px",display:"flex",gap:0,overflowX:"auto" }}>
         {/* Render the first visible tab (scorecard) on its own so we can slot Coaching as the SECOND tab for admins */}
         {visibleTabs.slice(0, 1).map(function(tab) {
-          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
+          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"var(--text-primary)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid var(--purple)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("coaching");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="coaching"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="coaching"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFAF"}</span>Coaching</button>
+          <button onClick={function(){setActiveTab("coaching");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="coaching"?"var(--pink)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="coaching"?"2px solid var(--pink)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFAF"}</span>Coaching</button>
         )}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("leaderboard");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="leaderboard"?"#4ADE80":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="leaderboard"?"2px solid #4ADE80":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Leaderboard</button>
+          <button onClick={function(){setActiveTab("leaderboard");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="leaderboard"?"var(--green)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="leaderboard"?"2px solid var(--green)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Leaderboard</button>
         )}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("callquality");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="callquality"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="callquality"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFA7"}</span>Call Quality</button>
+          <button onClick={function(){setActiveTab("callquality");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="callquality"?"var(--pink)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="callquality"?"2px solid var(--pink)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83C\uDFA7"}</span>Call Quality</button>
         )}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("advanced_repairs");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repairs"?"#FBBF24":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repairs"?"2px solid #FBBF24":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCCB"}</span>Advanced Repair Log</button>
+          <button onClick={function(){setActiveTab("advanced_repairs");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repairs"?"var(--yellow)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repairs"?"2px solid var(--yellow)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCCB"}</span>Advanced Repair Log</button>
         )}
         {isAdmin && !isPreviewing && (
-          <button onClick={function(){setActiveTab("advanced_repair_traffic");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repair_traffic"?"#00D4FF":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repair_traffic"?"2px solid #00D4FF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC8"}</span>Advanced Repair Traffic</button>
+          <button onClick={function(){setActiveTab("advanced_repair_traffic");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="advanced_repair_traffic"?"var(--cyan)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="advanced_repair_traffic"?"2px solid var(--cyan)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC8"}</span>Advanced Repair Traffic</button>
         )}
         {visibleTabs.slice(1).map(function(tab) {
-          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"#F0F1F3":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid #7B2FFF":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
+          return <button key={tab.id} onClick={function(){setActiveTab(tab.id);}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab===tab.id?"var(--text-primary)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab===tab.id?"2px solid var(--purple)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{tab.icon}</span>{tab.label}</button>;
         })}
         {isAdmin && !isPreviewing && (<>
-          <button onClick={function(){setActiveTab("profitability");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="profitability"?"#4ADE80":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="profitability"?"2px solid #4ADE80":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Profitability</button>
-          <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"#FF2D95":"#6B6F78",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid #FF2D95":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
+          <button onClick={function(){setActiveTab("profitability");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="profitability"?"var(--green)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="profitability"?"2px solid var(--green)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCB0"}</span>Profitability</button>
+          <button onClick={function(){setActiveTab("admin");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="admin"?"var(--pink)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="admin"?"2px solid var(--pink)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"\u2699\uFE0F"}</span>Admin</button>
         </>)}
       </div>
-      <div style={{ padding:28 }}>
+      {/* Content is capped and centred. Edge-to-edge on a wide monitor stretched
+          tables so far apart that a row's name and its numbers were at opposite
+          ends of the screen, and left every card looking marooned. */}
+      <div style={{ padding:28,maxWidth:1600,margin:"0 auto",width:"100%" }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {/* Yesterday at a glance, above whatever tab is open. Managers only. */}
         {!isPreviewing && (auth && (auth.role === "admin" || auth.role === "manager")) && <MorningBrief />}
@@ -1264,14 +1267,14 @@ export default function DialpadDashboard() {
           setActiveTab("scorecard");
         }} />}
       </div>
-      <div style={{ padding:"16px 28px",borderTop:"1px solid #1E2028",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
+      <div style={{ padding:"16px 28px",borderTop:"1px solid var(--border-light)",color:"#4A4D55",fontSize:11,textAlign:"center" }}>
         {isStored ? "Stored data" : isLive ? "Live data" : "Sample data"} | {APP_NAME || "Focused Technologies"}
       </div>
 
       {/* AI Assistant floating button */}
       {!aiOpen && (
         <button onClick={function(){setAiOpen(true);}}
-          style={{ position:"fixed",bottom:24,right:24,width:56,height:56,borderRadius:16,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:24,cursor:"pointer",boxShadow:"0 4px 20px rgba(123,47,255,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,transition:"transform 0.2s" }}
+          style={{ position:"fixed",bottom:24,right:24,width:56,height:56,borderRadius:16,border:"none",background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:24,cursor:"pointer",boxShadow:"0 4px 20px rgba(123,47,255,0.4)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:9999,transition:"transform 0.2s" }}
           onMouseEnter={function(e){e.target.style.transform="scale(1.1)";}}
           onMouseLeave={function(e){e.target.style.transform="scale(1)";}}>
           {"\u2728"}

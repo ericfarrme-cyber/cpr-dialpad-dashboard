@@ -521,20 +521,20 @@ export default function AIAssistant({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div style={{ position:"fixed",top:0,right:0,bottom:0,width:460,background:"#12141A",borderLeft:"1px solid #2A2D35",zIndex:10000,display:"flex",flexDirection:"column",fontFamily:"-apple-system,sans-serif",boxShadow:"-8px 0 32px rgba(0,0,0,0.3)" }}>
+    <div style={{ position:"fixed",top:0,right:0,bottom:0,width:460,background:"var(--bg-card-inner)",borderLeft:"1px solid var(--border)",zIndex:10000,display:"flex",flexDirection:"column",fontFamily:"-apple-system,sans-serif",boxShadow:"-8px 0 32px rgba(0,0,0,0.3)" }}>
       {/* Header */}
-      <div style={{ padding:"16px 20px",borderBottom:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0 }}>
+      <div style={{ padding:"16px 20px",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center",flexShrink:0 }}>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
-          <div style={{ width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <div style={{ width:32,height:32,borderRadius:8,background:"linear-gradient(135deg,var(--purple),var(--cyan))",display:"flex",alignItems:"center",justifyContent:"center" }}>
             <span style={{ color:"#FFF",fontSize:16 }}>{"\u2728"}</span>
           </div>
           <div>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>AI Assistant</div>
-            <div style={{ color:contextLoaded?"#4ADE80":"#FBBF24",fontSize:10 }}>{contextLoaded ? "Business data loaded" : "Loading data..."}</div>
+            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>AI Assistant</div>
+            <div style={{ color:contextLoaded?"var(--green)":"var(--yellow)",fontSize:10 }}>{contextLoaded ? "Business data loaded" : "Loading data..."}</div>
           </div>
         </div>
         <button onClick={onClose}
-          style={{ width:28,height:28,borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
+          style={{ width:28,height:28,borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:14,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center" }}>
           {"\u2715"}
         </button>
       </div>
@@ -549,9 +549,9 @@ export default function AIAssistant({ isOpen, onClose }) {
                 maxWidth:"85%",
                 padding:"10px 14px",
                 borderRadius:isUser?"12px 12px 2px 12px":"12px 12px 12px 2px",
-                background:isUser?"#7B2FFF":"#1A1D23",
-                border:isUser?"none":"1px solid #2A2D35",
-                color:"#F0F1F3",
+                background:isUser?"var(--purple)":"var(--bg-card)",
+                border:isUser?"none":"1px solid var(--border)",
+                color:"var(--text-primary)",
                 fontSize:13,
                 lineHeight:1.5,
                 whiteSpace:"pre-wrap",
@@ -564,11 +564,11 @@ export default function AIAssistant({ isOpen, onClose }) {
         })}
         {loading && (
           <div style={{ marginBottom:16,display:"flex",justifyContent:"flex-start" }}>
-            <div style={{ padding:"10px 14px",borderRadius:"12px 12px 12px 2px",background:"#1A1D23",border:"1px solid #2A2D35" }}>
+            <div style={{ padding:"10px 14px",borderRadius:"12px 12px 12px 2px",background:"var(--bg-card)",border:"1px solid var(--border)" }}>
               <div style={{ display:"flex",gap:4 }}>
-                <span style={{ width:6,height:6,borderRadius:"50%",background:"#7B2FFF",animation:"pulse 1.2s infinite" }} />
-                <span style={{ width:6,height:6,borderRadius:"50%",background:"#7B2FFF",animation:"pulse 1.2s infinite 0.2s" }} />
-                <span style={{ width:6,height:6,borderRadius:"50%",background:"#7B2FFF",animation:"pulse 1.2s infinite 0.4s" }} />
+                <span style={{ width:6,height:6,borderRadius:"50%",background:"var(--purple)",animation:"pulse 1.2s infinite" }} />
+                <span style={{ width:6,height:6,borderRadius:"50%",background:"var(--purple)",animation:"pulse 1.2s infinite 0.2s" }} />
+                <span style={{ width:6,height:6,borderRadius:"50%",background:"var(--purple)",animation:"pulse 1.2s infinite 0.4s" }} />
               </div>
             </div>
           </div>
@@ -577,7 +577,7 @@ export default function AIAssistant({ isOpen, onClose }) {
       </div>
 
       {/* Input */}
-      <div style={{ padding:"12px 20px",borderTop:"1px solid #2A2D35",flexShrink:0 }}>
+      <div style={{ padding:"12px 20px",borderTop:"1px solid var(--border)",flexShrink:0 }}>
         <div style={{ display:"flex",gap:8 }}>
           <input ref={inputRef}
             type="text" value={input}
@@ -585,18 +585,18 @@ export default function AIAssistant({ isOpen, onClose }) {
             onKeyDown={function(e){ if(e.key==="Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }}}
             placeholder={contextLoaded ? "Ask about your business..." : "Loading business data..."}
             disabled={!contextLoaded}
-            style={{ flex:1,padding:"10px 14px",borderRadius:10,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:13,outline:"none" }}
-            onFocus={function(e){e.target.style.borderColor="#7B2FFF";}}
-            onBlur={function(e){e.target.style.borderColor="#2A2D35";}} />
+            style={{ flex:1,padding:"10px 14px",borderRadius:10,border:"1px solid var(--border)",background:"var(--bg-page)",color:"var(--text-primary)",fontSize:13,outline:"none" }}
+            onFocus={function(e){e.target.style.borderColor="var(--purple)";}}
+            onBlur={function(e){e.target.style.borderColor="var(--border)";}} />
           <button onClick={sendMessage} disabled={loading || !contextLoaded || !input.trim()}
-            style={{ padding:"10px 16px",borderRadius:10,border:"none",background:loading||!contextLoaded?"#2A2D35":"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:13,fontWeight:700,cursor:loading?"wait":"pointer",flexShrink:0 }}>
+            style={{ padding:"10px 16px",borderRadius:10,border:"none",background:loading||!contextLoaded?"var(--border)":"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:13,fontWeight:700,cursor:loading?"wait":"pointer",flexShrink:0 }}>
             Send
           </button>
         </div>
         <div style={{ display:"flex",gap:6,marginTop:8,flexWrap:"wrap" }}>
           {["What's costing us the most revenue?","Who needs intervention this week?","Store performance trends","Build a coaching plan"].map(function(q) {
             return <button key={q} onClick={function(){setInput(q);}}
-              style={{ padding:"4px 8px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#6B6F78",fontSize:9,cursor:"pointer" }}>{q}</button>;
+              style={{ padding:"4px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-muted)",fontSize:9,cursor:"pointer" }}>{q}</button>;
           })}
         </div>
       </div>

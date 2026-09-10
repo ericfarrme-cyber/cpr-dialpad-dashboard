@@ -8,10 +8,10 @@ var STORE_KEYS = Object.keys(STORES);
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
+      <div style={{ color:"var(--text-primary)",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>{sub}</div>}
     </div>
   );
 }
@@ -21,8 +21,8 @@ function SectionHeader({ title, subtitle, icon }) {
     <div style={{ marginBottom:16,display:"flex",alignItems:"center",gap:10 }}>
       <span style={{ fontSize:20 }}>{icon}</span>
       <div>
-        <h2 style={{ color:"#F0F1F3",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
-        {subtitle && <p style={{ color:"#6B6F78",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
+        <h2 style={{ color:"var(--text-primary)",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
+        {subtitle && <p style={{ color:"var(--text-muted)",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
       </div>
     </div>
   );
@@ -225,20 +225,20 @@ export default function EmployeeTab({ storeFilter }) {
     { id: "roster", label: "Manage Roster", icon: "\ud83d\udcdd" },
   ];
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading employee data...</div>;
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading employee data...</div>;
 
   return (
     <div>
       {/* Sub-nav */}
       <div style={{ display:"flex",gap:4,marginBottom:20 }}>
         {SUBTABS.map(function(v) {
-          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"var(--bg-card)",color:view===v.id?"var(--purple)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
         })}
       </div>
 
       {/* Action message */}
       {actionMsg && (
-        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:actionMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(actionMsg.type==="success"?"#4ADE8033":"#F8717133"),color:actionMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
           {actionMsg.text}
         </div>
       )}
@@ -247,14 +247,14 @@ export default function EmployeeTab({ storeFilter }) {
       {view === "profiles" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label="On Roster" value={roster.length} accent="#7B2FFF" sub={strayEmployees.length + " unmatched names"} />
-            <StatCard label="Avg Score" value={avgScore + " / 4"} accent={parseFloat(avgScore)>=3?"#4ADE80":parseFloat(avgScore)>=2?"#FBBF24":"#F87171"} />
-            <StatCard label="Total Audits" value={totalAudits} accent="#00D4FF" sub="last 30 days" />
-            <StatCard label="Schedule" value={scheduleConnected ? "Connected" : "Not Connected"} accent={scheduleConnected?"#4ADE80":"#FBBF24"} sub={scheduleConnected?"WhenIWork linked":"Set up in Schedule tab"} />
+            <StatCard label="On Roster" value={roster.length} accent="var(--purple)" sub={strayEmployees.length + " unmatched names"} />
+            <StatCard label="Avg Score" value={avgScore + " / 4"} accent={parseFloat(avgScore)>=3?"var(--green)":parseFloat(avgScore)>=2?"var(--yellow)":"var(--red)"} />
+            <StatCard label="Total Audits" value={totalAudits} accent="var(--cyan)" sub="last 30 days" />
+            <StatCard label="Schedule" value={scheduleConnected ? "Connected" : "Not Connected"} accent={scheduleConnected?"var(--green)":"var(--yellow)"} sub={scheduleConnected?"WhenIWork linked":"Set up in Schedule tab"} />
           </div>
 
           {chartData.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
               <SectionHeader title="Audit Score Leaderboard" subtitle="Top performers by average score" icon={"\ud83c\udfc6"} />
               <div style={{ height:250 }}>
                 <ResponsiveContainer width="100%" height="100%">
@@ -262,7 +262,7 @@ export default function EmployeeTab({ storeFilter }) {
                     <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
                     <XAxis type="number" domain={[0, 4]} tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} />
                     <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:12}} width={100} tickLine={false} axisLine={false} />
-                    <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} labelStyle={{color:"#8B8F98"}} />
+                    <Tooltip contentStyle={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8}} labelStyle={{color:"var(--text-secondary)"}} />
                     <Bar dataKey="score" name="Avg Score" fill="#7B2FFF" radius={[0,6,6,0]} barSize={16} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -272,39 +272,39 @@ export default function EmployeeTab({ storeFilter }) {
 
           {/* ─── STRAY NAMES ─── */}
           {strayEmployees.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
               <SectionHeader title={"Unmatched Names (" + strayEmployees.length + ")"} subtitle="These appear in audits but aren't linked to a roster employee" icon={"\u26a0\ufe0f"} />
               <div style={{ maxHeight:400,overflowY:"auto" }}>
                 {strayEmployees.map(function(emp) {
                   var empName = emp.name || emp.employee;
                   var store = STORES[emp.store];
-                  var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
+                  var sc = (emp.avg_score||0)>=3?"var(--green)":(emp.avg_score||0)>=2?"var(--yellow)":"var(--red)";
                   var isLinking = linkingName === empName + "__" + emp.store;
                   var sameStoreRoster = roster.filter(function(r){ return r.store === emp.store; });
                   var otherStoreRoster = roster.filter(function(r){ return r.store !== emp.store; });
 
                   return (
-                    <div key={empName+"__"+emp.store} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35" }}>
+                    <div key={empName+"__"+emp.store} style={{ padding:"14px 0",borderBottom:"1px solid var(--border)" }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                         <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                          <div style={{ width:32,height:32,borderRadius:8,background:"#FBBF2422",display:"flex",alignItems:"center",justifyContent:"center",color:"#FBBF24",fontWeight:800,fontSize:13 }}>?</div>
+                          <div style={{ width:32,height:32,borderRadius:8,background:"#FBBF2422",display:"flex",alignItems:"center",justifyContent:"center",color:"var(--yellow)",fontWeight:800,fontSize:13 }}>?</div>
                           <div>
-                            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>"{empName}"</div>
+                            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>"{empName}"</div>
                             <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                              <span style={{ width:6,height:6,borderRadius:"50%",background:store?store.color:"#8B8F98" }}></span>
-                              <span style={{ color:"#6B6F78",fontSize:11 }}>{store?store.name.replace("CPR ",""):emp.store}</span>
-                              <span style={{ color:"#8B8F98",fontSize:11 }}>{(emp.total_audits||0) + " audits"}</span>
+                              <span style={{ width:6,height:6,borderRadius:"50%",background:store?store.color:"var(--text-secondary)" }}></span>
+                              <span style={{ color:"var(--text-muted)",fontSize:11 }}>{store?store.name.replace("CPR ",""):emp.store}</span>
+                              <span style={{ color:"var(--text-secondary)",fontSize:11 }}>{(emp.total_audits||0) + " audits"}</span>
                               <span style={{ color:sc,fontSize:11,fontWeight:700 }}>{(emp.avg_score||0).toFixed(2) + " avg"}</span>
                             </div>
                           </div>
                         </div>
                         <div style={{ display:"flex",gap:6 }}>
                           <button onClick={function(e){e.stopPropagation(); setLinkingName(isLinking ? null : empName+"__"+emp.store);}}
-                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinking?"#7B2FFF22":"transparent",color:"#7B2FFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:isLinking?"#7B2FFF22":"transparent",color:"var(--purple)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                             {isLinking ? "Cancel" : "Link to Employee"}
                           </button>
                           <button onClick={function(e){e.stopPropagation(); deleteAudits(empName, emp.store);}}
-                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600 }}>
+                            style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer",fontWeight:600 }}>
                             Delete Audits
                           </button>
                         </div>
@@ -312,20 +312,20 @@ export default function EmployeeTab({ storeFilter }) {
 
                       {/* Link dropdown */}
                       {isLinking && (
-                        <div style={{ marginTop:10,padding:12,background:"#12141A",borderRadius:8,border:"1px solid #7B2FFF22" }}>
-                          <div style={{ color:"#8B8F98",fontSize:11,marginBottom:8 }}>Link "{empName}" as an alias of:</div>
+                        <div style={{ marginTop:10,padding:12,background:"var(--bg-card-inner)",borderRadius:8,border:"1px solid #7B2FFF22" }}>
+                          <div style={{ color:"var(--text-secondary)",fontSize:11,marginBottom:8 }}>Link "{empName}" as an alias of:</div>
                           {sameStoreRoster.length > 0 && (
                             <div>
-                              <div style={{ color:"#6B6F78",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Same Store</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Same Store</div>
                               <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                                 {sameStoreRoster.map(function(r) {
                                   var st = STORES[r.store];
                                   return (
                                     <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
-                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
-                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"var(--text-secondary)" }}></span>
                                       <span style={{ fontWeight:700 }}>{r.name}</span>
-                                      <span style={{ color:"#6B6F78",fontSize:10 }}>{r.role}</span>
+                                      <span style={{ color:"var(--text-muted)",fontSize:10 }}>{r.role}</span>
                                     </button>
                                   );
                                 })}
@@ -334,16 +334,16 @@ export default function EmployeeTab({ storeFilter }) {
                           )}
                           {otherStoreRoster.length > 0 && (
                             <div style={{ marginTop:sameStoreRoster.length>0?10:0 }}>
-                              <div style={{ color:"#6B6F78",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Other Stores</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10,marginBottom:6,textTransform:"uppercase" }}>Other Stores</div>
                               <div style={{ display:"flex",gap:6,flexWrap:"wrap" }}>
                                 {otherStoreRoster.map(function(r) {
                                   var st = STORES[r.store];
                                   return (
                                     <button key={r.id} onClick={function(e){e.stopPropagation(); linkToEmployee(empName, emp.store, r.id, r);}}
-                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #7B2FFF22",background:"#1A1D23",color:"#F0F1F3",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
-                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
+                                      style={{ padding:"6px 14px",borderRadius:6,border:"1px solid #7B2FFF22",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                                      <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"var(--text-secondary)" }}></span>
                                       <span style={{ fontWeight:700 }}>{r.name}</span>
-                                      <span style={{ color:st?st.color:"#6B6F78",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
+                                      <span style={{ color:st?st.color:"var(--text-muted)",fontSize:10 }}>{st?st.name.replace("CPR ",""):r.store}</span>
                                     </button>
                                   );
                                 })}
@@ -351,15 +351,15 @@ export default function EmployeeTab({ storeFilter }) {
                             </div>
                           )}
                           {sameStoreRoster.length === 0 && otherStoreRoster.length === 0 && (
-                            <div style={{ color:"#6B6F78",fontSize:12 }}>No roster employees yet. Add one in Manage Roster first.</div>
+                            <div style={{ color:"var(--text-muted)",fontSize:12 }}>No roster employees yet. Add one in Manage Roster first.</div>
                           )}
-                          <div style={{ marginTop:8,borderTop:"1px solid #2A2D35",paddingTop:8 }}>
+                          <div style={{ marginTop:8,borderTop:"1px solid var(--border)",paddingTop:8 }}>
                             <button onClick={function(e){
                               e.stopPropagation();
                               setView("roster");
                               setRosterForm(function(p){ return Object.assign({}, p, { name: empName, store: emp.store, aliases: "" }); });
                               setLinkingName(null);
-                            }} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:11,cursor:"pointer" }}>
+                            }} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"var(--green)",fontSize:11,cursor:"pointer" }}>
                               + Create new roster entry for "{empName}"
                             </button>
                           </div>
@@ -378,29 +378,29 @@ export default function EmployeeTab({ storeFilter }) {
             {rosterEmployees.map(function(emp) {
               var empName = emp.name || emp.employee;
               var store = STORES[emp.store];
-              var sc = (emp.avg_score||0)>=3?"#4ADE80":(emp.avg_score||0)>=2?"#FBBF24":"#F87171";
+              var sc = (emp.avg_score||0)>=3?"var(--green)":(emp.avg_score||0)>=2?"var(--yellow)":"var(--red)";
               var isExpanded = expandedEmp === empName;
               var audits = emp.total_audits || emp.total_calls || 0;
 
               return (
                 <div key={empName+"__"+emp.store} onClick={function(){setExpandedEmp(isExpanded?null:empName);}}
-                  style={{ background:"#1A1D23",borderRadius:12,padding:20,cursor:"pointer",border:"1px solid "+(isExpanded?"#7B2FFF33":"#1E2028"),transition:"border-color 0.2s" }}>
+                  style={{ background:"var(--bg-card)",borderRadius:12,padding:20,cursor:"pointer",border:"1px solid "+(isExpanded?"#7B2FFF33":"var(--border-light)"),transition:"border-color 0.2s" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                      <div style={{ width:40,height:40,borderRadius:10,background:(store?store.color:"#7B2FFF")+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store?store.color:"#7B2FFF",fontWeight:800,fontSize:16 }}>
+                      <div style={{ width:40,height:40,borderRadius:10,background:(store?store.color:"var(--purple)")+"22",display:"flex",alignItems:"center",justifyContent:"center",color:store?store.color:"var(--purple)",fontWeight:800,fontSize:16 }}>
                         {empName.charAt(0)}
                       </div>
                       <div>
-                        <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700 }}>{empName}</div>
+                        <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700 }}>{empName}</div>
                         <div style={{ display:"flex",alignItems:"center",gap:6,marginTop:2 }}>
                           {(emp.stores || [emp.store]).map(function(s,si) {
                             var st = STORES[s];
                             return <span key={si} style={{ display:"inline-flex",alignItems:"center",gap:4 }}>
-                              <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"#8B8F98" }}></span>
-                              <span style={{ color:st?st.color:"#8B8F98",fontSize:11 }}>{st?st.name.replace("CPR ",""):s}</span>
+                              <span style={{ width:6,height:6,borderRadius:"50%",background:st?st.color:"var(--text-secondary)" }}></span>
+                              <span style={{ color:st?st.color:"var(--text-secondary)",fontSize:11 }}>{st?st.name.replace("CPR ",""):s}</span>
                             </span>;
                           })}
-                          <span style={{ color:"#6B6F78",fontSize:11 }}>{emp.role || "—"}</span>
+                          <span style={{ color:"var(--text-muted)",fontSize:11 }}>{emp.role || "—"}</span>
                         </div>
                       </div>
                     </div>
@@ -412,40 +412,40 @@ export default function EmployeeTab({ storeFilter }) {
                   </div>
 
                   <div style={{ display:"grid",gridTemplateColumns:emp.week_hours_scheduled!==null?"1fr 1fr 1fr 1fr":"1fr 1fr 1fr",gap:8 }}>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
-                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Audits</div>
-                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{audits}</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
+                      <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Audits</div>
+                      <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>{audits}</div>
                     </div>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
-                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Opp</div>
-                      <div style={{ color:"#7B2FFF",fontSize:16,fontWeight:700 }}>{emp.opportunity_calls||0}</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
+                      <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Opp</div>
+                      <div style={{ color:"var(--purple)",fontSize:16,fontWeight:700 }}>{emp.opportunity_calls||0}</div>
                     </div>
-                    <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
-                      <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Current</div>
-                      <div style={{ color:"#FBBF24",fontSize:16,fontWeight:700 }}>{emp.current_calls||0}</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
+                      <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Current</div>
+                      <div style={{ color:"var(--yellow)",fontSize:16,fontWeight:700 }}>{emp.current_calls||0}</div>
                     </div>
                     {emp.week_hours_scheduled !== null && (
-                      <div style={{ background:"#12141A",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
-                        <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Week Hrs</div>
-                        <div style={{ color:"#4ADE80",fontSize:16,fontWeight:700 }}>{emp.week_hours_scheduled}h</div>
+                      <div style={{ background:"var(--bg-card-inner)",borderRadius:8,padding:"8px 10px",textAlign:"center" }}>
+                        <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Week Hrs</div>
+                        <div style={{ color:"var(--green)",fontSize:16,fontWeight:700 }}>{emp.week_hours_scheduled}h</div>
                       </div>
                     )}
                   </div>
 
                   {isExpanded && emp.recent_audits && emp.recent_audits.length > 0 && (
-                    <div style={{ marginTop:14,paddingTop:14,borderTop:"1px solid #2A2D35" }}>
-                      <div style={{ color:"#8B8F98",fontSize:10,marginBottom:8,textTransform:"uppercase" }}>Recent Audits</div>
+                    <div style={{ marginTop:14,paddingTop:14,borderTop:"1px solid var(--border)" }}>
+                      <div style={{ color:"var(--text-secondary)",fontSize:10,marginBottom:8,textTransform:"uppercase" }}>Recent Audits</div>
                       {emp.recent_audits.slice(0,5).map(function(a, j) {
-                        var asc = parseFloat(a.score||0)>=3?"#4ADE80":parseFloat(a.score||0)>=2?"#FBBF24":"#F87171";
+                        var asc = parseFloat(a.score||0)>=3?"var(--green)":parseFloat(a.score||0)>=2?"var(--yellow)":"var(--red)";
                         var d = new Date(a.created_at || a.date || a.date_started);
                         return (
-                          <div key={j} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:j<4?"1px solid #1E2028":"none" }}>
+                          <div key={j} style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:j<4?"1px solid var(--border-light)":"none" }}>
                             <div>
-                              <div style={{ color:"#C8CAD0",fontSize:12 }}>{a.inquiry || "—"}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
+                              <div style={{ color:"var(--text-body)",fontSize:12 }}>{a.inquiry || "—"}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{d.toLocaleDateString()+" "+d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}</div>
                             </div>
                             <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,background:(a.call_type==="opportunity"?"#7B2FFF":"#FBBF24")+"18",color:a.call_type==="opportunity"?"#7B2FFF":"#FBBF24" }}>
+                              <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,background:(a.call_type==="opportunity"?"var(--purple)":"var(--yellow)")+"18",color:a.call_type==="opportunity"?"var(--purple)":"var(--yellow)" }}>
                                 {a.call_type==="opportunity"?"Opp":"Curr"}
                               </span>
                               <span style={{ color:asc,fontWeight:700,fontSize:13 }}>{parseFloat(a.score||0).toFixed(2)}</span>
@@ -458,12 +458,12 @@ export default function EmployeeTab({ storeFilter }) {
 
                   {isExpanded && emp.next_shift && (
                     <div style={{ marginTop:10,padding:"8px 12px",borderRadius:8,background:"#4ADE8012",border:"1px solid #4ADE8022" }}>
-                      <div style={{ color:"#4ADE80",fontSize:11,fontWeight:600 }}>Next Shift: {new Date(emp.next_shift).toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
+                      <div style={{ color:"var(--green)",fontSize:11,fontWeight:600 }}>Next Shift: {new Date(emp.next_shift).toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}</div>
                     </div>
                   )}
 
                   {audits === 0 && !isExpanded && (
-                    <div style={{ color:"#6B6F78",fontSize:11,marginTop:8,fontStyle:"italic" }}>No audits yet</div>
+                    <div style={{ color:"var(--text-muted)",fontSize:11,marginTop:8,fontStyle:"italic" }}>No audits yet</div>
                   )}
                 </div>
               );
@@ -471,10 +471,10 @@ export default function EmployeeTab({ storeFilter }) {
           </div>
 
           {rosterEmployees.length === 0 && strayEmployees.length === 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center" }}>
               <div style={{ fontSize:32,marginBottom:12 }}>{"\ud83d\udc65"}</div>
-              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>No employees found</div>
-              <div style={{ color:"#6B6F78",fontSize:13 }}>Switch to Manage Roster to add your team, then run audits to see scores here.</div>
+              <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:8 }}>No employees found</div>
+              <div style={{ color:"var(--text-muted)",fontSize:13 }}>Switch to Manage Roster to add your team, then run audits to see scores here.</div>
             </div>
           )}
         </div>
@@ -485,46 +485,46 @@ export default function EmployeeTab({ storeFilter }) {
         <div>
           <SectionHeader title="Employee Roster" subtitle="Add your real employee names so transcript aliases get consolidated" icon={"\ud83d\udcdd"} />
 
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Add Employee</div>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
+            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Add Employee</div>
             <div style={{ display:"flex",gap:10,flexWrap:"wrap",alignItems:"flex-end" }}>
               <div>
-                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Full Name</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:10,marginBottom:4 }}>Full Name</div>
                 <input value={rosterForm.name} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{name:e.target.value});});}}
-                  placeholder="e.g. Mahmoud" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:160,outline:"none" }} />
+                  placeholder="e.g. Mahmoud" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:13,width:160,outline:"none" }} />
               </div>
               <div>
-                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Store</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:10,marginBottom:4 }}>Store</div>
                 <select value={rosterForm.store} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{store:e.target.value});});}}
-                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>
+                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:13,outline:"none" }}>
                   {STORE_KEYS.map(function(k){return <option key={k} value={k}>{STORES[k].name}</option>;})}
                 </select>
               </div>
               <div>
-                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Aliases (comma-separated)</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:10,marginBottom:4 }}>Aliases (comma-separated)</div>
                 <input value={rosterForm.aliases} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{aliases:e.target.value});});}}
-                  placeholder="e.g. Mau, Ma, Mah" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,width:220,outline:"none" }} />
+                  placeholder="e.g. Mau, Ma, Mah" style={{ padding:"8px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:13,width:220,outline:"none" }} />
               </div>
               <div>
-                <div style={{ color:"#8B8F98",fontSize:10,marginBottom:4 }}>Role</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:10,marginBottom:4 }}>Role</div>
                 <select value={rosterForm.role} onChange={function(e){setRosterForm(function(p){return Object.assign({},p,{role:e.target.value});});}}
-                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,outline:"none" }}>
+                  style={{ padding:"8px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:13,outline:"none" }}>
                   {["Manager","Lead Tech","Technician","Front Desk"].map(function(r){return <option key={r} value={r}>{r}</option>;})}
                 </select>
               </div>
-              <button onClick={addEmployee} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
+              <button onClick={addEmployee} style={{ padding:"8px 18px",borderRadius:6,border:"none",cursor:"pointer",background:"var(--purple)",color:"#FFF",fontSize:12,fontWeight:700,height:36 }}>Add</button>
             </div>
           </div>
 
           {unmatched.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
-              <div style={{ color:"#FBBF24",fontSize:14,fontWeight:700,marginBottom:8 }}>Unmatched Names ({unmatched.length})</div>
-              <div style={{ color:"#6B6F78",fontSize:12,marginBottom:12 }}>These transcript names have no roster match. Click to add as alias.</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #FBBF2433" }}>
+              <div style={{ color:"var(--yellow)",fontSize:14,fontWeight:700,marginBottom:8 }}>Unmatched Names ({unmatched.length})</div>
+              <div style={{ color:"var(--text-muted)",fontSize:12,marginBottom:12 }}>These transcript names have no roster match. Click to add as alias.</div>
               <div style={{ display:"flex",gap:8,flexWrap:"wrap" }}>
                 {unmatched.map(function(u, i) {
                   return <button key={i} onClick={function(){setRosterForm(function(p){return Object.assign({},p,{aliases:p.aliases?p.aliases+", "+u.name:u.name,store:u.store});});}}
-                    style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#C8CAD0",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
-                    <span style={{ width:7,height:7,borderRadius:"50%",background:STORES[u.store]?STORES[u.store].color:"#8B8F98" }}></span>
+                    style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-body)",fontSize:12,cursor:"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                    <span style={{ width:7,height:7,borderRadius:"50%",background:STORES[u.store]?STORES[u.store].color:"var(--text-secondary)" }}></span>
                     {'"'+u.name+'" ('+u.count+'x, '+(STORES[u.store]?STORES[u.store].name.replace("CPR ",""):u.store)+')'}
                   </button>;
                 })}
@@ -532,14 +532,14 @@ export default function EmployeeTab({ storeFilter }) {
             </div>
           )}
 
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Current Roster ({roster.length} employees)</div>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
+            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Current Roster ({roster.length} employees)</div>
             {roster.length > 0 ? (
               <table style={{ width:"100%",borderCollapse:"collapse" }}>
                 <thead>
-                  <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                  <tr style={{ borderBottom:"1px solid var(--border)" }}>
                     {["Name","Store","Role","Aliases",""].map(function(h,i){
-                      return <th key={i} style={{ textAlign:"left",padding:"8px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
+                      return <th key={i} style={{ textAlign:"left",padding:"8px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                     })}
                   </tr>
                 </thead>
@@ -549,62 +549,62 @@ export default function EmployeeTab({ storeFilter }) {
                     var isEditing = editingEmpId === emp.id;
                     if (isEditing) {
                       return (
-                        <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028",background:"#12141A" }}>
+                        <tr key={emp.id} style={{ borderBottom:"1px solid var(--border-light)",background:"var(--bg-card-inner)" }}>
                           <td style={{ padding:"8px 12px" }}>
                             <input value={editForm.name} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{name:e.target.value});});}}
-                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#0F1117",color:"#F0F1F3",fontSize:13,fontWeight:700,width:"100%",outline:"none" }} />
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"var(--bg-page)",color:"var(--text-primary)",fontSize:13,fontWeight:700,width:"100%",outline:"none" }} />
                           </td>
                           <td style={{ padding:"8px 12px" }}>
                             <select value={editForm.store} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{store:e.target.value});});}}
-                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,outline:"none" }}>
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-page)",color:"var(--text-primary)",fontSize:12,outline:"none" }}>
                               {STORE_KEYS.map(function(k){return <option key={k} value={k}>{STORES[k].name}</option>;})}
                             </select>
                           </td>
                           <td style={{ padding:"8px 12px" }}>
                             <select value={editForm.role} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{role:e.target.value});});}}
-                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,outline:"none" }}>
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-page)",color:"var(--text-primary)",fontSize:12,outline:"none" }}>
                               {["Manager","Lead Tech","Technician","Front Desk"].map(function(r){return <option key={r} value={r}>{r}</option>;})}
                             </select>
                           </td>
                           <td style={{ padding:"8px 12px" }}>
                             <input value={editForm.aliases} onChange={function(e){setEditForm(function(p){return Object.assign({},p,{aliases:e.target.value});});}}
                               placeholder="Comma-separated aliases"
-                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid #2A2D35",background:"#0F1117",color:"#F0F1F3",fontSize:12,width:"100%",outline:"none" }} />
+                              style={{ padding:"6px 10px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-page)",color:"var(--text-primary)",fontSize:12,width:"100%",outline:"none" }} />
                           </td>
                           <td style={{ padding:"8px 12px" }}>
                             <div style={{ display:"flex",gap:4 }}>
                               <button onClick={updateEmployee}
-                                style={{ padding:"4px 10px",borderRadius:4,border:"none",background:"#4ADE80",color:"#000",fontSize:10,cursor:"pointer",fontWeight:700 }}>Save</button>
+                                style={{ padding:"4px 10px",borderRadius:4,border:"none",background:"var(--green)",color:"#000",fontSize:10,cursor:"pointer",fontWeight:700 }}>Save</button>
                               <button onClick={function(){setEditingEmpId(null);}}
-                                style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:10,cursor:"pointer" }}>Cancel</button>
+                                style={{ padding:"4px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>Cancel</button>
                             </div>
                           </td>
                         </tr>
                       );
                     }
                     return (
-                      <tr key={emp.id} style={{ borderBottom:"1px solid #1E2028" }}>
-                        <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</td>
+                      <tr key={emp.id} style={{ borderBottom:"1px solid var(--border-light)" }}>
+                        <td style={{ padding:"12px",color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{emp.name}</td>
                         <td style={{ padding:"12px" }}>
-                          <span style={{ display:"inline-flex",alignItems:"center",gap:6,color:store?store.color:"#8B8F98",fontSize:12 }}>
-                            <span style={{ width:7,height:7,borderRadius:"50%",background:store?store.color:"#8B8F98" }}></span>
+                          <span style={{ display:"inline-flex",alignItems:"center",gap:6,color:store?store.color:"var(--text-secondary)",fontSize:12 }}>
+                            <span style={{ width:7,height:7,borderRadius:"50%",background:store?store.color:"var(--text-secondary)" }}></span>
                             {store?store.name.replace("CPR ",""):emp.store}
                           </span>
                         </td>
-                        <td style={{ padding:"12px",color:"#C8CAD0",fontSize:12 }}>{emp.role}</td>
+                        <td style={{ padding:"12px",color:"var(--text-body)",fontSize:12 }}>{emp.role}</td>
                         <td style={{ padding:"12px" }}>
                           <div style={{ display:"flex",gap:4,flexWrap:"wrap" }}>
                             {(emp.aliases||[]).map(function(a,j){
-                              return <span key={j} style={{ padding:"2px 8px",borderRadius:4,background:"#2A2D35",color:"#8B8F98",fontSize:11 }}>{a}</span>;
+                              return <span key={j} style={{ padding:"2px 8px",borderRadius:4,background:"var(--border)",color:"var(--text-secondary)",fontSize:11 }}>{a}</span>;
                             })}
                           </div>
                         </td>
                         <td style={{ padding:"12px" }}>
                           <div style={{ display:"flex",gap:4 }}>
                             <button onClick={function(){startEdit(emp);}}
-                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:10,cursor:"pointer" }}>Edit</button>
+                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #7B2FFF33",background:"transparent",color:"var(--purple)",fontSize:10,cursor:"pointer" }}>Edit</button>
                             <button onClick={function(){deleteEmployee(emp.id);}}
-                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Remove</button>
+                              style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:10,cursor:"pointer" }}>Remove</button>
                           </div>
                         </td>
                       </tr>
@@ -613,7 +613,7 @@ export default function EmployeeTab({ storeFilter }) {
                 </tbody>
               </table>
             ) : (
-              <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>
+              <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>
                 No employees added yet. Add your team above — the system will automatically match transcript names to real names.
               </div>
             )}

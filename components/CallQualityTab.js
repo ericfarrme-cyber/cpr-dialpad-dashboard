@@ -12,9 +12,9 @@ import { STORES } from "@/lib/constants";
 // THIS DOES NOT AFFECT EMPLOYEE SCORECARDS. Read-only view of existing data.
 // ─────────────────────────────────────────────────────────────────
 
-var card = { background: "#0F1117", borderRadius: 12, padding: 20, border: "1px solid #1E2028" };
-var cardInner = { background: "#12141A", borderRadius: 8, padding: 14 };
-var btnBase = { padding: "6px 12px", borderRadius: 6, border: "1px solid #2A2D36", background: "transparent", color: "#F0F1F3", fontSize: 11, fontWeight: 600, cursor: "pointer" };
+var card = { background: "var(--bg-page)", borderRadius: 12, padding: 20, border: "1px solid var(--border-light)" };
+var cardInner = { background: "var(--bg-card-inner)", borderRadius: 8, padding: 14 };
+var btnBase = { padding: "6px 12px", borderRadius: 6, border: "1px solid #2A2D36", background: "transparent", color: "var(--text-primary)", fontSize: 11, fontWeight: 600, cursor: "pointer" };
 
 export default function CallQualityTab() {
   var [audits, setAudits] = useState([]);
@@ -101,37 +101,37 @@ export default function CallQualityTab() {
   }
 
   return (
-    <div style={{ padding: 24, color: "#F0F1F3" }}>
+    <div style={{ padding: 24, color: "var(--text-primary)" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, gap: 12, flexWrap: "wrap" }}>
         <div>
           <div style={{ fontSize: 22, fontWeight: 800 }}>{"\uD83C\uDFA7"} Call Quality Insights</div>
-          <div style={{ color: "#8B8F98", fontSize: 12, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, marginTop: 4, maxWidth: 720, lineHeight: 1.5 }}>
             AI-graded tone, clarity, and empathy scores for each call.
-            <strong style={{ color: "#FBBF24" }}> Calibration mode</strong> — these scores do NOT affect employee scorecards or tier rankings.
+            <strong style={{ color: "var(--yellow)" }}> Calibration mode</strong> — these scores do NOT affect employee scorecards or tier rankings.
             Use this view to sanity-check the AI's grading against actual recordings before we decide whether to fold them into scoring.
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <select value={storeFilter} onChange={function(e) { setStoreFilter(e.target.value); }}
-            style={{ padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#F0F1F3", border: "1px solid #2A2D36", fontSize: 12 }}>
+            style={{ padding: "6px 12px", borderRadius: 6, background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid #2A2D36", fontSize: 12 }}>
             <option value="all">All Stores</option>
             {Object.keys(STORES).map(function(k) { return <option key={k} value={k}>{STORES[k].name}</option>; })}
           </select>
           <select value={employeeFilter} onChange={function(e) { setEmployeeFilter(e.target.value); }}
-            style={{ padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#F0F1F3", border: "1px solid #2A2D36", fontSize: 12 }}>
+            style={{ padding: "6px 12px", borderRadius: 6, background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid #2A2D36", fontSize: 12 }}>
             <option value="all">All Employees</option>
             {employeeOptions.map(function(n) { return <option key={n} value={n}>{n}</option>; })}
           </select>
           <button onClick={function() { setShowOnlyGraded(!showOnlyGraded); }}
-            style={Object.assign({}, btnBase, showOnlyGraded ? { background: "#7B2FFF22", color: "#7B2FFF", borderColor: "#7B2FFF55" } : {})}>
+            style={Object.assign({}, btnBase, showOnlyGraded ? { background: "#7B2FFF22", color: "var(--purple)", borderColor: "#7B2FFF55" } : {})}>
             {showOnlyGraded ? "\u2713" : "\u00B7"} Graded only
           </button>
         </div>
       </div>
 
       {error && (
-        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid #F87171", marginBottom: 16, color: "#F87171", fontSize: 12 })}>
+        <div style={Object.assign({}, cardInner, { borderLeft: "3px solid var(--red)", marginBottom: 16, color: "var(--red)", fontSize: 12 })}>
           {"\u2717"} {error}
         </div>
       )}
@@ -142,15 +142,15 @@ export default function CallQualityTab() {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 700 }}>{"\uD83D\uDCCA"} Distribution Across {stats.count} Graded Call{stats.count === 1 ? "" : "s"}</div>
-              <div style={{ fontSize: 11, color: "#8B8F98", marginTop: 2 }}>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 2 }}>
                 If everything is clustered at 3 or 4, the AI may be hedging — in that case we tighten the prompt.
               </div>
             </div>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
-            <DimensionCard label="Tone" avg={stats.tone_avg} dist={stats.tone_dist} color="#FF2D95" />
-            <DimensionCard label="Clarity" avg={stats.clarity_avg} dist={stats.clarity_dist} color="#00D4FF" />
-            <DimensionCard label="Empathy" avg={stats.empathy_avg} dist={stats.empathy_dist} color="#7B2FFF" />
+            <DimensionCard label="Tone" avg={stats.tone_avg} dist={stats.tone_dist} color="var(--pink)" />
+            <DimensionCard label="Clarity" avg={stats.clarity_avg} dist={stats.clarity_dist} color="var(--cyan)" />
+            <DimensionCard label="Empathy" avg={stats.empathy_avg} dist={stats.empathy_dist} color="var(--purple)" />
           </div>
         </div>
       )}
@@ -160,7 +160,7 @@ export default function CallQualityTab() {
         <div style={Object.assign({}, card, { textAlign: "center", padding: 60 })}>
           <div style={{ fontSize: 40, marginBottom: 8 }}>{"\u23F3"}</div>
           <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>No graded calls yet</div>
-          <div style={{ color: "#8B8F98", fontSize: 12, maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
+          <div style={{ color: "var(--text-secondary)", fontSize: 12, maxWidth: 500, marginLeft: "auto", marginRight: "auto" }}>
             {showOnlyGraded
               ? "No calls in the last 30 days have qualitative grades yet. Once new calls come in via the audit cron with the updated prompt, they'll appear here. You can toggle off \"Graded only\" to see all recent audits."
               : "No calls match the current filter."}
@@ -169,12 +169,12 @@ export default function CallQualityTab() {
       )}
 
       {loading ? (
-        <div style={{ color: "#8B8F98", textAlign: "center", padding: 40 }}>Loading audits…</div>
+        <div style={{ color: "var(--text-secondary)", textAlign: "center", padding: 40 }}>Loading audits…</div>
       ) : filteredAudits.length > 0 ? (
         <div style={Object.assign({}, card, { padding: 0, overflow: "hidden" })}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
             <thead>
-              <tr style={{ background: "#12141A" }}>
+              <tr style={{ background: "var(--bg-card-inner)" }}>
                 <Th sortable onClick={function() { toggleSort("date_started"); }} active={sortField === "date_started"} dir={sortDir}>Date</Th>
                 <Th>Employee</Th>
                 <Th>Store</Th>
@@ -194,63 +194,63 @@ export default function CallQualityTab() {
                   <>
                     <tr key={a.id} onClick={function() { setExpandedId(expanded ? null : a.id); }}
                       style={{
-                        borderTop: "1px solid #1E2028",
+                        borderTop: "1px solid var(--border-light)",
                         cursor: "pointer",
                         background: expanded ? "#7B2FFF08" : (a.excluded ? "#F8717108" : "transparent"),
                         opacity: a.excluded ? 0.6 : 1,
                       }}>
                       <Td muted>{fmtDate(a.date_started)}</Td>
                       <Td bold>{a.employee || "Unknown"}</Td>
-                      <Td>{store ? <span style={{ color: store.color, fontSize: 11, fontWeight: 600 }}>{store.name.replace("CPR ", "")}</span> : <span style={{ color: "#6B6F78" }}>—</span>}</Td>
+                      <Td>{store ? <span style={{ color: store.color, fontSize: 11, fontWeight: 600 }}>{store.name.replace("CPR ", "")}</span> : <span style={{ color: "var(--text-muted)" }}>—</span>}</Td>
                       <Td>
-                        {a.call_type === "opportunity" && <Tag color="#00D4FF">Opportunity</Tag>}
-                        {a.call_type === "current_customer" && <Tag color="#7B2FFF">Current</Tag>}
-                        {a.call_type === "non_scorable" && <Tag color="#6B6F78">Non-scorable</Tag>}
+                        {a.call_type === "opportunity" && <Tag color="var(--cyan)">Opportunity</Tag>}
+                        {a.call_type === "current_customer" && <Tag color="var(--purple)">Current</Tag>}
+                        {a.call_type === "non_scorable" && <Tag color="var(--text-muted)">Non-scorable</Tag>}
                       </Td>
-                      <Td align="right" muted>{a.max_score > 0 ? <span style={{ color: a.score / a.max_score >= 0.75 ? "#4ADE80" : a.score / a.max_score >= 0.5 ? "#FBBF24" : "#F87171", fontWeight: 700 }}>{a.score}/{a.max_score}</span> : "—"}</Td>
+                      <Td align="right" muted>{a.max_score > 0 ? <span style={{ color: a.score / a.max_score >= 0.75 ? "var(--green)" : a.score / a.max_score >= 0.5 ? "var(--yellow)" : "var(--red)", fontWeight: 700 }}>{a.score}/{a.max_score}</span> : "—"}</Td>
                       <Td align="right"><QualitativePill score={a.tone_score} /></Td>
                       <Td align="right"><QualitativePill score={a.clarity_score} /></Td>
                       <Td align="right"><QualitativePill score={a.empathy_score} /></Td>
                       <Td muted style={{ maxWidth: 280 }}>
                         <div style={{ fontSize: 11, fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {a.qualitative_notes || (a.tone_score != null ? "—" : <span style={{ color: "#6B6F78" }}>not graded</span>)}
+                          {a.qualitative_notes || (a.tone_score != null ? "—" : <span style={{ color: "var(--text-muted)" }}>not graded</span>)}
                         </div>
                       </Td>
                     </tr>
                     {expanded && (
-                      <tr key={a.id + "-expand"} style={{ background: "#12141A" }}>
-                        <td colSpan={9} style={{ padding: "16px 18px", borderTop: "1px solid #1E2028" }}>
+                      <tr key={a.id + "-expand"} style={{ background: "var(--bg-card-inner)" }}>
+                        <td colSpan={9} style={{ padding: "16px 18px", borderTop: "1px solid var(--border-light)" }}>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 12 }}>
                             <div>
-                              <div style={{ fontSize: 10, color: "#6B6F78", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Inquiry</div>
-                              <div style={{ fontSize: 12, color: "#F0F1F3" }}>{a.inquiry || "—"}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Inquiry</div>
+                              <div style={{ fontSize: 12, color: "var(--text-primary)" }}>{a.inquiry || "—"}</div>
                             </div>
                             <div>
-                              <div style={{ fontSize: 10, color: "#6B6F78", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Outcome</div>
-                              <div style={{ fontSize: 12, color: "#F0F1F3" }}>{a.outcome || "—"}</div>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Outcome</div>
+                              <div style={{ fontSize: 12, color: "var(--text-primary)" }}>{a.outcome || "—"}</div>
                             </div>
                           </div>
                           {a.qualitative_notes && (
-                            <div style={Object.assign({}, cardInner, { borderLeft: "3px solid #FF2D95", marginBottom: 12 })}>
-                              <div style={{ fontSize: 10, color: "#FF2D95", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Qualitative observation</div>
-                              <div style={{ fontSize: 12, color: "#F0F1F3", fontStyle: "italic" }}>"{a.qualitative_notes}"</div>
+                            <div style={Object.assign({}, cardInner, { borderLeft: "3px solid var(--pink)", marginBottom: 12 })}>
+                              <div style={{ fontSize: 10, color: "var(--pink)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Qualitative observation</div>
+                              <div style={{ fontSize: 12, color: "var(--text-primary)", fontStyle: "italic" }}>"{a.qualitative_notes}"</div>
                             </div>
                           )}
                           {a.transcript_preview && (
                             <div>
-                              <div style={{ fontSize: 10, color: "#6B6F78", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Transcript preview</div>
-                              <div style={{ fontSize: 11, color: "#8B8F98", lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto", padding: 10, background: "#0F1117", borderRadius: 4 }}>
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>Transcript preview</div>
+                              <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5, whiteSpace: "pre-wrap", maxHeight: 200, overflowY: "auto", padding: 10, background: "var(--bg-page)", borderRadius: 4 }}>
                                 {a.transcript_preview}
                               </div>
                             </div>
                           )}
                           {a.confidence != null && (
-                            <div style={{ fontSize: 10, color: "#6B6F78", marginTop: 8, fontStyle: "italic" }}>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 8, fontStyle: "italic" }}>
                               AI confidence: {a.confidence}/100 · {a.confidence_reason || ""}
                             </div>
                           )}
                           {a.excluded && (
-                            <div style={{ fontSize: 10, color: "#F87171", marginTop: 4, fontStyle: "italic" }}>
+                            <div style={{ fontSize: 10, color: "var(--red)", marginTop: 4, fontStyle: "italic" }}>
                               Excluded from scoring: {a.exclude_reason || "no reason given"}
                             </div>
                           )}
@@ -267,7 +267,7 @@ export default function CallQualityTab() {
 
       {/* Footnote */}
       {filteredAudits.length > 0 && (
-        <div style={{ marginTop: 16, fontSize: 10, color: "#6B6F78", textAlign: "center", lineHeight: 1.6 }}>
+        <div style={{ marginTop: 16, fontSize: 10, color: "var(--text-muted)", textAlign: "center", lineHeight: 1.6 }}>
           <div>{"\u2014"} Click any row to expand and see the qualitative observation, transcript preview, and AI confidence.</div>
           <div>{"\u2014"} Tone / Clarity / Empathy are 1-5 scales. Pre-deployment audits will show as ungraded.</div>
         </div>
@@ -282,9 +282,9 @@ function Th(props) {
     <th onClick={props.onClick}
       style={{
         padding: "12px 14px", textAlign: props.align || "left",
-        fontSize: 10, color: props.highlight ? "#FF2D95" : (props.active ? "#7B2FFF" : "#8B8F98"),
+        fontSize: 10, color: props.highlight ? "var(--pink)" : (props.active ? "var(--purple)" : "var(--text-secondary)"),
         fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
-        borderBottom: "1px solid #1E2028", cursor: props.sortable ? "pointer" : "default", userSelect: "none",
+        borderBottom: "1px solid var(--border-light)", cursor: props.sortable ? "pointer" : "default", userSelect: "none",
       }}>
       {props.children}
       {props.active && <span style={{ marginLeft: 4 }}>{props.dir === "desc" ? "\u2193" : "\u2191"}</span>}
@@ -295,7 +295,7 @@ function Td(props) {
   return (
     <td style={Object.assign({
       padding: "10px 14px", textAlign: props.align || "left",
-      color: props.muted ? "#8B8F98" : "#F0F1F3", fontWeight: props.bold ? 700 : 400,
+      color: props.muted ? "var(--text-secondary)" : "var(--text-primary)", fontWeight: props.bold ? 700 : 400,
     }, props.style || {})}>
       {props.children}
     </td>
@@ -311,8 +311,8 @@ function Tag(props) {
   );
 }
 function QualitativePill(props) {
-  if (props.score == null) return <span style={{ color: "#6B6F78", fontSize: 11 }}>{"\u2014"}</span>;
-  var c = props.score >= 5 ? "#4ADE80" : props.score >= 4 ? "#A3E635" : props.score >= 3 ? "#FBBF24" : props.score >= 2 ? "#FB923C" : "#F87171";
+  if (props.score == null) return <span style={{ color: "var(--text-muted)", fontSize: 11 }}>{"\u2014"}</span>;
+  var c = props.score >= 5 ? "var(--green)" : props.score >= 4 ? "#A3E635" : props.score >= 3 ? "var(--yellow)" : props.score >= 2 ? "var(--orange)" : "var(--red)";
   return (
     <span style={{
       display: "inline-block", minWidth: 24, padding: "2px 8px", borderRadius: 10,
@@ -326,7 +326,7 @@ function DimensionCard(props) {
   return (
     <div style={Object.assign({}, cardInner, { borderTop: "3px solid " + props.color })}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-        <div style={{ fontSize: 11, color: "#8B8F98", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{props.label}</div>
+        <div style={{ fontSize: 11, color: "var(--text-secondary)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{props.label}</div>
         <div style={{ fontSize: 18, fontWeight: 800, color: props.color }}>{props.avg != null ? props.avg : "—"}</div>
       </div>
       {/* Distribution bars */}
@@ -342,12 +342,12 @@ function DimensionCard(props) {
                   background: props.color, opacity: 0.3 + (score * 0.14),
                   borderRadius: "2px 2px 0 0",
                 }} />
-              <div style={{ fontSize: 9, color: "#6B6F78" }}>{score}</div>
+              <div style={{ fontSize: 9, color: "var(--text-muted)" }}>{score}</div>
             </div>
           );
         })}
       </div>
-      <div style={{ fontSize: 9, color: "#6B6F78", marginTop: 4, textAlign: "center" }}>
+      <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4, textAlign: "center" }}>
         {dist[1] + dist[2]} low · {dist[3]} neutral · {dist[4] + dist[5]} high
       </div>
     </div>

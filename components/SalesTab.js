@@ -5,10 +5,10 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGri
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em",fontFamily:"'JetBrains Mono',monospace" }}>{label}</div>
+      <div style={{ color:"var(--text-primary)",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>{sub}</div>}
     </div>
   );
 }
@@ -18,8 +18,8 @@ function SectionHeader({ title, subtitle, icon }) {
     <div style={{ marginBottom:16,display:"flex",alignItems:"center",gap:10 }}>
       <span style={{ fontSize:20 }}>{icon}</span>
       <div>
-        <h2 style={{ color:"#F0F1F3",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
-        {subtitle && <p style={{ color:"#6B6F78",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
+        <h2 style={{ color:"var(--text-primary)",fontSize:17,fontWeight:700,margin:0 }}>{title}</h2>
+        {subtitle && <p style={{ color:"var(--text-muted)",fontSize:12,margin:"2px 0 0" }}>{subtitle}</p>}
       </div>
     </div>
   );
@@ -451,7 +451,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0 })
     : totals;
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading sales data...</div>;
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading sales data...</div>;
 
   var periodLabel = period ? new Date(parseInt(period.split("-")[0]), parseInt(period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "No data";
 
@@ -461,20 +461,20 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20,flexWrap:"wrap",gap:8 }}>
         <div style={{ display:"flex",gap:4 }}>
           {SUBTABS.map(function(v) {
-            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+            return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"var(--bg-card)",color:view===v.id?"var(--purple)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
           })}
         </div>
         {periods.length > 0 && (
           <div style={{ display:"flex",gap:6,alignItems:"center" }}>
             <select value={period} onChange={function(e) { setPeriod(e.target.value); loadData(e.target.value); }}
-              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:12 }}>
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:12 }}>
               {periods.map(function(p) {
                 var label = new Date(parseInt(p.split("-")[0]), parseInt(p.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
                 return <option key={p} value={p}>{label}</option>;
               })}
             </select>
             <button onClick={function(){ deletePeriod(period); }}
-              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
+              style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer",fontWeight:600,whiteSpace:"nowrap" }}>
               Delete Period
             </button>
           </div>
@@ -482,7 +482,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       </div>
 
       {uploadMsg && (
-        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:uploadMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(uploadMsg.type==="success"?"#4ADE8033":"#F8717133"),color:uploadMsg.type==="success"?"#4ADE80":"#F87171",fontSize:13 }}>
+        <div style={{ padding:"10px 16px",borderRadius:8,marginBottom:16,background:uploadMsg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(uploadMsg.type==="success"?"#4ADE8033":"#F8717133"),color:uploadMsg.type==="success"?"var(--green)":"var(--red)",fontSize:13 }}>
           {uploadMsg.text}
         </div>
       )}
@@ -491,17 +491,17 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       {view === "leaderboard" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label={isEmployeeView?"My Revenue":"Total Revenue"} value={fmt(displayTotals.revenue)} accent="#4ADE80" sub={displayTotals.tickets + " total tickets"} />
-            <StatCard label="Phone Repairs" value={displayTotals.phone_tickets} accent="#7B2FFF" sub={fmt(displayTotals.phone_total) + " revenue"} />
-            <StatCard label="Accessories" value={displayTotals.accy_count} accent="#00D4FF" />
-            <StatCard label={isEmployeeView?"My Commission":"Total Commissions"} value={fmt(displayTotals.commission)} accent="#FBBF24" sub={isEmployeeView?periodLabel:displayEmployees.length + " employees"} />
+            <StatCard label={isEmployeeView?"My Revenue":"Total Revenue"} value={fmt(displayTotals.revenue)} accent="var(--green)" sub={displayTotals.tickets + " total tickets"} />
+            <StatCard label="Phone Repairs" value={displayTotals.phone_tickets} accent="var(--purple)" sub={fmt(displayTotals.phone_total) + " revenue"} />
+            <StatCard label="Accessories" value={displayTotals.accy_count} accent="var(--cyan)" />
+            <StatCard label={isEmployeeView?"My Commission":"Total Commissions"} value={fmt(displayTotals.commission)} accent="var(--yellow)" sub={isEmployeeView?periodLabel:displayEmployees.length + " employees"} />
           </div>
 
           {displayEmployees.length > 0 ? (
             <div>
               {/* Revenue chart — hide for single employee */}
               {!isEmployeeView && (
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
                 <SectionHeader title="Revenue by Employee" subtitle={periodLabel} icon="\uD83D\uDCB0" />
                 <div style={{ height:Math.max(200, displayEmployees.length * 40) }}>
                   <ResponsiveContainer width="100%" height="100%">
@@ -509,7 +509,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                       <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
                       <XAxis type="number" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} tickFormatter={function(v){return "$"+v.toLocaleString();}} />
                       <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:11}} width={130} tickLine={false} axisLine={false} />
-                      <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} formatter={function(v){return "$"+parseFloat(v).toLocaleString(undefined,{minimumFractionDigits:2});}} />
+                      <Tooltip contentStyle={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8}} formatter={function(v){return "$"+parseFloat(v).toLocaleString(undefined,{minimumFractionDigits:2});}} />
                       <Bar dataKey="phone_total" name="Phone Repairs" fill="#7B2FFF" stackId="rev" barSize={18} />
                       <Bar dataKey="other_total" name="Other Repairs" fill="#00D4FF" stackId="rev" />
                       <Bar dataKey="accy_total" name="Accessories" fill="#4ADE80" stackId="rev" />
@@ -521,30 +521,30 @@ export default function SalesTab({ viewAs, viewEmployee }) {
               )}
 
               {/* Employee table */}
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start",flexWrap:"wrap",gap:12,marginBottom:12 }}>
                   <SectionHeader title={isEmployeeView?"My Performance Breakdown":"Employee Performance"} subtitle={periodLabel + " — MTD"} icon="\uD83C\uDFC6" />
                   {!isEmployeeView && (
                     <div>
-                      <div style={{ color:"#6B6F78",fontSize:9,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700,marginBottom:4,textAlign:"right" }}>Filter</div>
-                      <div style={{ display:"flex",gap:4,background:"#12141A",borderRadius:8,padding:4 }}>
+                      <div style={{ color:"var(--text-muted)",fontSize:9,textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:700,marginBottom:4,textAlign:"right" }}>Filter</div>
+                      <div style={{ display:"flex",gap:4,background:"var(--bg-card-inner)",borderRadius:8,padding:4 }}>
                         {[
-                          { v: "roster", l: "Real Employees", c: filterCounts.roster + filterCounts.unmatched, color: "#7B2FFF" },
-                          { v: "strays", l: "Strays Only", c: filterCounts.category + filterCounts.unmatched, color: "#FF2D95" },
-                          { v: "all", l: "Show All", c: filterCounts.all, color: "#8B8F98" },
+                          { v: "roster", l: "Real Employees", c: filterCounts.roster + filterCounts.unmatched, color: "var(--purple)" },
+                          { v: "strays", l: "Strays Only", c: filterCounts.category + filterCounts.unmatched, color: "var(--pink)" },
+                          { v: "all", l: "Show All", c: filterCounts.all, color: "var(--text-secondary)" },
                         ].map(function(opt) {
                           var active = empFilter === opt.v;
                           return (
                             <button key={opt.v} onClick={function(){setEmpFilter(opt.v);}} style={{
                               padding:"6px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
                               background: active ? opt.color : "transparent",
-                              color: active ? "#fff" : "#8B8F98",
+                              color: active ? "#fff" : "var(--text-secondary)",
                               display:"flex",alignItems:"center",gap:5,
                             }}>
                               <span>{opt.l}</span>
                               <span style={{
-                                background: active ? "rgba(255,255,255,0.25)" : "#1A1D23",
-                                color: active ? "#fff" : "#6B6F78",
+                                background: active ? "rgba(255,255,255,0.25)" : "var(--bg-card)",
+                                color: active ? "#fff" : "var(--text-muted)",
                                 padding:"1px 6px",borderRadius:10,fontSize:10,fontWeight:800,
                               }}>{opt.c}</span>
                             </button>
@@ -552,8 +552,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         })}
                       </div>
                       {filterCounts.category > 0 && empFilter === "roster" && (
-                        <div style={{ marginTop:6,color:"#6B6F78",fontSize:10,textAlign:"right" }}>
-                          {"\uD83D\uDC41\uFE0F"} {filterCounts.category} stray row{filterCounts.category===1?"":"s"} hidden &middot; <button onClick={function(){setEmpFilter("strays");}} style={{ background:"none",border:"none",color:"#FF2D95",cursor:"pointer",fontSize:10,textDecoration:"underline",padding:0 }}>review</button>
+                        <div style={{ marginTop:6,color:"var(--text-muted)",fontSize:10,textAlign:"right" }}>
+                          {"\uD83D\uDC41\uFE0F"} {filterCounts.category} stray row{filterCounts.category===1?"":"s"} hidden &middot; <button onClick={function(){setEmpFilter("strays");}} style={{ background:"none",border:"none",color:"var(--pink)",cursor:"pointer",fontSize:10,textDecoration:"underline",padding:0 }}>review</button>
                         </div>
                       )}
                     </div>
@@ -562,12 +562,12 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                 <div style={{ overflowX:"auto" }}>
                   <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
                     <thead>
-                      <tr style={{ borderBottom:"1px solid #2A2D35" }}>
+                      <tr style={{ borderBottom:"1px solid var(--border)" }}>
                         {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]).map(function(h,i) {
-                          return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
+                          return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                         })}
                         {!isEmployeeView && (empFilter !== "roster" || filterCounts.unmatched > 0) && (
-                          <th style={{ textAlign:"center",padding:"10px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",width:240 }}>Actions</th>
+                          <th style={{ textAlign:"center",padding:"10px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase",width:240 }}>Actions</th>
                         )}
                       </tr>
                     </thead>
@@ -577,48 +577,48 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         var isStray = emp.matchType !== "roster";
                         var isCategory = emp.matchType === "category";
                         var rowBg = isCategory ? "#FF2D9508" : isStray ? "#FBBF2408" : "transparent";
-                        var rowBorder = isCategory ? "1px solid #FF2D9522" : "1px solid #1E2028";
+                        var rowBorder = isCategory ? "1px solid #FF2D9522" : "1px solid var(--border-light)";
                         return (
                           <tr key={emp.name} style={{ borderBottom: rowBorder, background: rowBg }}>
                             {!isEmployeeView && <td style={{ padding:"12px",fontSize:16,textAlign:"center",width:40 }}>{isStray ? (isCategory ? "\u26A0\uFE0F" : "\u2753") : medal}</td>}
-                            <td style={{ padding:"12px",color:"#F0F1F3",fontSize:14,fontWeight:700 }}>
+                            <td style={{ padding:"12px",color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>
                               <div>{emp.name}</div>
                               {!isEmployeeView && isStray && (
                                 <div style={{ marginTop:4 }}>
                                   <span style={{
                                     fontSize:9,fontWeight:700,padding:"2px 6px",borderRadius:3,textTransform:"uppercase",letterSpacing:"0.05em",
                                     background: isCategory ? "#FF2D9522" : "#FBBF2422",
-                                    color: isCategory ? "#FF2D95" : "#FBBF24",
+                                    color: isCategory ? "var(--pink)" : "var(--yellow)",
                                   }}>{isCategory ? "Category Row" : "No roster match"}</span>
                                 </div>
                               )}
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.phone_tickets}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.phone_total)}</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{emp.phone_tickets}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.phone_total)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.other_count}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.other_total)}</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{emp.other_count}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.other_total)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.accy_count}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.accy_gp) + " GP"}</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{emp.accy_count}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.accy_gp) + " GP"}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.clean_count}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.clean_total)}</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{emp.clean_count}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.clean_total)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{emp.cs_tickets || 0}</div>
-                              <div style={{ color:"#6B6F78",fontSize:10 }}>{fmt(emp.cs_discounted)}</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{emp.cs_tickets || 0}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.cs_discounted)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(emp.total_revenue)}</div>
+                              <div style={{ color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_revenue)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
-                              <div style={{ color:"#6B6F78",fontSize:9 }}>
+                              <div style={{ color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:9 }}>
                                 {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
                               </div>
                             </td>
@@ -635,7 +635,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                                             var v = e.target.value;
                                             setRemapTarget(function(prev) { var n = Object.assign({}, prev); n[emp.name] = v; return n; });
                                           }}
-                                          style={{ flex:1,padding:"5px 6px",borderRadius:5,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:10,minWidth:0 }}>
+                                          style={{ flex:1,padding:"5px 6px",borderRadius:5,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:10,minWidth:0 }}>
                                           <option value="">Map to...</option>
                                           {rosterDisplayNames.map(function(n) { return <option key={n} value={n}>{n}</option>; })}
                                         </select>
@@ -645,7 +645,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                                           style={{
                                             padding:"5px 8px",borderRadius:5,border:"1px solid #00D4FF55",
                                             background: remapTarget[emp.name] ? "#00D4FF22" : "#00D4FF11",
-                                            color:"#00D4FF",fontSize:10,fontWeight:700,
+                                            color:"var(--cyan)",fontSize:10,fontWeight:700,
                                             cursor: remapTarget[emp.name] ? "pointer" : "not-allowed",
                                             opacity: actionEmp === emp.name ? 0.4 : 1,
                                           }}>{"\uD83D\uDD17"}</button>
@@ -656,14 +656,14 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                                       disabled={actionEmp === emp.name}
                                       style={{
                                         padding:"5px 8px",borderRadius:5,border:"1px solid #F8717155",
-                                        background:"#F8717118",color:"#F87171",fontSize:10,fontWeight:700,cursor:"pointer",
+                                        background:"#F8717118",color:"var(--red)",fontSize:10,fontWeight:700,cursor:"pointer",
                                         opacity: actionEmp === emp.name ? 0.4 : 1,
                                       }}>
                                       {actionEmp === emp.name ? "..." : "\uD83D\uDDD1\uFE0F Delete"}
                                     </button>
                                   </div>
                                 ) : (
-                                  <span style={{ color:"#4ADE80",fontSize:10,fontWeight:700 }}>{"\u2713 Roster"}</span>
+                                  <span style={{ color:"var(--green)",fontSize:10,fontWeight:700 }}>{"\u2713 Roster"}</span>
                                 )}
                               </td>
                             )}
@@ -672,15 +672,15 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                       })}
                       {/* Totals row — hide for employee view */}
                       {!isEmployeeView && (
-                      <tr style={{ borderTop:"2px solid #2A2D35",background:"#12141A" }}>
-                        <td colSpan={2} style={{ padding:"12px",color:"#8B8F98",fontSize:12,fontWeight:700 }}>TOTALS</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.phone_tickets}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.other_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.accy_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{displayTotals.clean_count}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#F0F1F3",fontWeight:700 }}>{fmt(displayTotals.cs_discounted)}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#4ADE80",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"#FBBF24",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
+                      <tr style={{ borderTop:"2px solid var(--border)",background:"var(--bg-card-inner)" }}>
+                        <td colSpan={2} style={{ padding:"12px",color:"var(--text-secondary)",fontSize:12,fontWeight:700 }}>TOTALS</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.phone_tickets}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.other_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.accy_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.clean_count}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{fmt(displayTotals.cs_discounted)}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
                         {(empFilter !== "roster" || filterCounts.unmatched > 0) && <td />}
                       </tr>
                       )}
@@ -690,11 +690,11 @@ export default function SalesTab({ viewAs, viewEmployee }) {
               </div>
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center" }}>
               <div style={{ fontSize:32,marginBottom:12 }}>{"\uD83D\uDCB0"}</div>
-              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>{isEmployeeView ? "No sales data for " + viewEmployee : "No sales data yet"}</div>
-              <div style={{ color:"#6B6F78",fontSize:13,marginBottom:16 }}>{isEmployeeView ? "Sales data hasn't been imported for this period yet." : "Import your RepairQ CSV files to see employee performance and commissions."}</div>
-              {!isEmployeeView && <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>}
+              <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:8 }}>{isEmployeeView ? "No sales data for " + viewEmployee : "No sales data yet"}</div>
+              <div style={{ color:"var(--text-muted)",fontSize:13,marginBottom:16 }}>{isEmployeeView ? "Sales data hasn't been imported for this period yet." : "Import your RepairQ CSV files to see employee performance and commissions."}</div>
+              {!isEmployeeView && <button onClick={function(){setView("upload");}} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"var(--purple)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Import Data</button>}
             </div>
           )}
         </div>
@@ -706,26 +706,26 @@ export default function SalesTab({ viewAs, viewEmployee }) {
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20 }}>
             <SectionHeader title="Import RepairQ Data" subtitle="" icon="📤" />
             <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-              <span style={{ color:"#8B8F98",fontSize:12 }}>Importing for:</span>
+              <span style={{ color:"var(--text-secondary)",fontSize:12 }}>Importing for:</span>
               <input type="month" value={importPeriod}
                 onChange={function(e) { setImportPeriod(e.target.value); }}
-                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"#12141A",color:"#F0F1F3",fontSize:13,fontWeight:700,cursor:"pointer" }} />
+                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:13,fontWeight:700,cursor:"pointer" }} />
             </div>
           </div>
           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
             {[
-              { type: "phone_repairs", label: "Phone Repairs", desc: "phone_repairs.csv — Employee, Repair Tkts, Repair Total, Average Repair", icon: "📱", color: "#7B2FFF" },
-              { type: "other_repairs", label: "Other Repairs", desc: "other_repairs.csv — Employee, # Repairs, Repair Total, Avg", icon: "🔧", color: "#00D4FF" },
-              { type: "accessories", label: "Accessory Sales", desc: "accessory_sales.csv — Employee, Accy Total, Accy GP, Accy Count", icon: "🛍️", color: "#4ADE80" },
-              { type: "cleanings", label: "Charge Port Cleanings", desc: "charge_port_cleanings.csv — Employee, # Cleans, Cleans Total", icon: "🔌", color: "#FBBF24" },
+              { type: "phone_repairs", label: "Phone Repairs", desc: "phone_repairs.csv — Employee, Repair Tkts, Repair Total, Average Repair", icon: "📱", color: "var(--purple)" },
+              { type: "other_repairs", label: "Other Repairs", desc: "other_repairs.csv — Employee, # Repairs, Repair Total, Avg", icon: "🔧", color: "var(--cyan)" },
+              { type: "accessories", label: "Accessory Sales", desc: "accessory_sales.csv — Employee, Accy Total, Accy GP, Accy Count", icon: "🛍️", color: "var(--green)" },
+              { type: "cleanings", label: "Charge Port Cleanings", desc: "charge_port_cleanings.csv — Employee, # Cleans, Cleans Total", icon: "🔌", color: "var(--yellow)" },
             ].map(function(item) {
               return (
-                <div key={item.type} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+item.color+"22" }}>
+                <div key={item.type} style={{ background:"var(--bg-card)",borderRadius:12,padding:20,border:"1px solid "+item.color+"22" }}>
                   <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
                     <span style={{ fontSize:20 }}>{item.icon}</span>
                     <div>
-                      <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{item.label}</div>
-                      <div style={{ color:"#6B6F78",fontSize:10 }}>{item.desc}</div>
+                      <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{item.label}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:10 }}>{item.desc}</div>
                     </div>
                   </div>
                   <label style={{ display:"block",padding:"12px 16px",borderRadius:8,border:"2px dashed "+item.color+"33",background:item.color+"08",textAlign:"center",cursor:"pointer" }}>
@@ -740,12 +740,12 @@ export default function SalesTab({ viewAs, viewEmployee }) {
           </div>
           {/* Cleaning Sales Summary — Excel import */}
           <div style={{ marginTop:16 }}>
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid #FF2D9522" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,border:"1px solid #FF2D9522" }}>
               <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:12 }}>
                 <span style={{ fontSize:20 }}>{"\uD83E\uDDFE"}</span>
                 <div>
-                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Cleaning Sales Summary</div>
-                  <div style={{ color:"#6B6F78",fontSize:10 }}>RepairQ Sales Staff Summary Excel — Discounted Sales for commission</div>
+                  <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Cleaning Sales Summary</div>
+                  <div style={{ color:"var(--text-muted)",fontSize:10 }}>RepairQ Sales Staff Summary Excel — Discounted Sales for commission</div>
                 </div>
               </div>
               <label style={{ display:"block",padding:"12px 16px",borderRadius:8,border:"2px dashed #FF2D9533",background:"#FF2D9508",textAlign:"center",cursor:"pointer" }}>
@@ -812,7 +812,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                     })();
                   }}
                   disabled={uploading} />
-                <span style={{ color:"#FF2D95",fontSize:12,fontWeight:600 }}>{uploading ? "Importing..." : "Choose Excel File (.xlsx)"}</span>
+                <span style={{ color:"var(--pink)",fontSize:12,fontWeight:600 }}>{uploading ? "Importing..." : "Choose Excel File (.xlsx)"}</span>
               </label>
             </div>
           </div>
@@ -823,49 +823,49 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       {view === "commissions" && (
         <div>
           <SectionHeader title="Commission Rates" subtitle="Click a rate to edit it" icon="⚙️" />
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
             {config.map(function(c) {
               var isEditing = editingRate === c.config_key;
               var isPercent = c.config_key.includes("gp_rate") || c.config_key === "cleaning_rate";
               var displayValue = isPercent ? (parseFloat(c.config_value) * 100).toFixed(0) + "%" : "$" + parseFloat(c.config_value).toFixed(2);
               var isOn = c.enabled !== false;
               return (
-                <div key={c.config_key} style={{ padding:"14px 0",borderBottom:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:isOn?1:0.4 }}>
+                <div key={c.config_key} style={{ padding:"14px 0",borderBottom:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center",opacity:isOn?1:0.4 }}>
                   <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                     <div onClick={function(){ toggleRate(c.config_key, isOn); }}
-                      style={{ width:40,height:22,borderRadius:11,background:isOn?"#4ADE80":"#2A2D35",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
+                      style={{ width:40,height:22,borderRadius:11,background:isOn?"var(--green)":"var(--border)",cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0 }}>
                       <div style={{ width:16,height:16,borderRadius:8,background:"#FFF",position:"absolute",top:3,left:isOn?21:3,transition:"left 0.2s",boxShadow:"0 1px 3px rgba(0,0,0,0.3)" }} />
                     </div>
                     <div>
-                      <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:600 }}>{c.label}</div>
-                      <div style={{ color:"#6B6F78",fontSize:11 }}>{c.description}</div>
+                      <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:600 }}>{c.label}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:11 }}>{c.description}</div>
                     </div>
                   </div>
                   {isEditing ? (
                     <div style={{ display:"flex",gap:6,alignItems:"center" }}>
                       <input value={editValue} onChange={function(e){setEditValue(e.target.value);}}
-                        style={{ width:80,padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"#12141A",color:"#F0F1F3",fontSize:14,fontWeight:700,textAlign:"right" }}
+                        style={{ width:80,padding:"6px 10px",borderRadius:6,border:"1px solid #7B2FFF44",background:"var(--bg-card-inner)",color:"var(--text-primary)",fontSize:14,fontWeight:700,textAlign:"right" }}
                         autoFocus />
                       <button onClick={function(){
                         var val = parseFloat(editValue);
                         if (isPercent) val = val / 100;
                         updateRate(c.config_key, val);
-                      }} style={{ padding:"6px 12px",borderRadius:6,border:"none",background:"#4ADE80",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Save</button>
-                      <button onClick={function(){setEditingRate(null);}} style={{ padding:"6px 12px",borderRadius:6,border:"1px solid #2A2D35",background:"transparent",color:"#8B8F98",fontSize:11,cursor:"pointer" }}>Cancel</button>
+                      }} style={{ padding:"6px 12px",borderRadius:6,border:"none",background:"var(--green)",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Save</button>
+                      <button onClick={function(){setEditingRate(null);}} style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Cancel</button>
                     </div>
                   ) : (
                     <button onClick={function(){
                       if (!isOn) return;
                       setEditingRate(c.config_key);
                       setEditValue(isPercent ? (parseFloat(c.config_value) * 100).toFixed(0) : parseFloat(c.config_value).toFixed(2));
-                    }} style={{ padding:"6px 16px",borderRadius:8,border:"1px solid #2A2D35",background:"#12141A",color:isOn?"#FBBF24":"#6B6F78",fontSize:16,fontWeight:800,cursor:isOn?"pointer":"default",minWidth:80,textAlign:"center" }}>
+                    }} style={{ padding:"6px 16px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:isOn?"var(--yellow)":"var(--text-muted)",fontSize:16,fontWeight:800,cursor:isOn?"pointer":"default",minWidth:80,textAlign:"center" }}>
                       {displayValue}
                     </button>
                   )}
                 </div>
               );
             })}
-            {config.length === 0 && <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>No commission config found. Run the SQL migration first.</div>}
+            {config.length === 0 && <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>No commission config found. Run the SQL migration first.</div>}
           </div>
         </div>
       )}
@@ -873,14 +873,14 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       {view === "answer_bonus" && (
         <div>
           <div style={{ marginBottom:16 }}>
-            <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCDE"} Answer-Rate Bonus Payout</div>
-            <div style={{ color:"#8B8F98",fontSize:12 }}>
+            <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCDE"} Answer-Rate Bonus Payout</div>
+            <div style={{ color:"var(--text-secondary)",fontSize:12 }}>
               Flat per-employee bonus by store, based on the store's open-hours answer rate this month. Standalone — not part of weighted commission. Tiers: 80% = $50, 85% = $75, 90% = $100 (highest tier only). Each employee is assigned to the store where they worked the most hours this month.
             </div>
           </div>
 
           {!bonusPayout && (
-            <div style={{ color:"#6B6F78",fontSize:13,padding:20,textAlign:"center" }}>Loading bonus data…</div>
+            <div style={{ color:"var(--text-muted)",fontSize:13,padding:20,textAlign:"center" }}>Loading bonus data…</div>
           )}
 
           {bonusPayout && (
@@ -889,18 +889,18 @@ export default function SalesTab({ viewAs, viewEmployee }) {
               <div style={{ display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:12,marginBottom:20 }}>
                 {(bonusPayout.stores || []).map(function(s) {
                   var nm = s.store.charAt(0).toUpperCase() + s.store.slice(1);
-                  var rateColor = s.per_employee_bonus >= 100 ? "#10B981" : s.per_employee_bonus >= 75 ? "#059669" : s.per_employee_bonus >= 50 ? "#7B2FFF" : "#9CA3AF";
+                  var rateColor = s.per_employee_bonus >= 100 ? "#10B981" : s.per_employee_bonus >= 75 ? "#059669" : s.per_employee_bonus >= 50 ? "var(--purple)" : "var(--text-dim)";
                   return (
-                    <div key={s.store} style={{ background:"#1A1D23",borderRadius:12,padding:16,border:"1px solid #2A2D35" }}>
-                      <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700,marginBottom:8 }}>{nm}</div>
+                    <div key={s.store} style={{ background:"var(--bg-card)",borderRadius:12,padding:16,border:"1px solid var(--border)" }}>
+                      <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,marginBottom:8 }}>{nm}</div>
                       <div style={{ display:"flex",alignItems:"baseline",gap:6 }}>
                         <span style={{ color:rateColor,fontSize:26,fontWeight:800 }}>{s.answer_rate !== null && s.answer_rate !== undefined ? s.answer_rate.toFixed(0) + "%" : "—"}</span>
-                        <span style={{ color:"#6B6F78",fontSize:11 }}>open-hours rate</span>
+                        <span style={{ color:"var(--text-muted)",fontSize:11 }}>open-hours rate</span>
                       </div>
-                      <div style={{ marginTop:8,color:s.per_employee_bonus>0?"#10B981":"#6B6F78",fontSize:15,fontWeight:700 }}>
+                      <div style={{ marginTop:8,color:s.per_employee_bonus>0?"#10B981":"var(--text-muted)",fontSize:15,fontWeight:700 }}>
                         {"$" + s.per_employee_bonus} / employee
                       </div>
-                      <div style={{ color:"#6B6F78",fontSize:10,marginTop:4 }}>
+                      <div style={{ color:"var(--text-muted)",fontSize:10,marginTop:4 }}>
                         {s.answered} answered &middot; {s.open_missed} missed (open hrs){s.after_hours_missed > 0 ? " · " + s.after_hours_missed + " after-hours excluded" : ""}
                       </div>
                     </div>
@@ -909,39 +909,39 @@ export default function SalesTab({ viewAs, viewEmployee }) {
               </div>
 
               {/* Per-employee payout table */}
-              <div style={{ background:"#1A1D23",borderRadius:12,border:"1px solid #2A2D35",overflow:"hidden" }}>
-                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderBottom:"1px solid #2A2D35" }}>
-                  <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:700 }}>Per-Employee Payout</div>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,border:"1px solid var(--border)",overflow:"hidden" }}>
+                <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",padding:"12px 16px",borderBottom:"1px solid var(--border)" }}>
+                  <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700 }}>Per-Employee Payout</div>
                   <div style={{ color:"#10B981",fontSize:14,fontWeight:800 }}>
                     Total: {"$" + ((bonusPayout.totals && bonusPayout.totals.total_payout) || 0)}
-                    <span style={{ color:"#6B6F78",fontSize:11,fontWeight:500,marginLeft:8 }}>
+                    <span style={{ color:"var(--text-muted)",fontSize:11,fontWeight:500,marginLeft:8 }}>
                       ({(bonusPayout.totals && bonusPayout.totals.employee_count) || 0} employees)
                     </span>
                   </div>
                 </div>
                 <table style={{ width:"100%",borderCollapse:"collapse" }}>
                   <thead>
-                    <tr style={{ background:"#12141A" }}>
-                      <th style={{ textAlign:"left",padding:"9px 16px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Employee</th>
-                      <th style={{ textAlign:"left",padding:"9px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Assigned Store</th>
-                      <th style={{ textAlign:"right",padding:"9px 12px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Hours</th>
-                      <th style={{ textAlign:"right",padding:"9px 16px",color:"#6B6F78",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Bonus</th>
+                    <tr style={{ background:"var(--bg-card-inner)" }}>
+                      <th style={{ textAlign:"left",padding:"9px 16px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Employee</th>
+                      <th style={{ textAlign:"left",padding:"9px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Assigned Store</th>
+                      <th style={{ textAlign:"right",padding:"9px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Hours</th>
+                      <th style={{ textAlign:"right",padding:"9px 16px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase",letterSpacing:0.5 }}>Bonus</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(bonusPayout.employees || []).map(function(e, i) {
                       var nm = e.assigned_store ? e.assigned_store.charAt(0).toUpperCase() + e.assigned_store.slice(1) : "—";
                       return (
-                        <tr key={i} style={{ borderTop:"1px solid #2A2D35" }}>
-                          <td style={{ padding:"9px 16px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{e.employee}</td>
-                          <td style={{ padding:"9px 12px",color:"#C8CAD0",fontSize:12 }}>{nm}</td>
-                          <td style={{ padding:"9px 12px",textAlign:"right",color:"#8B8F98",fontSize:12 }}>{e.assigned_hours}</td>
-                          <td style={{ padding:"9px 16px",textAlign:"right",color:e.bonus>0?"#10B981":"#6B6F78",fontSize:14,fontWeight:700 }}>{"$" + e.bonus}</td>
+                        <tr key={i} style={{ borderTop:"1px solid var(--border)" }}>
+                          <td style={{ padding:"9px 16px",color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{e.employee}</td>
+                          <td style={{ padding:"9px 12px",color:"var(--text-body)",fontSize:12 }}>{nm}</td>
+                          <td style={{ padding:"9px 12px",textAlign:"right",color:"var(--text-secondary)",fontSize:12 }}>{e.assigned_hours}</td>
+                          <td style={{ padding:"9px 16px",textAlign:"right",color:e.bonus>0?"#10B981":"var(--text-muted)",fontSize:14,fontWeight:700 }}>{"$" + e.bonus}</td>
                         </tr>
                       );
                     })}
                     {(bonusPayout.employees || []).length === 0 && (
-                      <tr><td colSpan={4} style={{ padding:20,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No employees with logged hours this month yet.</td></tr>
+                      <tr><td colSpan={4} style={{ padding:20,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>No employees with logged hours this month yet.</td></tr>
                     )}
                   </tbody>
                 </table>

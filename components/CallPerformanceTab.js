@@ -12,17 +12,17 @@ var STORE_KEYS = Object.keys(STORES);
 var AVG_TICKET = 150;
 var CONV_RATE = 0.25;
 
-function sc(v, g, y) { return v >= g ? "#4ADE80" : v >= y ? "#FBBF24" : "#F87171"; }
+function sc(v, g, y) { return v >= g ? "var(--green)" : v >= y ? "var(--yellow)" : "var(--red)"; }
 
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null;
   return (
-    <div style={{ background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8,padding:"10px 14px",zIndex:9999 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,marginBottom:6 }}>{label}</div>
+    <div style={{ background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8,padding:"10px 14px",zIndex:9999 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,marginBottom:6 }}>{label}</div>
       {payload.map(function(p, i) {
         return <div key={i} style={{ display:"flex",alignItems:"center",gap:8,marginTop:3 }}>
           <span style={{ width:8,height:8,borderRadius:"50%",background:p.color }} />
-          <span style={{ color:"#C8CAD0",fontSize:12 }}>{p.name}: <strong style={{ color:"#F0F1F3" }}>{p.value}</strong></span>
+          <span style={{ color:"var(--text-body)",fontSize:12 }}>{p.name}: <strong style={{ color:"var(--text-primary)" }}>{p.value}</strong></span>
         </div>;
       })}
     </div>
@@ -199,20 +199,20 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {SUB_TABS.map(function(t) {
             return <button key={t.id} onClick={function(){setSubTab(t.id);}} style={{
               padding:"8px 16px",borderRadius:8,border:"none",cursor:"pointer",whiteSpace:"nowrap",
-              background:subTab===t.id?"#7B2FFF22":"#1A1D23",color:subTab===t.id?"#7B2FFF":"#8B8F98",
+              background:subTab===t.id?"#7B2FFF22":"var(--bg-card)",color:subTab===t.id?"var(--purple)":"var(--text-secondary)",
               fontSize:12,fontWeight:600
             }}>{t.icon + " " + t.label}</button>;
           })}
         </div>
         {/* Time window toggle */}
-        <div style={{ display:"flex",gap:2,background:"#1A1D23",borderRadius:8,padding:2 }}>
+        <div style={{ display:"flex",gap:2,background:"var(--bg-card)",borderRadius:8,padding:2 }}>
           <button onClick={function(){setTimeWindow("30day");}} style={{
             padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
-            background:timeWindow==="30day"?"#7B2FFF":"transparent",color:timeWindow==="30day"?"#fff":"#8B8F98",
+            background:timeWindow==="30day"?"var(--purple)":"transparent",color:timeWindow==="30day"?"#fff":"var(--text-secondary)",
           }}>30 Days</button>
           <button onClick={function(){setTimeWindow("mtd");}} style={{
             padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",fontSize:11,fontWeight:700,
-            background:timeWindow==="mtd"?"#FF2D95":"transparent",color:timeWindow==="mtd"?"#fff":"#8B8F98",
+            background:timeWindow==="mtd"?"var(--pink)":"transparent",color:timeWindow==="mtd"?"#fff":"var(--text-secondary)",
           }}>This Month</button>
         </div>
       </div>
@@ -226,12 +226,12 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           <div style={{ background:"linear-gradient(135deg,#F8717108,#FF2D9508)",borderRadius:14,padding:24,marginBottom:20,border:"1px solid #F8717122" }}>
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
               <div>
-                <div style={{ color:"#F87171",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>{"💰"} Revenue Impact ({activeLabel})</div>
-                <div style={{ color:"#F0F1F3",fontSize:32,fontWeight:800 }}>{"$" + missedRevenue.toLocaleString()}</div>
-                <div style={{ color:"#8B8F98",fontSize:11,marginTop:2 }}>{totals.missed} missed calls × {Math.round(CONV_RATE*100)}% conversion × ${AVG_TICKET} avg ticket</div>
+                <div style={{ color:"var(--red)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:4 }}>{"💰"} Revenue Impact ({activeLabel})</div>
+                <div style={{ color:"var(--text-primary)",fontSize:32,fontWeight:800 }}>{"$" + missedRevenue.toLocaleString()}</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:2 }}>{totals.missed} missed calls × {Math.round(CONV_RATE*100)}% conversion × ${AVG_TICKET} avg ticket</div>
               </div>
               <div style={{ textAlign:"right" }}>
-                <div style={{ color:"#8B8F98",fontSize:10,textTransform:"uppercase" }}>Answer Rate</div>
+                <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Answer Rate</div>
                 <div style={{ color:sc(answerRate, 85, 70),fontSize:42,fontWeight:800 }}>{answerRate.toFixed(1)}%</div>
               </div>
             </div>
@@ -252,25 +252,25 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               var allVolume = realTotal + afterHours; // open-hours total + closed-hours missed
               var closedPct = allVolume > 0 ? (afterHours / allVolume * 100) : 0;
               return (
-                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                <div key={sk} style={{ background:"var(--bg-card)",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
                   <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
                     <div style={{ width:10,height:10,borderRadius:"50%",background:store.color }} />
-                    <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{store.name.replace("CPR ","")}</div>
+                    <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{store.name.replace("CPR ","")}</div>
                   </div>
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12 }}>
-                    <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Answer Rate</div><div style={{ color:sc(rate,85,70),fontSize:22,fontWeight:800 }}>{rate.toFixed(0)}%</div></div>
-                    <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Callback Rate</div><div style={{ color:sc(cbRate,80,50),fontSize:22,fontWeight:800 }}>{cbRate}%</div></div>
-                    <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Missed</div><div style={{ color:"#F87171",fontSize:18,fontWeight:700 }}>{s.missed}</div></div>
-                    <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Revenue Lost</div><div style={{ color:"#FF2D95",fontSize:18,fontWeight:700 }}>{"$"+storeMissedRev.toLocaleString()}</div></div>
+                    <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Answer Rate</div><div style={{ color:sc(rate,85,70),fontSize:22,fontWeight:800 }}>{rate.toFixed(0)}%</div></div>
+                    <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Callback Rate</div><div style={{ color:sc(cbRate,80,50),fontSize:22,fontWeight:800 }}>{cbRate}%</div></div>
+                    <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Missed</div><div style={{ color:"var(--red)",fontSize:18,fontWeight:700 }}>{s.missed}</div></div>
+                    <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Revenue Lost</div><div style={{ color:"var(--pink)",fontSize:18,fontWeight:700 }}>{"$"+storeMissedRev.toLocaleString()}</div></div>
                   </div>
-                  <div style={{ background:"#12141A",borderRadius:4,height:6,overflow:"hidden" }}>
+                  <div style={{ background:"var(--bg-card-inner)",borderRadius:4,height:6,overflow:"hidden" }}>
                     <div style={{ width:rate+"%",height:"100%",borderRadius:4,background:store.color }} />
                   </div>
-                  <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid #2A2D35",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                    <div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>After-Hours (excluded)</div>
+                  <div style={{ marginTop:10,paddingTop:10,borderTop:"1px solid var(--border)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>After-Hours (excluded)</div>
                     <div style={{ display:"flex",alignItems:"baseline",gap:6 }}>
                       <span style={{ color:afterHours>0?"#A78BFA":"#5B5F68",fontSize:16,fontWeight:700 }}>{afterHours}</span>
-                      <span style={{ color:"#6B6F78",fontSize:11 }}>{allVolume>0?("· "+closedPct.toFixed(0)+"% of all calls"):""}</span>
+                      <span style={{ color:"var(--text-muted)",fontSize:11 }}>{allVolume>0?("· "+closedPct.toFixed(0)+"% of all calls"):""}</span>
                     </div>
                   </div>
                 </div>
@@ -283,26 +283,26 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
             var alerts = [];
             STORE_KEYS.forEach(function(sk) {
               var s = activeStoreStats[sk];
-              if (s.missed > 15 * 30 / 30) alerts.push({ type: "high_miss", store: STORES[sk].name, missed: s.missed, color: "#F87171" });
+              if (s.missed > 15 * 30 / 30) alerts.push({ type: "high_miss", store: STORES[sk].name, missed: s.missed, color: "var(--red)" });
             });
             if (peakMissHours.length > 0 && peakMissHours[0].total > 10) {
-              alerts.push({ type: "peak_hour", hour: peakMissHours[0].hour, total: peakMissHours[0].total, color: "#FBBF24" });
+              alerts.push({ type: "peak_hour", hour: peakMissHours[0].hour, total: peakMissHours[0].total, color: "var(--yellow)" });
             }
             if (callbackData) callbackData.forEach(function(cb) {
               var cbRate = cb.missed > 0 ? ((cb.calledBack || 0) / cb.missed * 100) : 100;
-              if (cbRate < 50 && cb.missed > 5) alerts.push({ type: "low_callback", store: STORES[cb.store] ? STORES[cb.store].name : cb.store, rate: Math.round(cbRate), never: cb.never || 0, color: "#FF2D95" });
+              if (cbRate < 50 && cb.missed > 5) alerts.push({ type: "low_callback", store: STORES[cb.store] ? STORES[cb.store].name : cb.store, rate: Math.round(cbRate), never: cb.never || 0, color: "var(--pink)" });
             });
             if (alerts.length === 0) return null;
             return (
               <div style={{ background:"#F8717108",borderRadius:12,padding:20,marginBottom:20,border:"1px solid #F8717122" }}>
-                <div style={{ color:"#F87171",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDEA8"} RED ALERT FLAGS</div>
+                <div style={{ color:"var(--red)",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDEA8"} RED ALERT FLAGS</div>
                 {alerts.map(function(a, i) {
                   var msg = a.type === "high_miss" ? a.store + ": " + a.missed + " missed calls this period" :
                     a.type === "peak_hour" ? "Peak miss hour: " + a.hour + " (" + a.total + " missed calls)" :
                     a.store + ": Only " + a.rate + "% callback rate — " + a.never + " calls never returned";
-                  return <div key={i} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:i < alerts.length - 1 ? "1px solid #2A2D35" : "none" }}>
+                  return <div key={i} style={{ display:"flex",alignItems:"center",gap:8,padding:"6px 0",borderBottom:i < alerts.length - 1 ? "1px solid var(--border)" : "none" }}>
                     <span style={{ width:8,height:8,borderRadius:"50%",background:a.color }} />
-                    <span style={{ color:"#C8CAD0",fontSize:12 }}>{msg}</span>
+                    <span style={{ color:"var(--text-body)",fontSize:12 }}>{msg}</span>
                   </div>;
                 })}
               </div>
@@ -310,8 +310,8 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           })()}
 
           {/* Daily Call Chart */}
-          <div style={{ background:"#1A1D23",borderRadius:12,padding:20,height:320,marginBottom:20 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Daily Call Volume — Answered vs Missed</div>
+          <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,height:320,marginBottom:20 }}>
+            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Daily Call Volume — Answered vs Missed</div>
             <ResponsiveContainer width="100%" height="85%">
               <BarChart data={filteredDailyCalls}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" />
@@ -328,8 +328,8 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {/* Prediction */}
           {prediction && (
             <div style={{ background:"#7B2FFF08",borderRadius:12,padding:20,border:"1px solid #7B2FFF22" }}>
-              <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6 }}>{"\uD83D\uDD2E"} Predictive Intelligence</div>
-              <div style={{ color:"#F0F1F3",fontSize:13 }}>Based on the last 30 days, <strong>{prediction.day}s</strong> average <strong style={{ color:"#F87171" }}>{prediction.expectedMissed}</strong> missed calls out of <strong>{prediction.expectedCalls}</strong> total. {"That's ~$" + Math.round(prediction.expectedMissed * CONV_RATE * AVG_TICKET).toLocaleString() + " at risk today."}</div>
+              <div style={{ color:"var(--purple)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:6 }}>{"\uD83D\uDD2E"} Predictive Intelligence</div>
+              <div style={{ color:"var(--text-primary)",fontSize:13 }}>Based on the last 30 days, <strong>{prediction.day}s</strong> average <strong style={{ color:"var(--red)" }}>{prediction.expectedMissed}</strong> missed calls out of <strong>{prediction.expectedCalls}</strong> total. {"That's ~$" + Math.round(prediction.expectedMissed * CONV_RATE * AVG_TICKET).toLocaleString() + " at risk today."}</div>
             </div>
           )}
         </div>
@@ -343,10 +343,10 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
           {yesterday ? (
             <div>
               <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:20 }}>
-                <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700 }}>Yesterday: {yesterday.date}</div>
+                <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:700 }}>Yesterday: {yesterday.date}</div>
                 <div style={{ padding:"4px 10px",borderRadius:6,background:sc(yesterday.rate,85,70)+"18",color:sc(yesterday.rate,85,70),fontSize:12,fontWeight:700 }}>
                   {yesterday.rate}% answer rate
-                  {yesterday.prevRate > 0 && <span style={{ marginLeft:6,color:yesterday.rate >= yesterday.prevRate ? "#4ADE80" : "#F87171" }}>{yesterday.rate >= yesterday.prevRate ? "\u25B2" : "\u25BC"}{Math.abs(yesterday.rate - yesterday.prevRate)}%</span>}
+                  {yesterday.prevRate > 0 && <span style={{ marginLeft:6,color:yesterday.rate >= yesterday.prevRate ? "var(--green)" : "var(--red)" }}>{yesterday.rate >= yesterday.prevRate ? "\u25B2" : "\u25BC"}{Math.abs(yesterday.rate - yesterday.prevRate)}%</span>}
                 </div>
               </div>
 
@@ -359,21 +359,21 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   var rate = s.total > 0 ? Math.round(s.answered / s.total * 100) : 0;
                   var prevRate = s.prevTotal > 0 ? Math.round(s.prevAnswered / s.prevTotal * 100) : 0;
                   return (
-                    <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:18 }}>
+                    <div key={sk} style={{ background:"var(--bg-card)",borderRadius:12,padding:18 }}>
                       <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:10 }}>{store.name.replace("CPR ","")}</div>
                       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8 }}>
-                        <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Total</div><div style={{ color:"#F0F1F3",fontSize:20,fontWeight:700 }}>{s.total}</div></div>
-                        <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Answered</div><div style={{ color:"#4ADE80",fontSize:20,fontWeight:700 }}>{s.answered}</div></div>
-                        <div><div style={{ color:"#8B8F98",fontSize:9,textTransform:"uppercase" }}>Missed</div><div style={{ color:"#F87171",fontSize:20,fontWeight:700 }}>{s.missed}</div></div>
+                        <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Total</div><div style={{ color:"var(--text-primary)",fontSize:20,fontWeight:700 }}>{s.total}</div></div>
+                        <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Answered</div><div style={{ color:"var(--green)",fontSize:20,fontWeight:700 }}>{s.answered}</div></div>
+                        <div><div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Missed</div><div style={{ color:"var(--red)",fontSize:20,fontWeight:700 }}>{s.missed}</div></div>
                       </div>
                       <div style={{ marginTop:10,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                         <span style={{ color:sc(rate,85,70),fontSize:18,fontWeight:800 }}>{rate}%</span>
                         {prevRate > 0 ? (
-                          <span style={{ color:rate >= prevRate ? "#4ADE80" : "#F87171",fontSize:11,fontWeight:600 }}>
+                          <span style={{ color:rate >= prevRate ? "var(--green)" : "var(--red)",fontSize:11,fontWeight:600 }}>
                             {rate > prevRate ? "\u25B2+" + (rate - prevRate) + "%" : rate < prevRate ? "\u25BC" + (rate - prevRate) + "%" : "\u25B6 same"} vs prior day ({prevRate}%)
                           </span>
                         ) : (
-                          <span style={{ color:"#6B6F78",fontSize:10 }}>No prior day data</span>
+                          <span style={{ color:"var(--text-muted)",fontSize:10 }}>No prior day data</span>
                         )}
                       </div>
                     </div>
@@ -383,13 +383,13 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
 
               {/* Revenue impact */}
               <div style={{ background:"#F8717108",borderRadius:12,padding:16,marginBottom:20,border:"1px solid #F8717122",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                <div style={{ color:"#F87171",fontSize:12 }}>{"\uD83D\uDCB0"} Yesterday's missed call revenue impact:</div>
-                <div style={{ color:"#F87171",fontSize:22,fontWeight:800 }}>{"$" + yesterday.revenueLost.toLocaleString()}</div>
+                <div style={{ color:"var(--red)",fontSize:12 }}>{"\uD83D\uDCB0"} Yesterday's missed call revenue impact:</div>
+                <div style={{ color:"var(--red)",fontSize:22,fontWeight:800 }}>{"$" + yesterday.revenueLost.toLocaleString()}</div>
               </div>
 
               {/* Peak hour analysis */}
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Peak Miss Hours — Staffing Adjustment Intel</div>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
+                <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>Peak Miss Hours — Staffing Adjustment Intel</div>
                 <div style={{ height:250 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={hourlyMissed}>
@@ -404,11 +404,11 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   </ResponsiveContainer>
                 </div>
                 {peakMissHours.length > 0 && (
-                  <div style={{ marginTop:12,padding:12,background:"#12141A",borderRadius:8 }}>
-                    <div style={{ color:"#FBBF24",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\u26A0\uFE0F"} TOP PROBLEM HOURS</div>
+                  <div style={{ marginTop:12,padding:12,background:"var(--bg-card-inner)",borderRadius:8 }}>
+                    <div style={{ color:"var(--yellow)",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\u26A0\uFE0F"} TOP PROBLEM HOURS</div>
                     {peakMissHours.slice(0, 3).map(function(h, i) {
-                      return <div key={i} style={{ color:"#C8CAD0",fontSize:12,padding:"3px 0" }}>
-                        <strong style={{ color:"#F87171" }}>{h.hour}</strong>: {h.total} missed (F:{h.fishers} B:{h.bloomington} I:{h.indianapolis})
+                      return <div key={i} style={{ color:"var(--text-body)",fontSize:12,padding:"3px 0" }}>
+                        <strong style={{ color:"var(--red)" }}>{h.hour}</strong>: {h.total} missed (F:{h.fishers} B:{h.bloomington} I:{h.indianapolis})
                       </div>;
                     })}
                   </div>
@@ -416,8 +416,8 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               </div>
 
               {/* DOW pattern */}
-              <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-                <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>Day-of-Week Pattern</div>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
+                <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>Day-of-Week Pattern</div>
                 <div style={{ height:250 }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <RadarChart data={dowData}>
@@ -433,11 +433,11 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   </ResponsiveContainer>
                 </div>
                 {worstDays.length > 0 && (
-                  <div style={{ marginTop:12,padding:12,background:"#12141A",borderRadius:8 }}>
-                    <div style={{ color:"#FF2D95",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCC5"} WORST DAYS FOR MISSED CALLS</div>
+                  <div style={{ marginTop:12,padding:12,background:"var(--bg-card-inner)",borderRadius:8 }}>
+                    <div style={{ color:"var(--pink)",fontSize:10,fontWeight:700,marginBottom:4 }}>{"\uD83D\uDCC5"} WORST DAYS FOR MISSED CALLS</div>
                     {worstDays.slice(0, 3).map(function(d, i) {
-                      return <div key={i} style={{ color:"#C8CAD0",fontSize:12,padding:"3px 0" }}>
-                        <strong style={{ color:"#F87171" }}>{d.day}</strong>: {d.total} missed
+                      return <div key={i} style={{ color:"var(--text-body)",fontSize:12,padding:"3px 0" }}>
+                        <strong style={{ color:"var(--red)" }}>{d.day}</strong>: {d.total} missed
                       </div>;
                     })}
                   </div>
@@ -445,7 +445,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               </div>
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No daily data available yet</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)" }}>No daily data available yet</div>
           )}
         </div>
       )}
@@ -455,7 +455,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       {/* ═══════════════════════════════════════════ */}
       {subTab === "trends" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:20 }}>7-Day Rolling Performance</div>
+          <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:700,marginBottom:20 }}>7-Day Rolling Performance</div>
 
           {/* Use overviewStats for accurate per-store data */}
           <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:14,marginBottom:20 }}>
@@ -469,27 +469,27 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               var trendUp = trendDelta >= 0;
               // Use overviewStats for accurate numbers, weeklyTrend for delta only
               return (
-                <div key={sk} style={{ background:"#1A1D23",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
+                <div key={sk} style={{ background:"var(--bg-card)",borderRadius:12,padding:20,border:"1px solid "+store.color+"33" }}>
                   <div style={{ color:store.color,fontSize:13,fontWeight:700,marginBottom:12 }}>{store.name.replace("CPR ","")}</div>
                   <div style={{ display:"flex",alignItems:"baseline",gap:8,marginBottom:8 }}>
                     <span style={{ color:sc(rate,85,70),fontSize:32,fontWeight:800 }}>{rate}%</span>
-                    {trendDelta !== 0 && <span style={{ color:trendUp?"#4ADE80":"#F87171",fontSize:13,fontWeight:600 }}>{trendUp?"\u25B2":"\u25BC"}{Math.abs(trendDelta)}%</span>}
+                    {trendDelta !== 0 && <span style={{ color:trendUp?"var(--green)":"var(--red)",fontSize:13,fontWeight:600 }}>{trendUp?"\u25B2":"\u25BC"}{Math.abs(trendDelta)}%</span>}
                   </div>
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6 }}>
-                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                      <div style={{ color:"#F0F1F3",fontSize:16,fontWeight:700 }}>{realTotal}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Total</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>{realTotal}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:8,textTransform:"uppercase" }}>Total</div>
                     </div>
-                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                      <div style={{ color:"#4ADE80",fontSize:16,fontWeight:700 }}>{s.answered}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Answered</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"var(--green)",fontSize:16,fontWeight:700 }}>{s.answered}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:8,textTransform:"uppercase" }}>Answered</div>
                     </div>
-                    <div style={{ background:"#12141A",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
-                      <div style={{ color:"#F87171",fontSize:16,fontWeight:700 }}>{s.missed}</div>
-                      <div style={{ color:"#6B6F78",fontSize:8,textTransform:"uppercase" }}>Missed</div>
+                    <div style={{ background:"var(--bg-card-inner)",borderRadius:6,padding:"6px 8px",textAlign:"center" }}>
+                      <div style={{ color:"var(--red)",fontSize:16,fontWeight:700 }}>{s.missed}</div>
+                      <div style={{ color:"var(--text-muted)",fontSize:8,textTransform:"uppercase" }}>Missed</div>
                     </div>
                   </div>
-                  <div style={{ marginTop:10,color:"#FF2D95",fontSize:11 }}>{"$" + Math.round(s.missed * CONV_RATE * AVG_TICKET).toLocaleString() + " revenue at risk"}</div>
+                  <div style={{ marginTop:10,color:"var(--pink)",fontSize:11 }}>{"$" + Math.round(s.missed * CONV_RATE * AVG_TICKET).toLocaleString() + " revenue at risk"}</div>
                 </div>
               );
             })}
@@ -497,8 +497,8 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
 
           {/* Staffing gap analysis — per store */}
           {peakMissHours.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDC65"} Staffing Gap Analysis — Peak Miss Hours by Store</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
+              <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:16 }}>{"\uD83D\uDC65"} Staffing Gap Analysis — Peak Miss Hours by Store</div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat("+STORE_KEYS.length+",1fr)",gap:16 }}>
                 {STORE_KEYS.map(function(sk) {
                   var store = STORES[sk];
@@ -508,30 +508,30 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   }).filter(function(h) { return h.missed > 0; }).sort(function(a, b) { return b.missed - a.missed; }) : [];
                   var totalStoreMissed = storeHours.reduce(function(s, h) { return s + h.missed; }, 0);
                   return (
-                    <div key={sk} style={{ background:"#12141A",borderRadius:10,padding:16,border:"1px solid "+store.color+"22" }}>
+                    <div key={sk} style={{ background:"var(--bg-card-inner)",borderRadius:10,padding:16,border:"1px solid "+store.color+"22" }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
                         <div style={{ display:"flex",alignItems:"center",gap:6 }}>
                           <span style={{ width:8,height:8,borderRadius:"50%",background:store.color }} />
                           <span style={{ color:store.color,fontSize:13,fontWeight:700 }}>{store.name.replace("CPR ","")}</span>
                         </div>
-                        <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{totalStoreMissed} total</span>
+                        <span style={{ color:"var(--red)",fontSize:12,fontWeight:600 }}>{totalStoreMissed} total</span>
                       </div>
                       {storeHours.length > 0 ? storeHours.slice(0, 5).map(function(h, i) {
                         var pct = totalStoreMissed > 0 ? Math.round(h.missed / totalStoreMissed * 100) : 0;
-                        var severity = h.missed > 10 ? "#F87171" : h.missed > 5 ? "#FBBF24" : "#8B8F98";
+                        var severity = h.missed > 10 ? "var(--red)" : h.missed > 5 ? "var(--yellow)" : "var(--text-secondary)";
                         return (
                           <div key={h.hour} style={{ marginBottom:8 }}>
                             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:3 }}>
-                              <span style={{ color:"#C8CAD0",fontSize:11,fontWeight:600 }}>{h.hour}</span>
-                              <span style={{ color:severity,fontSize:12,fontWeight:700 }}>{h.missed} <span style={{ color:"#6B6F78",fontSize:9,fontWeight:400 }}>({pct}%)</span></span>
+                              <span style={{ color:"var(--text-body)",fontSize:11,fontWeight:600 }}>{h.hour}</span>
+                              <span style={{ color:severity,fontSize:12,fontWeight:700 }}>{h.missed} <span style={{ color:"var(--text-muted)",fontSize:9,fontWeight:400 }}>({pct}%)</span></span>
                             </div>
-                            <div style={{ background:"#1A1D23",borderRadius:3,height:4,overflow:"hidden" }}>
+                            <div style={{ background:"var(--bg-card)",borderRadius:3,height:4,overflow:"hidden" }}>
                               <div style={{ width:pct+"%",height:"100%",borderRadius:3,background:severity }} />
                             </div>
                           </div>
                         );
                       }) : (
-                        <div style={{ color:"#4ADE80",fontSize:11,padding:10,textAlign:"center" }}>{"\u2705"} No significant gaps</div>
+                        <div style={{ color:"var(--green)",fontSize:11,padding:10,textAlign:"center" }}>{"\u2705"} No significant gaps</div>
                       )}
                     </div>
                   );
@@ -542,18 +542,18 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
 
           {/* Repeat callers */}
           {repeatCallers && repeatCallers.callers && repeatCallers.callers.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDD01"} Repeat Callers (Last 7 Days)</div>
-              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:12 }}>Customers calling multiple times may indicate unresolved issues</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
+              <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDD01"} Repeat Callers (Last 7 Days)</div>
+              <div style={{ color:"var(--text-muted)",fontSize:11,marginBottom:12 }}>Customers calling multiple times may indicate unresolved issues</div>
               {repeatCallers.callers.slice(0, 10).map(function(c, i) {
-                return <div key={i} style={{ padding:"8px 0",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                return <div key={i} style={{ padding:"8px 0",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                   <div>
-                    <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{c.phone}</span>
-                    {c.customer_name && <span style={{ color:"#8B8F98",fontSize:11,marginLeft:8 }}>{c.customer_name}</span>}
+                    <span style={{ color:"var(--text-primary)",fontSize:12,fontWeight:600 }}>{c.phone}</span>
+                    {c.customer_name && <span style={{ color:"var(--text-secondary)",fontSize:11,marginLeft:8 }}>{c.customer_name}</span>}
                   </div>
                   <div style={{ display:"flex",alignItems:"center",gap:8 }}>
-                    <span style={{ color:c.call_count >= 5 ? "#F87171" : "#FBBF24",fontSize:14,fontWeight:700 }}>{c.call_count} calls</span>
-                    <span style={{ color:"#6B6F78",fontSize:10 }}>{c.store}</span>
+                    <span style={{ color:c.call_count >= 5 ? "var(--red)" : "var(--yellow)",fontSize:14,fontWeight:700 }}>{c.call_count} calls</span>
+                    <span style={{ color:"var(--text-muted)",fontSize:10 }}>{c.store}</span>
                   </div>
                 </div>;
               })}
@@ -567,7 +567,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       {/* ═══════════════════════════════════════════ */}
       {subTab === "callbacks" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:20 }}>Callback Accountability</div>
+          <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:700,marginBottom:20 }}>Callback Accountability</div>
           {callbackData && callbackData.length > 0 ? (
             <div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat("+callbackData.length+",1fr)",gap:14,marginBottom:20 }}>
@@ -577,43 +577,43 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   var totalCB = (cb.within30 || 0) + (cb.within60 || 0) + (cb.later || 0);
                   var rate = cb.missed > 0 ? Math.round(totalCB / cb.missed * 100) : 0;
                   return (
-                    <div key={cb.store} style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+                    <div key={cb.store} style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
                       <div style={{ color:store.color,fontSize:14,fontWeight:700,marginBottom:14 }}>{store.name.replace("CPR ","")}</div>
                       <div style={{ textAlign:"center",marginBottom:14 }}>
                         <div style={{ color:sc(rate,80,50),fontSize:42,fontWeight:800 }}>{rate}%</div>
-                        <div style={{ color:"#6B6F78",fontSize:11 }}>callback rate</div>
+                        <div style={{ color:"var(--text-muted)",fontSize:11 }}>callback rate</div>
                       </div>
                       <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:8 }}>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#F87171",fontSize:18,fontWeight:700 }}>{cb.missed}</div>
-                          <div style={{ color:"#6B6F78",fontSize:9,textTransform:"uppercase" }}>Missed</div>
+                        <div style={{ background:"var(--bg-card-inner)",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"var(--red)",fontSize:18,fontWeight:700 }}>{cb.missed}</div>
+                          <div style={{ color:"var(--text-muted)",fontSize:9,textTransform:"uppercase" }}>Missed</div>
                         </div>
-                        <div style={{ background:"#12141A",borderRadius:6,padding:10,textAlign:"center" }}>
-                          <div style={{ color:"#4ADE80",fontSize:18,fontWeight:700 }}>{totalCB}</div>
-                          <div style={{ color:"#6B6F78",fontSize:9,textTransform:"uppercase" }}>Called Back</div>
+                        <div style={{ background:"var(--bg-card-inner)",borderRadius:6,padding:10,textAlign:"center" }}>
+                          <div style={{ color:"var(--green)",fontSize:18,fontWeight:700 }}>{totalCB}</div>
+                          <div style={{ color:"var(--text-muted)",fontSize:9,textTransform:"uppercase" }}>Called Back</div>
                         </div>
                       </div>
                       <div style={{ marginTop:12 }}>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#4ADE80",fontSize:10 }}>Within 30 min</span>
-                          <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{cb.within30 || 0}</span>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--border-light)" }}>
+                          <span style={{ color:"var(--green)",fontSize:10 }}>Within 30 min</span>
+                          <span style={{ color:"var(--text-primary)",fontSize:12,fontWeight:600 }}>{cb.within30 || 0}</span>
                         </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#FBBF24",fontSize:10 }}>Within 1 hour</span>
-                          <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{cb.within60 || 0}</span>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--border-light)" }}>
+                          <span style={{ color:"var(--yellow)",fontSize:10 }}>Within 1 hour</span>
+                          <span style={{ color:"var(--text-primary)",fontSize:12,fontWeight:600 }}>{cb.within60 || 0}</span>
                         </div>
-                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid #1E2028" }}>
-                          <span style={{ color:"#8B8F98",fontSize:10 }}>Later</span>
-                          <span style={{ color:"#F0F1F3",fontSize:12,fontWeight:600 }}>{cb.later || 0}</span>
+                        <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:"1px solid var(--border-light)" }}>
+                          <span style={{ color:"var(--text-secondary)",fontSize:10 }}>Later</span>
+                          <span style={{ color:"var(--text-primary)",fontSize:12,fontWeight:600 }}>{cb.later || 0}</span>
                         </div>
                         <div style={{ display:"flex",justifyContent:"space-between",padding:"4px 0" }}>
-                          <span style={{ color:"#F87171",fontSize:10,fontWeight:700 }}>Never called back</span>
-                          <span style={{ color:"#F87171",fontSize:12,fontWeight:700 }}>{cb.never || 0}</span>
+                          <span style={{ color:"var(--red)",fontSize:10,fontWeight:700 }}>Never called back</span>
+                          <span style={{ color:"var(--red)",fontSize:12,fontWeight:700 }}>{cb.never || 0}</span>
                         </div>
                       </div>
                       {(cb.never || 0) > 0 && (
                         <div style={{ marginTop:10,padding:"6px 10px",borderRadius:6,background:"#F8717112",border:"1px solid #F8717122",textAlign:"center" }}>
-                          <div style={{ color:"#F87171",fontSize:10,fontWeight:600 }}>{"\u26A0\uFE0F $" + Math.round((cb.never || 0) * CONV_RATE * AVG_TICKET).toLocaleString() + " in lost revenue"}</div>
+                          <div style={{ color:"var(--red)",fontSize:10,fontWeight:600 }}>{"\u26A0\uFE0F $" + Math.round((cb.never || 0) * CONV_RATE * AVG_TICKET).toLocaleString() + " in lost revenue"}</div>
                         </div>
                       )}
                     </div>
@@ -622,7 +622,7 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               </div>
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>No callback data available</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)" }}>No callback data available</div>
           )}
         </div>
       )}
@@ -632,14 +632,14 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       {/* ═══════════════════════════════════════════ */}
       {subTab === "employees" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:20 }}>Employee Call Performance</div>
+          <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:700,marginBottom:20 }}>Employee Call Performance</div>
           {employeeData && employeeData.employees && employeeData.employees.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,overflow:"hidden" }}>
               <table style={{ width:"100%",borderCollapse:"collapse" }}>
                 <thead>
-                  <tr style={{ borderBottom:"2px solid #2A2D35" }}>
+                  <tr style={{ borderBottom:"2px solid var(--border)" }}>
                     {["Employee","Store","Audits","Avg Score","Appt %","Warranty %","Discount %"].map(function(h,i) {
-                      return <th key={i} style={{ padding:"12px 14px",textAlign:i < 2 ? "left" : "center",color:"#8B8F98",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
+                      return <th key={i} style={{ padding:"12px 14px",textAlign:i < 2 ? "left" : "center",color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase",fontWeight:700 }}>{h}</th>;
                     })}
                   </tr>
                 </thead>
@@ -655,10 +655,10 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                     var discountRate = (e.discount_rate || 0) > 1 ? Math.round(e.discount_rate) : Math.round((e.discount_rate || 0) * 100);
                     var storeKey = e.store || "";
                     return (
-                      <tr key={empName + storeKey} style={{ borderBottom:"1px solid #1E2028" }}>
-                        <td style={{ padding:"10px 14px",color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{empName}</td>
-                        <td style={{ padding:"10px 14px",color:STORES[storeKey]?STORES[storeKey].color:"#8B8F98",fontSize:12 }}>{STORES[storeKey]?STORES[storeKey].name.replace("CPR ",""):storeKey}</td>
-                        <td style={{ padding:"10px 14px",textAlign:"center",color:"#F0F1F3",fontSize:13 }}>{e.total_audits || 0}</td>
+                      <tr key={empName + storeKey} style={{ borderBottom:"1px solid var(--border-light)" }}>
+                        <td style={{ padding:"10px 14px",color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{empName}</td>
+                        <td style={{ padding:"10px 14px",color:STORES[storeKey]?STORES[storeKey].color:"var(--text-secondary)",fontSize:12 }}>{STORES[storeKey]?STORES[storeKey].name.replace("CPR ",""):storeKey}</td>
+                        <td style={{ padding:"10px 14px",textAlign:"center",color:"var(--text-primary)",fontSize:13 }}>{e.total_audits || 0}</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(avgScore/4*100,80,60),fontSize:14,fontWeight:700 }}>{avgScore.toFixed(1)}/4</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(apptRate,70,40),fontSize:13,fontWeight:600 }}>{apptRate}%</td>
                         <td style={{ padding:"10px 14px",textAlign:"center",color:sc(warrantyRate,60,30),fontSize:13,fontWeight:600 }}>{warrantyRate}%</td>
@@ -670,14 +670,14 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
               </table>
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78" }}>Loading employee data...</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading employee data...</div>
           )}
 
           {/* Schedule correlation */}
           {scheduleData && scheduleData.shifts && scheduleData.shifts.length > 0 && (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginTop:20 }}>
-              <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDCC5"} Schedule vs Peak Miss Times</div>
-              <div style={{ color:"#6B6F78",fontSize:11,marginBottom:12 }}>Cross-reference who was on shift during high-miss hours</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginTop:20 }}>
+              <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDCC5"} Schedule vs Peak Miss Times</div>
+              <div style={{ color:"var(--text-muted)",fontSize:11,marginBottom:12 }}>Cross-reference who was on shift during high-miss hours</div>
               {peakMissHours.slice(0, 3).map(function(h) {
                 var hourNum = parseInt(h.hour);
                 if (isNaN(hourNum) && h.hour) {
@@ -692,13 +692,13 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                   return hourNum >= start && hourNum < end;
                 });
                 return (
-                  <div key={h.hour} style={{ padding:"10px 0",borderBottom:"1px solid #1E2028" }}>
+                  <div key={h.hour} style={{ padding:"10px 0",borderBottom:"1px solid var(--border-light)" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
-                      <span style={{ color:"#F87171",fontSize:12,fontWeight:600 }}>{h.hour} — {h.total} missed calls</span>
-                      <span style={{ color:"#8B8F98",fontSize:10 }}>{onShift.length} employees on shift</span>
+                      <span style={{ color:"var(--red)",fontSize:12,fontWeight:600 }}>{h.hour} — {h.total} missed calls</span>
+                      <span style={{ color:"var(--text-secondary)",fontSize:10 }}>{onShift.length} employees on shift</span>
                     </div>
                     {onShift.length > 0 && (
-                      <div style={{ color:"#C8CAD0",fontSize:11 }}>
+                      <div style={{ color:"var(--text-body)",fontSize:11 }}>
                         On shift: {onShift.map(function(s) { return s.employee + " (" + (s.location || "") + ")"; }).join(", ")}
                       </div>
                     )}
@@ -715,34 +715,34 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
       {/* ═══════════════════════════════════════════ */}
       {subTab === "actions" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:18,fontWeight:700,marginBottom:20 }}>Today's Action Dashboard</div>
+          <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:700,marginBottom:20 }}>Today's Action Dashboard</div>
 
           {/* Priority: Unreturned calls */}
           <div style={{ background:"#F8717108",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #F8717122" }}>
             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-              <span style={{ width:12,height:12,borderRadius:"50%",background:"#F87171" }} />
-              <span style={{ color:"#F87171",fontSize:13,fontWeight:700 }}>PRIORITY — Unreturned Missed Calls</span>
+              <span style={{ width:12,height:12,borderRadius:"50%",background:"var(--red)" }} />
+              <span style={{ color:"var(--red)",fontSize:13,fontWeight:700 }}>PRIORITY — Unreturned Missed Calls</span>
             </div>
             {callbackData && callbackData.some(function(cb) { return (cb.never || 0) > 0; }) ? (
               callbackData.filter(function(cb) { return (cb.never || 0) > 0; }).map(function(cb) {
                 var store = STORES[cb.store];
                 return (
-                  <div key={cb.store} style={{ padding:"8px 12px",background:"#12141A",borderRadius:8,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                    <span style={{ color:store?store.color:"#8B8F98",fontSize:12,fontWeight:600 }}>{store?store.name.replace("CPR ",""):cb.store}</span>
-                    <span style={{ color:"#F87171",fontSize:13,fontWeight:700 }}>{cb.never} calls never returned — {"$" + Math.round(cb.never * CONV_RATE * AVG_TICKET).toLocaleString() + " at risk"}</span>
+                  <div key={cb.store} style={{ padding:"8px 12px",background:"var(--bg-card-inner)",borderRadius:8,marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                    <span style={{ color:store?store.color:"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{store?store.name.replace("CPR ",""):cb.store}</span>
+                    <span style={{ color:"var(--red)",fontSize:13,fontWeight:700 }}>{cb.never} calls never returned — {"$" + Math.round(cb.never * CONV_RATE * AVG_TICKET).toLocaleString() + " at risk"}</span>
                   </div>
                 );
               })
             ) : (
-              <div style={{ color:"#4ADE80",fontSize:12 }}>{"\u2705"} All missed calls have been returned!</div>
+              <div style={{ color:"var(--green)",fontSize:12 }}>{"\u2705"} All missed calls have been returned!</div>
             )}
           </div>
 
           {/* Watch: Employee trends */}
           <div style={{ background:"#FBBF2408",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #FBBF2422" }}>
             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-              <span style={{ width:12,height:12,borderRadius:"50%",background:"#FBBF24" }} />
-              <span style={{ color:"#FBBF24",fontSize:13,fontWeight:700 }}>WATCH — Employee Performance Flags</span>
+              <span style={{ width:12,height:12,borderRadius:"50%",background:"var(--yellow)" }} />
+              <span style={{ color:"var(--yellow)",fontSize:13,fontWeight:700 }}>WATCH — Employee Performance Flags</span>
             </div>
             {employeeData && employeeData.employees ? (
               <div>
@@ -762,53 +762,53 @@ export default function CallPerformanceTab({ storeFilter, overviewStats, dailyCa
                     if (avgScore < 2.0) issues.push("avg score " + avgScore.toFixed(1) + "/4");
                     if (issues.length > 0) flags.push({ name: empName, store: e.store, audits: e.total_audits, issues: issues });
                   });
-                  if (flags.length === 0) return <div style={{ color:"#4ADE80",fontSize:12 }}>{"\u2705"} All employees with 5+ audits meeting thresholds</div>;
+                  if (flags.length === 0) return <div style={{ color:"var(--green)",fontSize:12 }}>{"\u2705"} All employees with 5+ audits meeting thresholds</div>;
                   return flags.slice(0, 8).map(function(f, i) {
-                    return <div key={i} style={{ padding:"8px 0",borderBottom:i < flags.length - 1 ? "1px solid #1E2028" : "none" }}>
+                    return <div key={i} style={{ padding:"8px 0",borderBottom:i < flags.length - 1 ? "1px solid var(--border-light)" : "none" }}>
                       <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center" }}>
-                        <span style={{ color:"#FBBF24",fontSize:12,fontWeight:700 }}>{f.name}</span>
-                        <span style={{ color:"#6B6F78",fontSize:10 }}>{STORES[f.store] ? STORES[f.store].name.replace("CPR ","") : f.store} — {f.audits} audits</span>
+                        <span style={{ color:"var(--yellow)",fontSize:12,fontWeight:700 }}>{f.name}</span>
+                        <span style={{ color:"var(--text-muted)",fontSize:10 }}>{STORES[f.store] ? STORES[f.store].name.replace("CPR ","") : f.store} — {f.audits} audits</span>
                       </div>
-                      <div style={{ color:"#C8CAD0",fontSize:11,marginTop:2 }}>Needs work on: {f.issues.join(" · ")}</div>
+                      <div style={{ color:"var(--text-body)",fontSize:11,marginTop:2 }}>Needs work on: {f.issues.join(" · ")}</div>
                     </div>;
                   });
                 })()}
               </div>
             ) : (
-              <div style={{ color:"#6B6F78",fontSize:12 }}>Loading employee data...</div>
+              <div style={{ color:"var(--text-muted)",fontSize:12 }}>Loading employee data...</div>
             )}
           </div>
 
           {/* Optimize: Schedule adjustments */}
           <div style={{ background:"#4ADE8008",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #4ADE8022" }}>
             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:12 }}>
-              <span style={{ width:12,height:12,borderRadius:"50%",background:"#4ADE80" }} />
-              <span style={{ color:"#4ADE80",fontSize:13,fontWeight:700 }}>OPTIMIZE — Schedule Adjustments</span>
+              <span style={{ width:12,height:12,borderRadius:"50%",background:"var(--green)" }} />
+              <span style={{ color:"var(--green)",fontSize:13,fontWeight:700 }}>OPTIMIZE — Schedule Adjustments</span>
             </div>
             {peakMissHours.length > 0 ? (
               peakMissHours.slice(0, 3).map(function(h) {
                 var worst = STORE_KEYS.reduce(function(best, sk) { return (h[sk] || 0) > (h[best] || 0) ? sk : best; }, STORE_KEYS[0]);
-                return <div key={h.hour} style={{ padding:"6px 0",borderBottom:"1px solid #1E2028",color:"#C8CAD0",fontSize:12 }}>
-                  Add coverage at <strong style={{ color:"#4ADE80" }}>{h.hour}</strong> — {h.total} missed, worst at <strong style={{ color:STORES[worst].color }}>{STORES[worst].name.replace("CPR ","")}</strong> ({h[worst]} missed)
+                return <div key={h.hour} style={{ padding:"6px 0",borderBottom:"1px solid var(--border-light)",color:"var(--text-body)",fontSize:12 }}>
+                  Add coverage at <strong style={{ color:"var(--green)" }}>{h.hour}</strong> — {h.total} missed, worst at <strong style={{ color:STORES[worst].color }}>{STORES[worst].name.replace("CPR ","")}</strong> ({h[worst]} missed)
                 </div>;
               })
             ) : (
-              <div style={{ color:"#4ADE80",fontSize:12 }}>{"\u2705"} No significant coverage gaps detected</div>
+              <div style={{ color:"var(--green)",fontSize:12 }}>{"\u2705"} No significant coverage gaps detected</div>
             )}
           </div>
 
           {/* Key metric */}
           <div style={{ background:"linear-gradient(135deg,#7B2FFF08,#00D4FF08)",borderRadius:12,padding:24,border:"1px solid #7B2FFF22",textAlign:"center" }}>
-            <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Key Metric</div>
-            <div style={{ color:"#F0F1F3",fontSize:16,lineHeight:1.6 }}>
+            <div style={{ color:"var(--purple)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em",marginBottom:8 }}>Key Metric</div>
+            <div style={{ color:"var(--text-primary)",fontSize:16,lineHeight:1.6 }}>
               {"This period we missed "}
-              <strong style={{ color:"#F87171",fontSize:20 }}>{totals.missed}</strong>
+              <strong style={{ color:"var(--red)",fontSize:20 }}>{totals.missed}</strong>
               {" calls — that's approximately "}
-              <strong style={{ color:"#FF2D95",fontSize:20 }}>{"$" + missedRevenue.toLocaleString()}</strong>
+              <strong style={{ color:"var(--pink)",fontSize:20 }}>{"$" + missedRevenue.toLocaleString()}</strong>
               {" in potential revenue."}
             </div>
             {prediction && (
-              <div style={{ color:"#8B8F98",fontSize:12,marginTop:8 }}>
+              <div style={{ color:"var(--text-secondary)",fontSize:12,marginTop:8 }}>
                 {"Today (" + prediction.day + ") expect ~" + prediction.expectedCalls + " calls with ~" + prediction.expectedMissed + " missed based on historical patterns."}
               </div>
             )}

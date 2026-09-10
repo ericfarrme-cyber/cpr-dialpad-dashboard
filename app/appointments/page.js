@@ -23,7 +23,7 @@ var LEVELS = [
   { name: "Bronze", min: 0, max: 39, color: "#CD7F32", emoji: "\uD83E\uDD49", bg: "#CD7F3215" },
   { name: "Silver", min: 40, max: 59, color: "#C0C0C0", emoji: "\uD83E\uDD48", bg: "#C0C0C015" },
   { name: "Gold", min: 60, max: 79, color: "#FFD700", emoji: "\uD83E\uDD47", bg: "#FFD70015" },
-  { name: "Platinum", min: 80, max: 89, color: "#00D4FF", emoji: "\uD83D\uDC8E", bg: "#00D4FF15" },
+  { name: "Platinum", min: 80, max: 89, color: "var(--cyan)", emoji: "\uD83D\uDC8E", bg: "#00D4FF15" },
   { name: "Diamond", min: 90, max: 100, color: "#E0B0FF", emoji: "\u2B50", bg: "#E0B0FF15" },
 ];
 function getLevel(score) {
@@ -340,19 +340,19 @@ function StoreDashboard() {
     storeEmployees.forEach(function(e) {
       var lvl = getLevel(e.overall);
       if (e.overall >= 60) wins.push({ emoji: lvl.emoji, text: e.name + " reached " + lvl.name + " level! (" + e.overall + " pts)", color: lvl.color });
-      if (e.audit && e.audit.score >= 70) wins.push({ emoji: "\uD83D\uDCDE", text: e.name + " — strong phone audit score (" + e.audit.score + ")", color: "#7B2FFF" });
-      if (e.compliance && e.compliance.score >= 75) wins.push({ emoji: "\uD83C\uDFAB", text: e.name + " — excellent ticket compliance (" + e.compliance.score + ")", color: "#00D4FF" });
+      if (e.audit && e.audit.score >= 70) wins.push({ emoji: "\uD83D\uDCDE", text: e.name + " — strong phone audit score (" + e.audit.score + ")", color: "var(--purple)" });
+      if (e.compliance && e.compliance.score >= 75) wins.push({ emoji: "\uD83C\uDFAB", text: e.name + " — excellent ticket compliance (" + e.compliance.score + ")", color: "var(--cyan)" });
     });
     if (apptStats && apptStats.empStats) {
       apptStats.empStats.forEach(function(e) {
-        if (e.show_rate >= 75 && e.total >= 5) wins.push({ emoji: "\uD83C\uDFAF", text: e.name + " — " + e.show_rate + "% appointment show rate!", color: "#4ADE80" });
+        if (e.show_rate >= 75 && e.total >= 5) wins.push({ emoji: "\uD83C\uDFAF", text: e.name + " — " + e.show_rate + "% appointment show rate!", color: "var(--green)" });
       });
     }
     storeEmployees.forEach(function(e) {
       var totalRepairs = e.repairs ? (e.repairs.phone_tickets || 0) + (e.repairs.other_tickets || 0) : 0;
       var accyGP = e.repairs ? e.repairs.accy_gp || 0 : 0;
-      if (totalRepairs >= 15) wins.push({ emoji: "\uD83D\uDD27", text: e.name + " \u2014 " + totalRepairs + " repairs this month!", color: "#7B2FFF" });
-      if (accyGP >= 200) wins.push({ emoji: "\uD83D\uDCB0", text: e.name + " \u2014 $" + Math.round(accyGP) + " in accessory GP!", color: "#00D4FF" });
+      if (totalRepairs >= 15) wins.push({ emoji: "\uD83D\uDD27", text: e.name + " \u2014 " + totalRepairs + " repairs this month!", color: "var(--purple)" });
+      if (accyGP >= 200) wins.push({ emoji: "\uD83D\uDCB0", text: e.name + " \u2014 $" + Math.round(accyGP) + " in accessory GP!", color: "var(--cyan)" });
     });
     return wins.slice(0, 10);
   }, [storeEmployees, apptStats]);
@@ -462,7 +462,7 @@ function StoreDashboard() {
   };
 
   var storeName = STORES[store] ? STORES[store].name : store;
-  var storeColor = STORES[store] ? STORES[store].color : "#7B2FFF";
+  var storeColor = STORES[store] ? STORES[store].color : "var(--purple)";
 
   // Review bonus calculations
   var reviewCalc = useMemo(function() {
@@ -714,7 +714,7 @@ function StoreDashboard() {
       {/* Header */}
       <div style={{ background:"var(--bg-card-inner)",borderBottom:"1px solid var(--border-light)",padding:"16px 28px",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
         <div style={{ display:"flex",alignItems:"center",gap:14 }}>
-          <div style={{ width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,#00D4FF,#7B2FFF)",display:"flex",alignItems:"center",justifyContent:"center" }}>
+          <div style={{ width:36,height:36,borderRadius:10,background:"linear-gradient(135deg,var(--cyan),var(--purple))",display:"flex",alignItems:"center",justifyContent:"center" }}>
             <span style={{ color:"#FFF",fontSize:18,fontWeight:900 }}>FT</span>
           </div>
           <div>
@@ -736,7 +736,7 @@ function StoreDashboard() {
         {/* Section nav */}
         <div style={{ display:"flex",gap:4,marginBottom:24 }}>
           {[{id:"overview",label:"\uD83C\uDFEA Store Overview"},{id:"appointments",label:"\uD83D\uDCC5 Appointments"},{id:"reviews",label:"\u2B50 Reviews & SEO"},{id:"analytics",label:"\uD83D\uDCCA Analytics"},{id:"performance",label:"\uD83C\uDFAF My Performance"}].map(function(v) {
-            return <button key={v.id} onClick={function(){setSection(v.id);}} style={{ padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",background:section===v.id?"#7B2FFF22":"var(--bg-card)",color:section===v.id?"#7B2FFF":"var(--text-secondary)",fontSize:13,fontWeight:600 }}>{v.label}</button>;
+            return <button key={v.id} onClick={function(){setSection(v.id);}} style={{ padding:"10px 18px",borderRadius:8,border:"none",cursor:"pointer",background:section===v.id?"#7B2FFF22":"var(--bg-card)",color:section===v.id?"var(--purple)":"var(--text-secondary)",fontSize:13,fontWeight:600 }}>{v.label}</button>;
           })}
         </div>
 
@@ -748,14 +748,14 @@ function StoreDashboard() {
               <div style={{ display:"flex",alignItems:"center",gap:8 }}>
                 <span style={{ color:"var(--text-muted)",fontSize:13 }}>{"\uD83D\uDCC5"}</span>
                 <select value={selectedPeriod} onChange={function(e){setSelectedPeriod(e.target.value);}}
-                  style={{ padding:"7px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:selectedPeriod===currentPeriod?"var(--text-secondary)":"#FBBF24",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
+                  style={{ padding:"7px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:selectedPeriod===currentPeriod?"var(--text-secondary)":"var(--yellow)",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
                   {periodOptions.map(function(p){
                     return <option key={p.value} value={p.value}>{p.label}</option>;
                   })}
                 </select>
                 {selectedPeriod !== currentPeriod && (
                   <button onClick={function(){setSelectedPeriod(currentPeriod);}}
-                    style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"#7B2FFF",fontSize:10,fontWeight:600,cursor:"pointer" }}>
+                    style={{ padding:"5px 12px",borderRadius:6,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"var(--purple)",fontSize:10,fontWeight:600,cursor:"pointer" }}>
                     Current Month
                   </button>
                 )}
@@ -763,7 +763,7 @@ function StoreDashboard() {
               {selectedPeriod !== currentPeriod && (
                 <div style={{ background:"#FBBF2410",border:"1px solid #FBBF2433",borderRadius:8,padding:"6px 14px",display:"flex",alignItems:"center",gap:6 }}>
                   <span style={{ fontSize:12 }}>{"\uD83D\uDCC6"}</span>
-                  <span style={{ color:"#FBBF24",fontSize:11,fontWeight:600 }}>
+                  <span style={{ color:"var(--yellow)",fontSize:11,fontWeight:600 }}>
                     {"Viewing: " + periodOptions.find(function(p){return p.value===selectedPeriod;}).label}
                   </span>
                 </div>
@@ -813,12 +813,12 @@ function StoreDashboard() {
             {weeklyGoal && (
               <div style={{ background:"linear-gradient(135deg,#7B2FFF08,#00D4FF08)",borderRadius:16,padding:28,marginBottom:24,border:"1px solid #7B2FFF22",position:"relative",overflow:"hidden" }}>
                 <div style={{ display:"flex",gap:24,alignItems:"flex-start",position:"relative" }}>
-                  <div style={{ width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
+                  <div style={{ width:64,height:64,borderRadius:16,background:"linear-gradient(135deg,var(--purple),var(--cyan))",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0 }}>
                     <span style={{ fontSize:28 }}>{"\uD83C\uDFAF"}</span>
                   </div>
                   <div style={{ flex:1 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:10,marginBottom:6 }}>
-                      <div style={{ color:"#7B2FFF",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>This Week{"\u2019"}s Goal</div>
+                      <div style={{ color:"var(--purple)",fontSize:10,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.1em" }}>This Week{"\u2019"}s Goal</div>
                       <div style={{ color:"var(--text-muted)",fontSize:9 }}>Week of {weeklyGoal.week_start && new Date(weeklyGoal.week_start + "T12:00:00").toLocaleDateString([], {month:"short", day:"numeric"})}</div>
                     </div>
                     <div style={{ color:"var(--text-primary)",fontSize:20,fontWeight:800,marginBottom:8 }}>{weeklyGoal.goal_title}</div>
@@ -826,16 +826,16 @@ function StoreDashboard() {
                     {weeklyGoal.metric_baseline > 0 && weeklyGoal.metric_target > 0 && (
                       <div style={{ marginBottom:14 }}>
                         <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}>
-                          <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Current: <strong style={{ color:"#F87171" }}>{weeklyGoal.metric_baseline}</strong></span>
-                          <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Target: <strong style={{ color:"#4ADE80" }}>{weeklyGoal.metric_target}</strong></span>
+                          <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Current: <strong style={{ color:"var(--red)" }}>{weeklyGoal.metric_baseline}</strong></span>
+                          <span style={{ color:"var(--text-secondary)",fontSize:11 }}>Target: <strong style={{ color:"var(--green)" }}>{weeklyGoal.metric_target}</strong></span>
                         </div>
                         <div style={{ background:"var(--bg-card-inner)",borderRadius:6,height:10,overflow:"hidden" }}>
-                          <div style={{ width:Math.min(100, (weeklyGoal.metric_baseline / weeklyGoal.metric_target) * 100) + "%",height:"100%",background:"linear-gradient(90deg,#F87171,#FBBF24,#4ADE80)",borderRadius:6,transition:"width 1s ease" }} />
+                          <div style={{ width:Math.min(100, (weeklyGoal.metric_baseline / weeklyGoal.metric_target) * 100) + "%",height:"100%",background:"linear-gradient(90deg,var(--red),var(--yellow),var(--green))",borderRadius:6,transition:"width 1s ease" }} />
                         </div>
                       </div>
                     )}
                     <div style={{ background:"var(--bg-card-inner)",borderRadius:10,padding:14 }}>
-                      <div style={{ color:"#FBBF24",fontSize:10,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em" }}>Coaching Tip</div>
+                      <div style={{ color:"var(--yellow)",fontSize:10,fontWeight:700,marginBottom:4,textTransform:"uppercase",letterSpacing:"0.05em" }}>Coaching Tip</div>
                       <div style={{ color:"var(--text-body)",fontSize:12,lineHeight:1.6 }}>{weeklyGoal.coaching_tip}</div>
                     </div>
                   </div>
@@ -845,34 +845,34 @@ function StoreDashboard() {
 
             {/* Quick stats row */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(6,1fr)",gap:14,marginBottom:24 }}>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--green)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Show Rate</div>
-                <div style={{ color:as.showRate>=65?"#4ADE80":as.showRate>=50?"#FBBF24":"#F87171",fontSize:26,fontWeight:700 }}>{as.showRate || 0}%</div>
+                <div style={{ color:as.showRate>=65?"var(--green)":as.showRate>=50?"var(--yellow)":"var(--red)",fontSize:26,fontWeight:700 }}>{as.showRate || 0}%</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{as.arrived||0} of {as.total||0} showed up</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--purple)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDD27"} Repairs</div>
-                <div style={{ color:"#7B2FFF",fontSize:26,fontWeight:700 }}>{storeSalesTotals.repairs}</div>
+                <div style={{ color:"var(--purple)",fontSize:26,fontWeight:700 }}>{storeSalesTotals.repairs}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>This month</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--cyan)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCB0"} Accessory GP</div>
-                <div style={{ color:"#00D4FF",fontSize:26,fontWeight:700 }}>{"$" + storeSalesTotals.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                <div style={{ color:"var(--cyan)",fontSize:26,fontWeight:700 }}>{"$" + storeSalesTotals.accy_gp.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{storeSalesTotals.accy_count} items sold</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--pink)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>{"\uD83D\uDCDE"} Booking Rate</div>
-                <div style={{ color:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",fontSize:26,fontWeight:700 }}>{bookingRate.rate}%</div>
+                <div style={{ color:bookingRate.rate>=15?"var(--green)":bookingRate.rate>=8?"var(--yellow)":"var(--pink)",fontSize:26,fontWeight:700 }}>{bookingRate.rate}%</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{bookingRate.appts} appts / {bookingRate.calls} opp calls</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--yellow)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Follow-Ups</div>
-                <div style={{ color:as.needFollowUp>0?"#FBBF24":"#4ADE80",fontSize:26,fontWeight:700 }}>{as.needFollowUp || 0}</div>
+                <div style={{ color:as.needFollowUp>0?"var(--yellow)":"var(--green)",fontSize:26,fontWeight:700 }}>{as.needFollowUp || 0}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>No-shows to call</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--purple)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Ticket Compliance</div>
-                <div style={{ color:"#7B2FFF",fontSize:26,fontWeight:700 }}>{ticketStats ? ticketStats.avgOverall || 0 : "—"}</div>
+                <div style={{ color:"var(--purple)",fontSize:26,fontWeight:700 }}>{ticketStats ? ticketStats.avgOverall || 0 : "—"}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>Avg ticket score</div>
               </div>
             </div>
@@ -926,25 +926,25 @@ function StoreDashboard() {
                 answered = totalInbound - missed;
               }
 
-              var rateColor = answerRate >= 85 ? "#4ADE80" : answerRate >= 70 ? "#FBBF24" : "#F87171";
-              var cbColor = callbackRate >= 80 ? "#4ADE80" : callbackRate >= 50 ? "#FBBF24" : "#F87171";
+              var rateColor = answerRate >= 85 ? "var(--green)" : answerRate >= 70 ? "var(--yellow)" : "var(--red)";
+              var cbColor = callbackRate >= 80 ? "var(--green)" : callbackRate >= 50 ? "var(--yellow)" : "var(--red)";
 
               return (
                 <div style={{ background:"var(--bg-card)",borderRadius:14,padding:24,marginBottom:24,border:"1px solid var(--border)" }}>
                   <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                       <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>📞 Call Performance</div>
-                      <div style={{ padding:"4px 12px",borderRadius:6,background:callScore >= 80 ? "#4ADE8018" : callScore >= 60 ? "#FBBF2418" : "#F8717118",color:callScore >= 80 ? "#4ADE80" : callScore >= 60 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{callScore}/100</div>
+                      <div style={{ padding:"4px 12px",borderRadius:6,background:callScore >= 80 ? "#4ADE8018" : callScore >= 60 ? "#FBBF2418" : "#F8717118",color:callScore >= 80 ? "var(--green)" : callScore >= 60 ? "var(--yellow)" : "var(--red)",fontSize:13,fontWeight:700 }}>{callScore}/100</div>
                     </div>
                     {/* Time window toggle */}
                     <div style={{ display:"flex",gap:2,background:"var(--bg-card-inner)",borderRadius:8,padding:2 }}>
                       <button onClick={function(){setCallTimeWindow("mtd");}} style={{
                         padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,
-                        background:callTimeWindow==="mtd"?"#FF2D95":"transparent",color:callTimeWindow==="mtd"?"#fff":"var(--text-secondary)",
+                        background:callTimeWindow==="mtd"?"var(--pink)":"transparent",color:callTimeWindow==="mtd"?"#fff":"var(--text-secondary)",
                       }}>This Month</button>
                       <button onClick={function(){setCallTimeWindow("30day");}} style={{
                         padding:"5px 12px",borderRadius:6,border:"none",cursor:"pointer",fontSize:10,fontWeight:700,
-                        background:callTimeWindow==="30day"?"#7B2FFF":"transparent",color:callTimeWindow==="30day"?"#fff":"var(--text-secondary)",
+                        background:callTimeWindow==="30day"?"var(--purple)":"transparent",color:callTimeWindow==="30day"?"#fff":"var(--text-secondary)",
                       }}>30 Days</button>
                     </div>
                   </div>
@@ -961,7 +961,7 @@ function StoreDashboard() {
                     {/* Missed Calls */}
                     <div style={{ background:"var(--bg-card-inner)",borderRadius:12,padding:20,textAlign:"center",border:missed > 5 ? "1px solid #F8717133" : "1px solid var(--border)" }}>
                       <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:8 }}>Missed Calls</div>
-                      <div style={{ fontSize:38,fontWeight:800,color:missed > 10 ? "#F87171" : missed > 0 ? "#FBBF24" : "#4ADE80" }}>{missed}</div>
+                      <div style={{ fontSize:38,fontWeight:800,color:missed > 10 ? "var(--red)" : missed > 0 ? "var(--yellow)" : "var(--green)" }}>{missed}</div>
                       <div style={{ color:"var(--text-muted)",fontSize:11,marginTop:4 }}>{vms > 0 ? vms + " went to voicemail" : windowLabel}</div>
                     </div>
                     {/* Callback Rate */}
@@ -973,7 +973,7 @@ function StoreDashboard() {
                         <div style={{ width:callbackRate+"%",height:"100%",borderRadius:4,background:cbColor }} />
                       </div>
                       {callbackRate < 50 && missed > 3 && (
-                        <div style={{ marginTop:8,padding:"4px 8px",borderRadius:4,background:"#F8717112",color:"#F87171",fontSize:9,fontWeight:600 }}>⚠️ Needs improvement</div>
+                        <div style={{ marginTop:8,padding:"4px 8px",borderRadius:4,background:"#F8717112",color:"var(--red)",fontSize:9,fontWeight:600 }}>⚠️ Needs improvement</div>
                       )}
                     </div>
                   </div>
@@ -981,7 +981,7 @@ function StoreDashboard() {
                   <div style={{ display:"flex",gap:12 }}>
                     <div style={{ flex:1,padding:"8px 12px",background:"var(--bg-card-inner)",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                       <span style={{ color:"var(--text-secondary)",fontSize:10 }}>VM Return Rate</span>
-                      <span style={{ color:vmReturnRate >= 80 ? "#4ADE80" : vmReturnRate >= 50 ? "#FBBF24" : "#F87171",fontSize:13,fontWeight:700 }}>{vmReturnRate}%</span>
+                      <span style={{ color:vmReturnRate >= 80 ? "var(--green)" : vmReturnRate >= 50 ? "var(--yellow)" : "var(--red)",fontSize:13,fontWeight:700 }}>{vmReturnRate}%</span>
                     </div>
                     <div style={{ flex:1,padding:"8px 12px",background:"var(--bg-card-inner)",borderRadius:6,display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                       <span style={{ color:"var(--text-secondary)",fontSize:10 }}>Total Inbound</span>
@@ -1034,11 +1034,11 @@ function StoreDashboard() {
                           return (
                             <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:3,marginTop:4 }}>
                               <div style={{ background:"var(--bg-card)",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
-                                <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700 }}>{repairTotal}</div>
+                                <div style={{ color:"var(--purple)",fontSize:12,fontWeight:700 }}>{repairTotal}</div>
                                 <div style={{ color:"var(--text-muted)",fontSize:6,textTransform:"uppercase" }}>Repair Qty</div>
                               </div>
                               <div style={{ background:"var(--bg-card)",borderRadius:4,padding:"4px 0",textAlign:"center" }}>
-                                <div style={{ color:"#00D4FF",fontSize:12,fontWeight:700 }}>{"$" + accyGP.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
+                                <div style={{ color:"var(--cyan)",fontSize:12,fontWeight:700 }}>{"$" + accyGP.toLocaleString(undefined,{maximumFractionDigits:0})}</div>
                                 <div style={{ color:"var(--text-muted)",fontSize:6,textTransform:"uppercase" }}>Accy GP</div>
                               </div>
                             </div>
@@ -1091,7 +1091,7 @@ function StoreDashboard() {
                   }
 
                   var catDetails = [
-                    { key: "repairs", label: "Repairs & Production", icon: "\uD83D\uDD27", color: "#7B2FFF",
+                    { key: "repairs", label: "Repairs & Production", icon: "\uD83D\uDD27", color: "var(--purple)",
                       details: [
                         { label: "Phone Repairs", value: emp.repairs ? emp.repairs.phone_tickets || 0 : 0 },
                         { label: "Other Repairs", value: emp.repairs ? emp.repairs.other_tickets || 0 : 0 },
@@ -1100,7 +1100,7 @@ function StoreDashboard() {
                         { label: "Accessory Items", value: accyCount, suffix: " sold" },
                         { label: "Cleanings", value: cleanCount },
                       ] },
-                    { key: "audit", label: "Phone Audit Quality", icon: "\uD83D\uDCDE", color: "#FBBF24",
+                    { key: "audit", label: "Phone Audit Quality", icon: "\uD83D\uDCDE", color: "var(--yellow)",
                       details: [
                         { label: "Overall Audit Score", value: auditScore + "/100", highlight: true },
                         { label: "Avg Call Score", value: avgAuditPct + "%" },
@@ -1110,7 +1110,7 @@ function StoreDashboard() {
                         { label: "Opportunity Calls", value: oppAudits },
                       ],
                       tips: auditTips },
-                    { key: "compliance", label: "Ticket Compliance", icon: "\uD83C\uDFAB", color: "#00D4FF",
+                    { key: "compliance", label: "Ticket Compliance", icon: "\uD83C\uDFAB", color: "var(--cyan)",
                       details: [
                         { label: "Compliance Score", value: compScore + "/100", highlight: true },
                         { label: "Tickets Graded", value: ticketsGraded },
@@ -1120,7 +1120,7 @@ function StoreDashboard() {
 
                   if (empAppt) {
                     catDetails.push({
-                      key: "appointments", label: "Appointments", icon: "\uD83D\uDCC5", color: "#4ADE80",
+                      key: "appointments", label: "Appointments", icon: "\uD83D\uDCC5", color: "var(--green)",
                       details: [
                         { label: "Total Booked", value: empAppt.total },
                         { label: "Showed Up", value: empAppt.arrived },
@@ -1164,15 +1164,15 @@ function StoreDashboard() {
                                 return (
                                   <div key={di} style={{ display:"flex",justifyContent:"space-between",padding:"4px 0",borderBottom:di < cat.details.length - 1 ? "1px solid var(--border-light)" : "none" }}>
                                     <span style={{ color:"var(--text-secondary)",fontSize:10 }}>{d.label}</span>
-                                    <span style={{ color:d.warn ? "#F87171" : d.highlight ? "var(--text-primary)" : "var(--text-body)",fontSize:d.highlight ? 12 : 11,fontWeight:d.highlight ? 700 : 600 }}>{d.value}{d.suffix || ""}</span>
+                                    <span style={{ color:d.warn ? "var(--red)" : d.highlight ? "var(--text-primary)" : "var(--text-body)",fontSize:d.highlight ? 12 : 11,fontWeight:d.highlight ? 700 : 600 }}>{d.value}{d.suffix || ""}</span>
                                   </div>
                                 );
                               })}
                               {cat.tips && cat.tips.length > 0 && (
                                 <div style={{ marginTop:10,padding:"8px 10px",borderRadius:6,background:"var(--bg-page)",border:"1px solid var(--border)" }}>
-                                  <div style={{ color:"#FBBF24",fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4 }}>{"\uD83D\uDCA1"} Coaching</div>
+                                  <div style={{ color:"var(--yellow)",fontSize:8,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:4 }}>{"\uD83D\uDCA1"} Coaching</div>
                                   {cat.tips.map(function(tip, ti) {
-                                    var tipColor = tip.priority === "high" ? "#F87171" : tip.priority === "good" ? "#4ADE80" : "#FBBF24";
+                                    var tipColor = tip.priority === "high" ? "var(--red)" : tip.priority === "good" ? "var(--green)" : "var(--yellow)";
                                     return (
                                       <div key={ti} style={{ display:"flex",alignItems:"flex-start",gap:5,marginBottom:ti < cat.tips.length - 1 ? 4 : 0 }}>
                                         <span style={{ color:tipColor,fontSize:8,marginTop:2 }}>{tip.priority === "good" ? "\u2713" : "\u25CF"}</span>
@@ -1211,11 +1211,11 @@ function StoreDashboard() {
             <div style={{ background:"var(--bg-card)",borderRadius:14,padding:24 }}>
               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14 }}>
                 <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700 }}>{"\uD83D\uDCC5"} Today's Appointments</div>
-                <button onClick={function(){setSection("appointments");}} style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"#7B2FFF",fontSize:11,cursor:"pointer",fontWeight:600 }}>View All</button>
+                <button onClick={function(){setSection("appointments");}} style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--purple)",fontSize:11,cursor:"pointer",fontWeight:600 }}>View All</button>
               </div>
               {appointments.filter(function(a){var t=new Date().toISOString().split("T")[0];return a.date_of_appt===t;}).length > 0 ? (
                 appointments.filter(function(a){var t=new Date().toISOString().split("T")[0];return a.date_of_appt===t;}).slice(0,5).map(function(a) {
-                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var statusColor=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var statusText=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":"Pending";
+                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var statusColor=isConverted?"var(--green)":arrived?"var(--yellow)":noShow?"var(--red)":"var(--yellow)";var statusText=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":"Pending";
                   return <div key={a.id} style={{ padding:"10px 0",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div>
                       <span style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{a.customer_name}</span>
@@ -1241,19 +1241,19 @@ function StoreDashboard() {
             <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:14 }}>
               <span style={{ color:"var(--text-muted)",fontSize:11 }}>{"\uD83D\uDCC5"}</span>
               <select value={selectedPeriod} onChange={function(e){setSelectedPeriod(e.target.value);}}
-                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:selectedPeriod===currentPeriod?"var(--text-secondary)":"#FBBF24",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
+                style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card-inner)",color:selectedPeriod===currentPeriod?"var(--text-secondary)":"var(--yellow)",fontSize:12,fontWeight:600,cursor:"pointer",outline:"none" }}>
                 {periodOptions.map(function(p){
                   return <option key={p.value} value={p.value}>{p.label}</option>;
                 })}
               </select>
               {selectedPeriod !== currentPeriod && (
                 <button onClick={function(){setSelectedPeriod(currentPeriod);}}
-                  style={{ padding:"4px 10px",borderRadius:5,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"#7B2FFF",fontSize:10,fontWeight:600,cursor:"pointer" }}>
+                  style={{ padding:"4px 10px",borderRadius:5,border:"1px solid #7B2FFF33",background:"#7B2FFF11",color:"var(--purple)",fontSize:10,fontWeight:600,cursor:"pointer" }}>
                   Current
                 </button>
               )}
               {selectedPeriod !== currentPeriod && (
-                <span style={{ color:"#FBBF24",fontSize:10,fontWeight:600 }}>
+                <span style={{ color:"var(--yellow)",fontSize:10,fontWeight:600 }}>
                   {"\uD83D\uDCC6 Viewing: " + periodOptions.find(function(p){return p.value===selectedPeriod;}).label}
                 </span>
               )}
@@ -1261,29 +1261,29 @@ function StoreDashboard() {
 
             {/* Stats row */}
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:14 }}>
-              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #4ADE80" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid var(--green)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Converted / Day</div>
-                <div style={{ color:"#4ADE80",fontSize:28,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
+                <div style={{ color:"var(--green)",fontSize:28,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{convertedStats.total} converted in {convertedStats.activeDays} days</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #7B2FFF" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid var(--purple)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Conversion Rate</div>
-                <div style={{ color:convertedStats.conversionRate>=60?"#4ADE80":convertedStats.conversionRate>=40?"#FBBF24":"#F87171",fontSize:28,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
+                <div style={{ color:convertedStats.conversionRate>=60?"var(--green)":convertedStats.conversionRate>=40?"var(--yellow)":"var(--red)",fontSize:28,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{convertedStats.total} of {convertedStats.arrivedTotal} who arrived</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #FBBF24" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid var(--yellow)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Show Rate</div>
-                <div style={{ color:as.showRate>=65?"#4ADE80":as.showRate>=50?"#FBBF24":"#F87171",fontSize:28,fontWeight:800 }}>{as.showRate||0}%</div>
+                <div style={{ color:as.showRate>=65?"var(--green)":as.showRate>=50?"var(--yellow)":"var(--red)",fontSize:28,fontWeight:800 }}>{as.showRate||0}%</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{as.arrived||0} of {as.total||0} showed</div>
               </div>
-              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid #F87171" }}>
+              <div style={{ background:"var(--bg-card)",borderRadius:10,padding:"14px 16px",borderLeft:"3px solid var(--red)" }}>
                 <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>No-Shows</div>
-                <div style={{ color:"#F87171",fontSize:28,fontWeight:800 }}>{as.noShow||0}</div>
+                <div style={{ color:"var(--red)",fontSize:28,fontWeight:800 }}>{as.noShow||0}</div>
                 <div style={{ color:"var(--text-muted)",fontSize:10 }}>{as.needFollowUp||0} need follow-up</div>
               </div>
             </div>
             <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:20 }}>
-              {[{l:"Total Appts",v:bookingRate.appts,c:"#7B2FFF"},{l:"Booking Rate",v:bookingRate.rate+"%",c:bookingRate.rate>=15?"#4ADE80":bookingRate.rate>=8?"#FBBF24":"#FF2D95",sub:bookingRate.appts+" of "+bookingRate.calls+" opp calls"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"#FBBF24":"#4ADE80"},{l:"Pending",v:as.pending||0,c:"#00D4FF"}].map(function(s,i) {
+              {[{l:"Total Appts",v:bookingRate.appts,c:"var(--purple)"},{l:"Booking Rate",v:bookingRate.rate+"%",c:bookingRate.rate>=15?"var(--green)":bookingRate.rate>=8?"var(--yellow)":"var(--pink)",sub:bookingRate.appts+" of "+bookingRate.calls+" opp calls"},{l:"Follow-Ups",v:as.needFollowUp||0,c:as.needFollowUp>0?"var(--yellow)":"var(--green)"},{l:"Pending",v:as.pending||0,c:"var(--cyan)"}].map(function(s,i) {
                 return <div key={i} style={{ background:"var(--bg-card)",borderRadius:10,padding:"12px 14px",borderLeft:"3px solid "+s.c }}>
                   <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>{s.l}</div>
                   <div style={{ color:s.c,fontSize:22,fontWeight:700 }}>{s.v}</div>
@@ -1296,22 +1296,22 @@ function StoreDashboard() {
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
               <div style={{ display:"flex",gap:4 }}>
                 {[{id:"today",label:"Today"},{id:"list",label:"All"},{id:"followup",label:"Follow-Ups"}].map(function(v) {
-                  return <button key={v.id} onClick={function(){setApptView(v.id);}} style={{ padding:"7px 14px",borderRadius:6,border:"none",cursor:"pointer",background:apptView===v.id?"#7B2FFF22":"var(--bg-card)",color:apptView===v.id?"#7B2FFF":"var(--text-secondary)",fontSize:11,fontWeight:600 }}>{v.label}</button>;
+                  return <button key={v.id} onClick={function(){setApptView(v.id);}} style={{ padding:"7px 14px",borderRadius:6,border:"none",cursor:"pointer",background:apptView===v.id?"#7B2FFF22":"var(--bg-card)",color:apptView===v.id?"var(--purple)":"var(--text-secondary)",fontSize:11,fontWeight:600 }}>{v.label}</button>;
                 })}
               </div>
               <div style={{ display:"flex",gap:6 }}>
                 <label style={{ padding:"7px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-secondary)",fontSize:11,cursor:importing?"wait":"pointer" }}>
                   {importing?"Importing...":"\uD83D\uDCE4 Import"}<input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} disabled={importing} style={{ display:"none" }} />
                 </label>
-                <button onClick={handleClearStore} style={{ padding:"7px 12px",borderRadius:6,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:11,cursor:"pointer" }}>Clear</button>
-                <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);setRepeatInfo(null);}} style={{ padding:"7px 14px",borderRadius:6,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>{showForm?"Cancel":"+ New"}</button>
+                <button onClick={handleClearStore} style={{ padding:"7px 12px",borderRadius:6,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer" }}>Clear</button>
+                <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);setRepeatInfo(null);}} style={{ padding:"7px 14px",borderRadius:6,border:"none",background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>{showForm?"Cancel":"+ New"}</button>
               </div>
             </div>
 
             {/* Search */}
             <input type="text" value={searchQuery} onChange={function(e){setSearchQuery(e.target.value);}} placeholder={"\uD83D\uDD0D Search name, phone, reason..."} style={{ width:"100%",padding:"9px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:12 }} />
 
-            {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
+            {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"var(--green)":"var(--red)",fontSize:12 }}>{msg.text}</div>}
 
             {/* New appointment form */}
             {showForm && !editingId && (
@@ -1332,9 +1332,9 @@ function StoreDashboard() {
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Reason / Quote</label><input value={form.reason} onChange={function(e){setForm(Object.assign({},form,{reason:e.target.value}));}} style={inputStyle} /></div>
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Notes</label><input value={form.notes} onChange={function(e){setForm(Object.assign({},form,{notes:e.target.value}));}} style={inputStyle} /></div>
                 </div>
-                {matchedCall && <div style={{ padding:10,borderRadius:6,background:"#00D4FF08",border:"1px solid #00D4FF33",marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDCDE"} <strong style={{color:"#00D4FF"}}>Call match:</strong> {matchedCall.employee} scored {parseFloat(matchedCall.score||0).toFixed(1)}/4 | {matchedCall.appt_offered?"\u2705":"\u274C"} Appt | {matchedCall.discount_mentioned?"\u2705":"\u274C"} Discount</div>}
-                {repeatInfo && <div style={{ padding:10,borderRadius:6,background:repeatInfo.noShow>0?"#FBBF2408":"#4ADE8008",border:"1px solid "+(repeatInfo.noShow>0?"#FBBF2433":"#4ADE8033"),marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDD01"} <strong style={{color:repeatInfo.noShow>0?"#FBBF24":"#4ADE80"}}>Repeat customer:</strong> {repeatInfo.total} prev appts, {repeatInfo.arrived} arrived, {repeatInfo.noShow} no-shows{repeatInfo.noShow>0?" — \u26A0\uFE0F confirm day-of":""}</div>}
-                <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Add Appointment</button>
+                {matchedCall && <div style={{ padding:10,borderRadius:6,background:"#00D4FF08",border:"1px solid #00D4FF33",marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDCDE"} <strong style={{color:"var(--cyan)"}}>Call match:</strong> {matchedCall.employee} scored {parseFloat(matchedCall.score||0).toFixed(1)}/4 | {matchedCall.appt_offered?"\u2705":"\u274C"} Appt | {matchedCall.discount_mentioned?"\u2705":"\u274C"} Discount</div>}
+                {repeatInfo && <div style={{ padding:10,borderRadius:6,background:repeatInfo.noShow>0?"#FBBF2408":"#4ADE8008",border:"1px solid "+(repeatInfo.noShow>0?"#FBBF2433":"#4ADE8033"),marginBottom:8,fontSize:11,color:"var(--text-body)" }}>{"\uD83D\uDD01"} <strong style={{color:repeatInfo.noShow>0?"var(--yellow)":"var(--green)"}}>Repeat customer:</strong> {repeatInfo.total} prev appts, {repeatInfo.arrived} arrived, {repeatInfo.noShow} no-shows{repeatInfo.noShow>0?" — \u26A0\uFE0F confirm day-of":""}</div>}
+                <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"var(--purple)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>Add Appointment</button>
               </div>
             )}
 
@@ -1352,7 +1352,7 @@ function StoreDashboard() {
                           {pendingVerify.length > 0 && (
                             <div>
                               <div style={{ padding:"10px 18px",background:"#FBBF2408",borderBottom:"1px solid #FBBF2422" }}>
-                                <span style={{ color:"#FBBF24",fontSize:10,fontWeight:700 }}>{"\u23F3"} PENDING VERIFICATION ({pendingVerify.length})</span>
+                                <span style={{ color:"var(--yellow)",fontSize:10,fontWeight:700 }}>{"\u23F3"} PENDING VERIFICATION ({pendingVerify.length})</span>
                                 <span style={{ color:"var(--text-muted)",fontSize:9,marginLeft:8 }}>Waiting for Dialpad call confirmation</span>
                               </div>
                               {pendingVerify.map(function(a) {
@@ -1362,11 +1362,11 @@ function StoreDashboard() {
                                 return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                                   <div>
                                     <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{a.customer_name} <span style={{ color:"var(--text-muted)",fontSize:11 }}>{fmtPhone(a.customer_phone)}</span></div>
-                                    <div style={{ color:"#FBBF24",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
+                                    <div style={{ color:"var(--yellow)",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
                                     {markedTime && <div style={{ color:"var(--text-muted)",fontSize:9,marginTop:2 }}>Marked: {markedTime}{markedNote ? " — " + markedNote : ""}</div>}
                                   </div>
                                   <div style={{ display:"flex",alignItems:"center",gap:6 }}>
-                                    <span style={{ padding:"4px 10px",borderRadius:4,background:"#FBBF2418",color:"#FBBF24",fontSize:9,fontWeight:700 }}>{"\u23F3"} Verifying...</span>
+                                    <span style={{ padding:"4px 10px",borderRadius:4,background:"#FBBF2418",color:"var(--yellow)",fontSize:9,fontWeight:700 }}>{"\u23F3"} Verifying...</span>
                                     <button onClick={function(){verifyFollowUps();}} style={{ padding:"4px 8px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:8,cursor:"pointer" }}>Recheck</button>
                                   </div>
                                 </div>;
@@ -1377,16 +1377,16 @@ function StoreDashboard() {
                             <div>
                               {pendingVerify.length > 0 && (
                                 <div style={{ padding:"10px 18px",background:"#F8717108",borderBottom:"1px solid #F8717122" }}>
-                                  <span style={{ color:"#F87171",fontSize:10,fontWeight:700 }}>{"\uD83D\uDCDE"} NEEDS CALLBACK ({needsCallback.length})</span>
+                                  <span style={{ color:"var(--red)",fontSize:10,fontWeight:700 }}>{"\uD83D\uDCDE"} NEEDS CALLBACK ({needsCallback.length})</span>
                                 </div>
                               )}
                               {needsCallback.map(function(a) {
                                 return <div key={a.id} style={{ padding:"12px 18px",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                                   <div>
                                     <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{a.customer_name} <span style={{ color:"var(--text-muted)",fontSize:11 }}>{fmtPhone(a.customer_phone)}</span></div>
-                                    <div style={{ color:"#F87171",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
+                                    <div style={{ color:"var(--red)",fontSize:10 }}>No-show {a.date_of_appt} — {a.reason}</div>
                                   </div>
-                                  <button onClick={function(){var n=prompt("Follow-up notes (optional):");if(n!==null)markFollowUpDone(a.id,n);}} style={{ padding:"5px 12px",borderRadius:4,border:"none",background:"#4ADE80",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer" }}>Called Back</button>
+                                  <button onClick={function(){var n=prompt("Follow-up notes (optional):");if(n!==null)markFollowUpDone(a.id,n);}} style={{ padding:"5px 12px",borderRadius:4,border:"none",background:"var(--green)",color:"#000",fontSize:10,fontWeight:700,cursor:"pointer" }}>Called Back</button>
                                 </div>;
                               })}
                             </div>
@@ -1395,10 +1395,10 @@ function StoreDashboard() {
                       );
                     })()}
                   </div>
-                ) : <div style={{ padding:30,textAlign:"center",color:"#4ADE80",fontSize:12 }}>{"\u2705"} All follow-ups done!</div>
+                ) : <div style={{ padding:30,textAlign:"center",color:"var(--green)",fontSize:12 }}>{"\u2705"} All follow-ups done!</div>
               ) : (
                 filteredAppointments.length > 0 ? filteredAppointments.map(function(a) {
-                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var pending=!a.did_arrive||a.did_arrive==="";var sc=isConverted?"#4ADE80":arrived?"#FBBF24":noShow?"#F87171":"#FBBF24";var st=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
+                  var arrived=a.did_arrive&&(a.did_arrive.toLowerCase()==="yes"||a.did_arrive.toLowerCase()==="converted");var noShow=a.did_arrive&&(a.did_arrive.toLowerCase()==="no"||a.did_arrive.toLowerCase().includes("no"));var isConverted=a.did_arrive&&a.did_arrive.toLowerCase()==="converted";var pending=!a.did_arrive||a.did_arrive==="";var sc=isConverted?"var(--green)":arrived?"var(--yellow)":noShow?"var(--red)":"var(--yellow)";var st=isConverted?"Converted":arrived?"Arrived":noShow?"No-Show":a.did_arrive==="Rescheduled"?"Resched":"Pending";
                   var isExpanded = expandedAppt === a.id;
                   // Status-based card background
                   var cardBg = isConverted ? "#4ADE8010" : arrived ? "#FBBF2410" : noShow ? "#F8717110" : "transparent";
@@ -1410,24 +1410,24 @@ function StoreDashboard() {
                         <div style={{ flex:1 }}>
                           <div style={{ display:"flex",alignItems:"center",gap:8,marginBottom:4 }}>
                             <span style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700 }}>{a.customer_name}</span>
-                            {a.customer_phone && <a href={"tel:"+a.customer_phone} onClick={function(e){e.stopPropagation();}} style={{ color:"#00D4FF",fontSize:12,textDecoration:"none" }}>{fmtPhone(a.customer_phone)}</a>}
+                            {a.customer_phone && <a href={"tel:"+a.customer_phone} onClick={function(e){e.stopPropagation();}} style={{ color:"var(--cyan)",fontSize:12,textDecoration:"none" }}>{fmtPhone(a.customer_phone)}</a>}
                             <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:sc+"22",color:sc }}>{st}</span>
                           </div>
                           <div style={{ color:"var(--text-body)",fontSize:13 }}>{a.reason}</div>
                           <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:3 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}{a.appt_time?" at "+a.appt_time:""}{a.scheduled_by?" — "+a.scheduled_by:""}</div>
                         </div>
                         <div style={{ display:"flex",gap:4 }} onClick={function(e){e.stopPropagation();}}>
-                          {pending && <><button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:10,fontWeight:600,cursor:"pointer" }}>Arrived</button><button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"#F87171",fontSize:10,fontWeight:600,cursor:"pointer" }}>No-Show</button></>}
+                          {pending && <><button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"var(--green)",fontSize:10,fontWeight:600,cursor:"pointer" }}>Arrived</button><button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:10,fontWeight:600,cursor:"pointer" }}>No-Show</button></>}
                           <button onClick={function(){startEdit(a);}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>Edit</button>
-                          <button onClick={function(){deleteAppt(a.id);}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>Del</button>
+                          <button onClick={function(){deleteAppt(a.id);}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:10,cursor:"pointer" }}>Del</button>
                         </div>
                       </div>
                     </div>
                     {/* Inline edit form — rendered when this card's Edit button was clicked */}
                     {editingId === a.id && (
-                      <div style={{ padding:"16px 20px",background:"var(--bg-card-inner)",borderBottom:"1px solid #7B2FFF44",borderLeft:"3px solid #7B2FFF" }}>
+                      <div style={{ padding:"16px 20px",background:"var(--bg-card-inner)",borderBottom:"1px solid #7B2FFF44",borderLeft:"3px solid var(--purple)" }}>
                         <div style={{ display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12 }}>
-                          <div style={{ color:"#7B2FFF",fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px" }}>{"\u270F\uFE0F"} Editing Appointment</div>
+                          <div style={{ color:"var(--purple)",fontSize:12,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.5px" }}>{"\u270F\uFE0F"} Editing Appointment</div>
                           <button onClick={cancelEdit} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>{"\u2715"} Cancel</button>
                         </div>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
@@ -1446,7 +1446,7 @@ function StoreDashboard() {
                           <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Notes</label><input value={form.notes} onChange={function(e){setForm(Object.assign({},form,{notes:e.target.value}));}} style={inputStyle} /></div>
                         </div>
                         <div style={{ display:"flex",gap:8 }}>
-                          <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"#7B2FFF",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>{"\uD83D\uDCBE"} Save Changes</button>
+                          <button onClick={saveAppointment} style={{ padding:"8px 20px",borderRadius:6,border:"none",background:"var(--purple)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>{"\uD83D\uDCBE"} Save Changes</button>
                           <button onClick={cancelEdit} style={{ padding:"8px 16px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:12,cursor:"pointer" }}>Discard</button>
                         </div>
                       </div>
@@ -1458,7 +1458,7 @@ function StoreDashboard() {
                           <div>
                             <div style={{ color:"var(--text-faint)",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Customer</div>
                             <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:600 }}>{a.customer_name}</div>
-                            {a.customer_phone && <a href={"tel:"+a.customer_phone} style={{ color:"#00D4FF",fontSize:12 }}>{fmtPhone(a.customer_phone)}</a>}
+                            {a.customer_phone && <a href={"tel:"+a.customer_phone} style={{ color:"var(--cyan)",fontSize:12 }}>{fmtPhone(a.customer_phone)}</a>}
                           </div>
                           <div>
                             <div style={{ color:"var(--text-faint)",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Appointment</div>
@@ -1480,7 +1480,7 @@ function StoreDashboard() {
                           </div>
                           <div>
                             <div style={{ color:"var(--text-faint)",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Price Quoted</div>
-                            <div style={{ color:a.price_quoted?"#4ADE80":"var(--text-faint)",fontSize:14,fontWeight:600 }}>{a.price_quoted ? "$"+a.price_quoted : "—"}</div>
+                            <div style={{ color:a.price_quoted?"var(--green)":"var(--text-faint)",fontSize:14,fontWeight:600 }}>{a.price_quoted ? "$"+a.price_quoted : "—"}</div>
                           </div>
                           <div>
                             <div style={{ color:"var(--text-faint)",fontSize:10,textTransform:"uppercase",marginBottom:2 }}>Scheduled By</div>
@@ -1496,8 +1496,8 @@ function StoreDashboard() {
                         {/* Quick actions inside expanded card */}
                         <div style={{ marginTop:14,display:"flex",gap:8 }}>
                           {pending && <>
-                            <button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"#4ADE80",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Mark Arrived</button>
-                            <button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"#F87171",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>No-Show</button>
+                            <button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"var(--green)",color:"#000",fontSize:11,fontWeight:700,cursor:"pointer" }}>Mark Arrived</button>
+                            <button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"6px 14px",borderRadius:6,border:"none",background:"var(--red)",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>No-Show</button>
                           </>}
                           <button onClick={function(){startEdit(a);}} style={{ padding:"6px 14px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>Edit Details</button>
                         </div>
@@ -1517,29 +1517,29 @@ function StoreDashboard() {
             <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
               <div style={{ color:"var(--text-primary)",fontSize:18,fontWeight:800 }}>{"\u2B50"} Google Reviews & SEO — {storeName}</div>
               <div style={{ display:"flex",gap:8 }}>
-                <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:gbpImporting?"var(--text-muted)":"linear-gradient(135deg,#4ADE80,#00D4FF)",color:gbpImporting?"#FFF":"#000",fontSize:12,fontWeight:700,cursor:gbpImporting?"wait":"pointer",display:"flex",alignItems:"center",gap:6 }}>
+                <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:gbpImporting?"var(--text-muted)":"linear-gradient(135deg,var(--green),var(--cyan))",color:gbpImporting?"#FFF":"#000",fontSize:12,fontWeight:700,cursor:gbpImporting?"wait":"pointer",display:"flex",alignItems:"center",gap:6 }}>
                   {gbpImporting ? "Extracting..." : "\uD83D\uDCE4 Import PDF"}
                   <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
                 </label>
                 <button onClick={function(){ setShowGbpForm(!showGbpForm); if (!showGbpForm) setGbpForm(emptyGbpForm); }}
-                  style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                  style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>
                   {showGbpForm ? "Cancel" : "+ Manual Entry"}
                 </button>
                 {GOOGLE_LINKS[store] && (
                   <a href={GOOGLE_LINKS[store]} target="_blank" rel="noopener noreferrer"
-                    style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6 }}>
+                    style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--yellow),var(--orange))",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6 }}>
                     {"\u2B50"} Open Google Listing
                   </a>
                 )}
               </div>
             </div>
 
-            {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"#4ADE80":"#F87171",fontSize:12 }}>{msg.text}</div>}
+            {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"var(--green)":"var(--red)",fontSize:12 }}>{msg.text}</div>}
 
             {/* Sub-tabs */}
             <div style={{ display:"flex",gap:4,marginBottom:20 }}>
               {[{id:"performance",label:"\uD83D\uDCCA Performance"},{id:"keywords",label:"\uD83D\uDD0D Keywords"},{id:"commission",label:"\uD83D\uDCB0 Commission"},{id:"reports",label:"\uD83D\uDCC4 Report History"}].map(function(t) {
-                return <button key={t.id} onClick={function(){setReviewSubTab(t.id);}} style={{ padding:"8px 14px",borderRadius:6,border:"none",cursor:"pointer",background:reviewSubTab===t.id?"#FBBF2422":"var(--bg-card)",color:reviewSubTab===t.id?"#FBBF24":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{t.label}</button>;
+                return <button key={t.id} onClick={function(){setReviewSubTab(t.id);}} style={{ padding:"8px 14px",borderRadius:6,border:"none",cursor:"pointer",background:reviewSubTab===t.id?"#FBBF2422":"var(--bg-card)",color:reviewSubTab===t.id?"var(--yellow)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{t.label}</button>;
               })}
             </div>
 
@@ -1548,7 +1548,7 @@ function StoreDashboard() {
               <div style={{ background:"var(--bg-card)",borderRadius:14,padding:24,marginBottom:20,border:"1px solid #7B2FFF33" }}>
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16 }}>
                   <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700 }}>{"\uD83D\uDCCB"} {gbpForm.period_start ? "Review Extracted Data" : "Enter Weekly GBP Report"}</div>
-                  {gbpForm.period_start && <div style={{ color:"#4ADE80",fontSize:11,fontWeight:600 }}>{"\u2705"} Auto-filled from PDF — verify and save</div>}
+                  {gbpForm.period_start && <div style={{ color:"var(--green)",fontSize:11,fontWeight:600 }}>{"\u2705"} Auto-filled from PDF — verify and save</div>}
                 </div>
 
                 {/* Period */}
@@ -1558,7 +1558,7 @@ function StoreDashboard() {
                 </div>
 
                 {/* Statistics */}
-                <div style={{ color:"#FBBF24",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Statistics</div>
+                <div style={{ color:"var(--yellow)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Statistics</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16 }}>
                   {[{k:"customer_calls",l:"Customer Calls"},{k:"profile_views",l:"Profile Views"},{k:"website_visits",l:"Website Visits"},{k:"direction_requests",l:"Direction Requests"},{k:"competitors_outranked",l:"Competitors Outranked"}].map(function(f) {
                     return <div key={f.k}><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:3 }}>{f.l}</label><input type="number" value={gbpForm[f.k]} onChange={function(e){var u={};u[f.k]=e.target.value;setGbpForm(Object.assign({},gbpForm,u));}} placeholder="0" style={inputStyleCenter} /></div>;
@@ -1566,7 +1566,7 @@ function StoreDashboard() {
                 </div>
 
                 {/* Content Activity */}
-                <div style={{ color:"#00D4FF",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Content Activity</div>
+                <div style={{ color:"var(--cyan)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8 }}>Content Activity</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:10,marginBottom:16 }}>
                   {[{k:"received_reviews",l:"New Reviews"},{k:"posts_published",l:"Posts Published"},{k:"photos_published",l:"Photos Published"},{k:"review_responses",l:"Review Responses"},{k:"offers_published",l:"Offers Published"}].map(function(f) {
                     return <div key={f.k}><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:3 }}>{f.l}</label><input type="number" value={gbpForm[f.k]} onChange={function(e){var u={};u[f.k]=e.target.value;setGbpForm(Object.assign({},gbpForm,u));}} placeholder="0" style={inputStyleCenter} /></div>;
@@ -1575,28 +1575,28 @@ function StoreDashboard() {
 
                 {/* Keywords */}
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8 }}>
-                  <div style={{ color:"#4ADE80",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Keyword Rankings</div>
-                  <button onClick={addGbpKeyword} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"#4ADE80",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Keyword</button>
+                  <div style={{ color:"var(--green)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Keyword Rankings</div>
+                  <button onClick={addGbpKeyword} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"var(--green)",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Keyword</button>
                 </div>
                 {gbpForm.keywords.map(function(kw, ki) {
                   return <div key={ki} style={{ display:"grid",gridTemplateColumns:"2fr 1fr 1fr auto",gap:8,marginBottom:6 }}>
                     <input value={kw.keyword} onChange={function(e){updateGbpKeyword(ki,"keyword",e.target.value);}} placeholder="e.g. phone repair bloomington" style={inputStyle} />
                     <input type="number" value={kw.position} onChange={function(e){updateGbpKeyword(ki,"position",e.target.value);}} placeholder="Position" style={Object.assign({},inputStyle,{textAlign:"center"})} />
                     <input type="number" value={kw.position_change} onChange={function(e){updateGbpKeyword(ki,"position_change",e.target.value);}} placeholder="+/- Change" style={Object.assign({},inputStyle,{textAlign:"center"})} />
-                    <button onClick={function(){removeGbpKeyword(ki);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
+                    <button onClick={function(){removeGbpKeyword(ki);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
                   </div>;
                 })}
 
                 {/* Competitors */}
                 <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:16,marginBottom:8 }}>
-                  <div style={{ color:"#FF2D95",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Competitor Activity</div>
-                  <button onClick={addGbpCompetitor} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #FF2D9533",background:"transparent",color:"#FF2D95",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Competitor</button>
+                  <div style={{ color:"var(--pink)",fontSize:11,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em" }}>Competitor Activity</div>
+                  <button onClick={addGbpCompetitor} style={{ padding:"4px 10px",borderRadius:4,border:"1px solid #FF2D9533",background:"transparent",color:"var(--pink)",fontSize:10,cursor:"pointer",fontWeight:600 }}>+ Competitor</button>
                 </div>
                 {gbpForm.competitors.map(function(comp, ci) {
                   return <div key={ci} style={{ background:"var(--bg-card-inner)",borderRadius:8,padding:12,marginBottom:8,border:"1px solid var(--border-light)" }}>
                     <div style={{ display:"grid",gridTemplateColumns:"1fr auto",gap:8,marginBottom:6 }}>
                       <input value={comp.name} onChange={function(e){updateGbpCompetitor(ci,"name",e.target.value);}} placeholder="Competitor name" style={inputStyle} />
-                      <button onClick={function(){removeGbpCompetitor(ci);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
+                      <button onClick={function(){removeGbpCompetitor(ci);}} style={{ padding:"6px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:10,cursor:"pointer" }}>{"\u2715"}</button>
                     </div>
                     <input value={comp.actions} onChange={function(e){updateGbpCompetitor(ci,"actions",e.target.value);}} placeholder="Actions taken (e.g. Increased reviews from 560 to 565)" style={Object.assign({},inputStyle,{marginBottom:4})} />
                     <input value={comp.impact} onChange={function(e){updateGbpCompetitor(ci,"impact",e.target.value);}} placeholder="Impact (e.g. Moved from position 3 to 2)" style={inputStyle} />
@@ -1609,7 +1609,7 @@ function StoreDashboard() {
                   <input value={gbpForm.notes} onChange={function(e){setGbpForm(Object.assign({},gbpForm,{notes:e.target.value}));}} placeholder="Optional notes about this report period..." style={Object.assign({},inputStyle,{marginBottom:12})} />
                 </div>
                 <button onClick={saveGbpReport} disabled={gbpSaving}
-                  style={{ padding:"10px 24px",borderRadius:8,border:"none",background:gbpSaving?"var(--text-muted)":"linear-gradient(135deg,#7B2FFF,#00D4FF)",color:"#FFF",fontSize:13,fontWeight:700,cursor:gbpSaving?"wait":"pointer" }}>
+                  style={{ padding:"10px 24px",borderRadius:8,border:"none",background:gbpSaving?"var(--text-muted)":"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:13,fontWeight:700,cursor:gbpSaving?"wait":"pointer" }}>
                   {gbpSaving ? "Saving..." : "Save GBP Report"}
                 </button>
               </div>
@@ -1626,11 +1626,11 @@ function StoreDashboard() {
                     </div>
                     <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
                       {[
-                        {l:"Customer Calls",v:gbpReport.customer_calls||0,c:"#FBBF24",icon:"\uD83D\uDCDE",trend:gbpTrends?gbpTrends.calls:null},
-                        {l:"Profile Views",v:gbpReport.profile_views||0,c:"#7B2FFF",icon:"\uD83D\uDC41",trend:gbpTrends?gbpTrends.views:null},
-                        {l:"Website Visits",v:gbpReport.website_visits||0,c:"#00D4FF",icon:"\uD83C\uDF10",trend:gbpTrends?gbpTrends.visits:null},
-                        {l:"Direction Requests",v:gbpReport.direction_requests||0,c:"#4ADE80",icon:"\uD83D\uDDFA\uFE0F",trend:gbpTrends?gbpTrends.directions:null},
-                        {l:"New Reviews",v:gbpReport.received_reviews||0,c:"#FF2D95",icon:"\u2B50"},
+                        {l:"Customer Calls",v:gbpReport.customer_calls||0,c:"var(--yellow)",icon:"\uD83D\uDCDE",trend:gbpTrends?gbpTrends.calls:null},
+                        {l:"Profile Views",v:gbpReport.profile_views||0,c:"var(--purple)",icon:"\uD83D\uDC41",trend:gbpTrends?gbpTrends.views:null},
+                        {l:"Website Visits",v:gbpReport.website_visits||0,c:"var(--cyan)",icon:"\uD83C\uDF10",trend:gbpTrends?gbpTrends.visits:null},
+                        {l:"Direction Requests",v:gbpReport.direction_requests||0,c:"var(--green)",icon:"\uD83D\uDDFA\uFE0F",trend:gbpTrends?gbpTrends.directions:null},
+                        {l:"New Reviews",v:gbpReport.received_reviews||0,c:"var(--pink)",icon:"\u2B50"},
                       ].map(function(s,i) {
                         return <div key={i} style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid "+s.c }}>
                           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"flex-start" }}>
@@ -1650,10 +1650,10 @@ function StoreDashboard() {
                       <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83D\uDCC4"} Content Activity This Week</div>
                       <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12 }}>
                         {[
-                          {l:"Posts Published",v:gbpReport.posts_published||0,c:"#7B2FFF"},
-                          {l:"Photos Published",v:gbpReport.photos_published||0,c:"#00D4FF"},
-                          {l:"Review Responses",v:gbpReport.review_responses||0,c:"#4ADE80"},
-                          {l:"Offers Published",v:gbpReport.offers_published||0,c:"#FBBF24"},
+                          {l:"Posts Published",v:gbpReport.posts_published||0,c:"var(--purple)"},
+                          {l:"Photos Published",v:gbpReport.photos_published||0,c:"var(--cyan)"},
+                          {l:"Review Responses",v:gbpReport.review_responses||0,c:"var(--green)"},
+                          {l:"Offers Published",v:gbpReport.offers_published||0,c:"var(--yellow)"},
                         ].map(function(s,i) {
                           return <div key={i} style={{ background:"var(--bg-card-inner)",borderRadius:10,padding:14,textAlign:"center" }}>
                             <div style={{ color:s.v>0?s.c:"var(--text-muted)",fontSize:24,fontWeight:800 }}>{s.v}</div>
@@ -1669,7 +1669,7 @@ function StoreDashboard() {
                         <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:14 }}>{"\uD83C\uDFC1"} Competitor Activity</div>
                         {gbpReport.competitors.map(function(comp, ci) {
                           return <div key={ci} style={{ background:"var(--bg-card-inner)",borderRadius:10,padding:14,marginBottom:ci<gbpReport.competitors.length-1?10:0,border:"1px solid #FF2D9512" }}>
-                            <div style={{ color:"#FF2D95",fontSize:13,fontWeight:700,marginBottom:4 }}>{comp.name}</div>
+                            <div style={{ color:"var(--pink)",fontSize:13,fontWeight:700,marginBottom:4 }}>{comp.name}</div>
                             {comp.actions && <div style={{ color:"var(--text-body)",fontSize:11,lineHeight:1.5,marginBottom:4 }}>{comp.actions}</div>}
                             {comp.impact && <div style={{ color:"var(--text-secondary)",fontSize:10,fontStyle:"italic" }}>{comp.impact}</div>}
                           </div>;
@@ -1683,11 +1683,11 @@ function StoreDashboard() {
                     <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:6 }}>No GBP Reports Yet</div>
                     <div style={{ color:"var(--text-secondary)",fontSize:12,marginBottom:16 }}>Import a PDF report or enter data manually to start tracking</div>
                     <div style={{ display:"flex",gap:8,justifyContent:"center" }}>
-                      <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer" }}>
+                      <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--green),var(--cyan))",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer" }}>
                         {"\uD83D\uDCE4"} Import PDF
                         <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
                       </label>
-                      <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"1px solid #7B2FFF33",background:"transparent",color:"#7B2FFF",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Manual Entry</button>
+                      <button onClick={function(){ setShowGbpForm(true); }} style={{ padding:"8px 16px",borderRadius:8,border:"1px solid #7B2FFF33",background:"transparent",color:"var(--purple)",fontSize:12,fontWeight:700,cursor:"pointer" }}>+ Manual Entry</button>
                     </div>
                   </div>
                 )}
@@ -1716,8 +1716,8 @@ function StoreDashboard() {
                           {gbpReport.keywords.sort(function(a,b){return (parseInt(a.position)||99)-(parseInt(b.position)||99);}).map(function(kw, ki) {
                             var pos = parseInt(kw.position) || 0;
                             var change = parseInt(kw.position_change) || 0;
-                            var posColor = pos <= 1 ? "#4ADE80" : pos <= 3 ? "#FBBF24" : pos <= 5 ? "#FB923C" : "#F87171";
-                            var changeColor = change > 0 ? "#4ADE80" : change < 0 ? "#F87171" : "var(--text-muted)";
+                            var posColor = pos <= 1 ? "var(--green)" : pos <= 3 ? "var(--yellow)" : pos <= 5 ? "var(--orange)" : "var(--red)";
+                            var changeColor = change > 0 ? "var(--green)" : change < 0 ? "var(--red)" : "var(--text-muted)";
                             var changeText = change > 0 ? "+"+change : change < 0 ? String(change) : "—";
                             return (
                               <tr key={ki} style={{ borderBottom:"1px solid var(--border-light)" }}>
@@ -1727,10 +1727,10 @@ function StoreDashboard() {
                                 </td>
                                 <td style={{ padding:"12px 18px",textAlign:"center",color:changeColor,fontSize:13,fontWeight:700 }}>{changeText}</td>
                                 <td style={{ padding:"12px 18px",textAlign:"center" }}>
-                                  {pos === 1 && <span style={{ color:"#4ADE80",fontSize:11,fontWeight:700 }}>{"\uD83D\uDC51"} #1</span>}
-                                  {pos > 1 && pos <= 3 && <span style={{ color:"#FBBF24",fontSize:11 }}>Top 3</span>}
-                                  {pos > 3 && pos <= 5 && <span style={{ color:"#FB923C",fontSize:11 }}>Top 5</span>}
-                                  {pos > 5 && <span style={{ color:"#F87171",fontSize:11 }}>Needs work</span>}
+                                  {pos === 1 && <span style={{ color:"var(--green)",fontSize:11,fontWeight:700 }}>{"\uD83D\uDC51"} #1</span>}
+                                  {pos > 1 && pos <= 3 && <span style={{ color:"var(--yellow)",fontSize:11 }}>Top 3</span>}
+                                  {pos > 3 && pos <= 5 && <span style={{ color:"var(--orange)",fontSize:11 }}>Top 5</span>}
+                                  {pos > 5 && <span style={{ color:"var(--red)",fontSize:11 }}>Needs work</span>}
                                 </td>
                               </tr>
                             );
@@ -1760,7 +1760,7 @@ function StoreDashboard() {
                               allKw[kwName].push(found ? (parseInt(found.position) || null) : null);
                             });
                           });
-                          var kwColors = ["#FBBF24","#7B2FFF","#00D4FF","#4ADE80","#FF2D95","#FB923C","#F87171","#E0B0FF"];
+                          var kwColors = ["var(--yellow)","var(--purple)","var(--cyan)","var(--green)","var(--pink)","var(--orange)","var(--red)","#E0B0FF"];
                           return Object.keys(allKw).map(function(kwName, ki) {
                             var positions = allKw[kwName];
                             var color = kwColors[ki % kwColors.length];
@@ -1777,7 +1777,7 @@ function StoreDashboard() {
                                     </div>;
                                   })}
                                 </div>
-                                <div style={{ width:50,textAlign:"right",color:delta>0?"#4ADE80":delta<0?"#F87171":"var(--text-muted)",fontSize:11,fontWeight:700 }}>
+                                <div style={{ width:50,textAlign:"right",color:delta>0?"var(--green)":delta<0?"var(--red)":"var(--text-muted)",fontSize:11,fontWeight:700 }}>
                                   {delta > 0 ? "\u2191"+delta : delta < 0 ? "\u2193"+Math.abs(delta) : "—"}
                                 </div>
                               </div>
@@ -1797,7 +1797,7 @@ function StoreDashboard() {
                     <div style={{ fontSize:32,marginBottom:8 }}>{"\uD83D\uDD0D"}</div>
                     <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:6 }}>No Keyword Data Yet</div>
                     <div style={{ color:"var(--text-secondary)",fontSize:12,marginBottom:16 }}>Import a GBP report PDF to start tracking SEO keyword positions</div>
-                    <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,#4ADE80,#00D4FF)",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",display:"inline-block" }}>
+                    <label style={{ padding:"8px 16px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--green),var(--cyan))",color:"#000",fontSize:12,fontWeight:700,cursor:"pointer",display:"inline-block" }}>
                       {"\uD83D\uDCE4"} Import PDF
                       <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" onChange={handleGbpImport} disabled={gbpImporting} style={{ display:"none" }} />
                     </label>
@@ -1811,52 +1811,52 @@ function StoreDashboard() {
               <div>
                 {/* Bonus summary cards */}
                 <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
-                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FBBF24" }}>
+                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--yellow)" }}>
                     <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Total Reviews</div>
-                    <div style={{ color:reviewCalc.hitMinimum?"#4ADE80":"#F87171",fontSize:28,fontWeight:700 }}>{reviewCalc.total}</div>
+                    <div style={{ color:reviewCalc.hitMinimum?"var(--green)":"var(--red)",fontSize:28,fontWeight:700 }}>{reviewCalc.total}</div>
                     <div style={{ color:"var(--text-muted)",fontSize:10 }}>{reviewCalc.hitMinimum ? "\u2705 Minimum met" : (10 - reviewCalc.total) + " more to hit minimum"}</div>
                   </div>
-                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #7B2FFF" }}>
+                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--purple)" }}>
                     <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Photo Reviews</div>
-                    <div style={{ color:"#7B2FFF",fontSize:28,fontWeight:700 }}>{reviewCalc.photos}</div>
+                    <div style={{ color:"var(--purple)",fontSize:28,fontWeight:700 }}>{reviewCalc.photos}</div>
                     <div style={{ color:"var(--text-muted)",fontSize:10 }}>$5 each per employee</div>
                   </div>
-                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #00D4FF" }}>
+                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--cyan)" }}>
                     <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Bonus Reviews</div>
-                    <div style={{ color:"#00D4FF",fontSize:28,fontWeight:700 }}>{reviewCalc.bonusReviews}</div>
+                    <div style={{ color:"var(--cyan)",fontSize:28,fontWeight:700 }}>{reviewCalc.bonusReviews}</div>
                     <div style={{ color:"var(--text-muted)",fontSize:10 }}>Reviews above 10 minimum</div>
                   </div>
-                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #4ADE80" }}>
+                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--green)" }}>
                     <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Per Employee Bonus</div>
-                    <div style={{ color:"#4ADE80",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.bonusPerEmployee}</div>
+                    <div style={{ color:"var(--green)",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.bonusPerEmployee}</div>
                     <div style={{ color:"var(--text-muted)",fontSize:10 }}>{reviewCalc.bonusReviews > 0 ? reviewCalc.bonusReviews + " bonus x $5" : ""}{reviewCalc.bonusReviews > 0 && reviewCalc.photos > 0 ? " + " : ""}{reviewCalc.photos > 0 ? reviewCalc.photos + " photo x $5" : ""}{reviewCalc.bonusPerEmployee === 0 ? "No bonus yet" : ""}</div>
                   </div>
-                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid #FF2D95" }}>
+                  <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"16px 18px",borderLeft:"3px solid var(--pink)" }}>
                     <div style={{ color:"var(--text-secondary)",fontSize:10,textTransform:"uppercase" }}>Total Store Bonus</div>
-                    <div style={{ color:"#FF2D95",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.totalBonus}</div>
+                    <div style={{ color:"var(--pink)",fontSize:28,fontWeight:700 }}>{"$" + reviewCalc.totalBonus}</div>
                     <div style={{ color:"var(--text-muted)",fontSize:10 }}>{"$" + reviewCalc.bonusPerEmployee + " x " + reviewCalc.empCount + " employees"}</div>
                   </div>
                 </div>
 
                 {/* How it works */}
                 <div style={{ background:"var(--bg-card)",borderRadius:14,padding:20,marginBottom:20,border:"1px solid #FBBF2422" }}>
-                  <div style={{ color:"#FBBF24",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDCCB"} How Review Bonuses Work</div>
+                  <div style={{ color:"var(--yellow)",fontSize:12,fontWeight:700,marginBottom:10 }}>{"\uD83D\uDCCB"} How Review Bonuses Work</div>
                   <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:16 }}>
                     <div>
                       <div style={{ color:"var(--text-body)",fontSize:12,lineHeight:1.6 }}>
                         <div style={{ marginBottom:6 }}><strong style={{ color:"var(--text-primary)" }}>Minimum:</strong> 10 new reviews per store per month</div>
-                        <div style={{ marginBottom:6 }}><strong style={{ color:"#4ADE80" }}>Quantity Bonus:</strong> After 10 reviews, each additional review = <strong>$5 per employee</strong></div>
-                        <div><strong style={{ color:"#7B2FFF" }}>Photo Bonus:</strong> Every review with a photo = <strong>$5 per employee</strong> (regardless of total count)</div>
+                        <div style={{ marginBottom:6 }}><strong style={{ color:"var(--green)" }}>Quantity Bonus:</strong> After 10 reviews, each additional review = <strong>$5 per employee</strong></div>
+                        <div><strong style={{ color:"var(--purple)" }}>Photo Bonus:</strong> Every review with a photo = <strong>$5 per employee</strong> (regardless of total count)</div>
                       </div>
                     </div>
                     <div style={{ background:"var(--bg-card-inner)",borderRadius:10,padding:14 }}>
                       <div style={{ color:"var(--text-secondary)",fontSize:10,fontWeight:700,textTransform:"uppercase",marginBottom:6 }}>Example</div>
                       <div style={{ color:"var(--text-body)",fontSize:11,lineHeight:1.7 }}>
                         15 reviews (3 with photos), 4 employees:<br/>
-                        Bonus reviews: 15 - 10 = <strong style={{ color:"#00D4FF" }}>5 x $5 = $25</strong><br/>
-                        Photo reviews: <strong style={{ color:"#7B2FFF" }}>3 x $5 = $15</strong><br/>
-                        Per employee: <strong style={{ color:"#4ADE80" }}>$40</strong><br/>
-                        Total store cost: <strong style={{ color:"#FF2D95" }}>$40 x 4 = $160</strong>
+                        Bonus reviews: 15 - 10 = <strong style={{ color:"var(--cyan)" }}>5 x $5 = $25</strong><br/>
+                        Photo reviews: <strong style={{ color:"var(--purple)" }}>3 x $5 = $15</strong><br/>
+                        Per employee: <strong style={{ color:"var(--green)" }}>$40</strong><br/>
+                        Total store cost: <strong style={{ color:"var(--pink)" }}>$40 x 4 = $160</strong>
                       </div>
                     </div>
                   </div>
@@ -1888,7 +1888,7 @@ function StoreDashboard() {
                     </div>
                   </div>
                   <button onClick={saveReview} disabled={reviewSaving}
-                    style={{ padding:"10px 24px",borderRadius:8,border:"none",background:reviewSaving?"var(--text-muted)":"linear-gradient(135deg,#FBBF24,#FB923C)",color:"#000",fontSize:13,fontWeight:700,cursor:reviewSaving?"wait":"pointer" }}>
+                    style={{ padding:"10px 24px",borderRadius:8,border:"none",background:reviewSaving?"var(--text-muted)":"linear-gradient(135deg,var(--yellow),var(--orange))",color:"#000",fontSize:13,fontWeight:700,cursor:reviewSaving?"wait":"pointer" }}>
                     {reviewSaving ? "Saving..." : "Save Review Data"}
                   </button>
                 </div>
@@ -1915,11 +1915,11 @@ function StoreDashboard() {
                           return (
                             <tr key={r.period} style={{ borderBottom:"1px solid var(--border-light)" }}>
                               <td style={{ padding:"10px 12px",color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{label}</td>
-                              <td style={{ padding:"10px 12px",textAlign:"right",color:hit?"#4ADE80":"#F87171",fontSize:13,fontWeight:700 }}>{r.total_reviews}</td>
-                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#7B2FFF",fontSize:13,fontWeight:600 }}>{r.photo_reviews}</td>
-                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{bonus}</td>
-                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#4ADE80",fontSize:13,fontWeight:700 }}>{"$" + perEmp}</td>
-                              <td style={{ padding:"10px 12px",textAlign:"right",color:"#FF2D95",fontSize:14,fontWeight:800 }}>{"$" + total}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:hit?"var(--green)":"var(--red)",fontSize:13,fontWeight:700 }}>{r.total_reviews}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"var(--purple)",fontSize:13,fontWeight:600 }}>{r.photo_reviews}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"var(--cyan)",fontSize:13 }}>{bonus}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"var(--green)",fontSize:13,fontWeight:700 }}>{"$" + perEmp}</td>
+                              <td style={{ padding:"10px 12px",textAlign:"right",color:"var(--pink)",fontSize:14,fontWeight:800 }}>{"$" + total}</td>
                             </tr>
                           );
                         })}
@@ -1949,15 +1949,15 @@ function StoreDashboard() {
                           return (
                             <tr key={rpt.id} style={{ borderBottom:"1px solid var(--border-light)" }}>
                               <td style={{ padding:"10px 14px",color:"var(--text-primary)",fontSize:12,fontWeight:600 }}>{dateLabel}</td>
-                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#FBBF24",fontSize:13,fontWeight:700 }}>{rpt.customer_calls||0}</td>
-                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#7B2FFF",fontSize:13 }}>{rpt.profile_views||0}</td>
-                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#00D4FF",fontSize:13 }}>{rpt.website_visits||0}</td>
-                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#4ADE80",fontSize:13 }}>{rpt.direction_requests||0}</td>
-                              <td style={{ padding:"10px 14px",textAlign:"right",color:"#FF2D95",fontSize:13,fontWeight:700 }}>+{rpt.received_reviews||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--yellow)",fontSize:13,fontWeight:700 }}>{rpt.customer_calls||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--purple)",fontSize:13 }}>{rpt.profile_views||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--cyan)",fontSize:13 }}>{rpt.website_visits||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--green)",fontSize:13 }}>{rpt.direction_requests||0}</td>
+                              <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--pink)",fontSize:13,fontWeight:700 }}>+{rpt.received_reviews||0}</td>
                               <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--text-secondary)",fontSize:12 }}>{rpt.posts_published||0}</td>
                               <td style={{ padding:"10px 14px",textAlign:"right",color:"var(--text-secondary)",fontSize:12 }}>{rpt.photos_published||0}</td>
                               <td style={{ padding:"10px 14px",textAlign:"center" }}>
-                                <button onClick={function(){deleteGbpReport(rpt.id);}} style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"#F87171",fontSize:9,cursor:"pointer" }}>Del</button>
+                                <button onClick={function(){deleteGbpReport(rpt.id);}} style={{ padding:"3px 8px",borderRadius:4,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:9,cursor:"pointer" }}>Del</button>
                               </td>
                             </tr>
                           );
@@ -1988,11 +1988,11 @@ function StoreDashboard() {
                   </div>
                   <div style={{ display:"flex",gap:12,alignItems:"center" }}>
                     <div style={{ textAlign:"center" }}>
-                      <div style={{ color:"#4ADE80",fontSize:22,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
+                      <div style={{ color:"var(--green)",fontSize:22,fontWeight:800 }}>{convertedStats.perDay.toFixed(1)}</div>
                       <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Per Day Avg</div>
                     </div>
                     <div style={{ textAlign:"center" }}>
-                      <div style={{ color:"#7B2FFF",fontSize:22,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
+                      <div style={{ color:"var(--purple)",fontSize:22,fontWeight:800 }}>{convertedStats.conversionRate.toFixed(0)}%</div>
                       <div style={{ color:"var(--text-secondary)",fontSize:9,textTransform:"uppercase" }}>Conv Rate</div>
                     </div>
                   </div>
@@ -2009,9 +2009,9 @@ function StoreDashboard() {
                     return (
                       <div key={i} style={{ flex:1,display:"flex",flexDirection:"column",alignItems:"center",gap:2,minWidth:0 }}>
                         <div style={{ display:"flex",flexDirection:"column",width:"100%",maxWidth:28,borderRadius:"4px 4px 0 0",overflow:"hidden" }}>
-                          {nsH > 0 && <div style={{ height:Math.max(nsH, 2),background:"#F87171",width:"100%" }} />}
-                          {arrH > 0 && <div style={{ height:Math.max(arrH, 2),background:"#FBBF24",width:"100%" }} />}
-                          {convH > 0 && <div style={{ height:Math.max(convH, 2),background:"#4ADE80",width:"100%" }} />}
+                          {nsH > 0 && <div style={{ height:Math.max(nsH, 2),background:"var(--red)",width:"100%" }} />}
+                          {arrH > 0 && <div style={{ height:Math.max(arrH, 2),background:"var(--yellow)",width:"100%" }} />}
+                          {convH > 0 && <div style={{ height:Math.max(convH, 2),background:"var(--green)",width:"100%" }} />}
                           {d.total === 0 && <div style={{ height:2,background:"var(--border)",width:"100%" }} />}
                         </div>
                         <div style={{ color:isWeekend?"var(--border-heavy)":"var(--text-muted)",fontSize:7,textAlign:"center",whiteSpace:"nowrap",overflow:"hidden" }}>{i % 3 === 0 || convertedStats.dailyTrend.length <= 15 ? dayLabel : ""}</div>
@@ -2020,9 +2020,9 @@ function StoreDashboard() {
                   })}
                 </div>
                 <div style={{ display:"flex",gap:16,marginTop:12,justifyContent:"center" }}>
-                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#4ADE80" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>Converted</span></div>
-                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#FBBF24" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>Arrived (No Sale)</span></div>
-                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"#F87171" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>No-Show</span></div>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"var(--green)" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>Converted</span></div>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"var(--yellow)" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>Arrived (No Sale)</span></div>
+                  <div style={{ display:"flex",alignItems:"center",gap:4 }}><span style={{ width:10,height:10,borderRadius:2,background:"var(--red)" }} /><span style={{ color:"var(--text-secondary)",fontSize:10 }}>No-Show</span></div>
                 </div>
               </div>
             )}
@@ -2031,7 +2031,7 @@ function StoreDashboard() {
               <div style={{ background:"var(--bg-card)",borderRadius:14,padding:24,marginBottom:20 }}>
                 <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700,marginBottom:14 }}>Show Rate by Employee</div>
                 {apptStats.empStats.map(function(e) {
-                  var bc = e.show_rate >= 70 ? "#4ADE80" : e.show_rate >= 50 ? "#FBBF24" : "#F87171";
+                  var bc = e.show_rate >= 70 ? "var(--green)" : e.show_rate >= 50 ? "var(--yellow)" : "var(--red)";
                   return <div key={e.name} style={{ padding:"10px 0",borderBottom:"1px solid var(--border-light)" }}>
                     <div style={{ display:"flex",justifyContent:"space-between",marginBottom:4 }}><span style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{e.name}</span><span style={{ color:bc,fontSize:13,fontWeight:700 }}>{e.show_rate}% ({e.arrived}/{e.total})</span></div>
                     <div style={{ background:"var(--bg-card-inner)",borderRadius:4,height:6,overflow:"hidden" }}><div style={{ width:e.show_rate+"%",height:"100%",background:bc,borderRadius:4 }} /></div>
@@ -2045,7 +2045,7 @@ function StoreDashboard() {
                 <div style={{ color:"var(--text-primary)",fontSize:16,fontWeight:700,marginBottom:14 }}>Show Rate by Store</div>
                 <div style={{ display:"grid",gridTemplateColumns:"repeat("+apptStats.storeStats.length+",1fr)",gap:16 }}>
                   {apptStats.storeStats.map(function(ss) {
-                    var st=STORES[ss.store]; var bc=ss.show_rate>=70?"#4ADE80":ss.show_rate>=50?"#FBBF24":"#F87171";
+                    var st=STORES[ss.store]; var bc=ss.show_rate>=70?"var(--green)":ss.show_rate>=50?"var(--yellow)":"var(--red)";
                     return <div key={ss.store} style={{ textAlign:"center",padding:16,background:"var(--bg-card-inner)",borderRadius:10 }}>
                       <div style={{ color:st?st.color:"var(--text-secondary)",fontSize:14,fontWeight:700,marginBottom:6 }}>{st?st.name.replace("CPR ",""):ss.store}</div>
                       <div style={{ color:bc,fontSize:28,fontWeight:800 }}>{ss.show_rate}%</div>
