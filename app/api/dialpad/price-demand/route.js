@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { resolveModels, resolveModel } from "@/lib/device-model";
+import { classifyCatalogItem, classifyInquiry } from "@/lib/repair-type";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE & DEMAND
@@ -76,8 +77,25 @@ function blankModel(name, family) {
     repairs: 0, revenue: 0, profit: 0,
     priced_lines: 0, list_total: 0, discount_total: 0, actual_total: 0,
     full_price: 0, discounted: 0,
+    // A model is not one price. "iPhone 15" covers a $190 screen and a $58
+    // diagnostic; averaging them describes no transaction that ever happened.
+    types: {},
     months: {},
   };
+}
+
+function blankType(type) {
+  return {
+    type: type, calls: 0, repairs: 0,
+    priced_lines: 0, list_total: 0, discount_total: 0, actual_total: 0,
+    full_price: 0, discounted: 0, profit: 0,
+  };
+}
+function bumpType(bag, type, field, amount) {
+  if (!type) return null;
+  if (!bag[type]) bag[type] = blankType(type);
+  if (field) bag[type][field] += (amount === undefined ? 1 : amount);
+  return bag[type];
 }
 
 export async function GET(request) {
@@ -92,9 +110,11 @@ export async function GET(request) {
     var since = monthsAgo(months);
 
     // ── calls ────────────────────────────────────────────────────────────────
+    var typeFilter = searchParams.get("type") || "all";
+
     var calls = await fetchAll(
       "audit_results",
-      "call_id,device_type,phone,store,date_started,appt_offered,call_type,excluded",
+      "call_id,device_type,inquiry,phone,store,date_started,appt_offered,call_type,excluded",
       function(q) {
         q = q.eq("call_type", "opportunity").eq("excluded", false).gte("date_started", since);
         if (store !== "all") q = q.eq("store", store);
@@ -134,11 +154,21 @@ export async function GET(request) {
     var unspecified = { calls: 0, appt_offered: 0, converted: 0 }; // the coaching bucket
     var genericByFamily = {};
 
+    // What the customer actually asked for, from the AI's one-line summary.
+    // This is Matt's "what the customers want" — measured, screens are 40.9%.
+    var callTypeRollup = {};
+    var callTypeUnknown = 0;
+
     calls.forEach(function(c) {
       var resolved = resolveModels(c.device_type);
       var specified = resolved.filter(function(r) { return r.specified; });
       var day = String(c.date_started || "").slice(0, 10);
       var month = day.slice(0, 7);
+      var repairType = classifyInquiry(c.inquiry).type;
+      if (repairType) bumpType(callTypeRollup, repairType, "calls");
+      else callTypeUnknown++;
+      // A type filter narrows demand to callers asking for that repair.
+      if (typeFilter !== "all" && repairType !== typeFilter) return;
 
       // Did this caller become a ticket anywhere within the window?
       var d = digits(c.phone);
@@ -158,6 +188,7 @@ export async function GET(request) {
           var m = get(r.canonical, r.family);
           m.calls++;
           if (c.appt_offered) m.appt_offered++;
+          bumpType(m.types, repairType, "calls");
           bumpMonth(m, month, "calls");
           if (didConvert) {
             m.converted++;
@@ -195,6 +226,7 @@ export async function GET(request) {
     // ── PRICING + REPAIR VOLUME ──────────────────────────────────────────────
     var storeTickets = store === "all" ? tickets : tickets.filter(function(t) { return t.store === store; });
     var pricedLines = 0, unpricedLines = 0;
+    var lineTypeRollup = {};
 
     storeTickets.forEach(function(t) {
       var r = resolveModel(t.device);
@@ -207,9 +239,12 @@ export async function GET(request) {
       bumpMonth(m, month, "repairs");
 
       // Per-line pricing: unit_price is the LIST price, discount comes off it.
+      // Each line is typed, so a screen price never averages with a diagnostic.
       var items = Array.isArray(t.item_details) ? t.item_details : [];
       items.forEach(function(it) {
         if (!it || String(it.category || "").toLowerCase().indexOf("repair") < 0) return;
+        var rt = classifyCatalogItem(it.catalog_item).type;
+        if (typeFilter !== "all" && rt !== typeFilter) return;
         var list = num(it.unit_price);
         if (list <= 0) { unpricedLines++; return; }
         var disc = num(it.discount);
@@ -220,6 +255,17 @@ export async function GET(request) {
         m.discount_total += disc;
         m.actual_total += actual;
         if (disc > 0) m.discounted++; else m.full_price++;
+
+        var mt = bumpType(m.types, rt, "priced_lines");
+        if (mt) {
+          mt.list_total += list;
+          mt.discount_total += disc;
+          mt.actual_total += actual;
+          if (disc > 0) mt.discounted++; else mt.full_price++;
+        }
+        var gt = bumpType(lineTypeRollup, rt, "priced_lines");
+        if (gt) { gt.list_total += list; gt.actual_total += actual; gt.discount_total += disc; }
+
         bumpMonth(m, month, "priced_lines");
         bumpMonth(m, month, "list_total", list);
         bumpMonth(m, month, "actual_total", actual);
@@ -230,10 +276,34 @@ export async function GET(request) {
     var round = function(n) { return Math.round(n * 100) / 100; };
     var rows = Object.keys(models).map(function(k) {
       var m = models[k];
-      var avgList = m.priced_lines ? m.list_total / m.priced_lines : null;
-      var avgActual = m.priced_lines ? m.actual_total / m.priced_lines : null;
-      var avgDiscount = m.priced_lines ? m.discount_total / m.priced_lines : null;
+
+      // Per repair type, which is the only level at which a price means anything.
+      var typeRows = Object.keys(m.types).map(function(tk) {
+        var x = m.types[tk];
+        return {
+          type: x.type, calls: x.calls, priced_lines: x.priced_lines,
+          avg_list: x.priced_lines ? round(x.list_total / x.priced_lines) : null,
+          avg_discount: x.priced_lines ? round(x.discount_total / x.priced_lines) : null,
+          avg_actual: x.priced_lines ? round(x.actual_total / x.priced_lines) : null,
+          discount_pct: x.list_total ? round((x.discount_total / x.list_total) * 100) : null,
+          full_price: x.full_price, discounted: x.discounted,
+          discounted_share: x.priced_lines ? round((x.discounted / x.priced_lines) * 100) : null,
+        };
+      }).sort(function(a, b) { return b.priced_lines - a.priced_lines || b.calls - a.calls; });
+
+      // The headline price describes ONE repair type — the model's most common
+      // priced job — and the row says which. A blended average would be a number
+      // that matches no actual transaction.
+      var priced = typeRows.filter(function(x) { return x.priced_lines > 0; });
+      var dom = priced.length ? priced[0] : null;
+      var avgList = dom ? dom.avg_list : null;
+      var avgActual = dom ? dom.avg_actual : null;
+      var avgDiscount = dom ? dom.avg_discount : null;
       return {
+        types: typeRows,
+        price_type: dom ? dom.type : null,
+        price_type_lines: dom ? dom.priced_lines : 0,
+        type_count: priced.length,
         model: m.model,
         family: m.family,
         calls: m.calls,
@@ -250,10 +320,10 @@ export async function GET(request) {
         avg_list: avgList === null ? null : round(avgList),
         avg_discount: avgDiscount === null ? null : round(avgDiscount),
         avg_actual: avgActual === null ? null : round(avgActual),
-        discount_pct: avgList ? round((avgDiscount / avgList) * 100) : null,
-        full_price: m.full_price,
-        discounted: m.discounted,
-        discounted_share: m.priced_lines ? round((m.discounted / m.priced_lines) * 100) : null,
+        discount_pct: dom ? dom.discount_pct : null,
+        full_price: dom ? dom.full_price : m.full_price,
+        discounted: dom ? dom.discounted : m.discounted,
+        discounted_share: dom ? dom.discounted_share : null,
         months: Object.keys(m.months).sort().map(function(mo) {
           var x = m.months[mo];
           return {
@@ -285,6 +355,29 @@ export async function GET(request) {
         unpriced_lines: unpricedLines,
         models: rows.length,
       },
+      type_filter: typeFilter,
+      // "What the customers want" — Matt's phrase. Demand share by repair type,
+      // beside what that repair actually sells for.
+      repair_types: (function() {
+        var keys = {};
+        Object.keys(callTypeRollup).forEach(function(k) { keys[k] = 1; });
+        Object.keys(lineTypeRollup).forEach(function(k) { keys[k] = 1; });
+        var totalTyped = Object.keys(callTypeRollup).reduce(function(s, k) { return s + callTypeRollup[k].calls; }, 0);
+        return Object.keys(keys).map(function(k) {
+          var c = callTypeRollup[k] || blankType(k);
+          var l = lineTypeRollup[k] || blankType(k);
+          return {
+            type: k,
+            calls: c.calls,
+            call_share: totalTyped ? round((c.calls / totalTyped) * 100) : null,
+            priced_lines: l.priced_lines,
+            avg_list: l.priced_lines ? round(l.list_total / l.priced_lines) : null,
+            avg_actual: l.priced_lines ? round(l.actual_total / l.priced_lines) : null,
+            discount_pct: l.list_total ? round((l.discount_total / l.list_total) * 100) : null,
+          };
+        }).sort(function(a, b) { return b.calls - a.calls || b.priced_lines - a.priced_lines; });
+      })(),
+      call_type_unclassified: callTypeUnknown,
       // Stated on screen. A model-level view built on 77% of calls should say so.
       coverage: coverage,
       unspecified: unspecified,

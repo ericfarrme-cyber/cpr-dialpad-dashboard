@@ -145,6 +145,7 @@ export default function PriceDemandTab({ storeFilter }) {
   var [error, setError] = useState(null);
   var [months, setMonths] = useState(6);
   var [family, setFamily] = useState("all");
+  var [repairType, setRepairType] = useState("all");
   var [sortBy, setSortBy] = useState("calls");
   var [open, setOpen] = useState(null);
   var [search, setSearch] = useState("");
@@ -154,7 +155,8 @@ export default function PriceDemandTab({ storeFilter }) {
   useEffect(function() {
     var id = ++reqId.current;
     setData(null); setError(null);
-    var sp = "?months=" + months + (storeFilter && storeFilter !== "all" ? "&store=" + encodeURIComponent(storeFilter) : "");
+    var sp = "?months=" + months + (storeFilter && storeFilter !== "all" ? "&store=" + encodeURIComponent(storeFilter) : "")
+      + (repairType !== "all" ? "&type=" + encodeURIComponent(repairType) : "");
     fetch("/api/dialpad/price-demand" + sp)
       .then(function(r) { return r.json(); })
       .then(function(j) {
@@ -163,9 +165,9 @@ export default function PriceDemandTab({ storeFilter }) {
         setData(j);
       })
       .catch(function(e) { if (id === reqId.current) setError(e.message); });
-  }, [months, storeFilter]);
+  }, [months, storeFilter, repairType]);
 
-  useEffect(function() { setOpen(null); setLimit(20); }, [family, sortBy, storeFilter, months]);
+  useEffect(function() { setOpen(null); setLimit(20); }, [family, sortBy, storeFilter, months, repairType]);
 
   var famCounts = useMemo(function() {
     if (!data) return {};
@@ -245,6 +247,38 @@ export default function PriceDemandTab({ storeFilter }) {
         it proves the customer came in, not that this call is why.
       </div>
 
+      {/* ── what customers want: demand share by repair, beside its price ──── */}
+      {data.repair_types && data.repair_types.length > 0 && (
+        <div style={{ background: "var(--bg-card-inner)", border: "1px solid var(--border-light)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+            <div style={{ color: "var(--text-primary)", fontSize: 13.5, fontWeight: 800 }}>What customers ask for</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>share of calls · and what that repair actually sells for</div>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+            {data.repair_types.slice(0, 9).map(function(rt) {
+              var top = data.repair_types[0].call_share || 1;
+              var on = repairType === rt.type;
+              return (
+                <div key={rt.type} onClick={function() { setRepairType(on ? "all" : rt.type); }}
+                  style={{ display: "grid", gridTemplateColumns: "128px 1fr 62px 150px", gap: 10, alignItems: "center", cursor: "pointer", padding: "3px 6px", borderRadius: 6, background: on ? "#7B2FFF14" : "transparent", transition: "background .15s ease" }}>
+                  <span style={{ color: on ? "var(--purple)" : "var(--text-body)", fontSize: 11.5, fontWeight: on ? 800 : 600, whiteSpace: "nowrap" }}>{rt.type}</span>
+                  <Bar value={rt.call_share || 0} max={top} color={on ? "var(--purple)" : "var(--cyan)"} height={9} />
+                  <span style={{ color: "var(--text-primary)", fontSize: 11.5, fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{pct(rt.call_share)}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 10.5, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                    {rt.priced_lines ? money(rt.avg_list) + " → " + money(rt.avg_actual) + " · " + pct(rt.discount_pct) + " off" : rt.calls + " calls · no jobs closed"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          {data.call_type_unclassified > 0 && (
+            <div style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 10 }}>
+              {data.call_type_unclassified} calls did not describe a repair clearly enough to type.
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── controls ───────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -252,6 +286,15 @@ export default function PriceDemandTab({ storeFilter }) {
             return <Chip key={f} active={family === f} onClick={function() { setFamily(f); }} count={famCounts[f]}>{FAMILY_LABEL[f]}</Chip>;
           })}
         </div>
+        {data.repair_types && data.repair_types.length > 0 && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600 }}>Repair</span>
+            <Chip active={repairType === "all"} onClick={function() { setRepairType("all"); }}>All</Chip>
+            {data.repair_types.slice(0, 6).map(function(rt) {
+              return <Chip key={rt.type} active={repairType === rt.type} onClick={function() { setRepairType(rt.type); }}>{rt.type}</Chip>;
+            })}
+          </div>
+        )}
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
           <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 600 }}>Sort</span>
           {[["calls", "Demand"], ["conversion", "Conversion"], ["discount", "Discount"], ["price", "Price"], ["profit", "Profit"]].map(function(s) {
@@ -264,12 +307,13 @@ export default function PriceDemandTab({ storeFilter }) {
 
       {/* ── model table ────────────────────────────────────────────────────── */}
       <div style={{ background: "var(--bg-card-inner)", border: "1px solid var(--border-light)", borderRadius: 12, overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 880 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
           <thead><tr>
             <th style={th}>Model</th>
             <th style={{ ...th, width: 150 }}>Demand</th>
             <th style={{ ...th, textAlign: "right" }}>Appt&nbsp;offered</th>
             <th style={{ ...th, textAlign: "right" }}>Converted</th>
+            <th style={th}>Priced repair</th>
             <th style={{ ...th, textAlign: "right" }}>List</th>
             <th style={{ ...th, textAlign: "right" }}>Actual</th>
             <th style={{ ...th, textAlign: "right" }}>Discount</th>
@@ -296,6 +340,15 @@ export default function PriceDemandTab({ storeFilter }) {
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.appt_offered_rate >= 70 ? "var(--green)" : r.appt_offered_rate < 50 ? "var(--orange)" : "var(--text-body)" }}>{pct(r.appt_offered_rate)}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 700, color: convColor(r.conversion_rate, convRate) }}>{pct(r.conversion_rate)}</td>
+                    <td style={{ ...td, whiteSpace: "nowrap" }}>
+                      {r.price_type ? (
+                        <span style={{ color: "var(--text-body)", fontSize: 11.5 }}>
+                          {r.price_type}
+                          <span style={{ color: "var(--text-muted)", fontSize: 10 }}>{" \u00d7" + r.price_type_lines}</span>
+                          {r.type_count > 1 && <span style={{ color: "var(--text-muted)", fontSize: 9.5 }}>{" +" + (r.type_count - 1)}</span>}
+                        </span>
+                      ) : <span style={{ color: "var(--text-muted)", fontSize: 11 }}>—</span>}
+                    </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--text-muted)" }}>{money(r.avg_list)}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--text-primary)", fontWeight: 600 }}>{money(r.avg_actual)}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.discount_pct >= 15 ? "var(--orange)" : "var(--text-body)" }}>{pct(r.discount_pct)}</td>
@@ -304,7 +357,7 @@ export default function PriceDemandTab({ storeFilter }) {
                   </tr>
                   {isOpen && (
                     <tr key={r.model + "-detail"}>
-                      <td colSpan={9} style={{ padding: 0, borderBottom: "1px solid var(--border-light)", background: "var(--bg-card)" }}>
+                      <td colSpan={10} style={{ padding: 0, borderBottom: "1px solid var(--border-light)", background: "var(--bg-card)" }}>
                         <div style={{ padding: "18px 20px", display: "flex", gap: 28, flexWrap: "wrap", animation: "pdExpand .28s cubic-bezier(.22,1,.36,1)" }}>
                           <div style={{ flex: "1 1 240px", minWidth: 230 }}>
                             <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Call → repair</div>
@@ -315,22 +368,37 @@ export default function PriceDemandTab({ storeFilter }) {
                               </div>
                             )}
                           </div>
-                          <div style={{ flex: "1 1 220px", minWidth: 210 }}>
-                            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Pricing</div>
+                          <div style={{ flex: "2 1 340px", minWidth: 330 }}>
+                            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>Pricing by repair</div>
                             {r.priced_lines ? (
-                              <div style={{ display: "flex", flexDirection: "column", gap: 7, fontSize: 12 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>List price</span><span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{money2(r.avg_list)}</span></div>
-                                <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "var(--text-secondary)" }}>Average discount</span><span style={{ color: "var(--orange)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>−{money2(r.avg_discount)}</span></div>
-                                <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid var(--border)", paddingTop: 7 }}><span style={{ color: "var(--text-body)", fontWeight: 700 }}>Selling at</span><span style={{ color: "var(--text-primary)", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{money2(r.avg_actual)}</span></div>
-                                <div style={{ marginTop: 6 }}>
-                                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}>
-                                    <span style={{ color: "var(--text-muted)" }}>Full price {r.full_price}</span>
-                                    <span style={{ color: "var(--text-muted)" }}>Discounted {r.discounted}</span>
-                                  </div>
-                                  <Bar value={r.discounted} max={r.priced_lines} color="var(--orange)" height={7} />
-                                </div>
-                                <div style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 2 }}>
-                                  {pct(r.discounted_share)} of repairs discounted · avg profit {money2(r.avg_profit)}
+                              <div>
+                                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+                                  <thead><tr>
+                                    <th style={{ textAlign: "left", color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", fontWeight: 700, padding: "0 6px 6px 0" }}>Repair</th>
+                                    <th style={{ textAlign: "right", color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", fontWeight: 700, padding: "0 6px 6px" }}>Calls</th>
+                                    <th style={{ textAlign: "right", color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", fontWeight: 700, padding: "0 6px 6px" }}>Jobs</th>
+                                    <th style={{ textAlign: "right", color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", fontWeight: 700, padding: "0 6px 6px" }}>List</th>
+                                    <th style={{ textAlign: "right", color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", fontWeight: 700, padding: "0 0 6px 6px" }}>Selling at</th>
+                                  </tr></thead>
+                                  <tbody>
+                                    {r.types.filter(function(x) { return x.priced_lines > 0 || x.calls > 0; }).map(function(x) {
+                                      return (
+                                        <tr key={x.type}>
+                                          <td style={{ padding: "4px 6px 4px 0", color: "var(--text-body)", whiteSpace: "nowrap" }}>{x.type}</td>
+                                          <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.calls || "—"}</td>
+                                          <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.priced_lines || "—"}</td>
+                                          <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.avg_list === null ? "—" : money2(x.avg_list)}</td>
+                                          <td style={{ padding: "4px 0 4px 6px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                                            {x.avg_actual === null ? "—" : money2(x.avg_actual)}
+                                            {x.discount_pct > 0 && <div style={{ color: "var(--orange)", fontSize: 9.5, fontWeight: 500 }}>{pct(x.discount_pct)} off</div>}
+                                          </td>
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                                <div style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 8 }}>
+                                  A row with calls but no jobs is demand walking away · avg profit {money2(r.avg_profit)} per ticket
                                 </div>
                               </div>
                             ) : (
@@ -352,7 +420,7 @@ export default function PriceDemandTab({ storeFilter }) {
                 </>
               );
             })}
-            {rows.length === 0 && <tr><td colSpan={9} style={{ ...td, textAlign: "center", padding: 34, color: "var(--text-muted)" }}>No models match these filters.</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={10} style={{ ...td, textAlign: "center", padding: 34, color: "var(--text-muted)" }}>No models match these filters.</td></tr>}
           </tbody>
         </table>
       </div>
