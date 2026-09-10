@@ -7,8 +7,8 @@ import ProfitabilityTrend from "@/components/ProfitabilityTrend";
 var STORE_KEYS = Object.keys(STORES);
 var fmt = function(v) { var n = parseFloat(v) || 0; var neg = n < 0; return (neg ? "(" : "") + "$" + Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + (neg ? ")" : ""); };
 var fmtPct = function(v) { return ((parseFloat(v) || 0) * 100).toFixed(1) + "%"; };
-var pctColor = function(v) { var p = parseFloat(v) || 0; return p >= 0.6 ? "#4ADE80" : p >= 0.4 ? "#FBBF24" : p >= 0 ? "#FB923C" : "#F87171"; };
-var profitColor = function(v) { return parseFloat(v) >= 0 ? "#4ADE80" : "#F87171"; };
+var pctColor = function(v) { var p = parseFloat(v) || 0; return p >= 0.6 ? "var(--green)" : p >= 0.4 ? "var(--yellow)" : p >= 0 ? "var(--orange)" : "var(--red)"; };
+var profitColor = function(v) { return parseFloat(v) >= 0 ? "var(--green)" : "var(--red)"; };
 
 // ═══ COMPUTE FUNCTION ═══
 // Exported so the trend chart runs the SAME arithmetic as the statement below.
@@ -352,7 +352,7 @@ export default function ProfitabilityTab() {
 
   var periodLabel = period ? new Date(parseInt(period.split("-")[0]), parseInt(period.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" }) : "";
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Loading...</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>Loading...</div>;
 
   // Open a store's entry form and jump straight to one field. The form mounts on
   // the next render, so the focus is deferred; it retries briefly because the
@@ -374,13 +374,13 @@ export default function ProfitabilityTab() {
   }
 
   // ═══ TABLE HELPERS ═══
-  var cs = { padding: "7px 12px", fontSize: 12, borderBottom: "1px solid #1E2028" };
-  var hc = Object.assign({}, cs, { color: "#8B8F98", fontSize: 10, textTransform: "uppercase", fontWeight: 700 });
+  var cs = { padding: "7px 12px", fontSize: 12, borderBottom: "1px solid var(--border-light)" };
+  var hc = Object.assign({}, cs, { color: "var(--text-secondary)", fontSize: 10, textTransform: "uppercase", fontWeight: 700 });
 
   function Row(props) {
     var label = props.label;
     var values = props.values; // array of numbers for each store + company
-    var color = props.color || "#F0F1F3";
+    var color = props.color || "var(--text-primary)";
     var bold = props.bold;
     var indent = props.indent;
     var indent2 = props.indent2; // one level deeper — a breakdown under an indented row
@@ -394,9 +394,9 @@ export default function ProfitabilityTab() {
     var editField = props.editField;
     return (
       <tr style={{ background: bg, borderTop: borderTop || "none" }}>
-        <td style={Object.assign({}, cs, { color: (indent || indent2) ? "#8B8F98" : color, fontWeight: bold ? 800 : (indent || indent2) ? 400 : 600, paddingLeft: indent2 ? 44 : indent ? 28 : 12, fontSize: bold ? 13 : indent2 ? 11 : 12 })}>
+        <td style={Object.assign({}, cs, { color: (indent || indent2) ? "var(--text-secondary)" : color, fontWeight: bold ? 800 : (indent || indent2) ? 400 : 600, paddingLeft: indent2 ? 44 : indent ? 28 : 12, fontSize: bold ? 13 : indent2 ? 11 : 12 })}>
           {label}
-          {editField && <span style={{ color: "#4A4E57", fontSize: 9, marginLeft: 6, whiteSpace: "nowrap" }}>click to edit</span>}
+          {editField && <span style={{ color: "var(--text-faint)", fontSize: 9, marginLeft: 6, whiteSpace: "nowrap" }}>click to edit</span>}
         </td>
         {values.map(function(v, i) {
           var c = isPct ? pctColor(v) : (typeof color === "function" ? color(v) : color);
@@ -410,7 +410,7 @@ export default function ProfitabilityTab() {
             tdStyle.cursor = "pointer";
             tdStyle.textDecoration = "underline";
             tdStyle.textDecorationStyle = "dotted";
-            tdStyle.textDecorationColor = "#4A4E57";
+            tdStyle.textDecorationColor = "var(--text-faint)";
             tdStyle.textUnderlineOffset = "3px";
           }
           return <td key={i} style={tdStyle}
@@ -423,7 +423,7 @@ export default function ProfitabilityTab() {
 
   function SectionRow(props) {
     return (
-      <tr><td colSpan={STORE_KEYS.length + 2} style={{ padding: "14px 12px 6px", fontSize: 11, color: props.color || "#7B2FFF", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid " + (props.color || "#7B2FFF") + "22", background: (props.color || "#7B2FFF") + "06" }}>{props.label}</td></tr>
+      <tr><td colSpan={STORE_KEYS.length + 2} style={{ padding: "14px 12px 6px", fontSize: 11, color: props.color || "var(--purple)", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid " + (props.color || "var(--purple)") + "22", background: (props.color || "var(--purple)") + "06" }}>{props.label}</td></tr>
     );
   }
 
@@ -439,48 +439,48 @@ export default function ProfitabilityTab() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <select value={period} onChange={function(e) { setPeriod(e.target.value); }}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #2A2D35", background: "#1A1D23", color: "#F0F1F3", fontSize: 13 }}>
+            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: 13 }}>
             {periods.map(function(p) {
               var label = new Date(parseInt(p.split("-")[0]), parseInt(p.split("-")[1]) - 1, 1).toLocaleDateString(undefined, { month: "long", year: "numeric" });
               return <option key={p} value={p}>{label}</option>;
             })}
           </select>
-          <span style={{ color: "#F0F1F3", fontSize: 18, fontWeight: 800 }}>Profit & Loss</span>
+          <span style={{ color: "var(--text-primary)", fontSize: 18, fontWeight: 800 }}>Profit & Loss</span>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #00D4FF33", background: "#00D4FF08", color: "#00D4FF", fontSize: 11, cursor: payrollImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #00D4FF33", background: "#00D4FF08", color: "var(--cyan)", fontSize: 11, cursor: payrollImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             {payrollImporting ? "Processing payroll..." : "\uD83D\uDCCB Import Payroll PDF"}
             <input type="file" accept=".pdf" onChange={handlePayrollImport} disabled={payrollImporting} style={{ display: "none" }} />
           </label>
-          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "#7B2FFF08", color: "#7B2FFF", fontSize: 11, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <label style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "#7B2FFF08", color: "var(--purple)", fontSize: 11, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             {amexImporting ? "Processing Amex..." : "\uD83D\uDCB3 Import Amex PDF"}
             <input type="file" accept=".pdf" onChange={handleAmexImport} disabled={amexImporting} style={{ display: "none" }} />
           </label>
-          <button onClick={copyForward} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "#1A1D23", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>
+          <button onClick={copyForward} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text-secondary)", fontSize: 11, cursor: "pointer" }}>
             Copy Last Month's Expenses
           </button>
         </div>
       </div>
 
-      {msg && <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, background: msg.type === "success" ? "#4ADE8012" : "#F8717112", border: "1px solid " + (msg.type === "success" ? "#4ADE8033" : "#F8717133"), color: msg.type === "success" ? "#4ADE80" : "#F87171", fontSize: 12 }}>{msg.text}</div>}
+      {msg && <div style={{ padding: "8px 14px", borderRadius: 8, marginBottom: 16, background: msg.type === "success" ? "#4ADE8012" : "#F8717112", border: "1px solid " + (msg.type === "success" ? "#4ADE8033" : "#F8717133"), color: msg.type === "success" ? "var(--green)" : "var(--red)", fontSize: 12 }}>{msg.text}</div>}
 
       {/* Payroll Distribution Preview */}
       {payrollResult && payrollResult.distribution && (
-        <div style={{ background: "#1A1D23", borderRadius: 14, padding: 24, marginBottom: 20, border: "1px solid #00D4FF33" }}>
+        <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 24, marginBottom: 20, border: "1px solid #00D4FF33" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ color: "#00D4FF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCCB"} Payroll Distribution Preview</div>
+            <div style={{ color: "var(--cyan)", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCCB"} Payroll Distribution Preview</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={function() { setPayrollResult(null); }}
-                style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #2A2D35", background: "transparent", color: "#8B8F98", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+                style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 11, cursor: "pointer" }}>Cancel</button>
               <button onClick={applyPayroll} disabled={saving}
-                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#00D4FF", color: "#12141A", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "var(--cyan)", color: "var(--bg-card-inner)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                 {saving ? "Applying..." : "Apply to All Stores"}
               </button>
             </div>
           </div>
 
           {payrollResult.pay_period && (
-            <div style={{ color: "#6B6F78", fontSize: 10, marginBottom: 12 }}>Pay Period: {payrollResult.pay_period.start} to {payrollResult.pay_period.end} | {payrollResult.shifts_found} schedule shifts matched</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, marginBottom: 12 }}>Pay Period: {payrollResult.pay_period.start} to {payrollResult.pay_period.end} | {payrollResult.shifts_found} schedule shifts matched</div>
           )}
 
           {/* Store distribution summary */}
@@ -488,45 +488,45 @@ export default function ProfitabilityTab() {
             {STORE_KEYS.map(function(sk) {
               var st = STORES[sk];
               return (
-                <div key={sk} style={{ background: "#12141A", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid " + st.color + "22" }}>
+                <div key={sk} style={{ background: "var(--bg-card-inner)", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid " + st.color + "22" }}>
                   <div style={{ color: st.color, fontSize: 11, fontWeight: 700, marginBottom: 4 }}>{st.name.replace("CPR ", "")}</div>
-                  <div style={{ color: "#F0F1F3", fontSize: 20, fontWeight: 800 }}>{"$" + (payrollResult.distribution[sk] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                  <div style={{ color: "var(--text-primary)", fontSize: 20, fontWeight: 800 }}>{"$" + (payrollResult.distribution[sk] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                 </div>
               );
             })}
             {payrollResult.distribution.corporate > 0 && (
-              <div style={{ background: "#12141A", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid #7B2FFF22" }}>
-                <div style={{ color: "#7B2FFF", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Corporate</div>
-                <div style={{ color: "#F0F1F3", fontSize: 20, fontWeight: 800 }}>{"$" + payrollResult.distribution.corporate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div style={{ background: "var(--bg-card-inner)", borderRadius: 8, padding: 14, textAlign: "center", border: "1px solid #7B2FFF22" }}>
+                <div style={{ color: "var(--purple)", fontSize: 11, fontWeight: 700, marginBottom: 4 }}>Corporate</div>
+                <div style={{ color: "var(--text-primary)", fontSize: 20, fontWeight: 800 }}>{"$" + payrollResult.distribution.corporate.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
               </div>
             )}
           </div>
 
           {/* Employee breakdown */}
-          <div style={{ background: "#12141A", borderRadius: 8, padding: 14 }}>
-            <div style={{ color: "#8B8F98", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Employee Breakdown</div>
+          <div style={{ background: "var(--bg-card-inner)", borderRadius: 8, padding: 14 }}>
+            <div style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8 }}>Employee Breakdown</div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #2A2D35" }}>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
                   {["Employee", "Hours", "Total Expense", "Method", "Fishers", "Bloom.", "Indy", "Corp."].map(function(h, i) {
-                    return <th key={i} style={{ padding: "4px 6px", textAlign: i < 1 ? "left" : "right", color: "#6B6F78", fontSize: 9, fontWeight: 700 }}>{h}</th>;
+                    return <th key={i} style={{ padding: "4px 6px", textAlign: i < 1 ? "left" : "right", color: "var(--text-muted)", fontSize: 9, fontWeight: 700 }}>{h}</th>;
                   })}
                 </tr>
               </thead>
               <tbody>
                 {payrollResult.employees.map(function(e, i) {
-                  var methodColor = e.method === "schedule" ? "#4ADE80" : e.method === "area_manager" ? "#7B2FFF" : e.method === "roster" ? "#00D4FF" : "#FBBF24";
+                  var methodColor = e.method === "schedule" ? "var(--green)" : e.method === "area_manager" ? "var(--purple)" : e.method === "roster" ? "var(--cyan)" : "var(--yellow)";
                   var methodLabel = e.method === "schedule" ? "Schedule" : e.method === "area_manager" ? "Area Mgr" : e.method === "roster" ? "Roster" : "Unassigned";
                   return (
-                    <tr key={i} style={{ borderBottom: "1px solid #1E2028" }}>
-                      <td style={{ padding: "4px 6px", color: "#F0F1F3", fontSize: 11, fontWeight: 600 }}>{e.name}</td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: "#8B8F98", fontSize: 11 }}>{e.hours}</td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: "#F0F1F3", fontSize: 11, fontWeight: 600 }}>{"$" + e.total_expense.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                    <tr key={i} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                      <td style={{ padding: "4px 6px", color: "var(--text-primary)", fontSize: 11, fontWeight: 600 }}>{e.name}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-secondary)", fontSize: 11 }}>{e.hours}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-primary)", fontSize: 11, fontWeight: 600 }}>{"$" + e.total_expense.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                       <td style={{ padding: "4px 6px", textAlign: "right" }}><span style={{ padding: "2px 6px", borderRadius: 4, background: methodColor + "18", color: methodColor, fontSize: 9, fontWeight: 600 }}>{methodLabel}</span></td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.fishers > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.fishers > 0 ? "$" + e.fishers.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.bloomington > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.bloomington > 0 ? "$" + e.bloomington.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.indianapolis > 0 ? "#F0F1F3" : "#2A2D35", fontSize: 10 }}>{e.indianapolis > 0 ? "$" + e.indianapolis.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
-                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.corporate > 0 ? "#7B2FFF" : "#2A2D35", fontSize: 10 }}>{e.corporate > 0 ? "$" + e.corporate.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.fishers > 0 ? "var(--text-primary)" : "var(--border)", fontSize: 10 }}>{e.fishers > 0 ? "$" + e.fishers.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.bloomington > 0 ? "var(--text-primary)" : "var(--border)", fontSize: 10 }}>{e.bloomington > 0 ? "$" + e.bloomington.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.indianapolis > 0 ? "var(--text-primary)" : "var(--border)", fontSize: 10 }}>{e.indianapolis > 0 ? "$" + e.indianapolis.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
+                      <td style={{ padding: "4px 6px", textAlign: "right", color: e.corporate > 0 ? "var(--purple)" : "var(--border)", fontSize: 10 }}>{e.corporate > 0 ? "$" + e.corporate.toLocaleString(undefined, { minimumFractionDigits: 2 }) : "—"}</td>
                     </tr>
                   );
                 })}
@@ -536,7 +536,7 @@ export default function ProfitabilityTab() {
 
           {/* Unassigned warning */}
           {payrollResult.unassigned && payrollResult.unassigned.length > 0 && (
-            <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "#FBBF2412", border: "1px solid #FBBF2433", color: "#FBBF24", fontSize: 11 }}>
+            <div style={{ marginTop: 12, padding: "8px 12px", borderRadius: 6, background: "#FBBF2412", border: "1px solid #FBBF2433", color: "var(--yellow)", fontSize: 11 }}>
               {"\u26A0\uFE0F"} {payrollResult.unassigned.length} employee(s) could not be matched to a store schedule. Assign them manually or check WhenIWork data.
             </div>
           )}
@@ -545,14 +545,14 @@ export default function ProfitabilityTab() {
 
       {/* ═══ AMEX EXPENSE REVIEW ═══ */}
       {amexResult && (
-        <div style={{ padding: 20, background: "#1A1D23", borderRadius: 12, border: "1px solid #7B2FFF33", marginBottom: 20 }}>
+        <div style={{ padding: 20, background: "var(--bg-card)", borderRadius: 12, border: "1px solid #7B2FFF33", marginBottom: 20 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-            <div style={{ color: "#7B2FFF", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCB3"} Matt Slade — Non-Parts Expenses {amexResult.statements_imported > 1 ? "(" + amexResult.statements_imported + " statements merged)" : ""}</div>
+            <div style={{ color: "var(--purple)", fontSize: 14, fontWeight: 800 }}>{"\uD83D\uDCB3"} Matt Slade — Non-Parts Expenses {amexResult.statements_imported > 1 ? "(" + amexResult.statements_imported + " statements merged)" : ""}</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={function() { setAmexResult(null); }}
-                style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #F8717133", background: "transparent", color: "#F87171", fontSize: 10, cursor: "pointer" }}>Cancel</button>
+                style={{ padding: "4px 10px", borderRadius: 4, border: "1px solid #F8717133", background: "transparent", color: "var(--red)", fontSize: 10, cursor: "pointer" }}>Cancel</button>
               <button onClick={applyAmex} disabled={saving}
-                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#7B2FFF", color: "#fff", fontSize: 11, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}>
+                style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "var(--purple)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}>
                 {saving ? "Saving..." : "Apply $" + amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 }) + " to P&L"}
               </button>
             </div>
@@ -562,13 +562,13 @@ export default function ProfitabilityTab() {
           <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
             {Object.entries(amexResult.by_category || {}).sort(function(a,b) { return b[1].total - a[1].total; }).map(function(entry) {
               var cat = entry[0], data = entry[1];
-              var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
-              var c = catColors[cat] || "#8B8F98";
+              var catColors = { gas: "var(--yellow)", food: "var(--orange)", shipping: "var(--cyan)", telecom: "var(--green)", travel: "var(--pink)", vehicle: "var(--red)", software: "var(--purple)", other: "var(--text-secondary)" };
+              var c = catColors[cat] || "var(--text-secondary)";
               return (
                 <div key={cat} style={{ padding: "8px 14px", borderRadius: 8, background: c + "12", border: "1px solid " + c + "33" }}>
                   <div style={{ fontSize: 10, color: c, textTransform: "uppercase", fontWeight: 700 }}>{cat}</div>
-                  <div style={{ fontSize: 16, fontWeight: 800, color: "#F0F1F3" }}>{"$" + data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                  <div style={{ fontSize: 9, color: "#8B8F98" }}>{data.count} charges</div>
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{"$" + data.total.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
+                  <div style={{ fontSize: 9, color: "var(--text-secondary)" }}>{data.count} charges</div>
                 </div>
               );
             })}
@@ -577,24 +577,24 @@ export default function ProfitabilityTab() {
           {/* Transaction table */}
           <div style={{ maxHeight: 300, overflow: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-              <thead><tr style={{ borderBottom: "1px solid #2A2D35" }}>
-                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Date</th>
-                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Vendor</th>
-                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Location</th>
-                <th style={{ padding: "6px 8px", textAlign: "left", color: "#6B7280", fontSize: 10 }}>Category</th>
-                <th style={{ padding: "6px 8px", textAlign: "right", color: "#6B7280", fontSize: 10 }}>Amount</th>
+              <thead><tr style={{ borderBottom: "1px solid var(--border)" }}>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "var(--text-faint)", fontSize: 10 }}>Date</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "var(--text-faint)", fontSize: 10 }}>Vendor</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "var(--text-faint)", fontSize: 10 }}>Location</th>
+                <th style={{ padding: "6px 8px", textAlign: "left", color: "var(--text-faint)", fontSize: 10 }}>Category</th>
+                <th style={{ padding: "6px 8px", textAlign: "right", color: "var(--text-faint)", fontSize: 10 }}>Amount</th>
               </tr></thead>
               <tbody>
                 {(amexResult.non_parts || []).map(function(t, i) {
-                  var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
-                  var c = catColors[t.category] || "#8B8F98";
+                  var catColors = { gas: "var(--yellow)", food: "var(--orange)", shipping: "var(--cyan)", telecom: "var(--green)", travel: "var(--pink)", vehicle: "var(--red)", software: "var(--purple)", other: "var(--text-secondary)" };
+                  var c = catColors[t.category] || "var(--text-secondary)";
                   return (
-                    <tr key={i} style={{ borderBottom: "1px solid #1A1D23" }}>
-                      <td style={{ padding: "4px 8px", color: "#9CA3AF" }}>{t.date}</td>
-                      <td style={{ padding: "4px 8px", color: "#F0F1F3" }}>{t.vendor}</td>
-                      <td style={{ padding: "4px 8px", color: "#9CA3AF" }}>{t.location}</td>
+                    <tr key={i} style={{ borderBottom: "1px solid var(--bg-card)" }}>
+                      <td style={{ padding: "4px 8px", color: "var(--text-dim)" }}>{t.date}</td>
+                      <td style={{ padding: "4px 8px", color: "var(--text-primary)" }}>{t.vendor}</td>
+                      <td style={{ padding: "4px 8px", color: "var(--text-dim)" }}>{t.location}</td>
                       <td style={{ padding: "4px 8px" }}><span style={{ padding: "2px 6px", borderRadius: 4, background: c + "18", color: c, fontSize: 9, fontWeight: 600 }}>{t.category}</span></td>
-                      <td style={{ padding: "4px 8px", textAlign: "right", color: "#F0F1F3", fontWeight: 600 }}>{"$" + (t.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td style={{ padding: "4px 8px", textAlign: "right", color: "var(--text-primary)", fontWeight: 600 }}>{"$" + (t.amount || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                     </tr>
                   );
                 })}
@@ -604,21 +604,21 @@ export default function ProfitabilityTab() {
 
           {/* Parts excluded info */}
           {amexResult.parts_count > 0 && (
-            <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#12141A", color: "#6B7280", fontSize: 10 }}>
+            <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "var(--bg-card-inner)", color: "var(--text-faint)", fontSize: 10 }}>
               {"\u2705"} {amexResult.parts_count} parts charges (${amexResult.parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}) excluded — already in COGS via RepairQ
             </div>
           )}
 
-          <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#7B2FFF08", border: "1px solid #7B2FFF22", color: "#9CA3AF", fontSize: 10 }}>
+          <div style={{ marginTop: 12, padding: "6px 12px", borderRadius: 6, background: "#7B2FFF08", border: "1px solid #7B2FFF22", color: "var(--text-dim)", fontSize: 10 }}>
             Non-parts total (${amexResult.non_parts_total.toLocaleString(undefined, { minimumFractionDigits: 2 })}) will be split evenly across 3 stores as "Area Mgr Expenses" on the P&L
           </div>
 
           <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
-            <label style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "transparent", color: "#7B2FFF", fontSize: 10, fontWeight: 600, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 4 }}>
+            <label style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "transparent", color: "var(--purple)", fontSize: 10, fontWeight: 600, cursor: amexImporting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 4 }}>
               {amexImporting ? "Processing..." : "+ Import Another Statement"}
               <input type="file" accept=".pdf" onChange={handleAmexImport} disabled={amexImporting} style={{ display: "none" }} />
             </label>
-            <span style={{ fontSize: 9, color: "#6B7280" }}>Need charges from a second billing cycle for this month?</span>
+            <span style={{ fontSize: 9, color: "var(--text-faint)" }}>Need charges from a second billing cycle for this month?</span>
           </div>
         </div>
       )}
@@ -626,13 +626,13 @@ export default function ProfitabilityTab() {
       {/* Store entry buttons. Labelled explicitly: the statement below is read-only,
           and without a label nobody could tell these chips were the way in. */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20, alignItems: "center" }}>
-        <span style={{ color: "#8B8F98", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Enter / edit data:</span>
+        <span style={{ color: "var(--text-secondary)", fontSize: 11, fontWeight: 600, marginRight: 2 }}>Enter / edit data:</span>
         {STORE_KEYS.map(function(k) {
           var st = STORES[k];
           var hasData = records[k] && ((parseFloat(records[k].repair_revenue) || 0) > 0 || (parseFloat(records[k].rent) || 0) > 0);
           return <button key={k} onClick={function() { setEditStore(editStore === k ? null : k); }}
-            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + (editStore === k ? st.color + "55" : hasData ? "#4ADE8033" : "#2A2D35"), background: editStore === k ? st.color + "12" : "transparent", color: editStore === k ? st.color : hasData ? "#4ADE80" : "#8B8F98", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-            {hasData && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#4ADE80" }} />}
+            style={{ padding: "8px 16px", borderRadius: 8, border: "1px solid " + (editStore === k ? st.color + "55" : hasData ? "#4ADE8033" : "var(--border)"), background: editStore === k ? st.color + "12" : "transparent", color: editStore === k ? st.color : hasData ? "var(--green)" : "var(--text-secondary)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+            {hasData && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--green)" }} />}
             {st.name.replace("CPR ", "")} {editStore === k ? "(editing)" : ""}
           </button>;
         })}
@@ -647,7 +647,7 @@ export default function ProfitabilityTab() {
       {editStore && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
           <button onClick={function() { clearMonth(editStore); }} disabled={saving}
-            style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #F8717133", background: "#F8717112", color: "#F87171", fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer", opacity: saving ? 0.5 : 1 }}>
+            style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #F8717133", background: "#F8717112", color: "var(--red)", fontSize: 12, fontWeight: 600, cursor: saving ? "default" : "pointer", opacity: saving ? 0.5 : 1 }}>
             Clear {STORES[editStore] ? STORES[editStore].name.replace("CPR ", "") : editStore} — {period}
           </button>
         </div>
@@ -659,10 +659,10 @@ export default function ProfitabilityTab() {
       <div style={{ marginTop: editStore ? 20 : 0 }}>
         <ProfitabilityTrend period={period} onSelectPeriod={function(p) { setPeriod(p); }} />
       </div>
-      <div style={{ background: "#1A1D23", borderRadius: 14, overflow: "hidden" }}>
-        <div style={{ padding: "16px 16px 8px", borderBottom: "1px solid #2A2D35" }}>
-          <div style={{ color: "#F0F1F3", fontSize: 15, fontWeight: 800 }}>{periodLabel} — Profit & Loss Statement</div>
-          <div style={{ color: "#6B6F78", fontSize: 10, marginTop: 2 }}>Focused Technologies — All Stores</div>
+      <div style={{ background: "var(--bg-card)", borderRadius: 14, overflow: "hidden" }}>
+        <div style={{ padding: "16px 16px 8px", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 800 }}>{periodLabel} — Profit & Loss Statement</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>Focused Technologies — All Stores</div>
         </div>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
@@ -671,7 +671,7 @@ export default function ProfitabilityTab() {
               {STORE_KEYS.map(function(k) {
                 return <th key={k} style={Object.assign({}, hc, { textAlign: "right", color: STORES[k].color })}>{STORES[k].name.replace("CPR ", "")}</th>;
               })}
-              <th style={Object.assign({}, hc, { textAlign: "right", color: "#F0F1F3" })}>Company</th>
+              <th style={Object.assign({}, hc, { textAlign: "right", color: "var(--text-primary)" })}>Company</th>
             </tr>
           </thead>
           <tbody>
@@ -683,30 +683,30 @@ export default function ProfitabilityTab() {
             <Row label="Parts Revenue" values={vals("partsRev")} indent />
             <Row label="Services Revenue" values={vals("svcRev")} indent />
             {co.promoRev > 0 && <Row label="Promotions Revenue" values={vals("promoRev")} indent />}
-            <Row label="Gross Revenue" values={vals("grossRev")} bold bg="#12141A" />
+            <Row label="Gross Revenue" values={vals("grossRev")} bold bg="var(--bg-card-inner)" />
 
             {/* ── COGS ── */}
-            <SectionRow label="Cost of Goods Sold" color="#FB923C" />
-            <Row label="Repair COGS" values={vals("repCogs")} indent color="#FB923C" />
-            <Row label="Accessory COGS" values={vals("accyCogs")} indent color="#FB923C" />
-            <Row label="Other COGS" values={STORE_KEYS.map(function(k) { return sd[k].devCogs + sd[k].partsCogs + sd[k].svcCogs + sd[k].promoCogs; }).concat([co.devCogs + co.partsCogs + co.svcCogs + co.promoCogs])} indent color="#FB923C" />
-            <Row label="Total COGS" values={vals("totalCogs")} bold bg="#12141A" color="#FB923C" />
+            <SectionRow label="Cost of Goods Sold" color="var(--orange)" />
+            <Row label="Repair COGS" values={vals("repCogs")} indent color="var(--orange)" />
+            <Row label="Accessory COGS" values={vals("accyCogs")} indent color="var(--orange)" />
+            <Row label="Other COGS" values={STORE_KEYS.map(function(k) { return sd[k].devCogs + sd[k].partsCogs + sd[k].svcCogs + sd[k].promoCogs; }).concat([co.devCogs + co.partsCogs + co.svcCogs + co.promoCogs])} indent color="var(--orange)" />
+            <Row label="Total COGS" values={vals("totalCogs")} bold bg="var(--bg-card-inner)" color="var(--orange)" />
 
             {/* ── GROSS PROFIT ── */}
             <Row label="Gross Profit" values={vals("grossProfit")} bold bg="#4ADE8008" color={profitColor} borderTop="2px solid #4ADE8033" />
             <Row label="Gross Margin" values={vals("gpm")} isPct bg="#4ADE8008" />
 
             {/* ── KEY MARGINS ── */}
-            <SectionRow label="Category Margins" color="#00D4FF" />
+            <SectionRow label="Category Margins" color="var(--cyan)" />
             <Row label="Repair GPM" values={vals("repGpm")} isPct indent />
             <Row label="Accessory GPM" values={vals("accyGpm")} isPct indent />
 
             {/* ── OPERATING EXPENSES ── */}
-            <SectionRow label="Operating Expenses" color="#F87171" />
-            <Row label="Rent" values={vals("rent")} indent color="#F87171" />
-            <Row label="Payroll" values={vals("payroll")} indent color="#F87171" />
-            <Row label="Corporate Overhead" values={vals("corporateOverhead")} indent color="#7B2FFF" />
-            <Row label="Area Mgr Expenses" values={vals("areaMgrExpenses")} indent color="#7B2FFF" />
+            <SectionRow label="Operating Expenses" color="var(--red)" />
+            <Row label="Rent" values={vals("rent")} indent color="var(--red)" />
+            <Row label="Payroll" values={vals("payroll")} indent color="var(--red)" />
+            <Row label="Corporate Overhead" values={vals("corporateOverhead")} indent color="var(--purple)" />
+            <Row label="Area Mgr Expenses" values={vals("areaMgrExpenses")} indent color="var(--purple)" />
             {/* Category breakdown for Area Mgr Expenses */}
             {(function() {
               var raw = (records[STORE_KEYS[0]] || {}).area_manager_breakdown;
@@ -714,46 +714,46 @@ export default function ProfitabilityTab() {
               var breakdown;
               try { breakdown = typeof raw === "string" ? JSON.parse(raw) : raw; } catch(e) { return null; }
               if (!breakdown || Object.keys(breakdown).length === 0) return null;
-              var catColors = { gas: "#FBBF24", food: "#FB923C", shipping: "#00D4FF", telecom: "#4ADE80", travel: "#FF2D95", vehicle: "#F87171", software: "#7B2FFF", other: "#8B8F98" };
+              var catColors = { gas: "var(--yellow)", food: "var(--orange)", shipping: "var(--cyan)", telecom: "var(--green)", travel: "var(--pink)", vehicle: "var(--red)", software: "var(--purple)", other: "var(--text-secondary)" };
               var entries = Object.entries(breakdown).sort(function(a,b) { return b[1] - a[1]; });
               return (
                 <tr><td colSpan={2 + STORE_KEYS.length} style={{ padding: "2px 12px 8px 28px" }}>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {entries.map(function(e) {
-                      var c = catColors[e[0]] || "#8B8F98";
+                      var c = catColors[e[0]] || "var(--text-secondary)";
                       return <span key={e[0]} style={{ fontSize: 9, color: c, fontWeight: 600 }}>{e[0]} ${e[1].toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>;
                     })}
                   </div>
                 </td></tr>
               );
             })()}
-            <Row label="Utilities" values={vals("utilities")} indent color="#F87171" />
-            <Row label="Marketing" values={vals("marketing")} indent color="#F87171" />
-            <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" editField="shrinkage" />
+            <Row label="Utilities" values={vals("utilities")} indent color="var(--red)" />
+            <Row label="Marketing" values={vals("marketing")} indent color="var(--red)" />
+            <Row label="Store Controllables" values={vals("controllables")} indent color="var(--red)" editField="shrinkage" />
             {/* Damage / shrinkage / voided break out only once something is entered, so a
                 month with no reconciliation yet stays as one clean zero line. */}
             {co.damaged > 0 && <Row label="Damage" values={vals("damaged")} indent2 color="#F8717199" editField="damaged" />}
             {co.shrinkage > 0 && <Row label="Shrinkage" values={vals("shrinkage")} indent2 color="#F8717199" editField="shrinkage" />}
             {co.voided > 0 && <Row label="Voided" values={vals("voided")} indent2 color="#F8717199" editField="voided" />}
-            <Row label="Other" values={vals("otherExpenses")} indent color="#F87171" />
-            <Row label="Total Operating Expenses" values={vals("totalExpenses")} bold bg="#12141A" color="#F87171" />
+            <Row label="Other" values={vals("otherExpenses")} indent color="var(--red)" />
+            <Row label="Total Operating Expenses" values={vals("totalExpenses")} bold bg="var(--bg-card-inner)" color="var(--red)" />
 
             {/* ── FEES & ROYALTIES ── */}
-            <SectionRow label="Fees & Royalties" color="#FB923C" />
-            <Row label="Royalties (5%)" values={vals("royalties")} indent color="#FB923C" />
-            <Row label="CPR National Ad Fee" values={vals("adFee")} indent color="#FB923C" />
-            <Row label="CPR Tech Fee" values={vals("techFee")} indent color="#FB923C" />
-            <Row label="Total Fees" values={vals("totalFees")} bold bg="#12141A" color="#FB923C" />
+            <SectionRow label="Fees & Royalties" color="var(--orange)" />
+            <Row label="Royalties (5%)" values={vals("royalties")} indent color="var(--orange)" />
+            <Row label="CPR National Ad Fee" values={vals("adFee")} indent color="var(--orange)" />
+            <Row label="CPR Tech Fee" values={vals("techFee")} indent color="var(--orange)" />
+            <Row label="Total Fees" values={vals("totalFees")} bold bg="var(--bg-card-inner)" color="var(--orange)" />
 
             {/* ── NET PROFIT ── */}
             <Row label="Profit Less Fees" values={vals("profitLessFees")} color={profitColor} bg="#1E202833" />
             {/* Other Income — adds to NET PROFIT but doesn't affect Gross Profit / GPM */}
-            <SectionRow label="Other Income" color="#4ADE80" />
-            <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="#4ADE80" prefix="+" editField="fieldprint_payout" />
-            <Row label="LCD Credits" values={vals("lcdCredits")} indent color="#4ADE80" prefix="+" editField="lcd_credits" />
-            {co.otherIncome > 0 && <Row label="Total Other Income" values={vals("otherIncome")} bold bg="#12141A" color="#4ADE80" prefix="+" />}
+            <SectionRow label="Other Income" color="var(--green)" />
+            <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="var(--green)" prefix="+" editField="fieldprint_payout" />
+            <Row label="LCD Credits" values={vals("lcdCredits")} indent color="var(--green)" prefix="+" editField="lcd_credits" />
+            {co.otherIncome > 0 && <Row label="Total Other Income" values={vals("otherIncome")} bold bg="var(--bg-card-inner)" color="var(--green)" prefix="+" />}
             <tr style={{ background: "linear-gradient(90deg, #7B2FFF08, #00D4FF08)", borderTop: "2px solid #7B2FFF44" }}>
-              <td style={Object.assign({}, cs, { fontWeight: 900, fontSize: 15, color: "#F0F1F3", padding: "12px" })}>NET PROFIT</td>
+              <td style={Object.assign({}, cs, { fontWeight: 900, fontSize: 15, color: "var(--text-primary)", padding: "12px" })}>NET PROFIT</td>
               {STORE_KEYS.map(function(k) {
                 return <td key={k} style={Object.assign({}, cs, { textAlign: "right", fontWeight: 900, fontSize: 15, color: profitColor(sd[k].netProfit), padding: "12px" })}>{fmt(sd[k].netProfit)}</td>;
               })}
@@ -762,8 +762,8 @@ export default function ProfitabilityTab() {
             <Row label="Net Margin" values={vals("netMargin")} isPct bg="#7B2FFF06" />
 
             {/* ── LABOR ── */}
-            <SectionRow label="Labor Benchmarks" color="#00D4FF" />
-            <Row label="Hours Worked" values={vals("hours")} indent color="#8B8F98" />
+            <SectionRow label="Labor Benchmarks" color="var(--cyan)" />
+            <Row label="Hours Worked" values={vals("hours")} indent color="var(--text-secondary)" />
             <Row label="Revenue / Man Hour" values={vals("revPerHour")} indent />
             <Row label="Profit / Man Hour" values={vals("profPerHour")} indent />
           </tbody>
@@ -847,9 +847,9 @@ function StoreForm({ store, data, period, onSave, saving }) {
   };
 
   var storeName = STORES[store] ? STORES[store].name : store;
-  var storeColor = STORES[store] ? STORES[store].color : "#7B2FFF";
-  var inputStyle = { width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid #2A2D35", background: "#12141A", color: "#F0F1F3", fontSize: 12, outline: "none", boxSizing: "border-box", textAlign: "right" };
-  var labelStyle = { color: "#8B8F98", fontSize: 9, display: "block", marginBottom: 2 };
+  var storeColor = STORES[store] ? STORES[store].color : "var(--purple)";
+  var inputStyle = { width: "100%", padding: "7px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card-inner)", color: "var(--text-primary)", fontSize: 12, outline: "none", boxSizing: "border-box", textAlign: "right" };
+  var labelStyle = { color: "var(--text-secondary)", fontSize: 9, display: "block", marginBottom: 2 };
 
   function field(label, key) {
     return (<div>
@@ -859,11 +859,11 @@ function StoreForm({ store, data, period, onSave, saving }) {
   }
 
   return (
-    <div style={{ background: "#1A1D23", borderRadius: 14, padding: 24, border: "1px solid " + storeColor + "33" }}>
+    <div style={{ background: "var(--bg-card)", borderRadius: 14, padding: 24, border: "1px solid " + storeColor + "33" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
         <div style={{ color: storeColor, fontSize: 16, fontWeight: 800 }}>{storeName} — {period}</div>
         <button onClick={function() { onSave(form); }} disabled={saving}
-          style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: saving ? "#6B6F78" : "#7B2FFF", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}>
+          style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: saving ? "var(--text-muted)" : "var(--purple)", color: "#FFF", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer" }}>
           {saving ? "Saving..." : "Save"}
         </button>
       </div>
@@ -871,55 +871,55 @@ function StoreForm({ store, data, period, onSave, saving }) {
       {/* Revenue */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <div style={{ color: "#7B2FFF", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Revenue & COGS (from RepairQ)</div>
-          <label style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "#7B2FFF12", color: "#7B2FFF", fontSize: 11, fontWeight: 600, cursor: extracting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <div style={{ color: "var(--purple)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>Revenue & COGS (from RepairQ)</div>
+          <label style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #7B2FFF33", background: "#7B2FFF12", color: "var(--purple)", fontSize: 11, fontWeight: 600, cursor: extracting ? "wait" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
             {extracting ? "Reading screenshot..." : "\uD83D\uDCF7 Import from Screenshot"}
             <input type="file" accept="image/*" onChange={handleExtractFromImage} disabled={extracting} style={{ display: "none" }} />
           </label>
         </div>
-        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : extractMsg.type === "warning" ? "#FBBF2412" : extractMsg.type === "info" ? "#7B2FFF12" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : extractMsg.type === "warning" ? "#FBBF2433" : extractMsg.type === "info" ? "#7B2FFF33" : "#F8717133"), color: extractMsg.type === "success" ? "#4ADE80" : extractMsg.type === "warning" ? "#FBBF24" : extractMsg.type === "info" ? "#7B2FFF" : "#F87171", fontSize: 11 }}>{extractMsg.text}</div>}
+        {extractMsg && <div style={{ padding: "8px 12px", borderRadius: 6, marginBottom: 8, background: extractMsg.type === "success" ? "#4ADE8012" : extractMsg.type === "warning" ? "#FBBF2412" : extractMsg.type === "info" ? "#7B2FFF12" : "#F8717112", border: "1px solid " + (extractMsg.type === "success" ? "#4ADE8033" : extractMsg.type === "warning" ? "#FBBF2433" : extractMsg.type === "info" ? "#7B2FFF33" : "#F8717133"), color: extractMsg.type === "success" ? "var(--green)" : extractMsg.type === "warning" ? "var(--yellow)" : extractMsg.type === "info" ? "var(--purple)" : "var(--red)", fontSize: 11 }}>{extractMsg.text}</div>}
 
         {/* Row review table */}
         {extractedRows && extractedRows.length > 0 && (
-          <div style={{ marginBottom: 16, background: "#12141A", borderRadius: 10, padding: 16, border: "1px solid #7B2FFF22" }}>
+          <div style={{ marginBottom: 16, background: "var(--bg-card-inner)", borderRadius: 10, padding: 16, border: "1px solid #7B2FFF22" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-              <div style={{ color: "#7B2FFF", fontSize: 11, fontWeight: 700 }}>{"\uD83D\uDD0D"} VERIFY EXTRACTED ROWS — Fix any misreads, then Apply</div>
+              <div style={{ color: "var(--purple)", fontSize: 11, fontWeight: 700 }}>{"\uD83D\uDD0D"} VERIFY EXTRACTED ROWS — Fix any misreads, then Apply</div>
               <button onClick={function() { applyRows(extractedRows); }}
-                style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: "#7B2FFF", color: "#FFF", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: "var(--purple)", color: "#FFF", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                 Apply to Form
               </button>
             </div>
-            <div style={{ color: "#6B6F78", fontSize: 9, marginBottom: 8 }}>Tip: Use PNG screenshots instead of JPG for better accuracy. Compare each row against your RepairQ report.</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 9, marginBottom: 8 }}>Tip: Use PNG screenshots instead of JPG for better accuracy. Compare each row against your RepairQ report.</div>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #2A2D35" }}>
-                  <th style={{ padding: "6px 8px", textAlign: "left", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>ITEM TYPE</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>NET SALES</th>
-                  <th style={{ padding: "6px 8px", textAlign: "right", color: "#8B8F98", fontSize: 9, fontWeight: 700 }}>COGS</th>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th style={{ padding: "6px 8px", textAlign: "left", color: "var(--text-secondary)", fontSize: 9, fontWeight: 700 }}>ITEM TYPE</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: "var(--text-secondary)", fontSize: 9, fontWeight: 700 }}>NET SALES</th>
+                  <th style={{ padding: "6px 8px", textAlign: "right", color: "var(--text-secondary)", fontSize: 9, fontWeight: 700 }}>COGS</th>
                 </tr>
               </thead>
               <tbody>
                 {extractedRows.map(function(row, idx) {
                   return (
-                    <tr key={idx} style={{ borderBottom: "1px solid #1E2028" }}>
-                      <td style={{ padding: "4px 8px", color: "#C8CAD0", fontSize: 11 }}>{row.item}</td>
+                    <tr key={idx} style={{ borderBottom: "1px solid var(--border-light)" }}>
+                      <td style={{ padding: "4px 8px", color: "var(--text-body)", fontSize: 11 }}>{row.item}</td>
                       <td style={{ padding: "4px 4px" }}>
                         <input type="number" step="0.01" value={row.net_sales} onChange={function(e) { updateRow(idx, "net_sales", e.target.value); }}
-                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #2A2D35", background: "#1A1D23", color: "#4ADE80", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--green)", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
                       </td>
                       <td style={{ padding: "4px 4px" }}>
                         <input type="number" step="0.01" value={row.cogs} onChange={function(e) { updateRow(idx, "cogs", e.target.value); }}
-                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid #2A2D35", background: "#1A1D23", color: "#F87171", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
+                          style={{ width: "100%", padding: "4px 6px", borderRadius: 4, border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--red)", fontSize: 11, textAlign: "right", outline: "none", boxSizing: "border-box" }} />
                       </td>
                     </tr>
                   );
                 })}
                 <tr style={{ borderTop: "2px solid #7B2FFF44" }}>
-                  <td style={{ padding: "6px 8px", color: "#F0F1F3", fontSize: 11, fontWeight: 700 }}>Computed Total</td>
-                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#4ADE80", fontSize: 11, fontWeight: 700 }}>
+                  <td style={{ padding: "6px 8px", color: "var(--text-primary)", fontSize: 11, fontWeight: 700 }}>Computed Total</td>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--green)", fontSize: 11, fontWeight: 700 }}>
                     {"$" + extractedRows.reduce(function(s, r) { return s + (parseFloat(r.net_sales) || 0); }, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
-                  <td style={{ padding: "6px 8px", textAlign: "right", color: "#F87171", fontSize: 11, fontWeight: 700 }}>
+                  <td style={{ padding: "6px 8px", textAlign: "right", color: "var(--red)", fontSize: 11, fontWeight: 700 }}>
                     {"$" + extractedRows.reduce(function(s, r) { return s + (parseFloat(r.cogs) || 0); }, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </td>
                 </tr>
@@ -941,7 +941,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
 
       {/* Expenses */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Expenses</div>
+        <div style={{ color: "var(--red)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Expenses</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {[
             { l: "Rent", k: "rent" }, { l: "Payroll", k: "payroll" }, { l: "Corporate OH", k: "corporate_overhead" }, { l: "Area Mgr Exp", k: "area_manager_expenses" },
@@ -959,9 +959,9 @@ function StoreForm({ store, data, period, onSave, saving }) {
           usage summary. Grouped separately from fixed expenses because these are the
           numbers that actually move month to month and that the team is judged on. */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
+        <div style={{ color: "var(--red)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
           Store Controllables
-          <span style={{ color: "#8B8F98", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
+          <span style={{ color: "var(--text-secondary)", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
             entered monthly at reconciliation · not carried forward
           </span>
         </div>
@@ -974,9 +974,9 @@ function StoreForm({ store, data, period, onSave, saving }) {
 
       {/* Other Income — non-operating revenue, added to NET PROFIT */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ color: "#4ADE80", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
+        <div style={{ color: "var(--green)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
           Other Income
-          <span style={{ color: "#8B8F98", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
+          <span style={{ color: "var(--text-secondary)", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
             adds to Net Profit · does not affect Gross Profit, GPM or commissions
           </span>
         </div>
@@ -988,7 +988,7 @@ function StoreForm({ store, data, period, onSave, saving }) {
 
       {/* Labor */}
       <div>
-        <div style={{ color: "#00D4FF", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Labor</div>
+        <div style={{ color: "var(--cyan)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Labor</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
           {field("Hours Worked", "hours_worked")}
           {field("Revenue/Hour Goal", "revenue_per_hour_goal")}
