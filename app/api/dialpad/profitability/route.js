@@ -6,8 +6,17 @@ function json(data, status) { return NextResponse.json(data, { status: status ||
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
 
 var REVENUE_FIELDS = ["accessory_revenue","accessory_cogs","device_revenue","device_cogs","repair_revenue","repair_cogs","parts_revenue","parts_cogs","services_revenue","services_cogs","promotions_revenue","promotions_cogs"];
-var EXPENSE_FIELDS = ["rent","payroll","corporate_overhead","area_manager_expenses","internet_security","electric","gas_parking","voip","marketing_digital","marketing_local","store_budget","damaged","shrinkage","voided","kbb_charges","tips","lcd_credits","cc_fee_diff"];
-var OTHER_INCOME_FIELDS = ["fieldprint_payout"];
+// Store controllables. Entered by hand each month at reconciliation (shrinkage and
+// damage come off RepairQ's inventory usage summary), so they are period-specific
+// and must NOT carry forward — last month's shrinkage pre-filled into a new month
+// looks exactly like a real entry.
+var CONTROLLABLE_FIELDS = ["damaged","shrinkage","voided"];
+var EXPENSE_FIELDS = ["rent","payroll","corporate_overhead","area_manager_expenses","internet_security","electric","gas_parking","voip","marketing_digital","marketing_local","store_budget","kbb_charges","tips","cc_fee_diff"].concat(CONTROLLABLE_FIELDS);
+// LCD credits are money coming IN from the manufacturer, not an expense. This sat in
+// EXPENSE_FIELDS until 2026-09-10, which meant entering a credit REDUCED net profit
+// by the amount of the credit. Every row was 0 at the time of the move, so no
+// historical P&L was restated.
+var OTHER_INCOME_FIELDS = ["fieldprint_payout","lcd_credits"];
 var FEE_FIELDS = ["royalty_rate","cpr_ad_fee","cpr_tech_fee"];
 var LABOR_FIELDS = ["hours_worked","revenue_per_hour_goal","profit_per_hour_goal"];
 var ALL_FIELDS = REVENUE_FIELDS.concat(EXPENSE_FIELDS).concat(OTHER_INCOME_FIELDS).concat(FEE_FIELDS).concat(LABOR_FIELDS).concat(["notes", "area_manager_breakdown"]);
@@ -92,6 +101,8 @@ export async function POST(request) {
       REVENUE_FIELDS.forEach(function(f) { copy[f] = 0; });
       // Other income fields are also period-specific — don't carry forward
       OTHER_INCOME_FIELDS.forEach(function(f) { copy[f] = 0; });
+      // Same for controllables — last month's shrinkage is not this month's.
+      CONTROLLABLE_FIELDS.forEach(function(f) { copy[f] = 0; });
       copy.hours_worked = 0;
       copy.notes = "";
       return copy;

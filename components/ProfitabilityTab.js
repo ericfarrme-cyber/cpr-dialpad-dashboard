@@ -39,9 +39,9 @@ function compute(r) {
   var storeBudget = g("store_budget");
   var damaged = g("damaged"), shrinkage = g("shrinkage"), voided = g("voided");
   var controllables = damaged + shrinkage + voided;
-  var kbb = g("kbb_charges"), tips = g("tips"), lcd = g("lcd_credits"), ccFee = g("cc_fee_diff");
-  var otherExpenses = kbb + tips + lcd + ccFee + storeBudget;
-  var totalExpenses = rent + payroll + corporateOverhead + areaMgrExpenses + utilities + marketing + storeBudget + controllables + kbb + tips + lcd + ccFee;
+  var kbb = g("kbb_charges"), tips = g("tips"), ccFee = g("cc_fee_diff");
+  var otherExpenses = kbb + tips + ccFee + storeBudget;
+  var totalExpenses = rent + payroll + corporateOverhead + areaMgrExpenses + utilities + marketing + storeBudget + controllables + kbb + tips + ccFee;
 
   // Fees
   var royaltyRate = g("royalty_rate") || 0.05;
@@ -56,7 +56,11 @@ function compute(r) {
   // Adds to Net Profit but does NOT affect Gross Profit, GPM, or category margins.
   // Therefore commissions, scorecards, and ROI models are unaffected.
   var fieldprintPayout = g("fieldprint_payout");
-  var otherIncome = fieldprintPayout;
+  // LCD credits are a manufacturer credit — income, not an expense. Until 2026-09-10
+  // this was summed into totalExpenses, so entering a $500 credit moved net profit
+  // DOWN $500 instead of up. Nothing had ever been entered, so no month was restated.
+  var lcdCredits = g("lcd_credits");
+  var otherIncome = fieldprintPayout + lcdCredits;
 
   var netProfit = profitLessFees - totalExpenses + otherIncome;
   var netMargin = grossRev > 0 ? netProfit / grossRev : 0;
@@ -77,9 +81,9 @@ function compute(r) {
     controllables: controllables, otherExpenses: otherExpenses, totalExpenses: totalExpenses,
     royalties: royalties, adFee: adFee, techFee: techFee, totalFees: totalFees,
     profitLessFees: profitLessFees, netProfit: netProfit, netMargin: netMargin,
-    fieldprintPayout: fieldprintPayout, otherIncome: otherIncome,
+    fieldprintPayout: fieldprintPayout, lcdCredits: lcdCredits, otherIncome: otherIncome,
     hours: hours, revPerHour: revPerHour, profPerHour: profPerHour,
-    storeBudget: storeBudget, kbb: kbb, tips: tips, lcd: lcd, ccFee: ccFee,
+    storeBudget: storeBudget, kbb: kbb, tips: tips, ccFee: ccFee,
     damaged: damaged, shrinkage: shrinkage, voided: voided,
   };
 }
@@ -356,13 +360,14 @@ export default function ProfitabilityTab() {
     var color = props.color || "#F0F1F3";
     var bold = props.bold;
     var indent = props.indent;
+    var indent2 = props.indent2; // one level deeper — a breakdown under an indented row
     var isPct = props.isPct;
     var bg = props.bg || "transparent";
     var borderTop = props.borderTop;
     var prefix = props.prefix || ""; // e.g. "+" to show "+$120.00" for additive lines
     return (
       <tr style={{ background: bg, borderTop: borderTop || "none" }}>
-        <td style={Object.assign({}, cs, { color: indent ? "#8B8F98" : color, fontWeight: bold ? 800 : indent ? 400 : 600, paddingLeft: indent ? 28 : 12, fontSize: bold ? 13 : 12 })}>{label}</td>
+        <td style={Object.assign({}, cs, { color: (indent || indent2) ? "#8B8F98" : color, fontWeight: bold ? 800 : (indent || indent2) ? 400 : 600, paddingLeft: indent2 ? 44 : indent ? 28 : 12, fontSize: bold ? 13 : indent2 ? 11 : 12 })}>{label}</td>
         {values.map(function(v, i) {
           var c = isPct ? pctColor(v) : (typeof color === "function" ? color(v) : color);
           var displayVal = isPct ? fmtPct(v) : fmt(v);
@@ -676,6 +681,11 @@ export default function ProfitabilityTab() {
             <Row label="Utilities" values={vals("utilities")} indent color="#F87171" />
             <Row label="Marketing" values={vals("marketing")} indent color="#F87171" />
             <Row label="Store Controllables" values={vals("controllables")} indent color="#F87171" />
+            {/* Damage / shrinkage / voided break out only once something is entered, so a
+                month with no reconciliation yet stays as one clean zero line. */}
+            {co.damaged > 0 && <Row label="Damage" values={vals("damaged")} indent2 color="#F8717199" />}
+            {co.shrinkage > 0 && <Row label="Shrinkage" values={vals("shrinkage")} indent2 color="#F8717199" />}
+            {co.voided > 0 && <Row label="Voided" values={vals("voided")} indent2 color="#F8717199" />}
             <Row label="Other" values={vals("otherExpenses")} indent color="#F87171" />
             <Row label="Total Operating Expenses" values={vals("totalExpenses")} bold bg="#12141A" color="#F87171" />
 
@@ -691,6 +701,8 @@ export default function ProfitabilityTab() {
             {/* Other Income — adds to NET PROFIT but doesn't affect Gross Profit / GPM */}
             <SectionRow label="Other Income" color="#4ADE80" />
             <Row label="Fieldprint Payout" values={vals("fieldprintPayout")} indent color="#4ADE80" prefix="+" />
+            <Row label="LCD Credits" values={vals("lcdCredits")} indent color="#4ADE80" prefix="+" />
+            {co.otherIncome > 0 && <Row label="Total Other Income" values={vals("otherIncome")} bold bg="#12141A" color="#4ADE80" prefix="+" />}
             <tr style={{ background: "linear-gradient(90deg, #7B2FFF08, #00D4FF08)", borderTop: "2px solid #7B2FFF44" }}>
               <td style={Object.assign({}, cs, { fontWeight: 900, fontSize: 15, color: "#F0F1F3", padding: "12px" })}>NET PROFIT</td>
               {STORE_KEYS.map(function(k) {
@@ -887,19 +899,41 @@ function StoreForm({ store, data, period, onSave, saving }) {
             { l: "Internet/Security/Dialpad", k: "internet_security" }, { l: "Electric", k: "electric" },
             { l: "Gas/Parking", k: "gas_parking" }, { l: "VOIP", k: "voip" },
             { l: "Marketing Digital", k: "marketing_digital" }, { l: "Marketing Local", k: "marketing_local" },
-            { l: "Store Budget", k: "store_budget" }, { l: "Damaged", k: "damaged" },
-            { l: "Shrinkage", k: "shrinkage" }, { l: "Voided", k: "voided" },
+            { l: "Store Budget", k: "store_budget" },
             { l: "KBB Charges", k: "kbb_charges" }, { l: "Tips", k: "tips" },
-            { l: "LCD Credits", k: "lcd_credits" }, { l: "CC Fee Diff", k: "cc_fee_diff" },
+            { l: "CC Fee Diff", k: "cc_fee_diff" },
           ].map(function(f) { return <div key={f.k}>{field(f.l, f.k)}</div>; })}
+        </div>
+      </div>
+
+      {/* Store Controllables — entered by hand each month from RepairQ's inventory
+          usage summary. Grouped separately from fixed expenses because these are the
+          numbers that actually move month to month and that the team is judged on. */}
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ color: "#F87171", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
+          Store Controllables
+          <span style={{ color: "#8B8F98", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
+            entered monthly at reconciliation · not carried forward
+          </span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
+          {field("Damage", "damaged")}
+          {field("Shrinkage", "shrinkage")}
+          {field("Voided", "voided")}
         </div>
       </div>
 
       {/* Other Income — non-operating revenue, added to NET PROFIT */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ color: "#4ADE80", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>Other Income</div>
+        <div style={{ color: "#4ADE80", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
+          Other Income
+          <span style={{ color: "#8B8F98", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
+            adds to Net Profit · does not affect Gross Profit, GPM or commissions
+          </span>
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {field("Fieldprint Payout", "fieldprint_payout")}
+          {field("LCD Credits", "lcd_credits")}
         </div>
       </div>
 
