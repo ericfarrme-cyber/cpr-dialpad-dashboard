@@ -112,6 +112,30 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
     });
   }, [rows]);
 
+  // Year to date, per store. Scoped to the year of the newest saved month rather
+  // than the wall clock, so the figure always describes the data actually on
+  // screen — in January a clock-based year would show three empty stores.
+  var ytd = useMemo(function() {
+    if (!data.length) return null;
+    var year = String(data[data.length - 1].period).slice(0, 4);
+    var months = data.filter(function(d) { return String(d.period).slice(0, 4) === year; });
+    var per = {};
+    STORE_KEYS.forEach(function(k) { per[k] = { netProfit: 0, grossProfit: 0, grossRev: 0, months: 0 }; });
+    var comp = { netProfit: 0, grossProfit: 0, grossRev: 0 };
+    months.forEach(function(d) {
+      STORE_KEYS.forEach(function(k) {
+        var s = d.stores[k];
+        if (!s) return;
+        per[k].netProfit += s.netProfit; per[k].grossProfit += s.grossProfit; per[k].grossRev += s.grossRev; per[k].months++;
+        comp.netProfit += s.netProfit; comp.grossProfit += s.grossProfit; comp.grossRev += s.grossRev;
+      });
+    });
+    // A margin is a ratio, never a sum of monthly ratios.
+    STORE_KEYS.forEach(function(k) { per[k].netMargin = per[k].grossRev > 0 ? per[k].netProfit / per[k].grossRev : 0; });
+    comp.netMargin = comp.grossRev > 0 ? comp.netProfit / comp.grossRev : 0;
+    return { year: year, per: per, company: comp, monthCount: months.length };
+  }, [data]);
+
   var activeKeys = STORE_KEYS.filter(function(k) { return !hidden[k]; });
   var m = METRICS.filter(function(x) { return x.key === metric; })[0];
   var isPct = m.kind === "pct";
@@ -198,6 +222,39 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
         )}
         <Kpi label={"Best month"} value={monthLabel(best.period) + " · " + (isPct ? pct(best.company[metric]) : moneyFull(best.company[metric]))} tone="#00D4FF" />
       </div>
+
+      {/* ── Year to date, per store ───────────────────────────────────────── */}
+      {ytd && (
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid #1E2028" }}>
+          <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            {ytd.year} YTD {m.label}
+            <div style={{ color: "#4A4E57", fontSize: 9, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
+              {ytd.monthCount} month{ytd.monthCount === 1 ? "" : "s"} saved
+            </div>
+          </div>
+          {STORE_KEYS.map(function(k) {
+            var v = ytd.per[k][metric] || 0;
+            var dim = !!hidden[k];
+            return (
+              <div key={k} style={{ opacity: dim ? 0.35 : 1, transition: "opacity .18s ease" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: 2, background: STORES[k].color }} />
+                  <span style={{ color: "#8B8F98", fontSize: 10, fontWeight: 600 }}>{STORES[k].name.replace("CPR ", "")}</span>
+                </div>
+                <div style={{ color: v >= 0 ? "#E8EAED" : "#F87171", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                  {isPct ? pct(v) : moneyFull(v)}
+                </div>
+              </div>
+            );
+          })}
+          <div style={{ paddingLeft: 18, borderLeft: "1px solid #24272F" }}>
+            <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 700, marginBottom: 2 }}>Company</div>
+            <div style={{ color: (ytd.company[metric] || 0) >= 0 ? "#4ADE80" : "#F87171", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+              {isPct ? pct(ytd.company[metric]) : moneyFull(ytd.company[metric])}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── chart ─────────────────────────────────────────────────────────── */}
       <div style={{ position: "relative", width: "100%", overflowX: "auto" }}>
