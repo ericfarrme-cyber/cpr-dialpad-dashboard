@@ -4,15 +4,15 @@ import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
 // Hardcoded brand palette — matches ScorecardTab and other DialpadDashboard tabs
-var CYAN = "#00D4FF";
-var PURPLE = "#7B2FFF";
-var PINK = "#FF2D95";
-var GOLD = "#FBBF24";
-var GREEN = "#4ADE80";
-var RED = "#F87171";
+var CYAN = "var(--cyan)";
+var PURPLE = "var(--purple)";
+var PINK = "var(--pink)";
+var GOLD = "var(--yellow)";
+var GREEN = "var(--green)";
+var RED = "var(--red)";
 
 var STATUSES = [
-  { value: "open", label: "Open", color: "#6B6F78" },
+  { value: "open", label: "Open", color: "var(--text-muted)" },
   { value: "in_transit", label: "In Transit", color: CYAN },
   { value: "repaired", label: "Repaired", color: PURPLE },
   { value: "closed", label: "Closed (Paid)", color: GREEN },
@@ -38,7 +38,7 @@ function storeLabel(s) {
 }
 
 function statusBadge(status) {
-  var s = STATUSES.find(function(x) { return x.value === status; }) || { value: status, label: status, color: "#6B6F78" };
+  var s = STATUSES.find(function(x) { return x.value === status; }) || { value: status, label: status, color: "var(--text-muted)" };
   return (
     <span style={{ background: s.color + "22", color: s.color, padding: "3px 9px", borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>
       {s.label}
@@ -186,7 +186,7 @@ export default function AdvancedRepairsTab() {
   var doneRepairs = filtered.filter(function(r) { return r.status === "closed" || r.status === "nonrepairable"; });
 
   if (loading && !repairs.length) {
-    return <div style={{ padding: 40, textAlign: "center", color: "#6B6F78" }}>Loading advanced repairs...</div>;
+    return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>Loading advanced repairs...</div>;
   }
 
   return (
@@ -194,8 +194,8 @@ export default function AdvancedRepairsTab() {
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 20, color: "#F0F1F3", fontWeight: 700 }}>{"\uD83D\uDD27"} Advanced Repair Log</h2>
-          <div style={{ color: "#6B6F78", fontSize: 12, marginTop: 4 }}>
+          <h2 style={{ margin: 0, fontSize: 20, color: "var(--text-primary)", fontWeight: 700 }}>{"\uD83D\uDD27"} Advanced Repair Log</h2>
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4 }}>
             Per-repair commission log. Traffic and profit totals live on the Advanced Repair Traffic tab.
           </div>
         </div>
@@ -205,11 +205,11 @@ export default function AdvancedRepairsTab() {
             + Log Advanced Repair
           </button>
           <button onClick={syncAll} disabled={syncing}
-            style={{ background: syncing ? "#1A1D23" : "#12141A", color: syncing ? "#6B6F78" : "#00D4FF", border: "1px solid #00D4FF44", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: syncing ? "default" : "pointer", fontSize: 12 }}>
+            style={{ background: syncing ? "var(--bg-card)" : "var(--bg-card-inner)", color: syncing ? "var(--text-muted)" : "var(--cyan)", border: "1px solid #00D4FF44", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: syncing ? "default" : "pointer", fontSize: 12 }}>
             {syncing ? "Syncing\u2026" : "\uD83D\uDD04 Sync All from RepairQ"}
           </button>
           <button onClick={exportCSV}
-            style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
+            style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "9px 16px", borderRadius: 6, fontWeight: 600, cursor: "pointer", fontSize: 12 }}>
             Export CSV
           </button>
         </div>
@@ -218,32 +218,32 @@ export default function AdvancedRepairsTab() {
       {/* Filters */}
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap", alignItems: "flex-end" }}>
         <div>
-          <label style={{ color: "#6B6F78", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Period</label>
+          <label style={{ color: "var(--text-muted)", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Period</label>
           <select value={period} onChange={function(e) { setPeriod(e.target.value); }}
-            style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
+            style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
             {periodOptions.map(function(p) { return <option key={p.value} value={p.value}>{p.label}</option>; })}
           </select>
         </div>
         <div>
-          <label style={{ color: "#6B6F78", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Store</label>
+          <label style={{ color: "var(--text-muted)", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Store</label>
           <select value={storeFilter} onChange={function(e) { setStoreFilter(e.target.value); }}
-            style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
+            style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
             <option value="">All Stores</option>
             {STORES.map(function(s) { return <option key={s} value={s}>{storeLabel(s)}</option>; })}
           </select>
         </div>
         <div>
-          <label style={{ color: "#6B6F78", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Status</label>
+          <label style={{ color: "var(--text-muted)", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Status</label>
           <select value={statusFilter} onChange={function(e) { setStatusFilter(e.target.value); }}
-            style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
+            style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "7px 10px", borderRadius: 5, fontSize: 12 }}>
             <option value="">All Statuses</option>
             {STATUSES.map(function(s) { return <option key={s.value} value={s.value}>{s.label}</option>; })}
           </select>
         </div>
         <div style={{ flex: 1, minWidth: 200 }}>
-          <label style={{ color: "#6B6F78", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Search</label>
+          <label style={{ color: "var(--text-muted)", fontSize: 10, display: "block", marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>Search</label>
           <input value={search} onChange={function(e) { setSearch(e.target.value); }} placeholder="Ticket #, customer, device..."
-            style={{ width: "100%", background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "7px 10px", borderRadius: 5, fontSize: 12, boxSizing: "border-box" }} />
+            style={{ width: "100%", background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "7px 10px", borderRadius: 5, fontSize: 12, boxSizing: "border-box" }} />
         </div>
       </div>
 
@@ -260,7 +260,7 @@ export default function AdvancedRepairsTab() {
 
       {/* Commission summary */}
       {commissions && (
-        <div style={{ background: "#0F1116", borderRadius: 10, padding: 18, marginBottom: 20, border: "1px solid #1E2028" }}>
+        <div style={{ background: "var(--bg-page)", borderRadius: 10, padding: 18, marginBottom: 20, border: "1px solid var(--border-light)" }}>
           <div style={{ color: GOLD, fontSize: 11, fontWeight: 700, marginBottom: 12, textTransform: "uppercase", letterSpacing: 1 }}>
             {"\uD83D\uDCB0"} Commission Summary — {periodOptions.find(function(p) { return p.value === period; })?.label || period}
           </div>
@@ -277,13 +277,13 @@ export default function AdvancedRepairsTab() {
             } color={GOLD} />
           </div>
           {commissions.by_employee && commissions.by_employee.length > 0 && (
-            <div style={{ background: "#12141A", borderRadius: 6, padding: 12 }}>
-              <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
+            <div style={{ background: "var(--bg-card-inner)", borderRadius: 6, padding: 12 }}>
+              <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>
                 Per-Employee Breakdown
               </div>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
                 <thead>
-                  <tr style={{ color: "#6B6F78", fontSize: 10 }}>
+                  <tr style={{ color: "var(--text-muted)", fontSize: 10 }}>
                     <th style={{ textAlign: "left", padding: 6 }}>EMPLOYEE</th>
                     <th style={{ textAlign: "right", padding: 6 }}>PRIMARY (#)</th>
                     <th style={{ textAlign: "right", padding: 6 }}>PRIMARY $</th>
@@ -295,12 +295,12 @@ export default function AdvancedRepairsTab() {
                 <tbody>
                   {commissions.by_employee.map(function(e) {
                     return (
-                      <tr key={e.employee} style={{ borderTop: "1px solid #1E2028" }}>
-                        <td style={{ padding: 6, fontWeight: 600, color: "#F0F1F3" }}>{e.employee}</td>
-                        <td style={{ padding: 6, textAlign: "right", color: "#6B6F78" }}>{e.primary_count}</td>
-                        <td style={{ padding: 6, textAlign: "right", color: "#F0F1F3" }}>{fmt(e.primary_amount)}</td>
-                        <td style={{ padding: 6, textAlign: "right", color: "#6B6F78" }}>{e.overhead_count}</td>
-                        <td style={{ padding: 6, textAlign: "right", color: "#F0F1F3" }}>{fmt(e.overhead_amount)}</td>
+                      <tr key={e.employee} style={{ borderTop: "1px solid var(--border-light)" }}>
+                        <td style={{ padding: 6, fontWeight: 600, color: "var(--text-primary)" }}>{e.employee}</td>
+                        <td style={{ padding: 6, textAlign: "right", color: "var(--text-muted)" }}>{e.primary_count}</td>
+                        <td style={{ padding: 6, textAlign: "right", color: "var(--text-primary)" }}>{fmt(e.primary_amount)}</td>
+                        <td style={{ padding: 6, textAlign: "right", color: "var(--text-muted)" }}>{e.overhead_count}</td>
+                        <td style={{ padding: 6, textAlign: "right", color: "var(--text-primary)" }}>{fmt(e.overhead_amount)}</td>
                         <td style={{ padding: 6, textAlign: "right", color: GREEN, fontWeight: 700 }}>{fmt(e.total_amount)}</td>
                       </tr>
                     );
@@ -319,7 +319,7 @@ export default function AdvancedRepairsTab() {
         <RepairsTable title={"\u2705 Closed / Nonrepairable (" + doneRepairs.length + ")"} repairs={doneRepairs} onEdit={setEditing} onReconcile={reconcileOne} />
       )}
       {!loading && filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: 60, color: "#6B6F78", background: "#0F1116", borderRadius: 10, border: "1px dashed #1E2028" }}>
+        <div style={{ textAlign: "center", padding: 60, color: "var(--text-muted)", background: "var(--bg-page)", borderRadius: 10, border: "1px dashed var(--border-light)" }}>
           <div style={{ fontSize: 28, marginBottom: 8 }}>{"\uD83D\uDD27"}</div>
           <div style={{ fontWeight: 600, marginBottom: 4 }}>No advanced repairs for this period</div>
           <div style={{ fontSize: 12 }}>Click "Log Advanced Repair" to add one.</div>
@@ -341,9 +341,9 @@ export default function AdvancedRepairsTab() {
 
 function SummaryCard(props) {
   return (
-    <div style={{ background: "#12141A", borderRadius: 6, padding: 14 }}>
-      <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{props.label}</div>
-      <div style={{ color: props.color || "#F0F1F3", fontSize: 20, fontWeight: 700 }}>{props.value}</div>
+    <div style={{ background: "var(--bg-card-inner)", borderRadius: 6, padding: 14 }}>
+      <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>{props.label}</div>
+      <div style={{ color: props.color || "var(--text-primary)", fontSize: 20, fontWeight: 700 }}>{props.value}</div>
     </div>
   );
 }
@@ -351,11 +351,11 @@ function SummaryCard(props) {
 function RepairsTable(props) {
   return (
     <div style={{ marginBottom: 24 }}>
-      <div style={{ color: "#F0F1F3", fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{props.title}</div>
-      <div style={{ background: "#0F1116", borderRadius: 10, border: "1px solid #1E2028", overflow: "auto" }}>
+      <div style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 700, marginBottom: 8 }}>{props.title}</div>
+      <div style={{ background: "var(--bg-page)", borderRadius: 10, border: "1px solid var(--border-light)", overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
           <thead>
-            <tr style={{ background: "#12141A", color: "#6B6F78", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
+            <tr style={{ background: "var(--bg-card-inner)", color: "var(--text-muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
               <th style={{ textAlign: "left", padding: "9px 10px" }}>Ticket</th>
               <th style={{ textAlign: "left", padding: "9px 10px" }}>Customer</th>
               <th style={{ textAlign: "left", padding: "9px 10px" }}>Device/Repair</th>
@@ -372,43 +372,43 @@ function RepairsTable(props) {
             {props.repairs.map(function(r) {
               var commTotal = (r.commissions || []).reduce(function(s, c) { return s + c.amount; }, 0);
               return (
-                <tr key={r.id} style={{ borderTop: "1px solid #1E2028" }}>
+                <tr key={r.id} style={{ borderTop: "1px solid var(--border-light)" }}>
                   <td style={{ padding: "9px 10px" }}>
                     {r.ticket_url ? (
                       <a href={r.ticket_url} target="_blank" rel="noreferrer" style={{ color: CYAN, textDecoration: "none", fontWeight: 600 }}>#{r.ticket_number}</a>
                     ) : (
-                      <span style={{ color: "#F0F1F3", fontWeight: 600 }}>#{r.ticket_number}</span>
+                      <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>#{r.ticket_number}</span>
                     )}
-                    <div style={{ color: "#6B6F78", fontSize: 10, marginTop: 2 }}>{fmtDate(r.ticket_created_date)}</div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 2 }}>{fmtDate(r.ticket_created_date)}</div>
                   </td>
-                  <td style={{ padding: "9px 10px", color: "#F0F1F3" }}>{r.customer_name || "—"}</td>
-                  <td style={{ padding: "9px 10px", color: "#F0F1F3" }}>{r.device_repair || "—"}</td>
-                  <td style={{ padding: "9px 10px", color: "#6B6F78", fontSize: 11 }}>
+                  <td style={{ padding: "9px 10px", color: "var(--text-primary)" }}>{r.customer_name || "—"}</td>
+                  <td style={{ padding: "9px 10px", color: "var(--text-primary)" }}>{r.device_repair || "—"}</td>
+                  <td style={{ padding: "9px 10px", color: "var(--text-muted)", fontSize: 11 }}>
                     {storeLabel(r.origin_store)}
                     {r.current_location && r.current_location !== r.origin_store && (
                       <div style={{ color: CYAN, fontSize: 10 }}>→ {storeLabel(r.current_location)}</div>
                     )}
                   </td>
-                  <td style={{ padding: "9px 10px", color: r.repaired_by === "Duncan" ? PURPLE : "#F0F1F3", fontWeight: r.repaired_by ? 600 : 400 }}>
-                    {r.repaired_by || <span style={{ color: "#6B6F78", fontStyle: "italic" }}>unassigned</span>}
+                  <td style={{ padding: "9px 10px", color: r.repaired_by === "Duncan" ? PURPLE : "var(--text-primary)", fontWeight: r.repaired_by ? 600 : 400 }}>
+                    {r.repaired_by || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>unassigned</span>}
                   </td>
                   <td style={{ padding: "9px 10px" }}>{statusBadge(r.status)}</td>
-                  <td style={{ padding: "9px 10px", textAlign: "right", color: "#F0F1F3" }}>{fmt(r.price)}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "var(--text-primary)" }}>{fmt(r.price)}</td>
                   <td style={{ padding: "9px 10px", textAlign: "right", color: parseFloat(r.profit) > 0 ? GREEN : RED, fontWeight: 600 }}>
                     {fmt(r.profit)}
                     {r.reconciled_from_ticket && <div style={{ color: CYAN, fontSize: 9, fontWeight: 400 }}>✓ RepairQ</div>}
                   </td>
-                  <td style={{ padding: "9px 10px", textAlign: "right", color: commTotal > 0 ? GOLD : "#6B6F78", fontWeight: 600 }}>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: commTotal > 0 ? GOLD : "var(--text-muted)", fontWeight: 600 }}>
                     {commTotal > 0 ? fmt(commTotal) : "—"}
                   </td>
                   <td style={{ padding: "9px 10px", textAlign: "right" }}>
                     <button onClick={function() { props.onEdit(r); }} disabled={r.commission_locked}
-                      style={{ background: "#12141A", color: r.commission_locked ? "#6B6F78" : CYAN, border: "1px solid #1E2028", padding: "4px 9px", borderRadius: 4, fontSize: 10, cursor: r.commission_locked ? "not-allowed" : "pointer", marginRight: 4 }}>
+                      style={{ background: "var(--bg-card-inner)", color: r.commission_locked ? "var(--text-muted)" : CYAN, border: "1px solid var(--border-light)", padding: "4px 9px", borderRadius: 4, fontSize: 10, cursor: r.commission_locked ? "not-allowed" : "pointer", marginRight: 4 }}>
                       {r.commission_locked ? "🔒" : "Edit"}
                     </button>
                     {!r.reconciled_from_ticket && r.ticket_number && (
                       <button onClick={function() { props.onReconcile(r.id); }}
-                        style={{ background: "#12141A", color: PURPLE, border: "1px solid #1E2028", padding: "4px 9px", borderRadius: 4, fontSize: 10, cursor: "pointer" }}>
+                        style={{ background: "var(--bg-card-inner)", color: PURPLE, border: "1px solid var(--border-light)", padding: "4px 9px", borderRadius: 4, fontSize: 10, cursor: "pointer" }}>
                         Sync
                       </button>
                     )}
@@ -489,10 +489,10 @@ function RepairFormModal(props) {
 
   return (
     <div onClick={props.onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: 40, paddingBottom: 40, overflowY: "auto" }}>
-      <div onClick={function(e) { e.stopPropagation(); }} style={{ background: "#0F1116", borderRadius: 12, border: "1px solid #1E2028", width: "100%", maxWidth: 720, padding: 24 }}>
+      <div onClick={function(e) { e.stopPropagation(); }} style={{ background: "var(--bg-page)", borderRadius: 12, border: "1px solid var(--border-light)", width: "100%", maxWidth: 720, padding: 24 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h3 style={{ margin: 0, color: "#F0F1F3", fontSize: 17 }}>{isNew ? "Log Advanced Repair" : "Edit Repair"}</h3>
-          <button onClick={props.onClose} style={{ background: "none", border: "none", color: "#6B6F78", fontSize: 22, cursor: "pointer" }}>×</button>
+          <h3 style={{ margin: 0, color: "var(--text-primary)", fontSize: 17 }}>{isNew ? "Log Advanced Repair" : "Edit Repair"}</h3>
+          <button onClick={props.onClose} style={{ background: "none", border: "none", color: "var(--text-muted)", fontSize: 22, cursor: "pointer" }}>×</button>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
@@ -542,14 +542,14 @@ function RepairFormModal(props) {
           </div>
         )}
 
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 14, borderTop: "1px solid #1E2028" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20, paddingTop: 14, borderTop: "1px solid var(--border-light)" }}>
           <div>
             {!isNew && !form.commission_locked && (
               <button onClick={del} disabled={saving} style={{ background: "transparent", color: RED, border: "1px solid " + RED, padding: "8px 14px", borderRadius: 5, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Delete</button>
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={props.onClose} disabled={saving} style={{ background: "#12141A", color: "#F0F1F3", border: "1px solid #1E2028", padding: "8px 16px", borderRadius: 5, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Cancel</button>
+            <button onClick={props.onClose} disabled={saving} style={{ background: "var(--bg-card-inner)", color: "var(--text-primary)", border: "1px solid var(--border-light)", padding: "8px 16px", borderRadius: 5, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Cancel</button>
             <button onClick={save} disabled={saving || !form.ticket_number || !form.origin_store}
               style={{ background: PINK, color: "#fff", border: "none", padding: "8px 20px", borderRadius: 5, fontSize: 12, cursor: "pointer", fontWeight: 700, opacity: saving ? 0.6 : 1 }}>
               {saving ? "Saving..." : (isNew ? "Log Repair" : "Save Changes")}
@@ -568,7 +568,7 @@ function CommissionPreview(props) {
   var primary = Math.round(profit * primaryRate * 100) / 100;
   var overhead = isDuncan ? 0 : Math.round(profit * 0.03 * 100) / 100;
   return (
-    <div style={{ fontSize: 11, color: "#F0F1F3", lineHeight: 1.8 }}>
+    <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.8 }}>
       <div>{props.repairedBy} (primary, {(primaryRate * 100).toFixed(0)}%): <strong>{fmt(primary)}</strong></div>
       {!isDuncan && <div>Duncan (overhead, 3%): <strong>{fmt(overhead)}</strong></div>}
       <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px solid " + GOLD + "33", fontWeight: 700, color: GOLD }}>
@@ -581,17 +581,17 @@ function CommissionPreview(props) {
 function Field(props) {
   return (
     <div>
-      <label style={{ display: "block", color: "#6B6F78", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{props.label}</label>
+      <label style={{ display: "block", color: "var(--text-muted)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{props.label}</label>
       {props.children}
-      {props.hint && <div style={{ color: "#6B6F78", fontSize: 10, marginTop: 4 }}>{props.hint}</div>}
+      {props.hint && <div style={{ color: "var(--text-muted)", fontSize: 10, marginTop: 4 }}>{props.hint}</div>}
     </div>
   );
 }
 
 function inputStyle() {
   return {
-    width: "100%", background: "#12141A", color: "#F0F1F3",
-    border: "1px solid #1E2028", padding: "7px 10px", borderRadius: 5,
+    width: "100%", background: "var(--bg-card-inner)", color: "var(--text-primary)",
+    border: "1px solid var(--border-light)", padding: "7px 10px", borderRadius: 5,
     fontSize: 12, boxSizing: "border-box",
   };
 }

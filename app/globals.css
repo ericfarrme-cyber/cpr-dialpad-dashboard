@@ -3,7 +3,10 @@
 @tailwind components;
 @tailwind utilities;
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: #0F1117; color: #F0F1F3; font-family: 'Space Grotesk', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+/* Fallbacks are the dark values, so the page is correct before ThemeProvider's
+   effect runs and on any screen that does not mount it. Without the var() the
+   body stayed dark in light mode wherever a themed wrapper did not cover it. */
+body { background: var(--bg-page, #0F1117); color: var(--text-primary, #F0F1F3); font-family: 'Space Grotesk', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
 ::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: #12141A; }
-::-webkit-scrollbar-thumb { background: #2A2D35; border-radius: 3px; }
+::-webkit-scrollbar-track { background: var(--bg-card-inner, #12141A); }
+::-webkit-scrollbar-thumb { background: var(--border, #2A2D35); border-radius: 3px; }

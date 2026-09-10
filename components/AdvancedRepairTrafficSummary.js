@@ -4,24 +4,24 @@
 import { useEffect, useMemo, useState } from "react";
 
 // Brand (CLAUDE.md): dark, Space Grotesk, cyan / purple / pink.
-var CYAN = "#00D4FF";
-var GOLD = "#FBBF24";
-var GREEN = "#4ADE80";
-var RED = "#F87171";
-var INK = "#F0F1F3";
-var INK2 = "#AEB4BE";
-var MUTED = "#6B6F78";
-var BG = "#12141A";
-var SURFACE = "#181B21";
-var RAISED = "#1F232B";
-var LINE = "#282D36";
+var CYAN = "var(--cyan)";
+var GOLD = "var(--yellow)";
+var GREEN = "var(--green)";
+var RED = "var(--red)";
+var INK = "var(--text-primary)";
+var INK2 = "var(--text-body)";
+var MUTED = "var(--text-muted)";
+var BG = "var(--bg-card-inner)";
+var SURFACE = "var(--bg-card-inner)";
+var RAISED = "var(--bg-card-inner)";
+var LINE = "var(--border)";
 
 // Bucket colours validated against the dark surface: lightness band, chroma
 // floor, CVD ΔE 11.0, normal-vision ΔE 26.3, contrast — all pass.
 var BUCKETS = [
   { key: "consoles",  label: "Consoles",  color: "#2E9DB5" },
-  { key: "tablets",   label: "Tablets",   color: "#7B2FFF" },
-  { key: "computers", label: "Computers", color: "#FF2D95" },
+  { key: "tablets",   label: "Tablets",   color: "var(--purple)" },
+  { key: "computers", label: "Computers", color: "var(--pink)" },
   { key: "misc",      label: "Misc",      color: "#B5862A" },
 ];
 var STORES = [
@@ -345,7 +345,7 @@ export default function AdvancedRepairTrafficSummary() {
             <div style={{ position: "relative", height: 9, background: BG, borderRadius: 5, marginTop: 16 }}>
               <div className="art-bar" style={{ position: "absolute", inset: "0 auto 0 0", borderRadius: 5,
                             width: (grown ? Math.min(100, (sel.profit / (sel.bonus.threshold * 1.15)) * 100) : 0) + "%",
-                            background: sel.bonus.cleared ? "linear-gradient(90deg,#00D4FF,#4ADE80)" : "linear-gradient(90deg,#00D4FF,#7B2FFF)" }} />
+                            background: sel.bonus.cleared ? "linear-gradient(90deg,var(--cyan),var(--green))" : "linear-gradient(90deg,var(--cyan),var(--purple))" }} />
               <div style={{ position: "absolute", top: -4, bottom: -4, width: 2, background: GOLD, left: (100 / 1.15) + "%" }} />
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontFamily: MONO, fontSize: 10, color: MUTED }}>

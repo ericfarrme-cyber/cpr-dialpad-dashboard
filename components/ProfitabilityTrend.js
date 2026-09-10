@@ -161,18 +161,18 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
 
   // ── states ───────────────────────────────────────────────────────────────
   if (rows === null) {
-    return <div style={shell}><div style={{ color: "#6B6F78", fontSize: 12, padding: "48px 0", textAlign: "center" }}>Loading trend…</div></div>;
+    return <div style={shell}><div style={{ color: "var(--text-muted)", fontSize: 12, padding: "48px 0", textAlign: "center" }}>Loading trend…</div></div>;
   }
   if (error) {
     return <div style={shell}>
-      <div style={{ color: "#F87171", fontSize: 12, padding: "32px 0", textAlign: "center" }}>
+      <div style={{ color: "var(--red)", fontSize: 12, padding: "32px 0", textAlign: "center" }}>
         Couldn&apos;t load the trend — {error}
       </div>
     </div>;
   }
   if (!data.length) {
     return <div style={shell}>
-      <div style={{ color: "#6B6F78", fontSize: 12, padding: "32px 0", textAlign: "center" }}>
+      <div style={{ color: "var(--text-muted)", fontSize: 12, padding: "32px 0", textAlign: "center" }}>
         No saved months yet. Enter a month below and it&apos;ll appear here.
       </div>
     </div>;
@@ -192,8 +192,8 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
       {/* ── header: title, KPIs, metric toggle ───────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 18 }}>
         <div>
-          <div style={{ color: "#F0F1F3", fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" }}>Monthly Trend</div>
-          <div style={{ color: "#6B6F78", fontSize: 11, marginTop: 3 }}>
+          <div style={{ color: "var(--text-primary)", fontSize: 15, fontWeight: 800, letterSpacing: "-0.01em" }}>Monthly Trend</div>
+          <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
             {data.length} months · {monthLong(data[0].period)} – {monthLong(latest.period)}
           </div>
         </div>
@@ -203,32 +203,32 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
             return <button key={x.key} onClick={function() { setMetric(x.key); }}
               style={{
                 padding: "6px 13px", borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: "pointer",
-                border: "1px solid " + (on ? "#7B2FFF66" : "#2A2D35"),
+                border: "1px solid " + (on ? "#7B2FFF66" : "var(--border)"),
                 background: on ? "linear-gradient(135deg, #7B2FFF22, #00D4FF14)" : "transparent",
-                color: on ? "#C9B6FF" : "#8B8F98", transition: "all .18s ease",
+                color: on ? "var(--purple)" : "var(--text-secondary)", transition: "all .18s ease",
               }}>{x.label}</button>;
           })}
         </div>
       </div>
 
       {/* ── KPI strip ─────────────────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid #1E2028" }}>
+      <div style={{ display: "flex", gap: 26, flexWrap: "wrap", marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--border-light)" }}>
         <Kpi label={monthLabel(latest.period) + " (latest)"} value={isPct ? pct(latestV) : moneyFull(latestV)}
-          tone={latestV >= 0 ? "#4ADE80" : "#F87171"} />
+          tone={latestV >= 0 ? "var(--green)" : "var(--red)"} />
         {delta !== null && (
           <Kpi label={"vs " + monthLabel(prior.period)}
             value={(delta >= 0 ? "▲ " : "▼ ") + (isPct ? pct(Math.abs(delta)) : moneyFull(Math.abs(delta)))}
-            tone={delta >= 0 ? "#4ADE80" : "#F87171"} />
+            tone={delta >= 0 ? "var(--green)" : "var(--red)"} />
         )}
-        <Kpi label={"Best month"} value={monthLabel(best.period) + " · " + (isPct ? pct(best.company[metric]) : moneyFull(best.company[metric]))} tone="#00D4FF" />
+        <Kpi label={"Best month"} value={monthLabel(best.period) + " · " + (isPct ? pct(best.company[metric]) : moneyFull(best.company[metric]))} tone="var(--cyan)" />
       </div>
 
       {/* ── Year to date, per store ───────────────────────────────────────── */}
       {ytd && (
-        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid #1E2028" }}>
-          <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 16, paddingBottom: 14, borderBottom: "1px solid var(--border-light)" }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>
             {ytd.year} YTD {m.label}
-            <div style={{ color: "#4A4E57", fontSize: 9, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
+            <div style={{ color: "var(--text-faint)", fontSize: 9, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
               {ytd.monthCount} month{ytd.monthCount === 1 ? "" : "s"} saved
             </div>
           </div>
@@ -239,17 +239,17 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
               <div key={k} style={{ opacity: dim ? 0.35 : 1, transition: "opacity .18s ease" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
                   <span style={{ width: 7, height: 7, borderRadius: 2, background: STORES[k].color }} />
-                  <span style={{ color: "#8B8F98", fontSize: 10, fontWeight: 600 }}>{STORES[k].name.replace("CPR ", "")}</span>
+                  <span style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 600 }}>{STORES[k].name.replace("CPR ", "")}</span>
                 </div>
-                <div style={{ color: v >= 0 ? "#E8EAED" : "#F87171", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+                <div style={{ color: v >= 0 ? "var(--text-body)" : "var(--red)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
                   {isPct ? pct(v) : moneyFull(v)}
                 </div>
               </div>
             );
           })}
-          <div style={{ paddingLeft: 18, borderLeft: "1px solid #24272F" }}>
-            <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 700, marginBottom: 2 }}>Company</div>
-            <div style={{ color: (ytd.company[metric] || 0) >= 0 ? "#4ADE80" : "#F87171", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+          <div style={{ paddingLeft: 18, borderLeft: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, marginBottom: 2 }}>Company</div>
+            <div style={{ color: (ytd.company[metric] || 0) >= 0 ? "var(--green)" : "var(--red)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
               {isPct ? pct(ytd.company[metric]) : moneyFull(ytd.company[metric])}
             </div>
           </div>
@@ -277,9 +277,9 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
             return (
               <g key={t}>
                 <line x1={padL} x2={W - padR} y1={y(t)} y2={y(t)}
-                  stroke={isZero ? "#3A3E48" : "#1C1F26"} strokeWidth={isZero ? 1.5 : 1} />
-                <text x={padL - 10} y={y(t) + 3.5} textAnchor="end" fontSize="10" fill="#5A5E68"
-                  style={{ fontVariantNumeric: "tabular-nums" }}>
+                  strokeWidth={isZero ? 1.5 : 1} style={{ stroke: isZero ? "var(--border-heavy)" : "var(--border-light)" }} />
+                <text x={padL - 10} y={y(t) + 3.5} textAnchor="end" fontSize="10"
+                  style={{ fill: "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
                   {isPct ? pct(t) : money(t)}
                 </text>
               </g>
@@ -300,7 +300,7 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
                 style={{ cursor: onSelectPeriod ? "pointer" : "default" }}>
                 {/* generous hit target + hover wash */}
                 <rect x={gx} y={padT} width={groupW} height={plotH}
-                  fill={isHover ? "#FFFFFF06" : "transparent"} />
+                  fill="currentColor" opacity={isHover ? 0.05 : 0} style={{ color: "var(--text-primary)" }} />
                 {isCurrent && (
                   <rect x={gx + 1} y={padT} width={groupW - 2} height={plotH}
                     fill="none" stroke="#7B2FFF33" strokeWidth="1" rx="4" />
@@ -327,12 +327,12 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
                 })}
                 {/* month label */}
                 <text x={gx + groupW / 2} y={H - 22} textAnchor="middle" fontSize="11"
-                  fontWeight={isCurrent ? 800 : 600} fill={isCurrent ? "#C9B6FF" : isHover ? "#C9CDD4" : "#6B6F78"}>
+                  fontWeight={isCurrent ? 800 : 600} style={{ fill: isCurrent ? "var(--purple)" : isHover ? "var(--text-body)" : "var(--text-muted)" }}>
                   {monthLabel(d.period)}
                 </text>
                 {/* company total, direct-labelled — selective, not on every mark */}
-                <text x={gx + groupW / 2} y={H - 8} textAnchor="middle" fontSize="9.5" fill={isHover ? "#8B8F98" : "#4A4E57"}
-                  style={{ fontVariantNumeric: "tabular-nums" }}>
+                <text x={gx + groupW / 2} y={H - 8} textAnchor="middle" fontSize="9.5"
+                  style={{ fill: isHover ? "var(--text-secondary)" : "var(--text-faint)", fontVariantNumeric: "tabular-nums" }}>
                   {isPct ? pct(d.company[metric]) : money(d.company[metric])}
                 </text>
               </g>
@@ -346,33 +346,33 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
             position: "absolute", top: 8,
             left: "calc(" + ((padL + (hover + 0.5) * groupW) / W) * 100 + "% )",
             transform: "translateX(-50%)", pointerEvents: "none",
-            background: "#12141Aee", border: "1px solid #2A2D35", borderRadius: 10,
+            background: "#12141Aee", border: "1px solid var(--border)", borderRadius: 10,
             padding: "10px 12px", minWidth: 172, backdropFilter: "blur(6px)",
             boxShadow: "0 10px 30px rgba(0,0,0,.45)", zIndex: 3,
           }}>
-            <div style={{ color: "#F0F1F3", fontSize: 11, fontWeight: 800, marginBottom: 7 }}>{monthLong(hoverD.period)}</div>
+            <div style={{ color: "var(--text-primary)", fontSize: 11, fontWeight: 800, marginBottom: 7 }}>{monthLong(hoverD.period)}</div>
             {STORE_KEYS.map(function(k) {
               if (hidden[k]) return null;
               var s = hoverD.stores[k];
               return (
                 <div key={k} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, marginBottom: 4 }}>
-                  <span style={{ display: "flex", alignItems: "center", gap: 6, color: "#8B8F98", fontSize: 10.5 }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 6, color: "var(--text-secondary)", fontSize: 10.5 }}>
                     <span style={{ width: 7, height: 7, borderRadius: 2, background: STORES[k].color, flexShrink: 0 }} />
                     {STORES[k].name.replace("CPR ", "")}
                   </span>
-                  <span style={{ color: s ? "#E8EAED" : "#5A5E68", fontSize: 10.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                  <span style={{ color: s ? "var(--text-body)" : "var(--text-faint)", fontSize: 10.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
                     {s ? (isPct ? pct(s[metric]) : moneyFull(s[metric])) : "no data"}
                   </span>
                 </div>
               );
             })}
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 14, marginTop: 7, paddingTop: 6, borderTop: "1px solid #2A2D35" }}>
-              <span style={{ color: "#6B6F78", fontSize: 10.5, fontWeight: 700 }}>Company</span>
-              <span style={{ color: (hoverD.company[metric] || 0) >= 0 ? "#4ADE80" : "#F87171", fontSize: 10.5, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 14, marginTop: 7, paddingTop: 6, borderTop: "1px solid var(--border)" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 10.5, fontWeight: 700 }}>Company</span>
+              <span style={{ color: (hoverD.company[metric] || 0) >= 0 ? "var(--green)" : "var(--red)", fontSize: 10.5, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>
                 {isPct ? pct(hoverD.company[metric]) : moneyFull(hoverD.company[metric])}
               </span>
             </div>
-            {onSelectPeriod && <div style={{ color: "#4A4E57", fontSize: 9, marginTop: 7 }}>click to open this month</div>}
+            {onSelectPeriod && <div style={{ color: "var(--text-faint)", fontSize: 9, marginTop: 7 }}>click to open this month</div>}
           </div>
         )}
       </div>
@@ -387,17 +387,17 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
               title={off ? "Show " + STORES[k].name : "Hide " + STORES[k].name}
               style={{
                 display: "flex", alignItems: "center", gap: 7, padding: "5px 11px", borderRadius: 999,
-                border: "1px solid " + (off ? "#24272F" : STORES[k].color + "44"),
+                border: "1px solid " + (off ? "var(--border)" : STORES[k].color + "44"),
                 background: off ? "transparent" : STORES[k].color + "10",
-                color: off ? "#5A5E68" : "#C9CDD4", fontSize: 11, fontWeight: 600, cursor: "pointer",
+                color: off ? "var(--text-faint)" : "var(--text-body)", fontSize: 11, fontWeight: 600, cursor: "pointer",
                 transition: "all .18s ease",
               }}>
-              <span style={{ width: 8, height: 8, borderRadius: 2, background: off ? "#3A3E48" : STORES[k].color }} />
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: off ? "var(--border-heavy)" : STORES[k].color }} />
               {STORES[k].name.replace("CPR ", "")}
             </button>
           );
         })}
-        <span style={{ color: "#4A4E57", fontSize: 10, alignSelf: "center", marginLeft: 4 }}>
+        <span style={{ color: "var(--text-faint)", fontSize: 10, alignSelf: "center", marginLeft: 4 }}>
           click a store to isolate · full figures in the statement below
         </span>
       </div>
@@ -408,16 +408,16 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
 function Kpi({ label, value, tone }) {
   return (
     <div>
-      <div style={{ color: "#6B6F78", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
-      <div style={{ color: tone || "#F0F1F3", fontSize: 17, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 3 }}>{label}</div>
+      <div style={{ color: tone || "var(--text-primary)", fontSize: 17, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{value}</div>
     </div>
   );
 }
 
 var shell = {
-  background: "#1A1D23",
+  background: "var(--bg-card)",
   borderRadius: 14,
   padding: 20,
-  border: "1px solid #24272F",
+  border: "1px solid var(--border)",
   marginBottom: 20,
 };

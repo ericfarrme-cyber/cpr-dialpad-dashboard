@@ -3,16 +3,16 @@
 
 import { useEffect, useState } from "react";
 
-var CYAN = "#00D4FF";
-var GREEN = "#4ADE80";
-var GOLD = "#FBBF24";
-var RED = "#F87171";
-var INK = "#F0F1F3";
-var INK2 = "#AEB4BE";
-var MUTED = "#6B6F78";
-var SURFACE = "#181B21";
-var RAISED = "#1F232B";
-var LINE = "#282D36";
+var CYAN = "var(--cyan)";
+var GREEN = "var(--green)";
+var GOLD = "var(--yellow)";
+var RED = "var(--red)";
+var INK = "var(--text-primary)";
+var INK2 = "var(--text-body)";
+var MUTED = "var(--text-muted)";
+var SURFACE = "var(--bg-card-inner)";
+var RAISED = "var(--bg-card-inner)";
+var LINE = "var(--border)";
 
 var STORES = [
   { key: "fishers", label: "Fishers", color: "#E03E3E" },
@@ -153,7 +153,7 @@ export default function MorningBrief() {
   function rateColor(r) { return r == null ? MUTED : r >= 90 ? GREEN : r >= 80 ? GOLD : RED; }
 
   return (
-    <div style={{ background: "linear-gradient(180deg,#1B1F27,#181B21)", border: "1px solid " + LINE,
+    <div style={{ background: "linear-gradient(180deg,var(--bg-card-inner),var(--bg-card-inner))", border: "1px solid " + LINE,
                   borderRadius: 14, marginBottom: 22, overflow: "hidden" }}>
       <style>{`.mb-row:hover{background:rgba(255,255,255,.035)}`}</style>
 
