@@ -8,15 +8,15 @@ import {
 import { STORES, STORE_KEYS } from "@/lib/constants";
 
 // ── Palette ─────────────────────────────────────────────────────────
-var BG_CARD = "#1A1D23";
-var BG_INSET = "#12141A";
-var BORDER = "#2A2D35";
-var TEXT = "#F0F1F3";
-var TEXT_MUTED = "#8B8F98";
-var TEXT_DIM = "#6B6F78";
-var GREEN = "#4ADE80";
+var BG_CARD = "var(--bg-card)";
+var BG_INSET = "var(--bg-card-inner)";
+var BORDER = "var(--border)";
+var TEXT = "var(--text-primary)";
+var TEXT_MUTED = "var(--text-secondary)";
+var TEXT_DIM = "var(--text-muted)";
+var GREEN = "var(--green)";
 
-function storeColor(s) { return (STORES[s] && STORES[s].color) || "#7B2FFF"; }
+function storeColor(s) { return (STORES[s] && STORES[s].color) || "var(--purple)"; }
 function storeShort(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : "—"; }
 function fmtUSD(n) {
   var v = Math.round((n || 0) * 100) / 100;
@@ -117,7 +117,7 @@ export default function DailyProfitTab() {
 
       {loading && (
         <div style={{ padding: 60, textAlign: "center", color: TEXT_DIM, fontSize: 14 }}>
-          <div style={{ display: "inline-block", width: 28, height: 28, border: "3px solid " + BORDER, borderTopColor: "#7B2FFF", borderRadius: "50%", animation: "dpspin 0.8s linear infinite" }} />
+          <div style={{ display: "inline-block", width: 28, height: 28, border: "3px solid " + BORDER, borderTopColor: "var(--purple)", borderRadius: "50%", animation: "dpspin 0.8s linear infinite" }} />
           <div style={{ marginTop: 12 }}>Crunching the numbers…</div>
           <style>{"@keyframes dpspin{to{transform:rotate(360deg)}}"}</style>
         </div>
@@ -135,10 +135,10 @@ export default function DailyProfitTab() {
           {combined && (
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 18 }}>
               <SummaryCard label="Total Gross Profit" value={fmtUSD0(combined.gp)} accent={GREEN} big />
-              <SummaryCard label="Revenue" value={fmtUSD0(combined.revenue)} accent="#00D4FF" />
+              <SummaryCard label="Revenue" value={fmtUSD0(combined.revenue)} accent="var(--cyan)" />
               <SummaryCard label="Margin" value={(combined.gpm_pct || 0).toFixed(1) + "%"} accent="#A78BFA" />
-              <SummaryCard label="Tickets" value={(combined.tickets || 0).toLocaleString()} accent="#FBBF24" />
-              <SummaryCard label="Avg GP / Ticket" value={fmtUSD(combined.avg_gp_per_ticket)} accent="#FF2D95" />
+              <SummaryCard label="Tickets" value={(combined.tickets || 0).toLocaleString()} accent="var(--yellow)" />
+              <SummaryCard label="Avg GP / Ticket" value={fmtUSD(combined.avg_gp_per_ticket)} accent="var(--pink)" />
             </div>
           )}
 

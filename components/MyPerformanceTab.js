@@ -7,7 +7,7 @@ var LEVEL_THRESHOLDS = [
   { name: "Silver", min: 40, color: "#C0C0C0", icon: "\uD83E\uDD48" },
   { name: "Gold", min: 55, color: "#FFD700", icon: "\uD83E\uDD47" },
   { name: "Platinum", min: 70, color: "#E0B0FF", icon: "\uD83D\uDC8E" },
-  { name: "Diamond", min: 85, color: "#00D4FF", icon: "\u2B50" },
+  { name: "Diamond", min: 85, color: "var(--cyan)", icon: "\u2B50" },
 ];
 
 // ── Tier-based commission multipliers + Diamond PTO benefit ──
@@ -51,7 +51,7 @@ function getNextLevel(score) {
 }
 
 function fmt(n) { return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-function sc(v, g, w) { return v >= g ? "#4ADE80" : v >= w ? "#FBBF24" : "#F87171"; }
+function sc(v, g, w) { return v >= g ? "var(--green)" : v >= w ? "var(--yellow)" : "var(--red)"; }
 
 // Fuzzy name matching — handles "Alyssa Parent" vs "Parent, Alyssa" vs "Alyssa"
 // The non-phone monthly threshold bonus is paid to one person (Eric, 2026-09-01).
@@ -155,7 +155,7 @@ function MetricTooltip(props) {
         aria-label={"What is " + title + "?"}
         style={{
           width: 16, height: 16, borderRadius: "50%", border: "none",
-          background: open ? "#7B2FFF" : "var(--bg-card-inner)",
+          background: open ? "var(--purple)" : "var(--bg-card-inner)",
           color: open ? "#fff" : "var(--text-muted)",
           fontSize: 10, fontWeight: 800, cursor: "pointer",
           display: "inline-flex", alignItems: "center", justifyContent: "center",
@@ -173,7 +173,7 @@ function MetricTooltip(props) {
             borderRadius: 10, padding: 14, boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
             textAlign: "left",
           }}>
-            <div style={{ fontSize: 12, fontWeight: 800, color: "#7B2FFF", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
+            <div style={{ fontSize: 12, fontWeight: 800, color: "var(--purple)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" }}>{title}</div>
             {what && (
               <div style={{ marginBottom: 10 }}>
                 <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>What this measures</div>
@@ -188,7 +188,7 @@ function MetricTooltip(props) {
             )}
             {howTo && (
               <div>
-                <div style={{ fontSize: 9, color: "#4ADE80", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>How to improve</div>
+                <div style={{ fontSize: 9, color: "var(--green)", textTransform: "uppercase", marginBottom: 3, fontWeight: 700 }}>How to improve</div>
                 <div style={{ fontSize: 12, color: "var(--text-body)", lineHeight: 1.5 }}>{howTo}</div>
               </div>
             )}
@@ -1030,7 +1030,7 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* Admin: employee selector */}
       {isAdmin && allEmployees.length > 0 && (
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16, padding: "10px 16px", background: "var(--bg-card)", borderRadius: 10, border: "1px solid #7B2FFF33" }}>
-          <span style={{ fontSize: 12, color: "#7B2FFF", fontWeight: 700 }}>{"\uD83D\uDC41"} View as:</span>
+          <span style={{ fontSize: 12, color: "var(--purple)", fontWeight: 700 }}>{"\uD83D\uDC41"} View as:</span>
           <select value={viewAsEmployee} onChange={function(e) { setViewAsEmployee(e.target.value); }}
             style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-card-inner)", color: "var(--text-primary)", fontSize: 13, cursor: "pointer", maxWidth: 250 }}>
             <option value="">Myself ({auth?.userInfo?.name || ""})</option>
@@ -1046,7 +1046,7 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* Viewing banner */}
       {viewAsEmployee && (
         <div style={{ padding: "8px 14px", background: "#7B2FFF12", border: "1px solid #7B2FFF33", borderRadius: 8, marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "#7B2FFF" }}>Viewing as <strong>{viewAsEmployee}</strong> — this is exactly what they see when logged in</span>
+          <span style={{ fontSize: 12, color: "var(--purple)" }}>Viewing as <strong>{viewAsEmployee}</strong> — this is exactly what they see when logged in</span>
         </div>
       )}
 
@@ -1059,18 +1059,18 @@ export default function MyPerformanceTab({ auth, store }) {
           // Coaching tab: when there are unread manager notes, the entire button is highlighted hot pink
           // and a pulsing dot is added. Designed to be impossible to miss per spec.
           var coachingBg = showCoachingBadge ? "linear-gradient(135deg, #FF2D9522, #FF2D9540)" : (active ? "#7B2FFF18" : "transparent");
-          var coachingBorder = showCoachingBadge ? "2px solid #FF2D95" : (active ? "1px solid #7B2FFF" : hasError ? "1px solid #F8717133" : "1px solid var(--border)");
-          var coachingColor = showCoachingBadge ? "#FF2D95" : (active ? "#7B2FFF" : "var(--text-secondary)");
+          var coachingBorder = showCoachingBadge ? "2px solid var(--pink)" : (active ? "1px solid var(--purple)" : hasError ? "1px solid #F8717133" : "1px solid var(--border)");
+          var coachingColor = showCoachingBadge ? "var(--pink)" : (active ? "var(--purple)" : "var(--text-secondary)");
           return <button key={t.id} onClick={function() { setSubTab(t.id); }}
             style={{ padding: "8px 14px", borderRadius: 8, border: coachingBorder, background: coachingBg, color: coachingColor, fontSize: 12, fontWeight: showCoachingBadge ? 800 : (active ? 700 : 500), cursor: "pointer", display: "flex", alignItems: "center", gap: 6, position: "relative", boxShadow: showCoachingBadge ? "0 0 12px #FF2D9544" : "none" }}>
             {t.icon} {t.label}
             {showCoachingBadge && (
-              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 20, height: 20, padding: "0 6px", borderRadius: 10, background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 800, marginLeft: 2 }}>
+              <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: 20, height: 20, padding: "0 6px", borderRadius: 10, background: "var(--pink)", color: "#fff", fontSize: 11, fontWeight: 800, marginLeft: 2 }}>
                 {unreadNotesCount}
               </span>
             )}
             {showCoachingBadge && (
-              <span style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: "50%", background: "#FF2D95", boxShadow: "0 0 0 0 #FF2D95", animation: "pulse-coach 1.5s infinite" }} />
+              <span style={{ position: "absolute", top: -4, right: -4, width: 10, height: 10, borderRadius: "50%", background: "var(--pink)", boxShadow: "0 0 0 0 var(--pink)", animation: "pulse-coach 1.5s infinite" }} />
             )}
           </button>;
         })}
@@ -1096,22 +1096,22 @@ export default function MyPerformanceTab({ auth, store }) {
           style={{
             marginBottom: 16, padding: "14px 18px", borderRadius: 10,
             background: "linear-gradient(90deg, #FF2D9522 0%, #7B2FFF22 100%)",
-            border: "2px solid #FF2D95",
+            border: "2px solid var(--pink)",
             display: "flex", alignItems: "center", gap: 14, cursor: "pointer",
             animation: "coach-banner-pulse 2s ease-in-out infinite",
           }}>
-          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "linear-gradient(135deg, var(--pink), var(--purple))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, flexShrink: 0 }}>
             {"\uD83D\uDCAC"}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ color: "#FF2D95", fontSize: 14, fontWeight: 800, marginBottom: 2 }}>
+            <div style={{ color: "var(--pink)", fontSize: 14, fontWeight: 800, marginBottom: 2 }}>
               You have {unreadNotesCount} new message{unreadNotesCount === 1 ? "" : "s"} from your manager
             </div>
             <div style={{ color: "var(--text-secondary)", fontSize: 12, lineHeight: 1.4 }}>
               Tap here to read {unreadNotesCount === 1 ? "it" : "them"} in your Coaching tab.
             </div>
           </div>
-          <div style={{ padding: "6px 14px", borderRadius: 6, background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
+          <div style={{ padding: "6px 14px", borderRadius: 6, background: "var(--pink)", color: "#fff", fontSize: 11, fontWeight: 800, flexShrink: 0 }}>
             View {"\u2192"}
           </div>
         </div>
@@ -1122,14 +1122,14 @@ export default function MyPerformanceTab({ auth, store }) {
         <div style={{
           marginBottom: 16, padding: "10px 14px", borderRadius: 8,
           background: "#FBBF2412",
-          borderLeft: "3px solid #FBBF24",
+          borderLeft: "3px solid var(--yellow)",
           display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between", flexWrap: "wrap",
         }}>
           <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
-            {"\uD83D\uDCC5"} Viewing <strong style={{ color: "#FBBF24" }}>{selectedPeriodLabel}</strong> — historical data, read-only. Coaching is disabled for past periods.
+            {"\uD83D\uDCC5"} Viewing <strong style={{ color: "var(--yellow)" }}>{selectedPeriodLabel}</strong> — historical data, read-only. Coaching is disabled for past periods.
           </div>
           <button onClick={function() { setSelectedPeriod(currentPeriodValue); }}
-            style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #FBBF2455", background: "#FBBF2422", color: "#FBBF24", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+            style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #FBBF2455", background: "#FBBF2422", color: "var(--yellow)", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
             {"\u2190"} Back to Current
           </button>
         </div>
@@ -1140,7 +1140,7 @@ export default function MyPerformanceTab({ auth, store }) {
         <div style={{
           marginBottom: 16, padding: "12px 16px", borderRadius: 8,
           background: "linear-gradient(90deg, #7B2FFF0F 0%, #00D4FF0F 100%)",
-          borderLeft: "3px solid #7B2FFF",
+          borderLeft: "3px solid var(--purple)",
           display: "flex", alignItems: "flex-start", gap: 12, justifyContent: "space-between",
         }}>
           <div style={{ flex: 1 }}>
@@ -1148,7 +1148,7 @@ export default function MyPerformanceTab({ auth, store }) {
               {"\uD83D\uDCCA"} New for April 2026: your compliance score is now split by role
             </div>
             <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-              Tickets are now scored separately for the <strong style={{ color: "#00D4FF" }}>intake tech</strong> (diagnostics, payment collection, contact info) and the <strong style={{ color: "#7B2FFF" }}>repair tech</strong> (repair notes, pickup communication). You're only graded on the work you actually did — no more sharing scores with whoever else touched the ticket. Open any ticket below to see your role and the categories you control.
+              Tickets are now scored separately for the <strong style={{ color: "var(--cyan)" }}>intake tech</strong> (diagnostics, payment collection, contact info) and the <strong style={{ color: "var(--purple)" }}>repair tech</strong> (repair notes, pickup communication). You're only graded on the work you actually did — no more sharing scores with whoever else touched the ticket. Open any ticket below to see your role and the categories you control.
             </div>
           </div>
           <button onClick={dismissRoleSplitBanner} style={{
@@ -1252,7 +1252,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="If hours look wrong, check that your WhenIWork name matches your roster. Talk to your manager if you need shifts adjusted." />
               </div>
               <div style={metricLabel}>Hours This Month</div>
-              <div style={{ ...metricBig, fontSize: 22, color: totalHoursMonth > 160 ? "#F87171" : "var(--text-primary)" }}>{totalHoursMonth}h</div>
+              <div style={{ ...metricBig, fontSize: 22, color: totalHoursMonth > 160 ? "var(--red)" : "var(--text-primary)" }}>{totalHoursMonth}h</div>
               {weekHours > 0 && <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{weekHours}h this week</div>}
             </div>
             <div style={{ ...cardInner, position: "relative" }}>
@@ -1263,7 +1263,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="Phone repairs pay the highest commission. Push to close 5+ phone tickets per shift on busy days." />
               </div>
               <div style={metricLabel}>Repairs This Month</div>
-              <div style={{ ...metricBig, fontSize: 22, color: "#00D4FF" }}>{empScore?.repairs?.total_repairs || 0}</div>
+              <div style={{ ...metricBig, fontSize: 22, color: "var(--cyan)" }}>{empScore?.repairs?.total_repairs || 0}</div>
               <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{empScore?.repairs?.phone_tickets || 0} phone / {empScore?.repairs?.other_tickets || 0} other</div>
             </div>
             <div style={{ ...cardInner, position: "relative" }}>
@@ -1274,7 +1274,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="Attach a case + screen protector to every phone repair. The combo bundle pays the highest commission and protects the customer's investment." />
               </div>
               <div style={metricLabel}>Accessory GP</div>
-              <div style={{ ...metricBig, fontSize: 22, color: "#4ADE80" }}>{fmt(empScore?.repairs?.accy_gp || 0)}</div>
+              <div style={{ ...metricBig, fontSize: 22, color: "var(--green)" }}>{fmt(empScore?.repairs?.accy_gp || 0)}</div>
             </div>
             <div style={{ ...cardInner, position: "relative" }}>
               <div style={{ position: "absolute", top: 8, right: 8 }}>
@@ -1284,7 +1284,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="See the Paycheck tab for a full breakdown by category, the tier bonus line, and the What-If Projector showing annual impact." />
               </div>
               <div style={metricLabel}>Commission (est.)</div>
-              <div style={{ ...metricBig, fontSize: 22, color: "#FBBF24" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
+              <div style={{ ...metricBig, fontSize: 22, color: "var(--yellow)" }}>{commission ? fmt(commission.total) : "$0.00"}</div>
               {commission && commission.hasData && commission.tierMultiplier > 1 && (
                 <div style={{ fontSize: 10, color: commission.tierColor, fontWeight: 700, marginTop: 2 }}>{commission.tierMultiplier}x {commission.tier} tier</div>
               )}
@@ -1295,9 +1295,9 @@ export default function MyPerformanceTab({ auth, store }) {
           {weeklyGoal && (
             <div style={{ ...card, marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"\uD83C\uDFAF"}</div>
+                <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, var(--pink), var(--purple))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"\uD83C\uDFAF"}</div>
                 <div>
-                  <div style={{ fontSize: 10, color: "#FF2D95", fontWeight: 700, textTransform: "uppercase" }}>This Week's Goal</div>
+                  <div style={{ fontSize: 10, color: "var(--pink)", fontWeight: 700, textTransform: "uppercase" }}>This Week's Goal</div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>{weeklyGoal.title || "Weekly Challenge"}</div>
                 </div>
               </div>
@@ -1337,10 +1337,10 @@ export default function MyPerformanceTab({ auth, store }) {
                 }
 
                 var streaks = [
-                  { icon: "\uD83D\uDD25", label: "Quality Streak", value: highScoreStreak + " tickets", sub: "consecutive 70+ scores", color: highScoreStreak >= 5 ? "#4ADE80" : highScoreStreak >= 3 ? "#FBBF24" : "var(--text-muted)" },
+                  { icon: "\uD83D\uDD25", label: "Quality Streak", value: highScoreStreak + " tickets", sub: "consecutive 70+ scores", color: highScoreStreak >= 5 ? "var(--green)" : highScoreStreak >= 3 ? "var(--yellow)" : "var(--text-muted)" },
                   { icon: "\u2B50", label: "Perfect Tickets", value: perfectCount, sub: "scored 90+", color: perfectCount > 0 ? "#FFD700" : "var(--text-muted)" },
-                  { icon: "\uD83D\uDCAA", label: "Work Streak", value: dayStreak + " days", sub: "consecutive days", color: dayStreak >= 5 ? "#00D4FF" : "var(--text-muted)" },
-                  { icon: "\uD83C\uDFAF", label: "Repairs This Month", value: empScore?.repairs?.total_repairs || 0, sub: totalHoursMonth > 0 ? (Math.round((empScore?.repairs?.total_repairs || 0) / totalHoursMonth * 80) / 10) + " per day avg" : "", color: "#00D4FF" },
+                  { icon: "\uD83D\uDCAA", label: "Work Streak", value: dayStreak + " days", sub: "consecutive days", color: dayStreak >= 5 ? "var(--cyan)" : "var(--text-muted)" },
+                  { icon: "\uD83C\uDFAF", label: "Repairs This Month", value: empScore?.repairs?.total_repairs || 0, sub: totalHoursMonth > 0 ? (Math.round((empScore?.repairs?.total_repairs || 0) / totalHoursMonth * 80) / 10) + " per day avg" : "", color: "var(--cyan)" },
                 ];
 
                 return streaks.map(function(s) {
@@ -1400,7 +1400,7 @@ export default function MyPerformanceTab({ auth, store }) {
 
                 var pathD = "M " + points.map(function(p) { return p.x + " " + p.y; }).join(" L ");
                 var trend = dataPoints[dataPoints.length - 1].avg - dataPoints[0].avg;
-                var trendColor = trend >= 0 ? "#4ADE80" : "#F87171";
+                var trendColor = trend >= 0 ? "var(--green)" : "var(--red)";
 
                 return (
                   <div>
@@ -1448,21 +1448,21 @@ export default function MyPerformanceTab({ auth, store }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20, flexWrap: "wrap", gap: 16 }}>
               <div>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Estimated Commission This Period</div>
-                <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{commission ? fmt(allInTotal) : "$0.00"}</div>
+                <div style={{ fontSize: 42, fontWeight: 900, color: "var(--yellow)" }}>{commission ? fmt(allInTotal) : "$0.00"}</div>
                 {commission && bonusExtras > 0 && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginTop: 4 }}>
                     {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}{npbExtra > 0 ? " + " + fmt(npbExtra) + " non-phone bonus" : ""}
                   </div>
                 )}
                 {commission && commission.hasData && commission.tierMultiplier > 1 && (
-                  <div style={{ fontSize: 11, color: "#4ADE80", fontWeight: 700, marginTop: 4 }}>
+                  <div style={{ fontSize: 11, color: "var(--green)", fontWeight: 700, marginTop: 4 }}>
                     {"\u2728"} Includes {commission.tierMultiplier}x {commission.tier} multiplier (+{fmt(commission.tierBonus)})
                   </div>
                 )}
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Total Revenue Generated</div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: "#00D4FF" }}>{commission ? fmt(commission.totalRevenue) : "$0.00"}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: "var(--cyan)" }}>{commission ? fmt(commission.totalRevenue) : "$0.00"}</div>
               </div>
             </div>
 
@@ -1481,7 +1481,7 @@ export default function MyPerformanceTab({ auth, store }) {
                       <div style={{ fontSize: 20, fontWeight: 800, color: commission.tierColor }}>{commission.tier} Level</div>
                       <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
                         Score: {Math.round(empScore?.overall || 0)} pts &middot; Multiplier: <strong style={{ color: commission.tierColor }}>{commission.tierMultiplier}x</strong>
-                        {commission.ptoPerMonth > 0 && <span style={{ color: "#00D4FF", fontWeight: 700 }}> &middot; +{commission.ptoPerMonth} PTO day/mo</span>}
+                        {commission.ptoPerMonth > 0 && <span style={{ color: "var(--cyan)", fontWeight: 700 }}> &middot; +{commission.ptoPerMonth} PTO day/mo</span>}
                       </div>
                     </div>
                   </div>
@@ -1530,7 +1530,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{row.qty}</td>
                           <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>{fmt(row.rev)}</td>
                           <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>{row.rate}</td>
-                          <td style={{ padding: "10px 12px", textAlign: "right", color: row.comm > 0 ? "#FBBF24" : "var(--text-muted)", fontSize: 14, fontWeight: 700 }}>{fmt(row.comm)}</td>
+                          <td style={{ padding: "10px 12px", textAlign: "right", color: row.comm > 0 ? "var(--yellow)" : "var(--text-muted)", fontSize: 14, fontWeight: 700 }}>{fmt(row.comm)}</td>
                         </tr>
                       );
                     })}
@@ -1555,7 +1555,7 @@ export default function MyPerformanceTab({ auth, store }) {
                     )}
                     <tr style={{ background: "var(--bg-card-inner)" }}>
                       <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>Total Commission</td>
-                      <td style={{ padding: "12px", textAlign: "right", color: "#FBBF24", fontSize: 18, fontWeight: 900 }}>{fmt(commission.total)}</td>
+                      <td style={{ padding: "12px", textAlign: "right", color: "var(--yellow)", fontSize: 18, fontWeight: 900 }}>{fmt(commission.total)}</td>
                     </tr>
                     {/* Advanced Repairs — added AFTER multiplier so it's clearly a non-multiplied bonus */}
                     {advancedRepair && (advancedRepair.total_amount > 0 || advancedRepair.primary_repairs > 0) && (
@@ -1573,7 +1573,7 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>
                           {matchName(empName, "Duncan") ? "10% GP + 3% overhead" : "7% GP"}
                         </td>
-                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#FBBF24", fontSize: 14, fontWeight: 700 }}>+{fmt(advancedRepair.total_amount)}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--yellow)", fontSize: 14, fontWeight: 700 }}>+{fmt(advancedRepair.total_amount)}</td>
                       </tr>
                     )}
                     {/* Answer-Rate Bonus — standalone, NOT part of weighted commission */}
@@ -1605,7 +1605,7 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{nonPhoneBonus.tickets}</td>
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>{fmt(nonPhoneBonus.profit)}</td>
                         <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>$100 at {fmt(nonPhoneBonus.bonus.threshold)} + $50/$1k</td>
-                        <td style={{ padding: "10px 12px", textAlign: "right", color: "#00D4FF", fontSize: 14, fontWeight: 700 }}>+{fmt(npbExtra)}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--cyan)", fontSize: 14, fontWeight: 700 }}>+{fmt(npbExtra)}</td>
                       </tr>
                     )}
                     {/* Threshold not reached, or the month is not trustworthy — say so
@@ -1632,7 +1632,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
                             Grand Total <span style={{ color: "var(--text-muted)", fontSize: 11, fontWeight: 500 }}>(incl. {bits.join(" + ")})</span>
                           </td>
-                          <td style={{ padding: "12px", textAlign: "right", color: "#4ADE80", fontSize: 20, fontWeight: 900 }}>{fmt(allInTotal)}</td>
+                          <td style={{ padding: "12px", textAlign: "right", color: "var(--green)", fontSize: 20, fontWeight: 900 }}>{fmt(allInTotal)}</td>
                         </tr>
                       );
                     })()}
@@ -1656,7 +1656,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
                     <span style={{ fontSize: 20 }}>{"\uD83D\uDD27"}</span>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Advanced Repairs Commission</div>
-                    <span style={{ background: "#FBBF2422", color: "#FBBF24", padding: "2px 8px", borderRadius: 999, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Bonus Program</span>
+                    <span style={{ background: "#FBBF2422", color: "var(--yellow)", padding: "2px 8px", borderRadius: 999, fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>Bonus Program</span>
                   </div>
                   <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
                     Soldering & board-level repairs you've closed this month. Paid monthly alongside regular commission.
@@ -1664,20 +1664,20 @@ export default function MyPerformanceTab({ auth, store }) {
                 </div>
                 <div style={{ textAlign: "right" }}>
                   <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>This Period</div>
-                  <div style={{ fontSize: 30, fontWeight: 900, color: "#FBBF24" }}>{fmt(advancedRepair.total_amount)}</div>
+                  <div style={{ fontSize: 30, fontWeight: 900, color: "var(--yellow)" }}>{fmt(advancedRepair.total_amount)}</div>
                   <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 4 }}>
                     <strong style={{ color: "var(--text-primary)" }}>{advancedRepair.primary_repairs}</strong> repair{advancedRepair.primary_repairs === 1 ? "" : "s"} completed
                     {advancedRepair.overhead_amount > 0 && (
-                      <span> · <strong style={{ color: "#7B2FFF" }}>{fmt(advancedRepair.overhead_amount)}</strong> overhead</span>
+                      <span> · <strong style={{ color: "var(--purple)" }}>{fmt(advancedRepair.overhead_amount)}</strong> overhead</span>
                     )}
                   </div>
                 </div>
               </div>
               <div style={{ marginTop: 14, padding: 12, background: "var(--bg-card-inner)", borderRadius: 8, fontSize: 11, color: "var(--text-secondary)" }}>
                 {matchName(empName, "Duncan") ? (
-                  <span>{"\uD83D\uDCA1"} As program lead, you earn <strong style={{ color: "#FBBF24" }}>10% GP</strong> on your own advanced repairs and <strong style={{ color: "#7B2FFF" }}>3% GP</strong> on every advanced repair other techs complete.</span>
+                  <span>{"\uD83D\uDCA1"} As program lead, you earn <strong style={{ color: "var(--yellow)" }}>10% GP</strong> on your own advanced repairs and <strong style={{ color: "var(--purple)" }}>3% GP</strong> on every advanced repair other techs complete.</span>
                 ) : (
-                  <span>{"\uD83D\uDCA1"} You earn <strong style={{ color: "#FBBF24" }}>7% of gross profit</strong> on every advanced repair you complete. Want to do more? Ask Duncan about training.</span>
+                  <span>{"\uD83D\uDCA1"} You earn <strong style={{ color: "var(--yellow)" }}>7% of gross profit</strong> on every advanced repair you complete. Want to do more? Ask Duncan about training.</span>
                 )}
               </div>
             </div>
@@ -1693,7 +1693,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   { tier: "Silver", color: "#C0C0C0", icon: "\uD83E\uDD48", note: "Base rate (no multiplier)" },
                   { tier: "Gold", color: "#FFD700", icon: "\uD83E\uDD47", note: "1.25x multiplier" },
                   { tier: "Platinum", color: "#E0B0FF", icon: "\uD83D\uDC8E", note: "1.50x multiplier" },
-                  { tier: "Diamond", color: "#00D4FF", icon: "\u2B50", note: "1.50x + 12 PTO days/yr" },
+                  { tier: "Diamond", color: "var(--cyan)", icon: "\u2B50", note: "1.50x + 12 PTO days/yr" },
                 ].map(function(t) {
                   var def = TIER_DEFAULTS[t.tier];
                   var monthly = commission.baseTotal * def.multiplier;
@@ -1711,10 +1711,10 @@ export default function MyPerformanceTab({ auth, store }) {
                         <span style={{ fontSize: 18 }}>{t.icon}</span>
                         <span style={{ fontSize: 13, fontWeight: 800, color: t.color }}>{t.tier}</span>
                       </div>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#FBBF24" }}>{fmt(annual)}</div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "var(--yellow)" }}>{fmt(annual)}</div>
                       <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>per year &middot; {fmt(monthly)}/mo</div>
                       {deltaVsBase > 0 && (
-                        <div style={{ fontSize: 10, color: "#4ADE80", fontWeight: 700, marginTop: 6 }}>+{fmt(deltaVsBase)}/yr vs. Silver</div>
+                        <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700, marginTop: 6 }}>+{fmt(deltaVsBase)}/yr vs. Silver</div>
                       )}
                       <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4, fontStyle: "italic" }}>{t.note}</div>
                     </div>
@@ -1722,7 +1722,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 })}
               </div>
               <div style={{ marginTop: 16, padding: 12, background: "#7B2FFF08", borderRadius: 8, border: "1px solid #7B2FFF22", fontSize: 11, color: "var(--text-body)", lineHeight: 1.5 }}>
-                {"\uD83D\uDCA1"} <strong style={{ color: "#7B2FFF" }}>Streak bonuses on top:</strong> 3 consecutive months at Gold or higher = <strong>$100 cash</strong>. 3 consecutive at Platinum or higher = <strong>1 PTO day</strong>. 6 Diamond months in a calendar year = <strong>permanent wall plaque</strong>.
+                {"\uD83D\uDCA1"} <strong style={{ color: "var(--purple)" }}>Streak bonuses on top:</strong> 3 consecutive months at Gold or higher = <strong>$100 cash</strong>. 3 consecutive at Platinum or higher = <strong>1 PTO day</strong>. 6 Diamond months in a calendar year = <strong>permanent wall plaque</strong>.
               </div>
             </div>
           )}
@@ -1756,9 +1756,9 @@ export default function MyPerformanceTab({ auth, store }) {
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 12, marginBottom: 14 }}>
                       <div style={cardInner}>
                         <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Total GP</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: "#4ADE80", marginTop: 6 }}>${cur.total_gp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: "var(--green)", marginTop: 6 }}>${cur.total_gp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                         {gpDelta != null && (
-                          <div style={{ fontSize: 10, color: gpDelta >= 0 ? "#4ADE80" : "#F87171", marginTop: 2 }}>
+                          <div style={{ fontSize: 10, color: gpDelta >= 0 ? "var(--green)" : "var(--red)", marginTop: 2 }}>
                             {gpDelta >= 0 ? "\u2197" : "\u2198"} {Math.abs(gpDelta)}% vs last month
                           </div>
                         )}
@@ -1774,13 +1774,13 @@ export default function MyPerformanceTab({ auth, store }) {
                         <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Hours Worked</div>
                         <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", marginTop: 6 }}>{cur.hours.toFixed(1)}h</div>
                       </div>
-                      <div style={Object.assign({}, cardInner, { borderTop: "3px solid #FF2D95" })}>
+                      <div style={Object.assign({}, cardInner, { borderTop: "3px solid var(--pink)" })}>
                         <div style={{ fontSize: 9, color: "var(--text-muted)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>GP / Hour</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: cur.gp_per_hour >= peerAvg ? "#4ADE80" : "#FB923C", marginTop: 6 }}>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: cur.gp_per_hour >= peerAvg ? "var(--green)" : "var(--orange)", marginTop: 6 }}>
                           ${cur.gp_per_hour.toFixed(2)}
                         </div>
                         {gphDelta != null && (
-                          <div style={{ fontSize: 10, color: gphDelta >= 0 ? "#4ADE80" : "#F87171", marginTop: 2 }}>
+                          <div style={{ fontSize: 10, color: gphDelta >= 0 ? "var(--green)" : "var(--red)", marginTop: 2 }}>
                             {gphDelta >= 0 ? "\u2197" : "\u2198"} {Math.abs(gphDelta)}% vs last month
                           </div>
                         )}
@@ -1794,12 +1794,12 @@ export default function MyPerformanceTab({ auth, store }) {
                           <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>You vs all techs (GP/hour)</div>
                           <div style={{ fontSize: 10, color: "var(--text-muted)" }}>
                             {cur.gp_per_hour >= peerAvg
-                              ? <span style={{ color: "#4ADE80" }}>${(cur.gp_per_hour - peerAvg).toFixed(2)}/h above average</span>
-                              : <span style={{ color: "#FB923C" }}>${(peerAvg - cur.gp_per_hour).toFixed(2)}/h below average</span>}
+                              ? <span style={{ color: "var(--green)" }}>${(cur.gp_per_hour - peerAvg).toFixed(2)}/h above average</span>
+                              : <span style={{ color: "var(--orange)" }}>${(peerAvg - cur.gp_per_hour).toFixed(2)}/h below average</span>}
                           </div>
                         </div>
                         <div style={{ position: "relative", height: 8, background: "var(--bg-card-inner)", borderRadius: 4, overflow: "hidden", border: "1px solid var(--border)" }}>
-                          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (cur.gp_per_hour / Math.max(cur.gp_per_hour, peerAvg) / 1.2) * 100) + "%", background: "linear-gradient(90deg, #7B2FFF, #FF2D95)", borderRadius: 4 }} />
+                          <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (cur.gp_per_hour / Math.max(cur.gp_per_hour, peerAvg) / 1.2) * 100) + "%", background: "linear-gradient(90deg, var(--purple), var(--pink))", borderRadius: 4 }} />
                           {/* Marker for peer average */}
                           <div style={{ position: "absolute", left: Math.min(100, (peerAvg / Math.max(cur.gp_per_hour, peerAvg) / 1.2) * 100) + "%", top: -2, height: 12, borderLeft: "2px dashed var(--text-muted)" }} />
                         </div>
@@ -1825,7 +1825,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 {[
                   { name: "Gold", color: "#FFD700", icon: "\uD83E\uDD47", count: streakData.streaks.gold, target: 3, reward: "$100 cash", recurring: true },
                   { name: "Platinum", color: "#E0B0FF", icon: "\uD83D\uDC8E", count: streakData.streaks.platinum, target: 3, reward: "1 PTO day", recurring: true },
-                  { name: "Diamond Plaque", color: "#00D4FF", icon: "\u2B50", count: streakData.diamond_plaque.diamond_months, target: 6, reward: "Wall plaque", recurring: false, year: streakData.diamond_plaque.this_year },
+                  { name: "Diamond Plaque", color: "var(--cyan)", icon: "\u2B50", count: streakData.diamond_plaque.diamond_months, target: 6, reward: "Wall plaque", recurring: false, year: streakData.diamond_plaque.this_year },
                 ].map(function(s) {
                   var progress = Math.min(100, (s.count / s.target) * 100);
                   var inStreak = s.count % s.target;
@@ -1842,8 +1842,8 @@ export default function MyPerformanceTab({ auth, store }) {
                           <span style={{ fontSize: 16 }}>{s.icon}</span>
                           <span style={{ fontSize: 12, fontWeight: 800, color: s.color }}>{s.name}</span>
                         </div>
-                        {earned > 0 && s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "#4ADE80" }}>{earned}x earned</span>}
-                        {earned > 0 && !s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "#4ADE80" }}>{"\u2705"} Earned</span>}
+                        {earned > 0 && s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green)" }}>{earned}x earned</span>}
+                        {earned > 0 && !s.recurring && <span style={{ fontSize: 10, fontWeight: 700, color: "var(--green)" }}>{"\u2705"} Earned</span>}
                       </div>
                       <div style={{ fontSize: 22, fontWeight: 900, color: "var(--text-primary)" }}>
                         {s.recurring ? displayCount : s.count} <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 500 }}>/ {s.target}</span>
@@ -1914,10 +1914,10 @@ export default function MyPerformanceTab({ auth, store }) {
                   var weeklyExtraWithMult = scenario.weeklyExtra * commission.tierMultiplier;
                   return (
                     <div key={scenario.label} style={cardInner}>
-                      <div style={{ fontSize: 11, color: "#7B2FFF", fontWeight: 700, marginBottom: 4 }}>{scenario.label}</div>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#FBBF24" }}>+{fmt(annualExtra)}</div>
+                      <div style={{ fontSize: 11, color: "var(--purple)", fontWeight: 700, marginBottom: 4 }}>{scenario.label}</div>
+                      <div style={{ fontSize: 22, fontWeight: 900, color: "var(--yellow)" }}>+{fmt(annualExtra)}</div>
                       <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>per year</div>
-                      <div style={{ fontSize: 10, color: "#4ADE80", marginTop: 6, fontWeight: 700 }}>+{fmt(weeklyExtraWithMult)}/wk &middot; +{fmt(weeklyExtraWithMult * 4.33)}/mo</div>
+                      <div style={{ fontSize: 10, color: "var(--green)", marginTop: 6, fontWeight: 700 }}>+{fmt(weeklyExtraWithMult)}/wk &middot; +{fmt(weeklyExtraWithMult * 4.33)}/mo</div>
                       <div style={{ fontSize: 9, color: "var(--text-muted)", marginTop: 4 }}>{scenario.detail}</div>
                     </div>
                   );
@@ -1938,18 +1938,18 @@ export default function MyPerformanceTab({ auth, store }) {
             <div>
               {/* Category cards */}
               {[
-                { label: "Repairs", score: empScore.repairs?.score || 0, color: "#00D4FF", details: [
+                { label: "Repairs", score: empScore.repairs?.score || 0, color: "var(--cyan)", details: [
                   { k: "Phone Repairs", v: empScore.repairs?.phone_tickets || 0 },
                   { k: "Other Repairs", v: empScore.repairs?.other_tickets || 0 },
                   { k: "Total Repairs", v: empScore.repairs?.total_repairs || 0 },
                   { k: "Accessory GP", v: fmt(empScore.repairs?.accy_gp || 0) },
                   { k: "Cleanings", v: empScore.repairs?.clean_count || 0 },
                 ] },
-                { label: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, color: "#7B2FFF", details: [
+                { label: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, color: "var(--purple)", details: [
                   { k: "Opportunity Audits", v: empScore.audit?.opp_audits || 0 },
                   { k: "Avg Score", v: (empScore.audit?.avg_pct || 0) + "%" },
                 ] },
-                { label: "Compliance", score: empScore.compliance?.score || 0, color: "#FF2D95", details: (function() {
+                { label: "Compliance", score: empScore.compliance?.score || 0, color: "var(--pink)", details: (function() {
                   var c = empScore.compliance || {};
                   var rs = c.role_split_active;
                   if (rs && (c.intake_role || c.repair_role)) {
@@ -2010,7 +2010,7 @@ export default function MyPerformanceTab({ auth, store }) {
                       return (
                         <tr key={e.name || i} style={{ borderBottom: "1px solid var(--border)", background: isMe ? "#7B2FFF12" : "transparent" }}>
                           <td style={{ padding: "8px 10px", color: "var(--text-muted)", fontSize: 12 }}>{i + 1}</td>
-                          <td style={{ padding: "8px 10px", color: isMe ? "#7B2FFF" : sameStore ? "var(--text-primary)" : "var(--text-muted)", fontSize: 13, fontWeight: isMe ? 700 : 500, fontStyle: sameStore ? "normal" : "italic" }}>{displayName}</td>
+                          <td style={{ padding: "8px 10px", color: isMe ? "var(--purple)" : sameStore ? "var(--text-primary)" : "var(--text-muted)", fontSize: 13, fontWeight: isMe ? 700 : 500, fontStyle: sameStore ? "normal" : "italic" }}>{displayName}</td>
                           <td style={{ padding: "8px 10px", textAlign: "center", color: sc(e.overall || 0, 70, 50), fontSize: 14, fontWeight: 700 }}>{e.overall || 0}</td>
                           <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{sameStore || isMe ? e.repairs?.total_repairs || 0 : "—"}</td>
                           <td style={{ padding: "8px 10px", textAlign: "center", color: "var(--text-secondary)", fontSize: 12 }}>{sameStore || isMe ? e.audit?.avg_pct || e.audit?.score || 0 : "—"}</td>
@@ -2045,8 +2045,8 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="Pick up extra shifts to grow your paycheck, or pass on a shift in WhenIWork if you can't make it." />
               </div>
               <div style={metricLabel}>This Week</div>
-              <div style={{ ...metricBig, fontSize: 28, color: weekHours > 40 ? "#F87171" : "var(--text-primary)" }}>{weekHours}h</div>
-              {weekHours > 40 && <div style={{ fontSize: 10, color: "#F87171", fontWeight: 600, marginTop: 4 }}>OT Alert: {Math.round((weekHours - 40) * 10) / 10}h overtime</div>}
+              <div style={{ ...metricBig, fontSize: 28, color: weekHours > 40 ? "var(--red)" : "var(--text-primary)" }}>{weekHours}h</div>
+              {weekHours > 40 && <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 600, marginTop: 4 }}>OT Alert: {Math.round((weekHours - 40) * 10) / 10}h overtime</div>}
             </div>
             <div style={{ ...card, position: "relative" }}>
               <div style={{ position: "absolute", top: 12, right: 12 }}>
@@ -2066,7 +2066,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   howTo="Two short shifts vs one long shift can mean different productivity — ask about consolidating if your scores are slipping mid-shift." />
               </div>
               <div style={metricLabel}>Shifts This Week</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "#00D4FF" }}>{weekShifts.length}</div>
+              <div style={{ ...metricBig, fontSize: 28, color: "var(--cyan)" }}>{weekShifts.length}</div>
             </div>
           </div>
 
@@ -2077,16 +2077,16 @@ export default function MyPerformanceTab({ auth, store }) {
               <div style={{ display: "flex", gap: 2, background: "var(--bg-card-inner)", borderRadius: 8, padding: 2 }}>
                 <button onClick={function(){setScheduleWeek("this");}} style={{
                   padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                  background: scheduleWeek === "this" ? "#7B2FFF" : "transparent", color: scheduleWeek === "this" ? "#fff" : "var(--text-muted)",
+                  background: scheduleWeek === "this" ? "var(--purple)" : "transparent", color: scheduleWeek === "this" ? "#fff" : "var(--text-muted)",
                 }}>This Week</button>
                 <button onClick={function(){setScheduleWeek("next");}} style={{
                   padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 700,
-                  background: scheduleWeek === "next" ? "#FF2D95" : "transparent", color: scheduleWeek === "next" ? "#fff" : "var(--text-muted)",
+                  background: scheduleWeek === "next" ? "var(--pink)" : "transparent", color: scheduleWeek === "next" ? "#fff" : "var(--text-muted)",
                 }}>Next Week</button>
               </div>
             </div>
             {loadErrors.shifts ? (
-              <div style={{ padding: 20, textAlign: "center", color: "#F87171", fontSize: 13 }}>Failed to load schedule. Tap Refresh to retry.</div>
+              <div style={{ padding: 20, textAlign: "center", color: "var(--red)", fontSize: 13 }}>Failed to load schedule. Tap Refresh to retry.</div>
             ) : (() => {
               // Build 7 cards for the active week (Monday → Sunday)
               var todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" }); // YYYY-MM-DD
@@ -2114,7 +2114,7 @@ export default function MyPerformanceTab({ auth, store }) {
                     var timeRange = hasShift ? formatShiftTime(d.shift.start_time, d.shift.end_time) : "";
                     var hours = hasShift ? parseFloat(d.shift.hours || 0).toFixed(1) : "";
                     var bg = d.isToday ? "linear-gradient(135deg, #7B2FFF18, #00D4FF12)" : hasShift ? "var(--bg-card-inner)" : "transparent";
-                    var border = d.isToday ? "2px solid #7B2FFF" : hasShift ? "1px solid var(--border)" : "1px dashed var(--border)";
+                    var border = d.isToday ? "2px solid var(--purple)" : hasShift ? "1px solid var(--border)" : "1px dashed var(--border)";
                     return (
                       <div key={d.iso} style={{
                         background: bg, border: border, borderRadius: 10, padding: "12px 8px",
@@ -2122,14 +2122,14 @@ export default function MyPerformanceTab({ auth, store }) {
                         display: "flex", flexDirection: "column", justifyContent: "space-between",
                         position: "relative",
                       }}>
-                        {d.isToday && <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", background: "#7B2FFF", color: "#fff", fontSize: 8, fontWeight: 800, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Today</div>}
+                        {d.isToday && <div style={{ position: "absolute", top: -8, left: "50%", transform: "translateX(-50%)", background: "var(--purple)", color: "#fff", fontSize: 8, fontWeight: 800, padding: "2px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: "0.05em" }}>Today</div>}
                         <div>
                           <div style={{ fontSize: 10, fontWeight: 700, color: hasShift ? "var(--text-secondary)" : "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.05em" }}>{d.dayLabel}</div>
                           <div style={{ fontSize: 20, fontWeight: 800, color: hasShift ? "var(--text-primary)" : "var(--text-muted)", marginTop: 2 }}>{d.dateNum}</div>
                         </div>
                         {hasShift ? (
                           <div style={{ marginTop: 6 }}>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: "#00D4FF" }}>{timeRange}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: "var(--cyan)" }}>{timeRange}</div>
                             <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>{hours}h</div>
                           </div>
                         ) : (
@@ -2166,7 +2166,7 @@ export default function MyPerformanceTab({ auth, store }) {
               ].map(function(p) {
                 return <button key={p.id} onClick={function(){setTicketPeriod(p.id);}} style={{
                   padding: "5px 10px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 700,
-                  background: ticketPeriod === p.id ? "#7B2FFF" : "transparent", color: ticketPeriod === p.id ? "#fff" : "var(--text-muted)",
+                  background: ticketPeriod === p.id ? "var(--purple)" : "transparent", color: ticketPeriod === p.id ? "#fff" : "var(--text-muted)",
                 }}>{p.label}</button>;
               })}
             </div>
@@ -2202,11 +2202,11 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
             <div style={card}>
               <div style={metricLabel}>Avg Turnaround</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "#00D4FF" }}>{avgTA > 0 ? avgTA + "h" : "\u2014"}</div>
+              <div style={{ ...metricBig, fontSize: 28, color: "var(--cyan)" }}>{avgTA > 0 ? avgTA + "h" : "\u2014"}</div>
             </div>
             <div style={card}>
               <div style={metricLabel}>Avg GPM</div>
-              <div style={{ ...metricBig, fontSize: 28, color: "#4ADE80" }}>{avgGPM > 0 ? avgGPM + "%" : "\u2014"}</div>
+              <div style={{ ...metricBig, fontSize: 28, color: "var(--green)" }}>{avgGPM > 0 ? avgGPM + "%" : "\u2014"}</div>
             </div>
           </div>
 
@@ -2236,7 +2236,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           <span style={{ color: "var(--text-primary)", fontSize: 12, fontWeight: 500 }}>{cat.replace("_", " ")}</span>
                         </div>
                         <div style={{ textAlign: "right" }}>
-                          <span style={{ color: "#00D4FF", fontSize: 14, fontWeight: 700 }}>{data.count}</span>
+                          <span style={{ color: "var(--cyan)", fontSize: 14, fontWeight: 700 }}>{data.count}</span>
                           {avgTA > 0 && <span style={{ color: "var(--text-muted)", fontSize: 10, marginLeft: 6 }}>{avgTA}h avg</span>}
                         </div>
                       </div>
@@ -2256,21 +2256,21 @@ export default function MyPerformanceTab({ auth, store }) {
                   var slowest = sorted.slice(-3).reverse();
                   return (
                     <div>
-                      <div style={{ fontSize: 10, color: "#4ADE80", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Fastest</div>
+                      <div style={{ fontSize: 10, color: "var(--green)", fontWeight: 700, textTransform: "uppercase", marginBottom: 6 }}>Fastest</div>
                       {fastest.map(function(t) {
                         return (
                           <div key={t.ticket_number + "f"} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
                             <span style={{ color: "var(--text-body)" }}>{(t.device || "#" + t.ticket_number).substring(0, 30)}</span>
-                            <span style={{ color: "#4ADE80", fontWeight: 700 }}>{t.turnaround_hours}h</span>
+                            <span style={{ color: "var(--green)", fontWeight: 700 }}>{t.turnaround_hours}h</span>
                           </div>
                         );
                       })}
-                      <div style={{ fontSize: 10, color: "#F87171", fontWeight: 700, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>Slowest</div>
+                      <div style={{ fontSize: 10, color: "var(--red)", fontWeight: 700, textTransform: "uppercase", marginTop: 10, marginBottom: 6 }}>Slowest</div>
                       {slowest.map(function(t) {
                         return (
                           <div key={t.ticket_number + "s"} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontSize: 11 }}>
                             <span style={{ color: "var(--text-body)" }}>{(t.device || "#" + t.ticket_number).substring(0, 30)}</span>
-                            <span style={{ color: "#F87171", fontWeight: 700 }}>{t.turnaround_hours}h</span>
+                            <span style={{ color: "var(--red)", fontWeight: 700 }}>{t.turnaround_hours}h</span>
                           </div>
                         );
                       })}
@@ -2299,9 +2299,9 @@ export default function MyPerformanceTab({ auth, store }) {
                   return (
                     <div>
                       {[
-                        { label: "Checked In + Repaired", count: bothCount, color: "#4ADE80", desc: "Full ticket ownership" },
-                        { label: "Repaired Only", count: repairedCount, color: "#00D4FF", desc: "Someone else checked in" },
-                        { label: "Added Only", count: addedCount, color: "#FBBF24", desc: "Someone else repaired" },
+                        { label: "Checked In + Repaired", count: bothCount, color: "var(--green)", desc: "Full ticket ownership" },
+                        { label: "Repaired Only", count: repairedCount, color: "var(--cyan)", desc: "Someone else checked in" },
+                        { label: "Added Only", count: addedCount, color: "var(--yellow)", desc: "Someone else repaired" },
                       ].map(function(role) {
                         var pct = total > 0 ? Math.round(role.count / total * 100) : 0;
                         return (
@@ -2355,9 +2355,9 @@ export default function MyPerformanceTab({ auth, store }) {
                   var roleBadge = (function() {
                     if (isSale) return null;
                     if (!t.your_role) return null;
-                    if (t.your_role === "intake") return { label: "Intake", color: "#00D4FF", icon: "\uD83D\uDCDD" };
-                    if (t.your_role === "repair") return { label: "Repair", color: "#7B2FFF", icon: "\uD83D\uDD27" };
-                    if (t.your_role === "both") return { label: "Both Roles", color: "#FBBF24", icon: "\u2728" };
+                    if (t.your_role === "intake") return { label: "Intake", color: "var(--cyan)", icon: "\uD83D\uDCDD" };
+                    if (t.your_role === "repair") return { label: "Repair", color: "var(--purple)", icon: "\uD83D\uDD27" };
+                    if (t.your_role === "both") return { label: "Both Roles", color: "var(--yellow)", icon: "\u2728" };
                     return null;
                   })();
                   return (
@@ -2369,8 +2369,8 @@ export default function MyPerformanceTab({ auth, store }) {
                           {isSale && <span style={{ width: 12 }} />}
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                              <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "#00D4FF", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
-                              {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: isSale ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: isSale ? "#FBBF24" : t.ticket_type === "Claim" ? "#00D4FF" : "#4ADE80" }}>{t.ticket_type}</span>}
+                              <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" onClick={function(e){e.stopPropagation();}} style={{ color: "var(--cyan)", fontSize: 13, fontWeight: 600, textDecoration: "none" }}>#{t.ticket_number}</a>
+                              {t.ticket_type && <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: isSale ? "#FBBF2418" : t.ticket_type === "Claim" ? "#00D4FF18" : "#4ADE8018", color: isSale ? "var(--yellow)" : t.ticket_type === "Claim" ? "var(--cyan)" : "var(--green)" }}>{t.ticket_type}</span>}
                               {roleBadge && (
                                 <span style={{ padding: "1px 6px", borderRadius: 3, fontSize: 9, fontWeight: 700, background: roleBadge.color + "22", color: roleBadge.color, display: "inline-flex", alignItems: "center", gap: 3 }}>
                                   <span>{roleBadge.icon}</span><span>Your role: {roleBadge.label}</span>
@@ -2426,7 +2426,7 @@ export default function MyPerformanceTab({ auth, store }) {
                             );
                           })}
                           {roleSplit && (
-                            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 6, background: "#7B2FFF11", borderLeft: "3px solid #7B2FFF", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                            <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 6, background: "#7B2FFF11", borderLeft: "3px solid var(--purple)", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                               {"\u2728"} <strong>Your role on this ticket: {t.your_role === "intake" ? "Intake" : "Repair"}</strong> — your score reflects only the categories you control. Dimmed rows above are scored against the other tech who handled them.
                             </div>
                           )}
@@ -2442,16 +2442,16 @@ export default function MyPerformanceTab({ auth, store }) {
                               <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", fontWeight: 700, marginBottom: 6 }}>Ticket Financials</div>
                               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(110px, 1fr))", gap: 10 }}>
                                 {t.total_collected != null && (
-                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Total Collected</div><div style={{ fontSize: 13, fontWeight: 700, color: "#00D4FF" }}>{fmt(t.total_collected)}</div></div>
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Total Collected</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--cyan)" }}>{fmt(t.total_collected)}</div></div>
                                 )}
                                 {t.total_cost != null && (
                                   <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Cost of Parts</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-secondary)" }}>{fmt(t.total_cost)}</div></div>
                                 )}
                                 {t.gross_profit != null && (
-                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Gross Profit</div><div style={{ fontSize: 13, fontWeight: 700, color: "#4ADE80" }}>{fmt(t.gross_profit)}</div></div>
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Gross Profit</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--green)" }}>{fmt(t.gross_profit)}</div></div>
                                 )}
                                 {t.discount_amount > 0 && (
-                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Discount</div><div style={{ fontSize: 13, fontWeight: 700, color: "#FBBF24" }}>-{fmt(t.discount_amount)}</div></div>
+                                  <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Discount</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--yellow)" }}>-{fmt(t.discount_amount)}</div></div>
                                 )}
                                 {t.payment_method && (
                                   <div><div style={{ fontSize: 9, color: "var(--text-muted)" }}>Payment Method</div><div style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>{t.payment_method}</div></div>
@@ -2464,7 +2464,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           )}
 
                           <div style={{ marginTop: 12, fontSize: 11, color: "var(--text-muted)" }}>
-                            <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "#00D4FF", textDecoration: "none" }}>Open ticket #{t.ticket_number} in RepairQ \u2197</a>
+                            <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener" style={{ color: "var(--cyan)", textDecoration: "none" }}>Open ticket #{t.ticket_number} in RepairQ \u2197</a>
                           </div>
                         </div>
                       )}
@@ -2625,7 +2625,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   </div>
                   {callStats.highlightedCount > 0 && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 11, color: "#7B2FFF", fontWeight: 700 }}>
+                      <span style={{ fontSize: 11, color: "var(--purple)", fontWeight: 700 }}>
                         {"\u2728"} {callStats.highlightedCount} pinned from coaching
                       </span>
                       <button onClick={function(){ setHighlightedCalls([]); }}
@@ -2636,7 +2636,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   )}
                 </div>
                 {loadErrors.coachingCallNotFound && (
-                  <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: 8, background: "#F8717115", border: "1px solid #F8717155", color: "#F87171", fontSize: 12 }}>
+                  <div style={{ padding: "10px 12px", marginBottom: 12, borderRadius: 8, background: "#F8717115", border: "1px solid #F8717155", color: "var(--red)", fontSize: 12 }}>
                     {"\u26A0\uFE0F"} Call <strong>{loadErrors.coachingCallNotFound}</strong> isn't in your last 30 days of audit data. The AI cited it but it may be older than the data we currently fetch.
                   </div>
                 )}
@@ -2649,7 +2649,7 @@ export default function MyPerformanceTab({ auth, store }) {
 
                   return (
                     <div key={audit.call_id || i} data-call-anchor={audit.call_id || ""}
-                      style={{ borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none", background: isHighlighted ? "#7B2FFF08" : "transparent", marginLeft: isHighlighted ? -8 : 0, marginRight: isHighlighted ? -8 : 0, paddingLeft: isHighlighted ? 8 : 0, paddingRight: isHighlighted ? 8 : 0, borderLeft: isHighlighted ? "3px solid #7B2FFF" : "none" }}>
+                      style={{ borderBottom: i < callStats.recent.length - 1 ? "1px solid var(--border)" : "none", background: isHighlighted ? "#7B2FFF08" : "transparent", marginLeft: isHighlighted ? -8 : 0, marginRight: isHighlighted ? -8 : 0, paddingLeft: isHighlighted ? 8 : 0, paddingRight: isHighlighted ? 8 : 0, borderLeft: isHighlighted ? "3px solid var(--purple)" : "none" }}>
                       <div onClick={function(){ setExpandedCall(isExpanded ? null : (audit.call_id || i)); }}
                         style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", cursor: "pointer" }}>
                         <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
@@ -2657,7 +2657,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           <div style={{ flex: 1 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                               <span style={{ color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{audit.caller_name || audit.phone_number || "Unknown Caller"}</span>
-                              {isHighlighted && <span style={{ fontSize: 9, fontWeight: 700, color: "#7B2FFF", background: "#7B2FFF22", padding: "2px 6px", borderRadius: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>{"\u2728"} From Coaching</span>}
+                              {isHighlighted && <span style={{ fontSize: 9, fontWeight: 700, color: "var(--purple)", background: "#7B2FFF22", padding: "2px 6px", borderRadius: 3, textTransform: "uppercase", letterSpacing: "0.05em" }}>{"\u2728"} From Coaching</span>}
                             </div>
                             <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 2 }}>
                               {audit.date_started ? new Date(audit.date_started).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
@@ -2704,10 +2704,10 @@ export default function MyPerformanceTab({ auth, store }) {
                                 <div key={ci} style={{
                                   padding: "8px 12px", borderRadius: 6,
                                   background: crit.passed ? "#4ADE8010" : "#F8717110",
-                                  borderLeft: "3px solid " + (crit.passed ? "#4ADE80" : "#F87171"),
+                                  borderLeft: "3px solid " + (crit.passed ? "var(--green)" : "var(--red)"),
                                 }}>
                                   <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-                                    <span style={{ fontSize: 14, color: crit.passed ? "#4ADE80" : "#F87171", fontWeight: 800 }}>{crit.passed ? "\u2713" : "\u2715"}</span>
+                                    <span style={{ fontSize: 14, color: crit.passed ? "var(--green)" : "var(--red)", fontWeight: 800 }}>{crit.passed ? "\u2713" : "\u2715"}</span>
                                     <div style={{ flex: 1 }}>
                                       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)" }}>{crit.label}</div>
                                       {crit.notes && <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.4, fontStyle: "italic" }}>"{crit.notes}"</div>}
@@ -2757,11 +2757,11 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
                   <div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Per Employee Bonus This Month</div>
-                    <div style={{ fontSize: 42, fontWeight: 900, color: "#FBBF24" }}>{fmt(reviewBonus.perEmployee)}</div>
+                    <div style={{ fontSize: 42, fontWeight: 900, color: "var(--yellow)" }}>{fmt(reviewBonus.perEmployee)}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Store Total Payout</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "#4ADE80" }}>{fmt(reviewBonus.totalPayout)}</div>
+                    <div style={{ fontSize: 24, fontWeight: 700, color: "var(--green)" }}>{fmt(reviewBonus.totalPayout)}</div>
                   </div>
                 </div>
 
@@ -2772,10 +2772,10 @@ export default function MyPerformanceTab({ auth, store }) {
                     <span>Minimum: {reviewBonus.minimum}</span>
                   </div>
                   <div style={{ background: "var(--bg-card-inner)", borderRadius: 4, height: 8, overflow: "hidden" }}>
-                    <div style={{ width: Math.min(100, reviewBonus.totalReviews / reviewBonus.minimum * 100) + "%", height: "100%", borderRadius: 4, background: reviewBonus.totalReviews >= reviewBonus.minimum ? "#4ADE80" : "#FBBF24" }} />
+                    <div style={{ width: Math.min(100, reviewBonus.totalReviews / reviewBonus.minimum * 100) + "%", height: "100%", borderRadius: 4, background: reviewBonus.totalReviews >= reviewBonus.minimum ? "var(--green)" : "var(--yellow)" }} />
                   </div>
                   {reviewBonus.totalReviews < reviewBonus.minimum && (
-                    <div style={{ fontSize: 11, color: "#FBBF24", marginTop: 4 }}>{reviewBonus.minimum - reviewBonus.totalReviews} more reviews needed to unlock bonuses</div>
+                    <div style={{ fontSize: 11, color: "var(--yellow)", marginTop: 4 }}>{reviewBonus.minimum - reviewBonus.totalReviews} more reviews needed to unlock bonuses</div>
                   )}
                 </div>
 
@@ -2783,12 +2783,12 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
                   <div style={cardInner}>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Reviews Above Min</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.aboveMin > 0 ? "#4ADE80" : "var(--text-muted)" }}>{reviewBonus.aboveMin}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.aboveMin > 0 ? "var(--green)" : "var(--text-muted)" }}>{reviewBonus.aboveMin}</div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.reviewPayout)}</div>
                   </div>
                   <div style={cardInner}>
                     <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Photo Reviews</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.photoReviews > 0 ? "#FF2D95" : "var(--text-muted)" }}>{reviewBonus.photoReviews}</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.photoReviews > 0 ? "var(--pink)" : "var(--text-muted)" }}>{reviewBonus.photoReviews}</div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.photoPayout)}</div>
                   </div>
                   <div style={cardInner}>
@@ -2830,8 +2830,8 @@ export default function MyPerformanceTab({ auth, store }) {
                         <span style={{ color: "var(--text-primary)", fontSize: 13 }}>{h.period}</span>
                         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
                           <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{h.total_reviews || 0} reviews</span>
-                          <span style={{ color: "#FF2D95", fontSize: 12 }}>{h.photo_reviews || 0} photos</span>
-                          <span style={{ color: "#FBBF24", fontSize: 13, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
+                          <span style={{ color: "var(--pink)", fontSize: 12 }}>{h.photo_reviews || 0} photos</span>
+                          <span style={{ color: "var(--yellow)", fontSize: 13, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
                             {(function() {
                               var above = Math.max(0, (h.total_reviews || 0) - 10);
                               var bonus = above * 5 + (h.photo_reviews || 0) * 5;
@@ -2861,7 +2861,7 @@ export default function MyPerformanceTab({ auth, store }) {
       {subTab === "advanced" && (
         <div>
           <div style={{ marginBottom: 14, padding: "12px 16px", background: "#00D4FF0A", border: "1px solid #00D4FF33", borderRadius: 10 }}>
-            <div style={{ color: "#00D4FF", fontSize: 13, fontWeight: 800, marginBottom: 3 }}>Advanced Repair Traffic</div>
+            <div style={{ color: "var(--cyan)", fontSize: 13, fontWeight: 800, marginBottom: 3 }}>Advanced Repair Traffic</div>
             <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>
               Non-phone repair profit across all three stores &mdash; consoles, tablets, computers and misc.
               This is the figure the monthly threshold bonus is paid on: $100 at $15,000, then $50 per full $1,000 above.
@@ -2882,7 +2882,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 The AI coach analyzes your <strong>current</strong> performance to suggest the next behavior change worth making. Switch back to the current period to view your latest plan.
               </div>
               <button onClick={function() { setSelectedPeriod(currentPeriodValue); }}
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, var(--pink), var(--purple))", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
                 {"\u2190"} Back to Current Period
               </button>
             </div>
@@ -2893,7 +2893,7 @@ export default function MyPerformanceTab({ auth, store }) {
             <div style={{ ...card, marginBottom: 20, border: unreadNotesCount > 0 ? "2px solid #FF2D9555" : "1px solid var(--border)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"\uD83D\uDCAC"}</div>
+                  <div style={{ width: 36, height: 36, borderRadius: "50%", background: "linear-gradient(135deg, var(--pink), var(--purple))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{"\uD83D\uDCAC"}</div>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>Notes from your manager</div>
                     <div style={{ fontSize: 11, color: "var(--text-secondary)" }}>
@@ -2913,14 +2913,14 @@ export default function MyPerformanceTab({ auth, store }) {
                   <div key={note.id} style={{
                     padding: 14, borderRadius: 8, marginBottom: 10,
                     background: unread ? "#FF2D9510" : "var(--bg-card-inner)",
-                    borderLeft: "3px solid " + (unread ? "#FF2D95" : "var(--border)"),
+                    borderLeft: "3px solid " + (unread ? "var(--pink)" : "var(--border)"),
                   }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6, gap: 8 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: unread ? "#FF2D95" : "var(--text-muted)" }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: unread ? "var(--pink)" : "var(--text-muted)" }}>
                           {note.from_admin || "Manager"}
                         </span>
-                        {unread && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "#FF2D95", color: "#fff", fontWeight: 800 }}>NEW</span>}
+                        {unread && <span style={{ fontSize: 9, padding: "2px 6px", borderRadius: 3, background: "var(--pink)", color: "#fff", fontWeight: 800 }}>NEW</span>}
                       </div>
                       <span style={{ fontSize: 10, color: "var(--text-muted)" }}>
                         {note.created_at ? new Date(note.created_at).toLocaleDateString([], { month: "short", day: "numeric" }) : ""}
@@ -2930,7 +2930,7 @@ export default function MyPerformanceTab({ auth, store }) {
                     {unread ? (
                       <div style={{ marginTop: 12, display: "flex", gap: 8, alignItems: "center" }}>
                         <button onClick={function() { acknowledgeNote(note.id); }} disabled={ackingNoteId === note.id}
-                          style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "#FF2D95", color: "#fff", fontSize: 11, fontWeight: 700, cursor: ackingNoteId === note.id ? "wait" : "pointer", opacity: ackingNoteId === note.id ? 0.6 : 1 }}>
+                          style={{ padding: "6px 14px", borderRadius: 6, border: "none", background: "var(--pink)", color: "#fff", fontSize: 11, fontWeight: 700, cursor: ackingNoteId === note.id ? "wait" : "pointer", opacity: ackingNoteId === note.id ? 0.6 : 1 }}>
                           {ackingNoteId === note.id ? "Saving…" : "\u2713 Got it"}
                         </button>
                       </div>
@@ -2947,14 +2947,14 @@ export default function MyPerformanceTab({ auth, store }) {
           <div style={card}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{"\uD83D\uDE80"}</div>
+                <div style={{ width: 40, height: 40, borderRadius: "50%", background: "linear-gradient(135deg, var(--pink), var(--purple))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>{"\uD83D\uDE80"}</div>
                 <div>
                   <div style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>AI Performance Coach</div>
                   <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>Personalized insights based on your actual performance data</div>
                 </div>
               </div>
               <button onClick={generateCoaching} disabled={coachingLoading || !empScore}
-                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: coachingLoading ? "var(--bg-card-inner)" : "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 12, fontWeight: 700, cursor: coachingLoading ? "wait" : "pointer" }}>
+                style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: coachingLoading ? "var(--bg-card-inner)" : "linear-gradient(135deg, var(--pink), var(--purple))", color: "#fff", fontSize: 12, fontWeight: 700, cursor: coachingLoading ? "wait" : "pointer" }}>
                 {coachingLoading ? "Analyzing..." : coachingInsight ? "Refresh Coaching" : "Generate My Plan"}
               </button>
             </div>
@@ -2966,22 +2966,22 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
                   {(function() {
                     var areas = [
-                      { name: "Repairs", score: empScore.repairs?.score || 0, color: "#00D4FF" },
-                      { name: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, color: "#7B2FFF" },
-                      { name: "Compliance", score: empScore.compliance?.score || 0, color: "#FF2D95" },
+                      { name: "Repairs", score: empScore.repairs?.score || 0, color: "var(--cyan)" },
+                      { name: "Phone Audit", score: empScore.audit?.avg_pct || empScore.audit?.score || 0, color: "var(--purple)" },
+                      { name: "Compliance", score: empScore.compliance?.score || 0, color: "var(--pink)" },
                     ].sort(function(a, b) { return a.score - b.score; });
 
                     return areas.map(function(area) {
                       var isWeakest = area === areas[0];
                       var isStrongest = area === areas[areas.length - 1];
                       return (
-                        <div key={area.name} style={{ ...cardInner, borderLeft: "3px solid " + (isWeakest ? "#F87171" : isStrongest ? "#4ADE80" : area.color) }}>
+                        <div key={area.name} style={{ ...cardInner, borderLeft: "3px solid " + (isWeakest ? "var(--red)" : isStrongest ? "var(--green)" : area.color) }}>
                           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
                             <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)" }}>{area.name}</span>
                             <span style={{ fontSize: 16, fontWeight: 800, color: sc(area.score, 70, 50) }}>{Math.round(area.score)}</span>
                           </div>
-                          {isWeakest && <div style={{ fontSize: 9, color: "#F87171", fontWeight: 600 }}>Biggest opportunity</div>}
-                          {isStrongest && <div style={{ fontSize: 9, color: "#4ADE80", fontWeight: 600 }}>Your strength</div>}
+                          {isWeakest && <div style={{ fontSize: 9, color: "var(--red)", fontWeight: 600 }}>Biggest opportunity</div>}
+                          {isStrongest && <div style={{ fontSize: 9, color: "var(--green)", fontWeight: 600 }}>Your strength</div>}
                         </div>
                       );
                     });
@@ -3005,8 +3005,8 @@ export default function MyPerformanceTab({ auth, store }) {
 
             {/* AI-generated coaching plan */}
             {coachingInsight && (
-              <div style={{ ...cardInner, borderLeft: "3px solid #7B2FFF" }}>
-                <div style={{ fontSize: 10, color: "#7B2FFF", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Your Personalized Coaching Plan</div>
+              <div style={{ ...cardInner, borderLeft: "3px solid var(--purple)" }}>
+                <div style={{ fontSize: 10, color: "var(--purple)", fontWeight: 700, textTransform: "uppercase", marginBottom: 10 }}>Your Personalized Coaching Plan</div>
                 <div style={{ color: "var(--text-body)", fontSize: 13, lineHeight: 1.75 }}>
                   {(function() {
                     // Inline parser for **bold** and [text](url) links.
@@ -3051,14 +3051,14 @@ export default function MyPerformanceTab({ auth, store }) {
                                     if (el && el.scrollIntoView) el.scrollIntoView({ behavior: "smooth", block: "center" });
                                   }, 200);
                                 }}
-                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #00D4FF55", background: "#00D4FF14", color: "#00D4FF", fontSize: 12, fontWeight: 700, cursor: "pointer", margin: "0 1px" }}>
+                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #00D4FF55", background: "#00D4FF14", color: "var(--cyan)", fontSize: 12, fontWeight: 700, cursor: "pointer", margin: "0 1px" }}>
                                 {"\uD83D\uDCDE "}{label}
                               </button>
                             );
                           } else {
                             nodes.push(
                               <a key={lineKey + "-" + (i++)} href={target} target="_blank" rel="noopener"
-                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #FBBF2455", background: "#FBBF2414", color: "#FBBF24", fontSize: 12, fontWeight: 700, textDecoration: "none", margin: "0 1px" }}>
+                                style={{ display: "inline", padding: "1px 6px", borderRadius: 4, border: "1px solid #FBBF2455", background: "#FBBF2414", color: "var(--yellow)", fontSize: 12, fontWeight: 700, textDecoration: "none", margin: "0 1px" }}>
                                 {"\uD83C\uDFAB "}{label}{" \u2197"}
                               </a>
                             );
@@ -3093,7 +3093,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   })()}
                 </div>
                 <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid var(--border)", fontSize: 10, color: "var(--text-muted)" }}>
-                  {"\uD83D\uDCA1"} Click any <span style={{ color: "#00D4FF", fontWeight: 700 }}>📞 Call</span> link to jump to that audit on the My Calls tab. <span style={{ color: "#FBBF24", fontWeight: 700 }}>🎫 Ticket</span> links open RepairQ.
+                  {"\uD83D\uDCA1"} Click any <span style={{ color: "var(--cyan)", fontWeight: 700 }}>📞 Call</span> link to jump to that audit on the My Calls tab. <span style={{ color: "var(--yellow)", fontWeight: 700 }}>🎫 Ticket</span> links open RepairQ.
                 </div>
               </div>
             )}
@@ -3104,7 +3104,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ color: "var(--text-primary)", fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Ready for Your Weekly Game Plan?</div>
                 <div style={{ color: "var(--text-muted)", fontSize: 12, marginBottom: 16 }}>Our AI coach analyzes your repairs, calls, tickets, and scores to create a personalized improvement plan just for you.</div>
                 <button onClick={generateCoaching} disabled={!empScore}
-                  style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, #FF2D95, #7B2FFF)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: empScore ? "pointer" : "not-allowed" }}>
+                  style={{ padding: "10px 24px", borderRadius: 8, border: "none", background: "linear-gradient(135deg, var(--pink), var(--purple))", color: "#fff", fontSize: 13, fontWeight: 700, cursor: empScore ? "pointer" : "not-allowed" }}>
                   Generate My Coaching Plan
                 </button>
               </div>
@@ -3112,15 +3112,15 @@ export default function MyPerformanceTab({ auth, store }) {
 
             {coachingLoading && (
               <div style={{ ...cardInner, textAlign: "center", padding: 30 }}>
-                <div style={{ width: 30, height: 30, margin: "0 auto 12px", border: "3px solid #7B2FFF", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
+                <div style={{ width: 30, height: 30, margin: "0 auto 12px", border: "3px solid var(--purple)", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 1s linear infinite" }} />
                 <div style={{ color: "var(--text-secondary)", fontSize: 13 }}>Analyzing your performance data and generating insights...</div>
                 <style>{"@keyframes spin { to { transform: rotate(360deg); } }"}</style>
               </div>
             )}
 
             {coachingError && !coachingLoading && (
-              <div style={{ ...cardInner, borderLeft: "3px solid #F87171", marginTop: 12 }}>
-                <div style={{ color: "#F87171", fontSize: 12, fontWeight: 600 }}>{coachingError}</div>
+              <div style={{ ...cardInner, borderLeft: "3px solid var(--red)", marginTop: 12 }}>
+                <div style={{ color: "var(--red)", fontSize: 12, fontWeight: 600 }}>{coachingError}</div>
               </div>
             )}
           </div>
