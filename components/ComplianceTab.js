@@ -1,12 +1,13 @@
 'use client';
 
 import { useState, useEffect, useMemo } from "react";
+import ZeroProfitTickets from "@/components/ZeroProfitTickets";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
 
 var STORE_KEYS = Object.keys(STORES);
 
-function scoreColor(s) { return s >= 80 ? "#4ADE80" : s >= 60 ? "#FBBF24" : s >= 40 ? "#FB923C" : "#F87171"; }
+function scoreColor(s) { return s >= 80 ? "var(--green)" : s >= 60 ? "var(--yellow)" : s >= 40 ? "var(--orange)" : "var(--red)"; }
 function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 
 // ── Role-split scoring helpers (April 2026) ──
@@ -39,10 +40,10 @@ function computeRepairRoleScore(t) {
 
 function StatCard({ label, value, sub, accent }) {
   return (
-    <div style={{ background:"#1A1D23",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
-      <div style={{ color:"#8B8F98",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em" }}>{label}</div>
-      <div style={{ color:"#F0F1F3",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
-      {sub && <div style={{ color:"#6B6F78",fontSize:12,marginTop:2 }}>{sub}</div>}
+    <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
+      <div style={{ color:"var(--text-secondary)",fontSize:11,textTransform:"uppercase",letterSpacing:"0.08em" }}>{label}</div>
+      <div style={{ color:"var(--text-primary)",fontSize:28,fontWeight:700,marginTop:4 }}>{value}</div>
+      {sub && <div style={{ color:"var(--text-muted)",fontSize:12,marginTop:2 }}>{sub}</div>}
     </div>
   );
 }
@@ -84,14 +85,14 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
   var SUBTABS = isEmployeeView
     ? [{ id: "overview", label: "My Compliance", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "My Tickets", icon: "\uD83C\uDFAB" }]
-    : [{ id: "overview", label: "Overview", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" }, { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" }];
+    : [{ id: "overview", label: "Overview", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" }, { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" }, { id: "zero_profit", label: "Zero / Negative Profit", icon: "\uD83D\uDCC9" }];
 
-  if (loading) return <div style={{ padding:40,textAlign:"center",color:"#6B6F78" }}>Loading compliance data...</div>;
+  if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading compliance data...</div>;
 
   var empChartData = stats && stats.empStats ? stats.empStats.slice(0, 15) : [];
   var storeChartData = stats && stats.storeStats ? stats.storeStats.map(function(s) {
     var store = STORES[s.store];
-    return { name: store ? store.name.replace("CPR ", "") : s.store, score: s.avg_score, count: s.count, color: store ? store.color : "#8B8F98" };
+    return { name: store ? store.name.replace("CPR ", "") : s.store, score: s.avg_score, count: s.count, color: store ? store.color : "var(--text-secondary)" };
   }) : [];
 
   return (
@@ -99,7 +100,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {/* Sub-nav */}
       <div style={{ display:"flex",gap:4,marginBottom:20 }}>
         {SUBTABS.map(function(v) {
-          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"#1A1D23",color:view===v.id?"#7B2FFF":"#8B8F98",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
+          return <button key={v.id} onClick={function(){setView(v.id);}} style={{ padding:"8px 14px",borderRadius:8,border:"none",cursor:"pointer",background:view===v.id?"#7B2FFF22":"var(--bg-card)",color:view===v.id?"var(--purple)":"var(--text-secondary)",fontSize:12,fontWeight:600 }}>{v.icon+" "+v.label}</button>;
         })}
       </div>
 
@@ -109,7 +110,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
           {stats && stats.total > 0 ? (
             <div>
               <div style={{ display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:14,marginBottom:24 }}>
-                <StatCard label="Tickets Graded" value={stats.total} accent="#7B2FFF" />
+                <StatCard label="Tickets Graded" value={stats.total} accent="var(--purple)" />
                 <StatCard label="Avg Score" value={stats.avgOverall + "/100"} accent={scoreColor(stats.avgOverall)} />
                 <StatCard label="Intake" value={stats.avgDiag + "%"} accent={scoreColor(stats.avgDiag)} />
                 <StatCard label="Repair Notes" value={stats.avgNotes + "%"} accent={scoreColor(stats.avgNotes)} />
@@ -118,17 +119,17 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
               {/* Store comparison */}
               {!isEmployeeView && storeChartData.length > 0 && (
-                <div style={{ background:"#1A1D23",borderRadius:12,padding:20,marginBottom:20 }}>
-                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Store</div>
+                <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
+                  <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Store</div>
                   <div style={{ display:"grid",gridTemplateColumns:"repeat("+storeChartData.length+",1fr)",gap:16 }}>
                     {storeChartData.map(function(s) {
                       var c = scoreColor(s.score);
                       return (
-                        <div key={s.name} style={{ textAlign:"center",background:"#12141A",borderRadius:10,padding:16 }}>
+                        <div key={s.name} style={{ textAlign:"center",background:"var(--bg-card-inner)",borderRadius:10,padding:16 }}>
                           <div style={{ color:s.color,fontSize:14,fontWeight:700,marginBottom:8 }}>{s.name}</div>
                           <div style={{ color:c,fontSize:32,fontWeight:800 }}>{s.score}</div>
-                          <div style={{ color:"#6B6F78",fontSize:11 }}>{s.count} tickets</div>
-                          <div style={{ background:"#1A1D23",borderRadius:4,height:6,overflow:"hidden",marginTop:8 }}>
+                          <div style={{ color:"var(--text-muted)",fontSize:11 }}>{s.count} tickets</div>
+                          <div style={{ background:"var(--bg-card)",borderRadius:4,height:6,overflow:"hidden",marginTop:8 }}>
                             <div style={{ width:s.score+"%",height:"100%",background:c,borderRadius:4 }} />
                           </div>
                         </div>
@@ -140,15 +141,15 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
               {/* Employee chart */}
               {!isEmployeeView && empChartData.length > 0 && (
-                <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
-                  <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Employee</div>
+                <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
+                  <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Compliance by Employee</div>
                   <div style={{ height:Math.max(200, empChartData.length * 36) }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={empChartData} layout="vertical">
-                        <CartesianGrid strokeDasharray="3 3" stroke="#2A2D35" horizontal={false} />
-                        <XAxis type="number" domain={[0,100]} tick={{fill:"#6B6F78",fontSize:10}} />
-                        <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:11}} width={120} />
-                        <Tooltip contentStyle={{background:"#1E2028",border:"1px solid #2A2D35",borderRadius:8}} formatter={function(v){return v+"/100";}} />
+                        <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
+                        <XAxis type="number" domain={[0,100]} tick={{fill:"var(--text-muted)",fontSize:10}} />
+                        <YAxis type="category" dataKey="name" tick={{fill:"var(--text-body)",fontSize:11}} width={120} />
+                        <Tooltip contentStyle={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8}} formatter={function(v){return v+"/100";}} />
                         <Bar dataKey="avg_score" name="Compliance Score" barSize={16} radius={[0,4,4,0]}>
                           {empChartData.map(function(entry, i) {
                             return <Cell key={i} fill={scoreColor(entry.avg_score)} />;
@@ -161,10 +162,10 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
               )}
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center" }}>
               <div style={{ fontSize:32,marginBottom:12 }}>{"\uD83D\uDD27"}</div>
-              <div style={{ color:"#F0F1F3",fontSize:15,fontWeight:700,marginBottom:8 }}>No tickets graded yet</div>
-              <div style={{ color:"#6B6F78",fontSize:13 }}>Use the Chrome extension on RepairQ to grade tickets. Results will appear here.</div>
+              <div style={{ color:"var(--text-primary)",fontSize:15,fontWeight:700,marginBottom:8 }}>No tickets graded yet</div>
+              <div style={{ color:"var(--text-muted)",fontSize:13 }}>Use the Chrome extension on RepairQ to grade tickets. Results will appear here.</div>
             </div>
           )}
         </div>
@@ -174,11 +175,11 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {view === "tickets" && (
         <div>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-            <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>Graded Tickets ({tickets.length})</div>
+            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Graded Tickets ({tickets.length})</div>
           </div>
           <input type="text" value={searchQuery} onChange={function(e){setSearchQuery(e.target.value);}}
             placeholder={"\uD83D\uDD0D Search by ticket #, customer name, phone, employee, device..."}
-            style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid #2A2D35",background:"#1A1D23",color:"#F0F1F3",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:12 }} />
+            style={{ width:"100%",padding:"10px 14px",borderRadius:8,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-primary)",fontSize:12,outline:"none",boxSizing:"border-box",marginBottom:12 }} />
           {(function() {
             var filtered = tickets;
             if (searchQuery.trim()) {
@@ -195,7 +196,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
             }
             var displayCount = searchQuery.trim() ? filtered.length + " of " + tickets.length : String(filtered.length);
             return filtered.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,overflow:"hidden" }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,overflow:"hidden" }}>
               {filtered.map(function(t) {
                 var sc = scoreColor(t.overall_score);
                 var isExpanded = expandedTicket === t.id;
@@ -207,33 +208,33 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                 if (!t.employee_added) intakeRoleScore = null;
                 if (!t.employee_repaired) repairRoleScore = null;
                 return (
-                  <div key={t.id} style={{ borderBottom:"1px solid #1E2028" }}>
+                  <div key={t.id} style={{ borderBottom:"1px solid var(--border-light)" }}>
                     <div onClick={function(){ setExpandedTicket(isExpanded ? null : t.id); }}
-                      style={{ padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:isExpanded?"#12141A":"transparent" }}>
+                      style={{ padding:"14px 20px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",background:isExpanded?"var(--bg-card-inner)":"transparent" }}>
                       <div style={{ display:"flex",alignItems:"center",gap:14 }}>
                         <div style={{ padding:"4px 10px",borderRadius:6,background:sc+"22",color:sc,fontSize:16,fontWeight:800,minWidth:50,textAlign:"center" }}>{t.overall_score}</div>
                         <div>
                           <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener noreferrer"
                             onClick={function(e){e.stopPropagation();}}
-                            style={{ color:"#F0F1F3",fontSize:13,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed #6B6F78" }}>{"#" + t.ticket_number}</a>
-                          <div style={{ color:"#6B6F78",fontSize:11 }}>
+                            style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,textDecoration:"none",borderBottom:"1px dashed var(--text-muted)" }}>{"#" + t.ticket_number}</a>
+                          <div style={{ color:"var(--text-muted)",fontSize:11 }}>
                             {t.ticket_type || "—"}
                             {store && <span style={{ marginLeft:8,color:store.color }}>{store.name.replace("CPR ","")}</span>}
                           </div>
                           {/* Role-split: show both employees with their per-role scores */}
                           {roleSplitOn ? (
-                            <div style={{ color:"#8B8F98",fontSize:10,marginTop:3,display:"flex",gap:10,flexWrap:"wrap" }}>
+                            <div style={{ color:"var(--text-secondary)",fontSize:10,marginTop:3,display:"flex",gap:10,flexWrap:"wrap" }}>
                               {t.employee_added && (
-                                <span><span style={{ color:"#00D4FF" }}>{"\uD83D\uDCDD Intake:"}</span> {t.employee_added}{intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontWeight:700,marginLeft:4 }}>{intakeRoleScore}</span>}</span>
+                                <span><span style={{ color:"var(--cyan)" }}>{"\uD83D\uDCDD Intake:"}</span> {t.employee_added}{intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontWeight:700,marginLeft:4 }}>{intakeRoleScore}</span>}</span>
                               )}
                               {t.employee_repaired && (
-                                <span><span style={{ color:"#7B2FFF" }}>{"\uD83D\uDD27 Repair:"}</span> {t.employee_repaired}{repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontWeight:700,marginLeft:4 }}>{repairRoleScore}</span>}</span>
+                                <span><span style={{ color:"var(--purple)" }}>{"\uD83D\uDD27 Repair:"}</span> {t.employee_repaired}{repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontWeight:700,marginLeft:4 }}>{repairRoleScore}</span>}</span>
                               )}
                             </div>
                           ) : (
-                            <div style={{ color:"#6B6F78",fontSize:11,marginTop:3 }}>
+                            <div style={{ color:"var(--text-muted)",fontSize:11,marginTop:3 }}>
                               {t.employee_repaired || t.employee_added || ""}
-                              <span style={{ marginLeft:6,fontSize:9,color:"#8B8F98",fontStyle:"italic" }}>(pre-April, shared score)</span>
+                              <span style={{ marginLeft:6,fontSize:9,color:"var(--text-secondary)",fontStyle:"italic" }}>(pre-April, shared score)</span>
                             </div>
                           )}
                         </div>
@@ -246,10 +247,10 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                           { label:"Pay", score:t.payment_score, role:"intake" },
                           { label:"Contact", score:t.contact_score || 0, role:"intake" },
                         ].map(function(cat) {
-                          var dotColor = cat.role === "intake" ? "#00D4FF" : "#7B2FFF";
+                          var dotColor = cat.role === "intake" ? "var(--cyan)" : "var(--purple)";
                           return (
                             <div key={cat.label} style={{ textAlign:"center" }}>
-                              <div style={{ color:"#8B8F98",fontSize:8,textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:3 }}>
+                              <div style={{ color:"var(--text-secondary)",fontSize:8,textTransform:"uppercase",display:"flex",alignItems:"center",justifyContent:"center",gap:3 }}>
                                 {roleSplitOn && <span style={{ width:5,height:5,borderRadius:"50%",background:dotColor,display:"inline-block" }} />}
                                 {cat.label}
                               </div>
@@ -261,59 +262,59 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                     </div>
 
                     {isExpanded && (
-                      <div style={{ padding:"0 20px 20px",background:"#12141A" }}>
+                      <div style={{ padding:"0 20px 20px",background:"var(--bg-card-inner)" }}>
                         {/* Role-split header — shows who's responsible for what + per-role overall scores */}
                         {roleSplitOn && (intakeRoleScore != null || repairRoleScore != null) && (
                           <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:14,paddingTop:14 }}>
                             <div style={{ background:"#00D4FF11",border:"1px solid #00D4FF44",borderRadius:8,padding:"12px 14px" }}>
                               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
-                                <span style={{ color:"#00D4FF",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDCDD Intake Role"}</span>
-                                {intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontSize:18,fontWeight:800 }}>{intakeRoleScore}<span style={{ color:"#6B6F78",fontSize:11,fontWeight:500 }}>/100</span></span>}
+                                <span style={{ color:"var(--cyan)",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDCDD Intake Role"}</span>
+                                {intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontSize:18,fontWeight:800 }}>{intakeRoleScore}<span style={{ color:"var(--text-muted)",fontSize:11,fontWeight:500 }}>/100</span></span>}
                               </div>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{t.employee_added || "—"}</div>
-                              <div style={{ color:"#8B8F98",fontSize:10,marginTop:2 }}>Diagnostics, Payment, Contact Info</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{t.employee_added || "—"}</div>
+                              <div style={{ color:"var(--text-secondary)",fontSize:10,marginTop:2 }}>Diagnostics, Payment, Contact Info</div>
                             </div>
                             <div style={{ background:"#7B2FFF11",border:"1px solid #7B2FFF44",borderRadius:8,padding:"12px 14px" }}>
                               <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:4 }}>
-                                <span style={{ color:"#7B2FFF",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDD27 Repair Role"}</span>
-                                {repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontSize:18,fontWeight:800 }}>{repairRoleScore}<span style={{ color:"#6B6F78",fontSize:11,fontWeight:500 }}>/100</span></span>}
+                                <span style={{ color:"var(--purple)",fontSize:10,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase" }}>{"\uD83D\uDD27 Repair Role"}</span>
+                                {repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontSize:18,fontWeight:800 }}>{repairRoleScore}<span style={{ color:"var(--text-muted)",fontSize:11,fontWeight:500 }}>/100</span></span>}
                               </div>
-                              <div style={{ color:"#F0F1F3",fontSize:13,fontWeight:600 }}>{t.employee_repaired || "—"}</div>
-                              <div style={{ color:"#8B8F98",fontSize:10,marginTop:2 }}>Repair Notes, Pickup</div>
+                              <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:600 }}>{t.employee_repaired || "—"}</div>
+                              <div style={{ color:"var(--text-secondary)",fontSize:10,marginTop:2 }}>Repair Notes, Pickup</div>
                             </div>
                           </div>
                         )}
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
                           {[
-                            { label:"Intake / Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"#7B2FFF" },
-                            { label:"Repair Notes",score:t.notes_score,notes:t.notes_detail,color:"#00D4FF" },
-                            { label:"Pickup / Completion",score:t.categorization_score,notes:t.categorization_notes,color:"#FF2D95" },
+                            { label:"Intake / Diagnostics",score:t.diagnostics_score,notes:t.diagnostics_notes,color:"var(--purple)" },
+                            { label:"Repair Notes",score:t.notes_score,notes:t.notes_detail,color:"var(--cyan)" },
+                            { label:"Pickup / Completion",score:t.categorization_score,notes:t.categorization_notes,color:"var(--pink)" },
                           ].map(function(cat) {
                             return (
-                              <div key={cat.label} style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid "+cat.color+"22" }}>
+                              <div key={cat.label} style={{ background:"var(--bg-page)",borderRadius:8,padding:14,border:"1px solid "+cat.color+"22" }}>
                                 <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
                                   <span style={{ color:cat.color,fontSize:11,fontWeight:700 }}>{cat.label}</span>
                                   <span style={{ color:scoreColor(cat.score),fontSize:14,fontWeight:800 }}>{cat.score}</span>
                                 </div>
-                                <div style={{ color:"#8B8F98",fontSize:11,lineHeight:1.4 }}>{cat.notes || "—"}</div>
+                                <div style={{ color:"var(--text-secondary)",fontSize:11,lineHeight:1.4 }}>{cat.notes || "—"}</div>
                               </div>
                             );
                           })}
                         </div>
                         <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12 }}>
-                          <div style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid #FBBF2422" }}>
+                          <div style={{ background:"var(--bg-page)",borderRadius:8,padding:14,border:"1px solid #FBBF2422" }}>
                             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
-                              <span style={{ color:"#FBBF24",fontSize:11,fontWeight:700 }}>Payment</span>
+                              <span style={{ color:"var(--yellow)",fontSize:11,fontWeight:700 }}>Payment</span>
                               <span style={{ color:scoreColor(t.payment_score),fontSize:14,fontWeight:800 }}>{t.payment_score}</span>
                             </div>
-                            <div style={{ color:"#8B8F98",fontSize:11,lineHeight:1.4 }}>{t.payment_notes || "—"}</div>
+                            <div style={{ color:"var(--text-secondary)",fontSize:11,lineHeight:1.4 }}>{t.payment_notes || "—"}</div>
                           </div>
-                          <div style={{ background:"#0F1117",borderRadius:8,padding:14,border:"1px solid #4ADE8022" }}>
+                          <div style={{ background:"var(--bg-page)",borderRadius:8,padding:14,border:"1px solid #4ADE8022" }}>
                             <div style={{ display:"flex",justifyContent:"space-between",marginBottom:6 }}>
-                              <span style={{ color:"#4ADE80",fontSize:11,fontWeight:700 }}>Contact Info</span>
+                              <span style={{ color:"var(--green)",fontSize:11,fontWeight:700 }}>Contact Info</span>
                               <span style={{ color:scoreColor(t.contact_score || 0),fontSize:14,fontWeight:800 }}>{t.contact_score || 0}</span>
                             </div>
-                            <div style={{ color:"#8B8F98",fontSize:11,lineHeight:1.4 }}>{t.contact_notes || "—"}</div>
+                            <div style={{ color:"var(--text-secondary)",fontSize:11,lineHeight:1.4 }}>{t.contact_notes || "—"}</div>
                           </div>
                         </div>
                         <div style={{ display:"flex",gap:8,flexWrap:"wrap",marginBottom:8 }}>
@@ -321,11 +322,11 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                           <span style={{ fontSize:11 }}>{t.notes_customer_contacted ? "\u2705" : "\u274C"} Customer contacted for pickup</span>
                         </div>
                         <div style={{ display:"flex",gap:16,flexWrap:"wrap" }}>
-                          {t.device && <div style={{ color:"#6B6F78",fontSize:11 }}>Device: {t.device}</div>}
-                          {!isEmployeeView && t.customer_name && <div style={{ color:"#6B6F78",fontSize:11 }}>Customer: {t.customer_name}</div>}
-                          {t.date_closed && <div style={{ color:"#6B6F78",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
+                          {t.device && <div style={{ color:"var(--text-muted)",fontSize:11 }}>Device: {t.device}</div>}
+                          {!isEmployeeView && t.customer_name && <div style={{ color:"var(--text-muted)",fontSize:11 }}>Customer: {t.customer_name}</div>}
+                          {t.date_closed && <div style={{ color:"var(--text-muted)",fontSize:11 }}>Closed: {new Date(t.date_closed).toLocaleDateString()}</div>}
                           <a href={"https://cpr.repairq.io/ticket/" + t.ticket_number} target="_blank" rel="noopener noreferrer"
-                            style={{ display:"inline-block",marginTop:6,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"#7B2FFF",fontSize:10,fontWeight:600,textDecoration:"none" }}>
+                            style={{ display:"inline-block",marginTop:6,padding:"4px 10px",borderRadius:4,background:"#7B2FFF18",border:"1px solid #7B2FFF33",color:"var(--purple)",fontSize:10,fontWeight:600,textDecoration:"none" }}>
                             View in RepairQ →
                           </a>
                         </div>
@@ -336,7 +337,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
               })}
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>{searchQuery.trim() ? "No tickets matching \"" + searchQuery + "\"" : "No graded tickets yet."}</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>{searchQuery.trim() ? "No tickets matching \"" + searchQuery + "\"" : "No graded tickets yet."}</div>
           );
           })()}
         </div>
@@ -345,23 +346,23 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {/* ═══ BY EMPLOYEE ═══ */}
       {view === "employees" && (
         <div>
-          <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700,marginBottom:12 }}>Employee Compliance Scores</div>
+          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Employee Compliance Scores</div>
           {stats && stats.empStats && stats.empStats.length > 0 ? (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:20 }}>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
               {stats.empStats.map(function(emp, i) {
                 var sc = scoreColor(emp.avg_score);
                 var medal = i === 0 ? "\uD83E\uDD47" : i === 1 ? "\uD83E\uDD48" : i === 2 ? "\uD83E\uDD49" : "#" + (i+1);
                 return (
-                  <div key={emp.name} style={{ padding:"12px 0",borderBottom:"1px solid #1E2028",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
+                  <div key={emp.name} style={{ padding:"12px 0",borderBottom:"1px solid var(--border-light)",display:"flex",justifyContent:"space-between",alignItems:"center" }}>
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                       <span style={{ fontSize:16,width:28,textAlign:"center" }}>{medal}</span>
                       <div>
-                        <div style={{ color:"#F0F1F3",fontSize:14,fontWeight:700 }}>{emp.name}</div>
-                        <div style={{ color:"#6B6F78",fontSize:11 }}>{emp.count} tickets graded</div>
+                        <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{emp.name}</div>
+                        <div style={{ color:"var(--text-muted)",fontSize:11 }}>{emp.count} tickets graded</div>
                       </div>
                     </div>
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
-                      <div style={{ background:"#12141A",borderRadius:4,height:6,width:100,overflow:"hidden" }}>
+                      <div style={{ background:"var(--bg-card-inner)",borderRadius:4,height:6,width:100,overflow:"hidden" }}>
                         <div style={{ width:emp.avg_score+"%",height:"100%",background:sc,borderRadius:4 }} />
                       </div>
                       <div style={{ color:sc,fontSize:18,fontWeight:800,minWidth:50,textAlign:"right" }}>{emp.avg_score}</div>
@@ -371,9 +372,12 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
               })}
             </div>
           ) : (
-            <div style={{ background:"#1A1D23",borderRadius:12,padding:40,textAlign:"center",color:"#6B6F78",fontSize:13 }}>No employee data yet.</div>
+            <div style={{ background:"var(--bg-card)",borderRadius:12,padding:40,textAlign:"center",color:"var(--text-muted)",fontSize:13 }}>No employee data yet.</div>
           )}
         </div>
+      )}
+      {view === "zero_profit" && (
+        <ZeroProfitTickets storeFilter={storeFilter} />
       )}
     </div>
   );
