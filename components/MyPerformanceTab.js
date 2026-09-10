@@ -57,6 +57,8 @@ function sc(v, g, w) { return v >= g ? "#4ADE80" : v >= w ? "#FBBF24" : "#F87171
 // The non-phone monthly threshold bonus is paid to one person (Eric, 2026-09-01).
 // Matched with the same fuzzy matcher used everywhere else so "Hitti, Duncan"
 // and "Duncan" both resolve.
+import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
+
 var NON_PHONE_BONUS_EMPLOYEE = "Duncan Hitti";
 
 function matchName(empName, candidateName) {
@@ -978,6 +980,14 @@ export default function MyPerformanceTab({ auth, store }) {
     { id: "reviews", label: "Reviews", icon: "\u2B50" },
     { id: "coaching", label: "Coaching", icon: "\uD83D\uDE80" },
   ];
+
+  // Advanced Repair Traffic is only meaningful to the person whose bonus it
+  // drives. Gated on the SAME matchName check as the paycheck bonus row rather
+  // than a second rule, so the tab and the money can never disagree about who
+  // this is for.
+  if (matchName(empName, NON_PHONE_BONUS_EMPLOYEE)) {
+    tabs.splice(2, 0, { id: "advanced", label: "Advanced Repairs", icon: "\uD83D\uDD27" });
+  }
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)" }}>Loading your performance data...</div>;
@@ -2822,6 +2832,20 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* ═══════════════════════════════════════════════ */}
       {/* ═══ COACHING (AI-POWERED) ═══ */}
       {/* ═══════════════════════════════════════════════ */}
+      {subTab === "advanced" && (
+        <div>
+          <div style={{ marginBottom: 14, padding: "12px 16px", background: "#00D4FF0A", border: "1px solid #00D4FF33", borderRadius: 10 }}>
+            <div style={{ color: "#00D4FF", fontSize: 13, fontWeight: 800, marginBottom: 3 }}>Advanced Repair Traffic</div>
+            <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.5 }}>
+              Non-phone repair profit across all three stores &mdash; consoles, tablets, computers and misc.
+              This is the figure the monthly threshold bonus is paid on: $100 at $15,000, then $50 per full $1,000 above.
+              The dollars land on your Paycheck tab.
+            </div>
+          </div>
+          <AdvancedRepairTrafficSummary />
+        </div>
+      )}
+
       {subTab === "coaching" && (
         <div>
           {!isCurrentPeriod ? (
