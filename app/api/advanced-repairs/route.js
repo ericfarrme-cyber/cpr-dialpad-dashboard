@@ -183,10 +183,69 @@ async function reconcileRepair(repair) {
 }
 
 
+// ─── Reconcile every open repair against ticket_grades ───
+// Shared by the manual "Sync All from RepairQ" button (POST) and the daily cron
+// (GET). One implementation so the scheduled run can never drift from the button.
+//
+// NOTE ON SCOPE: this reconciles against `ticket_grades`, which is populated by
+// the Chrome extension. It does not talk to RepairQ — RepairQ has no API. So a
+// ticket that has never been graded is invisible here, and shows as no_match.
+async function runReconcileAll() {
+  var { data: openRepairs, error: listErr } = await supabase
+    .from("advanced_repairs")
+    .select("*")
+    .in("status", ["open", "in_transit", "repaired"]);
+  if (listErr) throw new Error(listErr.message);
+
+  var summary = { scanned: (openRepairs || []).length, reconciled: 0, auto_closed: 0, no_match: 0, errors: 0 };
+  var closedTickets = [];
+  var failures = [];
+
+  for (var i = 0; i < (openRepairs || []).length; i++) {
+    var r = openRepairs[i];
+    try {
+      var res = await reconcileRepair(r);
+      if (res.error) { summary.errors++; failures.push({ ticket: r.ticket_number, error: res.error }); continue; }
+      if (!res.reconciled) { summary.no_match++; continue; }
+      summary.reconciled++;
+      if (res.status_auto_closed) { summary.auto_closed++; closedTickets.push(r.ticket_number); }
+    } catch (e) {
+      summary.errors++;
+      failures.push({ ticket: r.ticket_number, error: e.message });
+    }
+  }
+  return { summary: summary, closed_tickets: closedTickets, failures: failures };
+}
+
 export async function GET(request) {
   try {
     var { searchParams } = new URL(request.url);
     var action = searchParams.get("action") || "list";
+
+    // ─── CRON: daily automatic sync of the advanced repair log ───
+    // Auth comes from the Authorization header, NOT a query param — Vercel Cron
+    // sends `Bearer $CRON_SECRET` automatically when CRON_SECRET is set. Keeping
+    // it out of the URL keeps it out of vercel.json, request logs and referrers.
+    // Fails loudly on a missing secret rather than running unauthenticated.
+    if (action === "cron_sync") {
+      var cronSecret = process.env.CRON_SECRET;
+      if (!cronSecret) {
+        console.error("[advanced-repairs] cron_sync called but CRON_SECRET is not set");
+        return NextResponse.json({ success: false, error: "CRON_SECRET is not configured" }, { status: 500 });
+      }
+      if (request.headers.get("authorization") !== "Bearer " + cronSecret) {
+        return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      }
+      var cronRes = await runReconcileAll();
+      // Logged so a silently-degrading sync is visible in Vercel's logs rather
+      // than discovered months later, which is exactly how the June outage ran.
+      console.log("[advanced-repairs] daily sync:", JSON.stringify(cronRes.summary));
+      if (cronRes.failures.length) console.error("[advanced-repairs] sync failures:", JSON.stringify(cronRes.failures.slice(0, 20)));
+      if (cronRes.summary.errors > 0) {
+        return NextResponse.json({ success: false, error: cronRes.summary.errors + " repair(s) failed to reconcile", summary: cronRes.summary, failures: cronRes.failures }, { status: 500 });
+      }
+      return NextResponse.json({ success: true, summary: cronRes.summary, closed_tickets: cronRes.closed_tickets });
+    }
 
     // ─── LIST: returns all repairs with filters ───
     if (action === "list") {
@@ -655,38 +714,8 @@ export async function POST(request) {
     // repeatedly (idempotent) and safe for a cron to hit on a schedule.
     // Locked and already-closed repairs are skipped by the shared guards.
     if (action === "reconcile_all") {
-      var { data: openRepairs, error: listErr } = await supabase
-        .from("advanced_repairs")
-        .select("*")
-        .in("status", ["open", "in_transit", "repaired"]);
-      if (listErr) return NextResponse.json({ success: false, error: listErr.message });
-
-      var summary = {
-        scanned: (openRepairs || []).length,
-        reconciled: 0,
-        auto_closed: 0,
-        no_match: 0,
-        errors: 0,
-      };
-      var closedTickets = [];
-
-      for (var i = 0; i < (openRepairs || []).length; i++) {
-        var r = openRepairs[i];
-        try {
-          var res = await reconcileRepair(r);
-          if (res.error) { summary.errors++; continue; }
-          if (!res.reconciled) { summary.no_match++; continue; }
-          summary.reconciled++;
-          if (res.status_auto_closed) {
-            summary.auto_closed++;
-            closedTickets.push(r.ticket_number);
-          }
-        } catch (e) {
-          summary.errors++;
-        }
-      }
-
-      return NextResponse.json({ success: true, summary: summary, closed_tickets: closedTickets });
+      var all = await runReconcileAll();
+      return NextResponse.json({ success: true, summary: all.summary, closed_tickets: all.closed_tickets });
     }
 
     // ─── DELETE ───
