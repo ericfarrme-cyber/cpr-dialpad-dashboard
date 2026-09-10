@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { buildResolver, resolveName } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CALL LEADERS — per-employee "Calls Handled" (audited) for the TV rankings.
@@ -40,10 +41,8 @@ var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 // unless a roster row lists them, so there's no auto-credit risk. (If owner-Eric
 // is ever audited on the floor, his calls would credit Aerick — visible on-screen,
 // not silent — revisit then.)
-var RISKY_ALIASES = [
-  "melissa", "duncan/sam", "fellis",
-  "mood", "maud", "mau", "ma", "may", "bendy", "wendy",
-];
+// RISKY_ALIASES, buildResolver and resolveName now live in lib/roster-resolver.js
+// so the employee-facing views resolve names by exactly the same rules.
 
 // Compute [start, endExclusive) YYYY-MM-DD bounds for a calendar month.
 function monthBounds(monthStr) {
@@ -78,51 +77,6 @@ function normalizeStore(s) {
 
 // Build the alias→canonical resolver from roster rows. Conservative:
 // full name + first + last + safe aliases; denylist risky; drop collisions.
-function buildResolver(rosterRows) {
-  var risky = {};
-  RISKY_ALIASES.forEach(function(a) { risky[a] = true; });
-
-  var map = {};      // alias(lowercased) -> canonical full name
-  var collide = {};  // alias -> true if it pointed at 2+ different people
-
-  (rosterRows || []).forEach(function(r) {
-    if (!r || !r.name) return;
-    if (r.active === false) return; // skip deactivated roster rows
-    var name = String(r.name).trim();
-    var parts = name.split(/\s+/);
-
-    var cands = {};
-    cands[name.toLowerCase()] = true;
-    if (parts[0]) cands[parts[0].toLowerCase()] = true;
-    if (parts.length > 1) cands[parts[parts.length - 1].toLowerCase()] = true;
-
-    var aliases = Array.isArray(r.aliases) ? r.aliases : [];
-    aliases.forEach(function(a) {
-      if (a == null) return;
-      var al = String(a).trim().toLowerCase();
-      if (al && !risky[al]) cands[al] = true;
-    });
-
-    Object.keys(cands).forEach(function(c) {
-      if (risky[c]) return;
-      if (map[c] && map[c] !== name) collide[c] = true;
-      map[c] = name;
-    });
-  });
-
-  // Any alias that resolved to 2+ people is unsafe — drop it to Unknown.
-  Object.keys(collide).forEach(function(c) { delete map[c]; });
-  return map;
-}
-
-// Resolve a raw audit "employee" string to a canonical person, or null (Unknown).
-function resolveName(raw, map) {
-  if (!raw) return null;
-  var key = String(raw).trim().toLowerCase();
-  if (!key || key === "unknown") return null;
-  return map[key] || null;
-}
-
 export async function GET(request) {
   if (!supabase) {
     return NextResponse.json({ success: false, error: "Database not configured" });
@@ -142,7 +96,7 @@ export async function GET(request) {
     if (rosterRes.error) {
       return NextResponse.json({ success: false, error: rosterRes.error.message });
     }
-    var resolver = buildResolver(rosterRes.data || []);
+    var resolver = buildResolver(rosterRes.data || []).map;
 
     // ── 2. Audited calls this month — PAGINATED so we always get EVERY matching
     //     row regardless of the PostgREST "Max rows" cap (which was silently

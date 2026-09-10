@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { buildResolver } from "@/lib/roster-resolver";
 
 // GET /api/dialpad/roster — list employees, resolve names
 export async function GET(request) {
@@ -7,6 +8,24 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const action = searchParams.get("action");
   const store = searchParams.get("store");
+
+  // ─── ALIAS MAP ───
+  // The same conservative name→person resolver the TV rankings use, exposed so
+  // employee-facing views can attribute a call the same way instead of doing
+  // their own fuzzy matching. `ambiguous` lists aliases claimed by 2+ people;
+  // callers must credit those to NOBODY rather than guessing.
+  if (action === "alias_map") {
+    const { data: rows, error: aliasErr } = await supabase
+      .from("employee_roster").select("name, aliases, active").eq("active", true);
+    if (aliasErr) return NextResponse.json({ success: false, error: aliasErr.message }, { status: 500 });
+    const resolved = buildResolver(rows || []);
+    return NextResponse.json({
+      success: true,
+      map: resolved.map,
+      ambiguous: Object.keys(resolved.ambiguous),
+      roster_count: (rows || []).length,
+    });
+  }
 
   // Return the roster
   if (action === "list" || !action) {
