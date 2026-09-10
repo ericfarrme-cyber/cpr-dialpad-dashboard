@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
 
 // ── Role-split scoring helpers (April 2026) ──
 // Splits the 5-category ticket grade into intake-role and repair-role scores.
@@ -306,18 +307,51 @@ export async function GET(request) {
     var avgNotes = Math.round(tickets.reduce(function(s, t) { return s + (t.notes_score || 0); }, 0) / total);
     var avgCategorization = Math.round(tickets.reduce(function(s, t) { return s + (t.categorization_score || 0); }, 0) / total);
 
-    // Per-employee stats
+    // ── Per-employee stats ──────────────────────────────────────────────────
+    // Matt, 2026-09-10: this list should be the ACTIVE roster, not everyone who
+    // has ever touched a ticket. Raw values held 22 distinct names — former
+    // staff, "Last, First" duplicates of current staff, and non-humans like
+    // "Assurant ServiceNetwork" and "API".
+    //
+    // Names are canonicalised through lib/roster-resolver.js so one person is
+    // one row ("Sam Tomey" and "Samuel Tomey" were separate, 62 tickets apart).
+    // Nothing is deleted: former staff and system actors are returned separately
+    // so the UI can show them on request, and the store/overall averages above
+    // still count every ticket.
+    var { data: rosterRows } = await supabase
+      .from("employee_roster").select("name, aliases, active").eq("active", true);
+    var aliasMap = buildResolver(rosterRows || []).map;
+
     var empMap = {};
     tickets.forEach(function(t) {
-      var emp = t.employee_repaired || t.employee_added || "Unknown";
-      if (!empMap[emp]) empMap[emp] = { name: emp, scores: [], count: 0 };
-      empMap[emp].scores.push(t.overall_score || 0);
-      empMap[emp].count++;
+      var raw = t.employee_repaired || t.employee_added || "Unknown";
+      var cls, name;
+      if (!raw || raw === "Unknown") { cls = "unknown"; name = "Unknown"; }
+      else if (isSystemActor(raw)) { cls = "system"; name = String(raw).trim(); }
+      else {
+        var canonical = resolveNamePersonish(raw, aliasMap);
+        if (canonical) { cls = "active"; name = canonical; }
+        else { cls = "former"; name = String(raw).trim(); }
+      }
+      var key = cls + "::" + name;
+      if (!empMap[key]) empMap[key] = { name: name, employee_class: cls, scores: [], count: 0 };
+      empMap[key].scores.push(t.overall_score || 0);
+      empMap[key].count++;
     });
-    var empStats = Object.values(empMap).map(function(e) {
+
+    var allEmp = Object.values(empMap).map(function(e) {
       e.avg_score = Math.round(e.scores.reduce(function(s, v) { return s + v; }, 0) / e.count);
       return e;
     }).sort(function(a, b) { return b.avg_score - a.avg_score; });
+
+    // empStats stays the active roster so every existing consumer gets the
+    // corrected list without having to know about the split.
+    var empStats = allEmp.filter(function(e) { return e.employee_class === "active"; });
+    var empStatsOther = allEmp.filter(function(e) { return e.employee_class !== "active"; });
+    var empClassTotals = allEmp.reduce(function(acc, e) {
+      acc[e.employee_class] = (acc[e.employee_class] || 0) + e.count;
+      return acc;
+    }, {});
 
     // Per-store stats
     var storeMap = {};
@@ -334,7 +368,7 @@ export async function GET(request) {
 
     return jsonResponse({
       success: true,
-      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, avgCategorization: avgCategorization, empStats: empStats, storeStats: storeStats }
+      stats: { total: total, avgOverall: avgOverall, avgDiag: avgDiag, avgPay: avgPay, avgNotes: avgNotes, avgCategorization: avgCategorization, empStats: empStats, empStatsOther: empStatsOther, empClassTotals: empClassTotals, storeStats: storeStats }
     });
   }
 

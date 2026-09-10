@@ -56,6 +56,8 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
   var isEmployeeView = viewAs === "employee" && viewEmployee;
   var C = useThemeColors(); // literal colours for the chart marks
   var [view, setView] = useState("overview");
+  // Off by default: the employee view is about the people who work here now.
+  var [showFormer, setShowFormer] = useState(false);
   var [stats, setStats] = useState(null);
   var [tickets, setTickets] = useState([]);
   var [loading, setLoading] = useState(true);
@@ -94,7 +96,9 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading compliance data...</div>;
 
-  var empChartData = stats && stats.empStats ? stats.empStats.slice(0, 15) : [];
+  var empList = stats ? (stats.empStats || []).concat(showFormer ? (stats.empStatsOther || []) : []) : [];
+  empList = empList.slice().sort(function(a, b) { return b.avg_score - a.avg_score; });
+  var empChartData = empList.slice(0, 15);
   var storeChartData = stats && stats.storeStats ? stats.storeStats.map(function(s) {
     var store = STORES[s.store];
     return { name: store ? store.name.replace("CPR ", "") : s.store, score: s.avg_score, count: s.count, color: store ? store.color : "var(--text-secondary)" };
@@ -351,10 +355,29 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {/* ═══ BY EMPLOYEE ═══ */}
       {view === "employees" && (
         <div>
-          <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,marginBottom:12 }}>Employee Compliance Scores</div>
-          {stats && stats.empStats && stats.empStats.length > 0 ? (
+          <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap",gap:10,marginBottom:12 }}>
+            <div>
+              <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Employee Compliance Scores</div>
+              {stats && stats.empClassTotals && (
+                <div style={{ color:"var(--text-muted)",fontSize:11,marginTop:3 }}>
+                  {(stats.empClassTotals.active || 0).toLocaleString()} tickets from the active roster
+                  {(stats.empClassTotals.former || 0) > 0 && " \u00b7 " + stats.empClassTotals.former.toLocaleString() + " from former staff"}
+                  {(stats.empClassTotals.system || 0) > 0 && " \u00b7 " + stats.empClassTotals.system.toLocaleString() + " from Assurant / API"}
+                  {" \u00b7 store and overall averages still count them all."}
+                </div>
+              )}
+            </div>
+            <button onClick={function(){ setShowFormer(!showFormer); }}
+              style={{ padding:"6px 13px",borderRadius:999,cursor:"pointer",fontSize:11,fontWeight:700,
+                border:"1px solid " + (showFormer ? "var(--purple)" : "var(--border)"),
+                background: showFormer ? "#7B2FFF1A" : "transparent",
+                color: showFormer ? "var(--purple)" : "var(--text-secondary)", transition:"all .18s ease" }}>
+              {showFormer ? "Hide former staff" : "Show former staff"}
+            </button>
+          </div>
+          {empList.length > 0 ? (
             <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20 }}>
-              {stats.empStats.map(function(emp, i) {
+              {empList.map(function(emp, i) {
                 var sc = scoreColor(emp.avg_score);
                 var medal = i === 0 ? "\uD83E\uDD47" : i === 1 ? "\uD83E\uDD48" : i === 2 ? "\uD83E\uDD49" : "#" + (i+1);
                 return (
@@ -362,7 +385,16 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                     <div style={{ display:"flex",alignItems:"center",gap:12 }}>
                       <span style={{ fontSize:16,width:28,textAlign:"center" }}>{medal}</span>
                       <div>
-                        <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>{emp.name}</div>
+                        <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700,display:"flex",alignItems:"center",gap:7 }}>
+                          {emp.name}
+                          {emp.employee_class && emp.employee_class !== "active" && (
+                            <span style={{ fontSize:9,fontWeight:700,textTransform:"uppercase",letterSpacing:"0.05em",padding:"2px 6px",borderRadius:4,
+                              background: emp.employee_class === "system" ? "var(--border-light)" : "#FB923C1F",
+                              color: emp.employee_class === "system" ? "var(--text-muted)" : "var(--orange)" }}>
+                              {emp.employee_class === "system" ? "not a person" : emp.employee_class}
+                            </span>
+                          )}
+                        </div>
                         <div style={{ color:"var(--text-muted)",fontSize:11 }}>{emp.count} tickets graded</div>
                       </div>
                     </div>
