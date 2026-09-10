@@ -55,10 +55,17 @@ function monthsAgo(n) {
 }
 
 // Paginated read — a silent clip is how this project has been bitten before.
-async function fetchAll(table, select, apply) {
+//
+// `orderBy` is REQUIRED, not optional. .range() without a stable sort lets
+// PostgREST return pages that overlap and skip: the same request answered 109,
+// then 63, when the true count was 93. Every figure on the tab was quietly
+// unstable until this was ordered. CLAUDE.md calls for ordered pagination for
+// exactly this reason.
+async function fetchAll(table, select, orderBy, apply) {
+  if (!orderBy) throw new Error("fetchAll(" + table + ") needs an orderBy for stable pagination");
   var out = [];
   for (var from = 0; ; from += PAGE) {
-    var q = supabase.from(table).select(select).range(from, from + PAGE - 1);
+    var q = supabase.from(table).select(select).order(orderBy, { ascending: true }).range(from, from + PAGE - 1);
     if (apply) q = apply(q);
     var res = await q;
     if (res.error) throw new Error(table + ": " + res.error.message);
@@ -87,6 +94,8 @@ function blankModel(name, family) {
 function blankType(type) {
   return {
     type: type, calls: 0, repairs: 0,
+    // Per-type funnel too, so the UI can filter to a repair with no round trip.
+    appt_offered: 0, converted: 0,
     priced_lines: 0, list_total: 0, discount_total: 0, actual_total: 0,
     full_price: 0, discounted: 0, profit: 0,
   };
@@ -115,6 +124,7 @@ export async function GET(request) {
     var calls = await fetchAll(
       "audit_results",
       "call_id,device_type,inquiry,phone,store,date_started,appt_offered,call_type,excluded",
+      "call_id",
       function(q) {
         q = q.eq("call_type", "opportunity").eq("excluded", false).gte("date_started", since);
         if (store !== "all") q = q.eq("store", store);
@@ -126,6 +136,7 @@ export async function GET(request) {
     var tickets = await fetchAll(
       "ticket_grades",
       "ticket_number,device,customer_phone,store,date_closed,gross_sales,gross_profit,discount_amount,item_details,ticket_type",
+      "ticket_number",
       function(q) { return q.gte("date_closed", since).not("date_closed", "is", null); }
     );
 
@@ -188,10 +199,12 @@ export async function GET(request) {
           var m = get(r.canonical, r.family);
           m.calls++;
           if (c.appt_offered) m.appt_offered++;
-          bumpType(m.types, repairType, "calls");
+          var mt = bumpType(m.types, repairType, "calls");
+          if (mt && c.appt_offered) mt.appt_offered++;
           bumpMonth(m, month, "calls");
           if (didConvert) {
             m.converted++;
+            if (mt) mt.converted++;
             var sameModel = hits.some(function(t) {
               var tr = resolveModel(t.device);
               return tr.canonical === r.canonical;
@@ -261,6 +274,9 @@ export async function GET(request) {
           mt.list_total += list;
           mt.discount_total += disc;
           mt.actual_total += actual;
+          mt.repairs++;
+          // No per-type profit on purpose: cost lives on the ticket, not the
+          // line, so splitting it across line items would be an invented number.
           if (disc > 0) mt.discounted++; else mt.full_price++;
         }
         var gt = bumpType(lineTypeRollup, rt, "priced_lines");
@@ -282,6 +298,11 @@ export async function GET(request) {
         var x = m.types[tk];
         return {
           type: x.type, calls: x.calls, priced_lines: x.priced_lines,
+          appt_offered: x.appt_offered,
+          appt_offered_rate: x.calls ? round((x.appt_offered / x.calls) * 100) : null,
+          converted: x.converted,
+          conversion_rate: x.calls ? round((x.converted / x.calls) * 100) : null,
+          repairs: x.repairs,
           avg_list: x.priced_lines ? round(x.list_total / x.priced_lines) : null,
           avg_discount: x.priced_lines ? round(x.discount_total / x.priced_lines) : null,
           avg_actual: x.priced_lines ? round(x.actual_total / x.priced_lines) : null,

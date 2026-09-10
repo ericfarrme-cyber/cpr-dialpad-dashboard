@@ -150,24 +150,48 @@ export default function PriceDemandTab({ storeFilter }) {
   var [open, setOpen] = useState(null);
   var [search, setSearch] = useState("");
   var [limit, setLimit] = useState(20);
+  var [refreshing, setRefreshing] = useState(false);
   var reqId = useRef(0);
 
   useEffect(function() {
     var id = ++reqId.current;
-    setData(null); setError(null);
-    var sp = "?months=" + months + (storeFilter && storeFilter !== "all" ? "&store=" + encodeURIComponent(storeFilter) : "")
-      + (repairType !== "all" ? "&type=" + encodeURIComponent(repairType) : "");
+    setError(null); setRefreshing(true);
+    // No type param: the payload carries every repair type, so that filter is
+    // applied in the browser and never costs a round trip.
+    var sp = "?months=" + months + (storeFilter && storeFilter !== "all" ? "&store=" + encodeURIComponent(storeFilter) : "");
     fetch("/api/dialpad/price-demand" + sp)
       .then(function(r) { return r.json(); })
       .then(function(j) {
         if (id !== reqId.current) return; // a newer request won
-        if (!j || !j.success) { setError((j && j.error) || "request failed"); return; }
-        setData(j);
+        if (!j || !j.success) { setError((j && j.error) || "request failed"); setRefreshing(false); return; }
+        setData(j); setRefreshing(false);
       })
-      .catch(function(e) { if (id === reqId.current) setError(e.message); });
-  }, [months, storeFilter, repairType]);
+      .catch(function(e) { if (id === reqId.current) { setError(e.message); setRefreshing(false); } });
+  }, [months, storeFilter]);
 
   useEffect(function() { setOpen(null); setLimit(20); }, [family, sortBy, storeFilter, months, repairType]);
+
+  // Project a model row onto the selected repair type. With no filter the
+  // model-level figures stand; with one, every number describes that repair.
+  function project(r) {
+    if (repairType === "all") return r;
+    var t = (r.types || []).filter(function(x) { return x.type === repairType; })[0];
+    if (!t) return null;
+    return {
+      model: r.model, family: r.family, months: r.months, types: r.types,
+      calls: t.calls, appt_offered: t.appt_offered, appt_offered_rate: t.appt_offered_rate,
+      converted: t.converted, conversion_rate: t.conversion_rate,
+      converted_same_model: 0,
+      repairs: t.repairs, revenue: null,
+      // Cost sits on the ticket, not the line, so profit cannot honestly be
+      // split per repair type. Shown as blank rather than guessed.
+      profit: null, avg_profit: null,
+      priced_lines: t.priced_lines, avg_list: t.avg_list, avg_discount: t.avg_discount,
+      avg_actual: t.avg_actual, discount_pct: t.discount_pct,
+      full_price: t.full_price, discounted: t.discounted, discounted_share: t.discounted_share,
+      price_type: t.priced_lines ? t.type : null, price_type_lines: t.priced_lines, type_count: 1,
+    };
+  }
 
   var famCounts = useMemo(function() {
     if (!data) return {};
@@ -178,7 +202,8 @@ export default function PriceDemandTab({ storeFilter }) {
 
   var rows = useMemo(function() {
     if (!data) return [];
-    var out = data.models.slice();
+    var out = data.models.map(project).filter(Boolean);
+    if (repairType !== "all") out = out.filter(function(r) { return r.calls > 0 || r.priced_lines > 0; });
     if (family !== "all") out = out.filter(function(r) { return r.family === family; });
     var q = search.trim().toLowerCase();
     if (q) out = out.filter(function(r) { return r.model.toLowerCase().indexOf(q) >= 0; });
@@ -191,7 +216,7 @@ export default function PriceDemandTab({ storeFilter }) {
       return 0;
     });
     return out;
-  }, [data, family, sortBy, search]);
+  }, [data, family, sortBy, search, repairType]);
 
   if (error) {
     return <div style={{ background: "var(--bg-card)", border: "1px solid var(--red)", borderRadius: 12, padding: 24, color: "var(--red)", fontSize: 13 }}>
@@ -207,7 +232,7 @@ export default function PriceDemandTab({ storeFilter }) {
   var t = data.totals;
   var convRate = t.opportunity_calls ? (data.models.reduce(function(s, r) { return s + r.converted; }, 0) / t.opportunity_calls) * 100 : 0;
   var maxCalls = rows.length ? rows[0].calls : 1;
-  var maxCallsAny = Math.max.apply(null, data.models.map(function(r) { return r.calls; }).concat([1]));
+  var maxCallsAny = Math.max.apply(null, rows.map(function(r) { return r.calls; }).concat([1]));
   var coveragePct = data.coverage.total ? (data.coverage.resolved / data.coverage.total) * 100 : 0;
   var unspecApptRate = data.unspecified.calls ? (data.unspecified.appt_offered / data.unspecified.calls) * 100 : 0;
 
@@ -224,7 +249,13 @@ export default function PriceDemandTab({ storeFilter }) {
             What customers call about, what we charge, and how much of it turns into work · since {data.since}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          {refreshing && (
+            <span style={{ color: "var(--text-muted)", fontSize: 10.5, marginRight: 4, display: "inline-flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: "var(--cyan)", animation: "pdPulse 1s ease-in-out infinite" }} />
+              updating
+            </span>
+          )}
           {[3, 6, 12].map(function(m) {
             return <Chip key={m} active={months === m} onClick={function() { setMonths(m); }}>{m} mo</Chip>;
           })}
@@ -306,7 +337,8 @@ export default function PriceDemandTab({ storeFilter }) {
       </div>
 
       {/* ── model table ────────────────────────────────────────────────────── */}
-      <div style={{ background: "var(--bg-card-inner)", border: "1px solid var(--border-light)", borderRadius: 12, overflowX: "auto" }}>
+      <div style={{ background: "var(--bg-card-inner)", border: "1px solid var(--border-light)", borderRadius: 12, overflowX: "auto",
+        opacity: refreshing ? 0.55 : 1, transition: "opacity .25s ease" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 980 }}>
           <thead><tr>
             <th style={th}>Model</th>
@@ -353,7 +385,7 @@ export default function PriceDemandTab({ storeFilter }) {
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "var(--text-primary)", fontWeight: 600 }}>{money(r.avg_actual)}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.discount_pct >= 15 ? "var(--orange)" : "var(--text-body)" }}>{pct(r.discount_pct)}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.repairs}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.profit > 0 ? "var(--green)" : "var(--text-muted)" }}>{money(r.profit)}</td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: r.profit > 0 ? "var(--green)" : "var(--text-muted)" }}>{r.profit === null ? "\u2014" : money(r.profit)}</td>
                   </tr>
                   {isOpen && (
                     <tr key={r.model + "-detail"}>
@@ -460,7 +492,7 @@ export default function PriceDemandTab({ storeFilter }) {
         </div>
       </div>
 
-      <style>{"@keyframes pdExpand { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } }"}</style>
+      <style>{"@keyframes pdExpand { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } } @keyframes pdPulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }"}</style>
     </div>
   );
 }
