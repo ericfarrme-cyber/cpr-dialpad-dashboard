@@ -431,7 +431,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
 // before it — every row the template has, at the template's prices — and
 // bulk edit takes it from there. "iPhone 17 Pro Max" guesses "iPhone 16 Pro
 // Max"; "S27 Ultra" walks down to the newest Ultra on the sheet.
-function AddDevicePanel({ allRows, af, onClose, onAdded }) {
+function AddDevicePanel({ allRows, af, onClose, onAdded, prefill }) {
   var devices = useMemo(function() {
     var seen = {}, out = [];
     allRows.forEach(function(r) { if (r.active === false || seen[r.device]) return; seen[r.device] = 1; out.push({ device: r.device, family: r.family, model_group: r.model_group }); });
@@ -439,10 +439,19 @@ function AddDevicePanel({ allRows, af, onClose, onAdded }) {
   }, [allRows]);
   var byLower = useMemo(function() { var m = {}; devices.forEach(function(d) { m[d.device.toLowerCase()] = d.device; }); return m; }, [devices]);
 
-  var [namesText, setNamesText] = useState("");
-  var [template, setTemplate] = useState("");
-  var [autoTemplate, setAutoTemplate] = useState(true);
-  var [reason, setReason] = useState("");
+  // A recommendation from the route arrives prefilled: the sheet's name for the
+  // model, the template it follows, and a price per row — the register's own
+  // where it has rung, the template's where it has not.
+  var rec = prefill && prefill.model ? prefill : null;
+  var [namesText, setNamesText] = useState(rec ? rec.suggested_name : "");
+  var [template, setTemplate] = useState(rec && rec.template ? rec.template : "");
+  var [autoTemplate, setAutoTemplate] = useState(!rec);
+  var [prices, setPrices] = useState(function() {
+    var m = {};
+    if (rec) rec.recommended.forEach(function(x) { m[x.repair + "|" + (x.tier || "")] = x.set_price === null ? "" : String(x.set_price); });
+    return m;
+  });
+  var [reason, setReason] = useState(rec ? "recommended from " + rec.jobs + " register jobs" : "");
   var [busy, setBusy] = useState(false);
   var [err, setErr] = useState(null);
   var firstRef = useRef(null);
@@ -477,6 +486,22 @@ function AddDevicePanel({ allRows, af, onClose, onAdded }) {
   var tRows = useMemo(function() {
     return allRows.filter(function(r) { return r.device === template && r.active !== false; }).slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; });
   }, [allRows, template]);
+  // What will be created: the template's rows, plus any register lines the
+  // template lacks when a recommendation brought them along.
+  var plan = useMemo(function() {
+    var recBy = {};
+    if (rec && rec.template === template) rec.recommended.forEach(function(x) { recBy[x.repair + "|" + (x.tier || "")] = x; });
+    var out = tRows.map(function(r) {
+      var k = r.repair + "|" + (r.tier || "");
+      var x = recBy[k];
+      return { key: k, repair: r.repair, tier: r.tier, turnaround: r.turnaround, floor_price: r.floor_price, template_price: r.set_price, source: x ? x.source : "template", register_jobs: x ? x.register_jobs : 0, extra: false };
+    });
+    if (rec && rec.template === template) rec.recommended.filter(function(x) { return x.extra; }).forEach(function(x) {
+      out.push({ key: x.repair + "|" + (x.tier || ""), repair: x.repair, tier: x.tier, canonical_repair: x.canonical_repair, turnaround: null, floor_price: null, template_price: null, source: "register", register_jobs: x.register_jobs, extra: true });
+    });
+    return out;
+  }, [tRows, rec, template]);
+  function priceOf(p) { var v = prices[p.key]; if (v !== undefined) return v; return p.template_price === null ? "" : String(p.template_price); }
   var existing = names.filter(function(n) { return !!byLower[n.toLowerCase()]; });
   var resolved = names.map(function(n) { var r = resolveModel(n); return { name: n, canonical: r.specified ? r.canonical : null }; });
   var templateOk = !!template && tRows.length > 0;
@@ -489,7 +514,12 @@ function AddDevicePanel({ allRows, af, onClose, onAdded }) {
     try {
       var res = await af("/api/dialpad/price-book", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_device", devices: names, template_device: template, reason: reason || null }),
+        body: JSON.stringify({
+          action: "add_device", devices: names, template_device: template, reason: reason || null,
+          // every edited or register-sourced price for a template row, and the register-only rows
+          overrides: plan.filter(function(p) { return !p.extra; }).map(function(p) { return { repair: p.repair, tier: p.tier, set_price: parseFloat(priceOf(p)) }; }).filter(function(o) { return isFinite(o.set_price); }),
+          extra_rows: plan.filter(function(p) { return p.extra; }).map(function(p) { return { repair: p.repair, tier: p.tier, canonical_repair: p.canonical_repair, set_price: parseFloat(priceOf(p)) }; }).filter(function(o) { return isFinite(o.set_price); }),
+        }),
       });
       var j = await res.json();
       if (!j.success) throw new Error(j.error || "not added");
@@ -540,15 +570,22 @@ function AddDevicePanel({ allRows, af, onClose, onAdded }) {
 
         {templateOk && (
           <div style={{ animation: "pbExpand .2s ease both" }}>
-            <label style={label}>{tRows.length} row{tRows.length === 1 ? "" : "s"} × {names.length || 1} device{names.length === 1 ? "" : "s"}</label>
+            <label style={label}>{plan.length} row{plan.length === 1 ? "" : "s"} × {names.length || 1} device{names.length === 1 ? "" : "s"} — prices are editable</label>
             <div style={{ border: "1px solid var(--border-light)", borderRadius: 8, overflow: "hidden" }}>
-              {tRows.map(function(r) {
-                return <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 10px", borderTop: "1px solid var(--border-light)", fontSize: 12 }}>
-                  <span style={{ color: "var(--text-body)" }}>{r.repair}{r.tier ? <span style={{ color: "var(--purple)", fontWeight: 700 }}> · {r.tier}</span> : null}{r.turnaround ? <span style={{ color: "var(--text-muted)" }}> · {r.turnaround}</span> : null}</span>
-                  <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text-primary)", fontWeight: 700 }}>{r.set_price === null ? "on inspection" : money(r.set_price)}{r.floor_price !== null ? <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · floor {money(r.floor_price)}</span> : null}</span>
+              {plan.map(function(p) {
+                var reg = p.source === "register";
+                return <div key={p.key} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 10px", borderTop: "1px solid var(--border-light)", fontSize: 12 }}>
+                  <span style={{ flex: 1, color: "var(--text-body)" }}>{p.repair}{p.tier ? <span style={{ color: "var(--purple)", fontWeight: 700 }}> · {p.tier}</span> : null}{p.turnaround ? <span style={{ color: "var(--text-muted)" }}> · {p.turnaround}</span> : null}{p.extra ? <span style={{ color: "var(--text-muted)" }}> · not on {template}</span> : null}</span>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", color: reg ? "var(--green)" : "var(--text-muted)", whiteSpace: "nowrap" }} title={reg ? "what RepairQ rings on " + p.register_jobs + " jobs" : "copied from " + template}>{reg ? "register ×" + p.register_jobs : "sheet copy"}</span>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontVariantNumeric: "tabular-nums" }}>
+                    <span style={{ color: "var(--text-muted)" }}>$</span>
+                    <input value={priceOf(p)} onChange={function(e) { var v = e.target.value; setPrices(function(m) { var n = Object.assign({}, m); n[p.key] = v; return n; }); }} inputMode="decimal" placeholder="—"
+                      style={{ width: 76, padding: "4px 7px", borderRadius: 6, border: "1px solid " + (reg ? "var(--green)" : "var(--border)"), background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12.5, fontWeight: 800, textAlign: "right" }} />
+                  </span>
                 </div>;
               })}
             </div>
+            {rec && rec.template === template && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6 }}>Green prices are what the register already rings for this model; grey are copied from {template}. Floors come from {template}&apos;s part costs.</div>}
           </div>
         )}
 
@@ -583,7 +620,7 @@ export default function PriceBook() {
   var [history, setHistory] = useState(null);
   var [showHistory, setShowHistory] = useState(false);
   var [booking, setBooking] = useState(null); // the price row being turned into an appointment
-  var [addingDevice, setAddingDevice] = useState(false);
+  var [addingDevice, setAddingDevice] = useState(null); // {} for a blank panel, or a missing-model recommendation to prefill
   var searchRef = useRef(null);
 
   var isAdmin = !!(data && data.can_edit);
@@ -661,6 +698,10 @@ export default function PriceBook() {
     return rows.filter(function(r) { return r.actuals_other && r.actuals_other.sold > 0; })
       .sort(function(a, b) { return b.actuals_other.sold - a.actuals_other.sold; });
   }, [rows]);
+  // Models the register has been selling that the sheet has never had a row
+  // for (iPhone 17 with 35 jobs). The route ships each with a recommended
+  // product line; adding one is a click, not a data-entry job.
+  var missingModels = data && Array.isArray(data.missing_models) ? data.missing_models : [];
   var [showReconcile, setShowReconcile] = useState(false);
 
   function toggle(id) { setSelectedIds(function(p) { var n = Object.assign({}, p); if (n[id]) delete n[id]; else n[id] = true; return n; }); setPreview(null); }
@@ -778,19 +819,26 @@ export default function PriceBook() {
         {!data && !error && <div style={{ padding: 50, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading prices…</div>}
 
         {/* reconcile with the register — the sheet vs what RepairQ actually rings */}
-        {isAdmin && !editMode && mismatches.length > 0 && (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 14, borderRadius: 10, border: "1px solid var(--yellow)", background: "#FBBF2414", fontSize: 12, animation: "pbExpand .22s ease both" }}>
-            <span style={{ color: "var(--yellow)", fontWeight: 800 }}>The register disagrees with this sheet on {mismatches.length} price{mismatches.length === 1 ? "" : "s"}</span>
-            <span style={{ color: "var(--text-muted)" }}>· {unlisted.length} line{unlisted.length === 1 ? "" : "s"} it rings that aren&apos;t on the sheet at all</span>
-            <button onClick={function() { setEditMode(true); setShowReconcile(true); }} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--yellow)", color: "#0B0D11", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Review them</button>
+        {isAdmin && !editMode && (mismatches.length > 0 || missingModels.length > 0) && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 14, borderRadius: 10, border: "1px solid var(--yellow)", background: "#FBBF2414", fontSize: 12, animation: "pbExpand .22s ease both", flexWrap: "wrap" }}>
+            {missingModels.length > 0 && (
+              <span style={{ color: "var(--yellow)", fontWeight: 800 }}>
+                The register is selling {missingModels.length} model{missingModels.length === 1 ? "" : "s"} this sheet doesn&apos;t have — {missingModels.slice(0, 3).map(function(m) { return m.model + " (" + m.jobs + ")"; }).join(", ")}{missingModels.length > 3 ? "…" : ""}
+              </span>
+            )}
+            {mismatches.length > 0 && (
+              <span style={{ color: missingModels.length ? "var(--text-secondary)" : "var(--yellow)", fontWeight: 800 }}>{missingModels.length ? "· " : ""}disagrees on {mismatches.length} price{mismatches.length === 1 ? "" : "s"}</span>
+            )}
+            {unlisted.length > 0 && <span style={{ color: "var(--text-muted)" }}>· {unlisted.length} line{unlisted.length === 1 ? "" : "s"} it rings that aren&apos;t on the sheet</span>}
+            <button onClick={function() { setEditMode(true); setShowReconcile(true); }} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--yellow)", color: "#0B0D11", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>{missingModels.length ? "Review & add" : "Review them"}</button>
           </div>
         )}
-        {editMode && (mismatches.length > 0 || unlisted.length > 0) && (
+        {editMode && (mismatches.length > 0 || unlisted.length > 0 || missingModels.length > 0) && (
           <div style={{ background: "var(--bg-card)", border: "1px solid var(--yellow)", borderRadius: 14, marginBottom: 12, overflow: "hidden", animation: "pbExpand .22s ease both" }}>
             <div onClick={function() { setShowReconcile(!showReconcile); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", cursor: "pointer", userSelect: "none" }}>
               <span style={{ color: "var(--text-muted)", fontSize: 11, transform: showReconcile ? "rotate(90deg)" : "none", transition: "transform .2s ease", display: "inline-block", width: 12 }}>▶</span>
               <span style={{ fontSize: 13, fontWeight: 800 }}>Reconcile with the register</span>
-              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{mismatches.length} disagree · {unlisted.length} not on the sheet</span>
+              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{missingModels.length > 0 ? missingModels.length + " model" + (missingModels.length === 1 ? "" : "s") + " to add · " : ""}{mismatches.length} disagree · {unlisted.length} not on the sheet</span>
               {showReconcile && mismatches.length > 0 && (
                 <button onClick={function(e) { e.stopPropagation(); var n = {}; mismatches.forEach(function(r) { n[r.id] = true; }); setSelectedIds(n); setBulk(Object.assign({}, bulk, { mode: "register", reason: bulk.reason || "Match the register (RepairQ list price)" })); setPreview(null); setToast({ tone: "var(--purple)", text: mismatches.length + " selected · mode set to match register — hit Preview" }); }}
                   style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--purple)", color: "#fff", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Select all {mismatches.length} → match register</button>
@@ -827,6 +875,33 @@ export default function PriceBook() {
                   </div>
                 )}
                 <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8 }}>Tap rows to pick which to adopt, or take them all. Nothing changes until you Preview and Commit below.</div>
+                {missingModels.length > 0 && (
+                  <div style={{ marginTop: mismatches.length ? 14 : 0 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-body)", marginBottom: 6 }}>Models the register sells that this sheet doesn&apos;t have</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {missingModels.map(function(m) {
+                        var regRows = m.recommended.filter(function(x) { return x.source === "register"; }).length;
+                        return (
+                          <div key={m.model} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--border-light)", background: "var(--bg-card-inner)", flexWrap: "wrap" }}>
+                            <div style={{ flex: "1 1 240px" }}>
+                              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>{m.model} <span style={{ color: "var(--text-muted)", fontWeight: 500, fontSize: 11.5 }}>· {m.jobs} job{m.jobs === 1 ? "" : "s"} in 6 months</span></div>
+                              <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                                {m.lines.slice(0, 3).map(function(l) { return l.repair + (l.tier ? " " + l.tier : "") + " " + money(l.pos_list) + " ×" + l.sold; }).join(" · ")}
+                              </div>
+                              <div style={{ fontSize: 11, color: m.template ? "var(--text-secondary)" : "var(--orange)", marginTop: 2 }}>
+                                {m.template ? "Recommended: " + m.recommended.length + " rows following " + m.template + " — " + regRows + " at register prices, " + (m.recommended.length - regRows) + " copied" : "No earlier model on the sheet to follow — add it by hand"}
+                              </div>
+                            </div>
+                            <button onClick={function(e) { e.stopPropagation(); setAddingDevice(m.template ? m : { }); }}
+                              style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: m.template ? "var(--green)" : "var(--border)", color: m.template ? "#0B0D11" : "var(--text-muted)", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              {m.template ? "Add " + m.suggested_name + " →" : "Add by hand"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {unlisted.length > 0 && (
                   <div style={{ marginTop: 14 }}>
                     <div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-body)", marginBottom: 6 }}>Rung at the register, not on this sheet</div>
@@ -861,7 +936,7 @@ export default function PriceBook() {
               })}
               {selectedCount > 0 && <Chip onClick={clearSel} tone="var(--red)">clear</Chip>}
               <span style={{ flex: 1 }} />
-              <button onClick={function() { setAddingDevice(true); }} title="Add a new model with the full product line of the one before it — LCD, OLED, OEM, back glass…"
+              <button onClick={function() { setAddingDevice({}); }} title="Add a new model with the full product line of the one before it — LCD, OLED, OEM, back glass…"
                 style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid var(--cyan)", background: "transparent", color: "var(--cyan)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>＋ Add device</button>
               {selectedCount > 0 && rows.some(function(r) { return selectedIds[r.id] && r.active !== false; }) && (
                 <button disabled={busy} onClick={function() { setOffered(false); }} title="Take the selected prices off the sheet. Agents stop seeing them; the register history stays attached and they can be offered again."
@@ -959,10 +1034,10 @@ export default function PriceBook() {
       </div>
 
       {addingDevice && isAdmin && (
-        <AddDevicePanel allRows={data ? data.rows : []} af={auth && auth.authFetch ? auth.authFetch : fetch}
-          onClose={function() { setAddingDevice(false); }}
+        <AddDevicePanel allRows={data ? data.rows : []} af={auth && auth.authFetch ? auth.authFetch : fetch} prefill={addingDevice}
+          onClose={function() { setAddingDevice(null); }}
           onAdded={function(j) {
-            setAddingDevice(false);
+            setAddingDevice(null);
             setToast({ tone: "var(--green)", text: "Added " + j.devices.join(", ") + " · " + j.rows_per_device + " rows each, copied from " + j.template + (j.unresolved.length ? " · ⚠ " + j.unresolved.join(", ") + " won't join to register data yet" : "") });
             setQ(j.devices[0]); setEditMode(false); load();
           }} />

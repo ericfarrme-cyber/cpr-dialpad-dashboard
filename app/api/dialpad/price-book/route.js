@@ -89,6 +89,10 @@ export async function GET(request) {
     // Who is asking decides whether avg_collected is included.
     var who = await requireAuth(request, { requiredRoles: ["admin", "manager", "employee"] });
     var isAdmin = who.authorized && who.result.role === "admin";
+    // Local development only: `?as_admin=1` renders the admin payload of this
+    // read-only GET without a session, so the recommendation logic can be
+    // checked against real data. Ignored in production — writes still gate.
+    if (!isAdmin && process.env.NODE_ENV !== "production" && searchParams.get("as_admin") === "1") isAdmin = true;
 
     var months = Math.min(24, Math.max(1, parseInt(searchParams.get("months") || "6", 10)));
     var since = monthsAgo(months);
@@ -129,9 +133,11 @@ export async function GET(request) {
     // compared to the sheet — on the first pass they showed up as "register
     // rings $320.76 on 26 jobs, not on the sheet" for a screen that was.
     var insurance = {};
+    var modelFamily = {}; // canonical model -> family, for models the sheet has never heard of
     tickets.forEach(function(t) {
       var rm = resolveModel(t.device);
       if (!rm.specified) return;
+      modelFamily[rm.canonical] = rm.family || null;
       (Array.isArray(t.item_details) ? t.item_details : []).forEach(function(it) {
         if (!it || String(it.category || "").toLowerCase().indexOf("repair") < 0) return;
         var rt = classifyCatalogItem(it.catalog_item).type;
@@ -204,6 +210,67 @@ export async function GET(request) {
       }
     });
 
+    // ── models the register sells that the sheet has never had ─────────────
+    // iPhone 17 had 35 jobs and no row. Recommend the whole product line from
+    // the model before it, priced at what the register actually rings where
+    // it has rung, and at the template's price where it has not.
+    var sheetModels = {};
+    var deviceByCanonical = {};
+    rows.forEach(function(r) {
+      if (!r.canonical_model) return;
+      sheetModels[r.canonical_model] = true;
+      if (r.active !== false && !deviceByCanonical[r.canonical_model]) deviceByCanonical[r.canonical_model] = r.device;
+    });
+    function templateFor(model) {
+      var m = model.match(/(\d{1,2})/);
+      if (!m) return null;
+      var n = parseInt(m[1], 10);
+      for (var k = 1; k <= 4; k++) {
+        var cand = model.replace(m[1], String(n - k));
+        if (deviceByCanonical[cand]) return { device: deviceByCanonical[cand], canonical: cand };
+      }
+      return null;
+    }
+    // Catch-all catalog lines are not prices a sheet should carry, and three
+    // "Other repair" jobs do not make a model worth adding.
+    var GENERIC_TYPES = { "Accessory": 1, "Other repair": 1, "Diagnostic": 1, "Data transfer": 1, "Water damage": 1, "Software": 1 };
+    var missing = {};
+    Object.keys(actuals).forEach(function(k) {
+      var parts = k.split("|");
+      var model = parts[0], repair = parts[1];
+      if (sheetModels[model] || GENERIC_TYPES[repair]) return;
+      var slot = actuals[k];
+      var mm = missing[model] || (missing[model] = { model: model, family: modelFamily[model] || null, jobs: 0, lines: [] });
+      Object.keys(slot).forEach(function(tk) {
+        if (tk === "_any") return;
+        var s = summarise(slot[tk]);
+        mm.jobs += s.sold;
+        mm.lines.push({ repair: repair, tier: tk === "_untiered" ? null : tk, sold: s.sold, pos_list: s.pos_list, pos_list_share: s.pos_list_share, full_price_rate: s.full_price_rate });
+      });
+    });
+    var missingModels = Object.values(missing).filter(function(m) { return m.jobs >= 3; }).map(function(m) {
+      var tpl = templateFor(m.model);
+      var tRows = tpl ? rows.filter(function(r) { return r.device === tpl.device && r.active !== false; }) : [];
+      // the sheet's naming for this line: "S25 Ultra" for canonical "Galaxy S25 Ultra"
+      var name = m.model;
+      if (tpl && tpl.canonical !== tpl.device && tpl.canonical.indexOf(tpl.device) === tpl.canonical.length - tpl.device.length) {
+        name = m.model.slice(tpl.canonical.length - tpl.device.length);
+      }
+      var byLine = {};
+      m.lines.forEach(function(l) { byLine[l.repair + "|" + (l.tier || "")] = l; });
+      var recommended = tRows.map(function(r) {
+        var reg = byLine[r.repair + "|" + (r.tier || "")] || (r.canonical_repair ? byLine[r.canonical_repair + "|" + (r.tier || "")] : null);
+        var useReg = reg && reg.sold >= 2 && reg.pos_list !== null;
+        return { repair: r.repair, tier: r.tier, canonical_repair: r.canonical_repair, set_price: useReg ? reg.pos_list : r.set_price, source: useReg ? "register" : "template", register_jobs: reg ? reg.sold : 0, template_price: r.set_price, floor_price: r.floor_price, turnaround: r.turnaround };
+      });
+      var covered = {};
+      recommended.forEach(function(x) { covered[(x.canonical_repair || x.repair) + "|" + (x.tier || "")] = true; });
+      var extras = m.lines.filter(function(l) { return l.sold >= 2 && l.pos_list !== null && !covered[l.repair + "|" + (l.tier || "")]; })
+        .map(function(l) { return { repair: l.repair, tier: l.tier, canonical_repair: l.repair, set_price: l.pos_list, source: "register", register_jobs: l.sold, template_price: null, floor_price: null, turnaround: null, extra: true }; });
+      m.lines.sort(function(a, b) { return b.sold - a.sold; });
+      return { model: m.model, family: m.family, jobs: m.jobs, lines: m.lines, suggested_name: name, template: tpl ? tpl.device : null, recommended: recommended.concat(extras) };
+    }).sort(function(a, b) { return b.jobs - a.jobs; });
+
     var updatedMax = rows.reduce(function(m, r) { return r.updated_at > m ? r.updated_at : m; }, "");
     return NextResponse.json({
       success: true,
@@ -213,6 +280,7 @@ export async function GET(request) {
       viewer: who.authorized ? { name: who.result.name, role: who.result.role } : null,
       updated_at_max: updatedMax,
       rows: isAdmin ? rows : rows.filter(function(r) { return r.active !== false; }),
+      missing_models: isAdmin ? missingModels : [],
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
@@ -281,6 +349,38 @@ export async function POST(request) {
         });
       });
 
+      // Recommended prices from the register replace the template's where
+      // supplied; lines the register rings that the template lacks come in as
+      // extra rows with no floor (there is no part cost to build one from).
+      var overrides = {};
+      (Array.isArray(body.overrides) ? body.overrides : []).forEach(function(o) {
+        var p = num(o && o.set_price);
+        if (o && o.repair && p !== null && p >= 0) overrides[o.repair + "|" + (o.tier || "")] = round2(p);
+      });
+      var overridden = 0;
+      newRows.forEach(function(r) {
+        var k = r.repair + "|" + (r.tier || "");
+        if (overrides[k] !== undefined && Math.abs(num(r.set_price) - overrides[k]) >= 0.005) { r.set_price = overrides[k]; overridden++; }
+      });
+      var extrasIn = Array.isArray(body.extra_rows) ? body.extra_rows : [];
+      var t0 = tRows[0];
+      toAdd.forEach(function(name, di) {
+        var rm2 = resolveModel(name);
+        extrasIn.forEach(function(x, xi) {
+          var p = num(x && x.set_price);
+          if (!x || !x.repair || p === null || p < 0) return;
+          newRows.push({
+            family: t0.family, model_group: t0.model_group, device: name, repair: String(x.repair).slice(0, 60), tier: x.tier ? String(x.tier).slice(0, 30) : null,
+            canonical_model: rm2.specified ? rm2.canonical : null, canonical_repair: x.canonical_repair || x.repair,
+            set_price: round2(p), part_price: null, floor_price: null, floor_rule: null,
+            max_discount: null, turnaround: null, flags: [], note: "added from register — no floor yet",
+            sort_order: baseSort - (toAdd.length - di),
+            active: true, updated_at: addNow, updated_by: editor,
+          });
+        });
+      });
+      var priceNote = overridden || extrasIn.length ? " at register prices" : "";
+
       var { data: inserted, error: insErr } = await supabase.from("repair_prices").insert(newRows).select("id,device,repair,tier,canonical_model,canonical_repair,set_price");
       if (insErr) throw new Error("insert: " + insErr.message);
       (inserted || []).forEach(function(r) {
@@ -290,7 +390,7 @@ export async function POST(request) {
           canonical_model: r.canonical_model, canonical_repair: r.canonical_repair,
           field: "set_price", old_value: null, new_value: r.set_price,
           changed_by: editor, changed_at: addNow, effective_date: addDate,
-          reason: "Added " + r.device + " from " + template + (body.reason ? " · " + String(body.reason).slice(0, 200) : ""),
+          reason: "Added " + r.device + " from " + template + priceNote + (body.reason ? " · " + String(body.reason).slice(0, 200) : ""),
         });
       });
       // Rows exist before the ledger here (the insert has to happen to know the
