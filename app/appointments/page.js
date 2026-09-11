@@ -724,7 +724,8 @@ function StoreDashboard() {
         </div>
         <div style={{ display:"flex",alignItems:"center",gap:10 }}>
           {STORE_KEYS.map(function(k) { var st=STORES[k]; return <button key={k} onClick={function(){setStore(k);}} style={{ padding:"6px 14px",borderRadius:6,border:"none",cursor:"pointer",background:store===k?st.color+"22":"var(--bg-card)",color:store===k?st.color:"var(--text-secondary)",fontSize:11,fontWeight:600 }}>{st.name.replace("CPR ","")}</button>; })}
-          <a href="/" style={{ marginLeft:12,padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",color:"var(--text-secondary)",fontSize:10,textDecoration:"none" }}>Dashboard</a>
+          <a href="/prices" style={{ marginLeft:12,padding:"6px 12px",borderRadius:6,border:"1px solid var(--purple)",background:"#7B2FFF14",color:"var(--purple)",fontSize:10,fontWeight:700,textDecoration:"none",whiteSpace:"nowrap" }}>{"🏷️"} Price Book</a>
+          <a href="/" style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",color:"var(--text-secondary)",fontSize:10,textDecoration:"none" }}>Dashboard</a>
           <ThemeToggle />
           {auth && <button onClick={auth.signOut} style={{ padding:"6px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>Sign Out</button>}
         </div>
