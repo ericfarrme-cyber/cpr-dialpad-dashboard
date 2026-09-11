@@ -281,6 +281,21 @@ export default function PriceBook() {
   var selectedCount = Object.keys(selectedIds).length;
   var visibleIds = filtered.map(function(r) { return r.id; });
 
+  // Where the register disagrees with the sheet. The route already attaches
+  // what RepairQ actually rang for each row; this is the list, ranked by how
+  // many jobs the difference touches, so the biggest gaps are on top.
+  var mismatches = useMemo(function() {
+    return rows.filter(function(r) {
+      return r.actuals && r.actuals.pos_list !== null && r.set_price !== null && Math.abs(r.actuals.pos_list - r.set_price) >= 1;
+    }).sort(function(a, b) { return b.actuals.sold - a.actuals.sold; });
+  }, [rows]);
+  // Catalog lines the register rings that the sheet has no row for at all.
+  var unlisted = useMemo(function() {
+    return rows.filter(function(r) { return r.actuals_other && r.actuals_other.sold > 0; })
+      .sort(function(a, b) { return b.actuals_other.sold - a.actuals_other.sold; });
+  }, [rows]);
+  var [showReconcile, setShowReconcile] = useState(false);
+
   function toggle(id) { setSelectedIds(function(p) { var n = Object.assign({}, p); if (n[id]) delete n[id]; else n[id] = true; return n; }); setPreview(null); }
   function selectWhere(pred) { setSelectedIds(function(p) { var n = Object.assign({}, p); filtered.forEach(function(r) { if (pred(r)) n[r.id] = true; }); return n; }); setPreview(null); }
   function clearSel() { setSelectedIds({}); setPreview(null); }
@@ -289,14 +304,20 @@ export default function PriceBook() {
   // Same dry-run discipline as the importer; these are the numbers customers get quoted.
   function buildPreview() {
     var amt = parseFloat(bulk.amount);
-    if (!isFinite(amt)) { setToast({ tone: "var(--red)", text: "Enter an amount first" }); return; }
+    if (bulk.mode !== "register" && !isFinite(amt)) { setToast({ tone: "var(--red)", text: "Enter an amount first" }); return; }
     var out = [];
     rows.forEach(function(r) {
       if (!selectedIds[r.id]) return;
       var cur = r[bulk.field];
       if (cur === null || cur === undefined) return;
       var nv;
-      if (bulk.mode === "minus") nv = cur - amt;
+      if (bulk.mode === "register") {
+        // Adopt what the register actually rings for THIS row — each row has
+        // its own target, so no amount is needed.
+        if (!r.actuals || r.actuals.pos_list === null) return;
+        nv = r.actuals.pos_list;
+      }
+      else if (bulk.mode === "minus") nv = cur - amt;
       else if (bulk.mode === "plus") nv = cur + amt;
       else if (bulk.mode === "pct") nv = cur * (1 - amt / 100);
       else nv = amt;
@@ -311,7 +332,10 @@ export default function PriceBook() {
   async function commit(changes, reason) {
     setBusy(true);
     try {
-      var res = await auth.authFetch("/api/dialpad/price-book", {
+      // Without a session this is plain fetch and the route answers 401 —
+      // the gate is the server's, never the UI's.
+      var af = auth && auth.authFetch ? auth.authFetch : fetch;
+      var res = await af("/api/dialpad/price-book", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "update", changes: changes, reason: reason || null }),
       });
@@ -333,7 +357,8 @@ export default function PriceBook() {
   }
 
   function loadHistory() {
-    auth.authFetch("/api/dialpad/price-book?action=changes").then(function(r) { return r.json(); }).then(function(j) { if (j.success) setHistory(j.batches); });
+    var af = auth && auth.authFetch ? auth.authFetch : fetch;
+    af("/api/dialpad/price-book?action=changes").then(function(r) { return r.json(); }).then(function(j) { if (j.success) setHistory(j.batches); });
   }
 
   var input = { padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 13 };
@@ -377,6 +402,75 @@ export default function PriceBook() {
         {error && <div style={{ padding: 18, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontSize: 13, marginBottom: 14 }}>Couldn&apos;t load the price book — {error}</div>}
         {!data && !error && <div style={{ padding: 50, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading prices…</div>}
 
+        {/* reconcile with the register — the sheet vs what RepairQ actually rings */}
+        {isAdmin && !editMode && mismatches.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px", marginBottom: 14, borderRadius: 10, border: "1px solid var(--yellow)", background: "#FBBF2414", fontSize: 12, animation: "pbExpand .22s ease both" }}>
+            <span style={{ color: "var(--yellow)", fontWeight: 800 }}>The register disagrees with this sheet on {mismatches.length} price{mismatches.length === 1 ? "" : "s"}</span>
+            <span style={{ color: "var(--text-muted)" }}>· {unlisted.length} line{unlisted.length === 1 ? "" : "s"} it rings that aren&apos;t on the sheet at all</span>
+            <button onClick={function() { setEditMode(true); setShowReconcile(true); }} style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--yellow)", color: "#0B0D11", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Review them</button>
+          </div>
+        )}
+        {editMode && (mismatches.length > 0 || unlisted.length > 0) && (
+          <div style={{ background: "var(--bg-card)", border: "1px solid var(--yellow)", borderRadius: 14, marginBottom: 12, overflow: "hidden", animation: "pbExpand .22s ease both" }}>
+            <div onClick={function() { setShowReconcile(!showReconcile); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", cursor: "pointer", userSelect: "none" }}>
+              <span style={{ color: "var(--text-muted)", fontSize: 11, transform: showReconcile ? "rotate(90deg)" : "none", transition: "transform .2s ease", display: "inline-block", width: 12 }}>▶</span>
+              <span style={{ fontSize: 13, fontWeight: 800 }}>Reconcile with the register</span>
+              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{mismatches.length} disagree · {unlisted.length} not on the sheet</span>
+              {showReconcile && mismatches.length > 0 && (
+                <button onClick={function(e) { e.stopPropagation(); var n = {}; mismatches.forEach(function(r) { n[r.id] = true; }); setSelectedIds(n); setBulk(Object.assign({}, bulk, { mode: "register", reason: bulk.reason || "Match the register (RepairQ list price)" })); setPreview(null); setToast({ tone: "var(--purple)", text: mismatches.length + " selected · mode set to match register — hit Preview" }); }}
+                  style={{ marginLeft: "auto", padding: "6px 12px", borderRadius: 7, border: "none", background: "var(--purple)", color: "#fff", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Select all {mismatches.length} → match register</button>
+              )}
+            </div>
+            {showReconcile && (
+              <div style={{ padding: "0 14px 14px" }}>
+                {mismatches.length > 0 && (
+                  <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border-light)", borderRadius: 8 }}>
+                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                      <thead><tr style={{ color: "var(--text-muted)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                        <th style={{ textAlign: "left", padding: "7px 10px", fontWeight: 700 }}>Item</th>
+                        <th style={{ textAlign: "right", padding: "7px 10px", fontWeight: 700 }}>Sheet</th>
+                        <th style={{ textAlign: "right", padding: "7px 10px", fontWeight: 700 }}>Register</th>
+                        <th style={{ textAlign: "right", padding: "7px 10px", fontWeight: 700 }}>Jobs</th>
+                        <th style={{ padding: "7px 10px" }}></th>
+                      </tr></thead>
+                      <tbody>
+                        {mismatches.map(function(r) {
+                          var on = !!selectedIds[r.id];
+                          var d = r.actuals.pos_list - r.set_price;
+                          return (
+                            <tr key={r.id} onClick={function() { toggle(r.id); }} style={{ borderTop: "1px solid var(--border-light)", background: on ? "#7B2FFF12" : "transparent", cursor: "pointer" }}>
+                              <td style={{ padding: "7px 10px", color: "var(--text-body)" }}>{r.device} · {r.repair}{r.tier ? " · " + r.tier : ""}</td>
+                              <td style={{ padding: "7px 10px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{money(r.set_price)}</td>
+                              <td style={{ padding: "7px 10px", textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums", color: d < 0 ? "var(--orange)" : "var(--green)" }}>{money(r.actuals.pos_list)} <span style={{ color: "var(--text-muted)", fontWeight: 500, fontSize: 10.5 }}>({d < 0 ? "−" : "+"}{money(Math.abs(d))})</span></td>
+                              <td style={{ padding: "7px 10px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{r.actuals.sold} <span style={{ fontSize: 10.5 }}>· {r.actuals.pos_list_share}% at that price</span></td>
+                              <td style={{ padding: "7px 10px", textAlign: "center" }}><span style={{ display: "inline-block", width: 14, height: 14, borderRadius: 4, border: "1.5px solid " + (on ? "var(--purple)" : "var(--border-heavy)"), background: on ? "var(--purple)" : "transparent", color: "#fff", fontSize: 10, fontWeight: 900, lineHeight: "14px", textAlign: "center" }}>{on ? "✓" : ""}</span></td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 8 }}>Tap rows to pick which to adopt, or take them all. Nothing changes until you Preview and Commit below.</div>
+                {unlisted.length > 0 && (
+                  <div style={{ marginTop: 14 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-body)", marginBottom: 6 }}>Rung at the register, not on this sheet</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                      {unlisted.slice(0, 40).map(function(r) {
+                        return <div key={"u" + r.id} style={{ fontSize: 12, color: "var(--text-secondary)", display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", borderTop: "1px solid var(--border-light)" }}>
+                          <span>{r.device} · {r.repair}</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}><strong style={{ color: "var(--yellow)" }}>{money(r.actuals_other.pos_list)}</strong> · {r.actuals_other.sold} job{r.actuals_other.sold === 1 ? "" : "s"}</span>
+                        </div>;
+                      })}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6 }}>These have no row to adopt into. Adding rows to the sheet from here is the next capability.</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* bulk edit bar */}
         {editMode && (
           <div style={{ position: "sticky", top: 10, zIndex: 5, background: "var(--bg-card)", border: "1px solid var(--purple)", borderRadius: 14, padding: 14, marginBottom: 16, boxShadow: "0 10px 30px rgba(0,0,0,.18)", animation: "pbExpand .22s ease both" }}>
@@ -399,7 +493,7 @@ export default function PriceBook() {
                 <option value="part_price">Part cost (floor follows)</option>
               </select>
               <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: 8, overflow: "hidden" }}>
-                {[["minus", "− $"], ["plus", "+ $"], ["pct", "− %"], ["set", "set to $"]].map(function(m) {
+                {[["minus", "− $"], ["plus", "+ $"], ["pct", "− %"], ["set", "set to $"], ["register", "match register"]].map(function(m) {
                   var on = bulk.mode === m[0];
                   return <button key={m[0]} onClick={function() { setBulk(Object.assign({}, bulk, { mode: m[0] })); setPreview(null); }} style={{ padding: "8px 12px", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, background: on ? "#7B2FFF22" : "transparent", color: on ? "var(--purple)" : "var(--text-secondary)" }}>{m[1]}</button>;
                 })}
