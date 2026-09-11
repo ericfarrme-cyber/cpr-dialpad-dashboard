@@ -139,6 +139,11 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
           register also rings <strong>{money(r.actuals_other.pos_list)}</strong> on {r.actuals_other.sold} job{r.actuals_other.sold === 1 ? "" : "s"} — a line this sheet doesn&apos;t have
         </div>
       )}
+      {r.insurance && r.insurance.sold > 0 && (
+        <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--text-muted)" }}>
+          + {r.insurance.sold} insurance claim{r.insurance.sold === 1 ? "" : "s"} · insurer paid ~{money(r.insurance.avg_price)} — not a quote
+        </div>
+      )}
       {isAdmin && r.updated_by && !String(r.updated_by).startsWith("import:") && (
         <div style={{ fontSize: 9.5, color: "var(--text-faint)", marginTop: 6 }}>edited {whenStr(r.updated_at)} · {r.updated_by}</div>
       )}
@@ -285,8 +290,12 @@ export default function PriceBook() {
   // what RepairQ actually rang for each row; this is the list, ranked by how
   // many jobs the difference touches, so the biggest gaps are on top.
   var mismatches = useMemo(function() {
+    // A disagreement needs a real catalog price behind it: at least three jobs
+    // and the majority at one number. A single job rung at $40 on a charge-port
+    // line is a tech improvising, not the register's list price.
     return rows.filter(function(r) {
-      return r.actuals && r.actuals.pos_list !== null && r.set_price !== null && Math.abs(r.actuals.pos_list - r.set_price) >= 1;
+      var a = r.actuals;
+      return a && a.pos_list !== null && r.set_price !== null && a.sold >= 3 && a.pos_list_share >= 50 && Math.abs(a.pos_list - r.set_price) >= 1;
     }).sort(function(a, b) { return b.actuals.sold - a.actuals.sold; });
   }, [rows]);
   // Catalog lines the register rings that the sheet has no row for at all.

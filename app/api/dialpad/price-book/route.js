@@ -129,6 +129,12 @@ export async function GET(request) {
         s.lists[lk] = (s.lists[lk] || 0) + 1;
       });
     }
+    // "(Protected)" lines are insurance claims (Assurant etc.): the insurer sets
+    // the price per claim, so every one rings a different number and none of
+    // them is a list price a customer was quoted. Counted separately, never
+    // compared to the sheet — on the first pass they showed up as "register
+    // rings $320.76 on 26 jobs, not on the sheet" for a screen that was.
+    var insurance = {};
     tickets.forEach(function(t) {
       var rm = resolveModel(t.device);
       if (!rm.specified) return;
@@ -138,9 +144,16 @@ export async function GET(request) {
         if (!rt) return;
         var list = num(it.unit_price);
         if (!list || list <= 0) return;
+        var name = cleanCatalogName(it.catalog_item);
+        var key = rm.canonical + "|" + rt;
+        if (/\(protected\)/i.test(name)) {
+          var ins = insurance[key] || (insurance[key] = { sold: 0, sum: 0 });
+          ins.sold++; ins.sum += list;
+          return;
+        }
         var disc = num(it.discount) || 0;
         var collected = it.line_total !== undefined && it.line_total !== null ? (num(it.line_total) || 0) : list - disc;
-        bump(rm.canonical + "|" + rt, tierOfCatalogLine(cleanCatalogName(it.catalog_item)), list, disc, collected);
+        bump(key, tierOfCatalogLine(name), list, disc, collected);
       });
     });
 
@@ -170,23 +183,27 @@ export async function GET(request) {
     rows.forEach(function(r) { r.actuals = null; });
     Object.keys(byKey).forEach(function(k) {
       var group = byKey[k];
+      var ins = insurance[k];
+      if (ins) group[0].insurance = { sold: ins.sold, avg_price: round2(ins.sum / ins.sold) };
       var slot = actuals[k];
       if (!slot) return;
-      var claimed = {};
       group.forEach(function(r) {
-        if (r.tier && slot[r.tier]) { r.actuals = summarise(slot[r.tier]); claimed[r.tier] = true; }
+        if (r.tier && slot[r.tier]) r.actuals = summarise(slot[r.tier]);
       });
       var untiered = slot["_untiered"];
       if (untiered) {
         var summary = summarise(untiered);
         var modal = summary.pos_list;
-        // Only claim a row when the register price matches what that row
-        // quotes. Filing an unmatched pool under "whichever tier is left"
-        // dressed up "(Protected)" jobs as OEM on the first pass — a
-        // mis-attribution that looked like a match.
-        var home = group.filter(function(r) { return !r.actuals && r.set_price !== null && Math.abs(num(r.set_price) - modal) < 0.005; })[0];
+        // A catalog line with no tier in its name: claim the row whose quote
+        // equals the register price; failing that, if exactly one row is
+        // still unclaimed it is the same repair and the difference is a real
+        // disagreement to surface. Only when the sheet has several candidate
+        // rows and none match is it a line the sheet does not have.
+        var open = group.filter(function(r) { return !r.actuals; });
+        var home = open.filter(function(r) { return r.set_price !== null && Math.abs(num(r.set_price) - modal) < 0.005; })[0]
+          || (open.length === 1 ? open[0] : null);
         if (home) home.actuals = summary;
-        else group[0].actuals_other = summary; // a catalog line this sheet does not have
+        else group[0].actuals_other = summary;
       }
     });
 
