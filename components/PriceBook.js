@@ -9,6 +9,7 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeProvider";
 import { QUOTE_REASONS } from "@/lib/quote-reasons";
+import { resolveModel } from "@/lib/device-model";
 
 var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Services" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
@@ -425,6 +426,148 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Add a device. A new model starts as a copy of the product line of the one
+// before it — every row the template has, at the template's prices — and
+// bulk edit takes it from there. "iPhone 17 Pro Max" guesses "iPhone 16 Pro
+// Max"; "S27 Ultra" walks down to the newest Ultra on the sheet.
+function AddDevicePanel({ allRows, af, onClose, onAdded }) {
+  var devices = useMemo(function() {
+    var seen = {}, out = [];
+    allRows.forEach(function(r) { if (r.active === false || seen[r.device]) return; seen[r.device] = 1; out.push({ device: r.device, family: r.family, model_group: r.model_group }); });
+    return out;
+  }, [allRows]);
+  var byLower = useMemo(function() { var m = {}; devices.forEach(function(d) { m[d.device.toLowerCase()] = d.device; }); return m; }, [devices]);
+
+  var [namesText, setNamesText] = useState("");
+  var [template, setTemplate] = useState("");
+  var [autoTemplate, setAutoTemplate] = useState(true);
+  var [reason, setReason] = useState("");
+  var [busy, setBusy] = useState(false);
+  var [err, setErr] = useState(null);
+  var firstRef = useRef(null);
+  useEffect(function() { firstRef.current && firstRef.current.focus(); }, []);
+  useEffect(function() {
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return function() { window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+
+  var names = namesText.split(/\r?\n|,/).map(function(s) { return s.trim(); }).filter(Boolean).filter(function(n, i, a) { return a.indexOf(n) === i; });
+
+  // The model before this one: same name with the generation number stepped
+  // down until it hits a device that exists (S27 → S26 → S25 Ultra).
+  function guessTemplate(name) {
+    var m = name.match(/(\d{1,2})/);
+    if (!m) return "";
+    var n = parseInt(m[1], 10);
+    for (var k = 1; k <= 4; k++) {
+      var cand = name.replace(m[1], String(n - k)).toLowerCase();
+      if (byLower[cand]) return byLower[cand];
+    }
+    return "";
+  }
+  useEffect(function() {
+    if (!autoTemplate || !names.length) return;
+    var g = guessTemplate(names[0]);
+    if (g) setTemplate(g);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [namesText, autoTemplate]);
+
+  var tRows = useMemo(function() {
+    return allRows.filter(function(r) { return r.device === template && r.active !== false; }).slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; });
+  }, [allRows, template]);
+  var existing = names.filter(function(n) { return !!byLower[n.toLowerCase()]; });
+  var resolved = names.map(function(n) { var r = resolveModel(n); return { name: n, canonical: r.specified ? r.canonical : null }; });
+  var templateOk = !!template && tRows.length > 0;
+  var canSubmit = names.length > 0 && templateOk && existing.length === 0 && !busy;
+
+  async function submit() {
+    setErr(null);
+    if (!canSubmit) return;
+    setBusy(true);
+    try {
+      var res = await af("/api/dialpad/price-book", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_device", devices: names, template_device: template, reason: reason || null }),
+      });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "not added");
+      onAdded(j);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  var input = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 13, boxSizing: "border-box" };
+  var label = { fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block" };
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 30, animation: "pbFade .2s ease both" }} />
+      <div role="dialog" aria-label="Add a device" style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(480px, 100vw)", background: "var(--bg-card)", borderLeft: "1px solid var(--border)", boxShadow: "-20px 0 60px rgba(0,0,0,.35)", zIndex: 31, overflowY: "auto", padding: "18px 20px 24px", animation: "pbSlide .28s cubic-bezier(.22,1,.36,1) both", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--cyan)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Add a device</div>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--text-primary)", marginTop: 3 }}>New model, same product line</div>
+            <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginTop: 2 }}>Copies every row the model before it has — LCD, OLED, OEM, back glass — at that model&apos;s prices. Then bulk-edit the new one.</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        <div>
+          <label style={label}>New device name{names.length > 1 ? "s" : ""} — one per line</label>
+          <textarea ref={firstRef} value={namesText} onChange={function(e) { setNamesText(e.target.value); }} rows={4}
+            placeholder={"iPhone 17 Pro Max\niPhone 17 Pro\niPhone 17\niPhone 17 Air"} style={Object.assign({}, input, { fontFamily: "inherit", resize: "vertical" })} />
+          {resolved.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 3, marginTop: 6 }}>
+              {resolved.map(function(r) {
+                var dup = !!byLower[r.name.toLowerCase()];
+                return <div key={r.name} style={{ fontSize: 11, color: dup ? "var(--red)" : r.canonical ? "var(--text-muted)" : "var(--orange)" }}>
+                  <strong style={{ color: "var(--text-body)" }}>{r.name}</strong>{dup ? " — already on the sheet" : r.canonical ? " → joins register data as " + r.canonical : " — ⚠ the resolver doesn't know this name; it will be on the sheet but won't join to register data until it does"}
+                </div>;
+              })}
+            </div>
+          )}
+        </div>
+
+        <div>
+          <label style={label}>Copy the product line from</label>
+          <input list="pb-devices" value={template} onChange={function(e) { setTemplate(e.target.value); setAutoTemplate(false); }} placeholder="start typing — iPhone 16 Pro Max, S25 Ultra…" style={input} />
+          <datalist id="pb-devices">{devices.map(function(d) { return <option key={d.device} value={d.device} />; })}</datalist>
+          {template && !templateOk && <div style={{ fontSize: 11, color: "var(--red)", marginTop: 4 }}>No device called “{template}” on the sheet.</div>}
+          {templateOk && autoTemplate && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 4 }}>guessed from the name — change it if the line should follow a different model</div>}
+        </div>
+
+        {templateOk && (
+          <div style={{ animation: "pbExpand .2s ease both" }}>
+            <label style={label}>{tRows.length} row{tRows.length === 1 ? "" : "s"} × {names.length || 1} device{names.length === 1 ? "" : "s"}</label>
+            <div style={{ border: "1px solid var(--border-light)", borderRadius: 8, overflow: "hidden" }}>
+              {tRows.map(function(r) {
+                return <div key={r.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 10px", borderTop: "1px solid var(--border-light)", fontSize: 12 }}>
+                  <span style={{ color: "var(--text-body)" }}>{r.repair}{r.tier ? <span style={{ color: "var(--purple)", fontWeight: 700 }}> · {r.tier}</span> : null}{r.turnaround ? <span style={{ color: "var(--text-muted)" }}> · {r.turnaround}</span> : null}</span>
+                  <span style={{ fontVariantNumeric: "tabular-nums", color: "var(--text-primary)", fontWeight: 700 }}>{r.set_price === null ? "on inspection" : money(r.set_price)}{r.floor_price !== null ? <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · floor {money(r.floor_price)}</span> : null}</span>
+                </div>;
+              })}
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label style={label}>Note (optional)</label>
+          <input value={reason} onChange={function(e) { setReason(e.target.value); }} placeholder="launch pricing, adjust once parts land" style={input} />
+        </div>
+
+        {err && <div style={{ fontSize: 12, color: "var(--red)", fontWeight: 700 }}>{err}</div>}
+        <button disabled={!canSubmit} onClick={submit}
+          style={{ padding: "12px 16px", borderRadius: 10, border: "none", background: canSubmit ? "var(--cyan)" : "var(--border)", color: canSubmit ? "#0B0D11" : "var(--text-muted)", fontSize: 14, fontWeight: 800, cursor: canSubmit ? "pointer" : "not-allowed", boxShadow: canSubmit ? "0 8px 24px #00D4FF33" : "none" }}>
+          {busy ? "Adding…" : names.length > 1 ? "Add " + names.length + " devices" : "Add " + (names[0] || "device")}
+        </button>
+        <div style={{ fontSize: 10.5, color: "var(--text-faint)", textAlign: "center" }}>Recorded in the price history as one event · the new rows sort above {template || "the template"}</div>
+      </div>
+    </>
+  );
+}
+
 export default function PriceBook() {
   var auth = useAuth();
   var [data, setData] = useState(null);
@@ -440,6 +583,7 @@ export default function PriceBook() {
   var [history, setHistory] = useState(null);
   var [showHistory, setShowHistory] = useState(false);
   var [booking, setBooking] = useState(null); // the price row being turned into an appointment
+  var [addingDevice, setAddingDevice] = useState(false);
   var searchRef = useRef(null);
 
   var isAdmin = !!(data && data.can_edit);
@@ -717,6 +861,8 @@ export default function PriceBook() {
               })}
               {selectedCount > 0 && <Chip onClick={clearSel} tone="var(--red)">clear</Chip>}
               <span style={{ flex: 1 }} />
+              <button onClick={function() { setAddingDevice(true); }} title="Add a new model with the full product line of the one before it — LCD, OLED, OEM, back glass…"
+                style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid var(--cyan)", background: "transparent", color: "var(--cyan)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>＋ Add device</button>
               {selectedCount > 0 && rows.some(function(r) { return selectedIds[r.id] && r.active !== false; }) && (
                 <button disabled={busy} onClick={function() { setOffered(false); }} title="Take the selected prices off the sheet. Agents stop seeing them; the register history stays attached and they can be offered again."
                   style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid var(--red)", background: "transparent", color: "var(--red)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Stop offering selected</button>
@@ -812,6 +958,15 @@ export default function PriceBook() {
         {devices.length > 60 && <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 12 }}>Showing 60 of {devices.length} — type to narrow it down.</div>}
       </div>
 
+      {addingDevice && isAdmin && (
+        <AddDevicePanel allRows={data ? data.rows : []} af={auth && auth.authFetch ? auth.authFetch : fetch}
+          onClose={function() { setAddingDevice(false); }}
+          onAdded={function(j) {
+            setAddingDevice(false);
+            setToast({ tone: "var(--green)", text: "Added " + j.devices.join(", ") + " · " + j.rows_per_device + " rows each, copied from " + j.template + (j.unresolved.length ? " · ⚠ " + j.unresolved.join(", ") + " won't join to register data yet" : "") });
+            setQ(j.devices[0]); setEditMode(false); load();
+          }} />
+      )}
       {booking && (
         <BookPanel row={booking} viewer={auth && auth.userInfo ? auth.userInfo : null} af={auth && auth.authFetch ? auth.authFetch : fetch}
           onClose={function() { setBooking(null); }}

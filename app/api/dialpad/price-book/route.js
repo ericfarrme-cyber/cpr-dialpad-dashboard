@@ -96,7 +96,10 @@ export async function GET(request) {
     // Rows Matt has stopped offering (active = false) stay in the book so
     // their register history keeps attaching to them and they can be offered
     // again. Admins get them flagged; everyone else never sees them.
-    var rows = await fetchAll("repair_prices", "*", "sort_order");
+    // Paginate on id (unique — sort_order repeats once devices are added from
+    // a template), then order the sheet in memory.
+    var rows = await fetchAll("repair_prices", "*", "id");
+    rows.sort(function(a, b) { return (a.sort_order - b.sort_order) || (a.id - b.id); });
 
     // ── what the register actually did for each (model, repair) ─────────────
     var tickets = await fetchAll(
@@ -228,6 +231,78 @@ export async function POST(request) {
 
   try {
     var body = await request.json();
+
+    // ── add a device by cloning a product line ───────────────────────────────
+    // "iPhone 17 Pro Max" starts as a copy of every row the 16 Pro Max has —
+    // LCD, OLED, OEM, back glass, charge port — at the template's prices, then
+    // bulk edit takes it from there. New rows sort just above the template so
+    // the newest model leads its line, exactly as the sheet does.
+    if (body.action === "add_device") {
+      var names = (Array.isArray(body.devices) ? body.devices : String(body.devices || "").split(/\r?\n|,/))
+        .map(function(s) { return String(s || "").trim(); }).filter(Boolean);
+      names = names.filter(function(n, i) { return names.indexOf(n) === i; });
+      var template = String(body.template_device || "").trim();
+      if (!names.length) return NextResponse.json({ success: false, error: "Give at least one device name" }, { status: 400 });
+      if (names.length > 12) return NextResponse.json({ success: false, error: "At most 12 devices at once" }, { status: 400 });
+      if (!template) return NextResponse.json({ success: false, error: "Pick the device to copy the product line from" }, { status: 400 });
+
+      var { data: tRows, error: tErr } = await supabase.from("repair_prices").select("*").eq("device", template).order("sort_order").order("id");
+      if (tErr) throw new Error(tErr.message);
+      tRows = (tRows || []).filter(function(r) { return r.active !== false; });
+      if (!tRows.length) return NextResponse.json({ success: false, error: "\"" + template + "\" has no rows to copy" }, { status: 404 });
+
+      var { data: existingRows, error: exErr } = await supabase.from("repair_prices").select("device").in("device", names);
+      if (exErr) throw new Error(exErr.message);
+      var existing = {};
+      (existingRows || []).forEach(function(r) { existing[r.device] = true; });
+      var toAdd = names.filter(function(n) { return !existing[n]; });
+      if (!toAdd.length) return NextResponse.json({ success: false, error: "Already on the sheet: " + names.join(", ") }, { status: 409 });
+
+      var addBatch = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+      var addNow = new Date().toISOString();
+      var addDate = addNow.slice(0, 10);
+      var baseSort = Math.min.apply(null, tRows.map(function(r) { return r.sort_order; }));
+      var newRows = [];
+      var newLedger = [];
+      var unresolved = [];
+      toAdd.forEach(function(name, di) {
+        var rm = resolveModel(name);
+        if (!rm.specified) unresolved.push(name);
+        tRows.forEach(function(t) {
+          newRows.push({
+            family: t.family, model_group: t.model_group, device: name, repair: t.repair, tier: t.tier,
+            canonical_model: rm.specified ? rm.canonical : null, canonical_repair: t.canonical_repair,
+            set_price: t.set_price, part_price: t.part_price, floor_price: t.floor_price, floor_rule: t.floor_rule,
+            max_discount: t.max_discount, turnaround: t.turnaround, flags: t.flags || [], note: t.note,
+            // the last name typed sorts first, so a list typed newest-first reads newest-first
+            sort_order: baseSort - (toAdd.length - di),
+            active: true, updated_at: addNow, updated_by: editor,
+          });
+        });
+      });
+
+      var { data: inserted, error: insErr } = await supabase.from("repair_prices").insert(newRows).select("id,device,repair,tier,canonical_model,canonical_repair,set_price");
+      if (insErr) throw new Error("insert: " + insErr.message);
+      (inserted || []).forEach(function(r) {
+        newLedger.push({
+          batch_id: addBatch, repair_price_id: r.id,
+          device: r.device, repair: r.repair, tier: r.tier,
+          canonical_model: r.canonical_model, canonical_repair: r.canonical_repair,
+          field: "set_price", old_value: null, new_value: r.set_price,
+          changed_by: editor, changed_at: addNow, effective_date: addDate,
+          reason: "Added " + r.device + " from " + template + (body.reason ? " · " + String(body.reason).slice(0, 200) : ""),
+        });
+      });
+      // Rows exist before the ledger here (the insert has to happen to know the
+      // ids), so a ledger failure is reported loudly rather than swallowed.
+      var { error: addLedErr } = await supabase.from("repair_price_changes").insert(newLedger);
+      if (addLedErr) {
+        console.error("[price-book] add_device rows inserted but ledger failed, batch " + addBatch + ":", addLedErr.message);
+        return NextResponse.json({ success: false, error: "Rows were added but the change could not be recorded (" + addLedErr.message + "); batch " + addBatch + " needs review", added: (inserted || []).length }, { status: 500 });
+      }
+      return NextResponse.json({ success: true, batch_id: addBatch, added: (inserted || []).length, devices: toAdd, rows_per_device: tRows.length, template: template, skipped_existing: names.filter(function(n) { return existing[n]; }), unresolved: unresolved });
+    }
+
     if (body.action !== "update") return NextResponse.json({ success: false, error: "Unknown action" }, { status: 400 });
     var changes = Array.isArray(body.changes) ? body.changes : [];
     if (!changes.length) return NextResponse.json({ success: false, error: "No changes supplied" }, { status: 400 });
