@@ -153,7 +153,7 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
         <div style={{ fontSize: 9.5, color: "var(--text-faint)", marginTop: 6 }}>edited {whenStr(r.updated_at)} · {r.updated_by}</div>
       )}
       {/* The quote becomes the appointment: the customer said yes, book it here. */}
-      {!editMode && !off && onBook && r.set_price !== null && (
+      {!editMode && !off && onBook && (
         <button onClick={function(e) { e.stopPropagation(); onBook(r); }}
           style={{ marginTop: 9, width: "100%", padding: "7px 10px", borderRadius: 7, border: "1px solid var(--purple)", background: "transparent", color: "var(--purple)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", transition: "background .15s ease" }}
           onMouseEnter={function(e) { e.currentTarget.style.background = "#7B2FFF1A"; }} onMouseLeave={function(e) { e.currentTarget.style.background = "transparent"; }}>
@@ -240,7 +240,7 @@ var BOOK_STORES = [["fishers", "Fishers"], ["bloomington", "Bloomington"], ["ind
 var localYmd = function(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 var fmtPhone = function(s) { var d = String(s || "").replace(/\D/g, "").slice(-10); if (d.length < 4) return d; if (d.length < 7) return "(" + d.slice(0, 3) + ") " + d.slice(3); return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6); };
 
-function BookPanel({ row, viewer, af, onClose, onBooked }) {
+function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services }) {
   var today = localYmd(new Date());
   var tomorrow = (function() { var d = new Date(); d.setDate(d.getDate() + 1); return localYmd(d); })();
   var homeStore = viewer && viewer.store && BOOK_STORES.some(function(s) { return s[0] === viewer.store; }) ? viewer.store : "fishers";
@@ -251,11 +251,53 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
   var [err, setErr] = useState(null);
   var nameRef = useRef(null);
 
-  var sheet = row.set_price;
+  // Everything this customer could be coming in for: every sheet row for the
+  // device, then the services the register has rung for this model (or its
+  // family when the model has never had one), then "something else".
+  var options = useMemo(function() {
+    var out = (deviceRows && deviceRows.length ? deviceRows : [row]).map(function(r) {
+      return { kind: "row", key: "row:" + r.id, row: r, label: r.repair + (r.tier ? " · " + r.tier : ""), price: r.set_price, sub: r.turnaround || null };
+    });
+    var seen = {};
+    var forModel = services && services.models && row.canonical_model ? services.models[row.canonical_model] || [] : [];
+    var forFamily = services && services.families ? services.families[row.family] || [] : [];
+    // A model's own figure wins when it carries a price; a model that has been
+    // rung but at no usual price defers to the family's usual price.
+    var famPriced = {};
+    forFamily.forEach(function(s) { if (s.price !== null) famPriced[s.type] = s; });
+    forModel.map(function(s) { return s.price === null && famPriced[s.type] ? famPriced[s.type] : s; }).concat(forFamily).forEach(function(s) {
+      if (seen[s.type] || (services.types || []).indexOf(s.type) < 0) return;
+      if (out.some(function(o) { return o.kind === "row" && o.row.canonical_repair === s.type; })) return; // the sheet already prices it
+      seen[s.type] = 1;
+      out.push({ kind: "service", key: "svc:" + s.type, type: s.type, label: s.type === "Other repair" ? "Other repair" : s.type, price: s.price, sold: s.sold, scope: s.scope, sub: s.scope === "model" ? "rung " + s.sold + "× on this model" : "rung " + s.sold + "× on " + (FAMILY_LABEL[row.family] || "this family").toLowerCase() });
+    });
+    out.push({ kind: "other", key: "other", label: "Something else", price: null, sub: "describe it, set the price" });
+    return out;
+  }, [deviceRows, row, services]);
+  var [selKey, setSelKey] = useState("row:" + row.id);
+  var [otherLabel, setOtherLabel] = useState("");
+  var sel = options.filter(function(o) { return o.key === selKey; })[0] || options[0];
+  var selRow = sel.kind === "row" ? sel.row : null;
+
+  // The reference price the quote is judged against: the sheet for a sheet
+  // row, the register's usual price for a service, nothing for "something else".
+  var sheet = sel.kind === "row" ? selRow.set_price : sel.kind === "service" ? sel.price : null;
+  var sheetLabel = sel.kind === "row" ? "Sheet" : sel.kind === "service" ? "Register usually" : "No reference";
   // Eric's rule: the booking floor is 20% under what this actually sells for.
   // With too few jobs to average, the sheet's own floor stands in.
-  var floor = row.actuals && row.actuals.book_floor !== null && row.actuals.book_floor !== undefined ? row.actuals.book_floor : (row.floor_price !== null && row.floor_price !== undefined ? row.floor_price : null);
-  var floorSrc = row.actuals && row.actuals.book_floor !== null && row.actuals.book_floor !== undefined ? "20% under the average sold" : (floor !== null ? "sheet floor" : null);
+  var floor = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? selRow.actuals.book_floor
+    : selRow && selRow.floor_price !== null && selRow.floor_price !== undefined ? selRow.floor_price
+    : sel.kind === "service" && sel.price !== null ? Math.round(sel.price * 0.8 * 100) / 100 : null;
+  var floorSrc = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? "20% under the average sold"
+    : selRow && floor !== null ? "sheet floor" : sel.kind === "service" && floor !== null ? "20% under what it usually rings" : null;
+  // Switching what they are coming in for resets the quote to that option's price.
+  var firstSel = useRef(true);
+  useEffect(function() {
+    if (firstSel.current) { firstSel.current = false; return; }
+    set("quoted", sheet === null || sheet === undefined ? "" : String(sheet));
+    set("reason", ""); set("reason_text", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selKey]);
   var quotedNum = parseFloat(f.quoted);
   var quotedOk = isFinite(quotedNum) && quotedNum >= 0;
   var disc = quotedOk && sheet !== null ? Math.round((sheet - quotedNum) * 100) / 100 : 0;
@@ -292,6 +334,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
   async function submit() {
     setErr(null);
     if (!f.customer_name.trim()) { setErr("Customer name"); nameRef.current && nameRef.current.focus(); return; }
+    if (sel.kind === "other" && !otherLabel.trim()) { setErr("Say what they're coming in for"); return; }
     if (!f.date_of_appt) { setErr("Pick a date"); return; }
     if (!quotedOk) { setErr("Quoted price"); return; }
     if (needsReason && !reasonGiven) { setErr("A quote under the sheet needs a reason"); return; }
@@ -304,8 +347,11 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
           action: "add", source: "price_book",
           store: f.store, customer_name: f.customer_name.trim(), customer_phone: f.customer_phone,
           date_of_appt: f.date_of_appt, appt_time: f.appt_time, notes: f.notes,
-          repair_price_id: row.id, device: row.device, repair: row.repair, tier: row.tier,
-          canonical_model: row.canonical_model, canonical_repair: row.canonical_repair,
+          repair_price_id: selRow ? selRow.id : null, device: row.device,
+          repair: selRow ? selRow.repair : sel.kind === "service" ? sel.type : otherLabel.trim(),
+          tier: selRow ? selRow.tier : null,
+          canonical_model: row.canonical_model,
+          canonical_repair: selRow ? selRow.canonical_repair : sel.kind === "service" ? sel.type : null,
           sheet_price: sheet, book_floor: floor, quoted_price: quotedNum,
           quote_reason: needsReason ? reason : null,
           call_id: call ? call.call_id : null,
@@ -332,15 +378,37 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--purple)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Book this quote</div>
             <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text-primary)", marginTop: 3 }}>{row.device}</div>
-            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{row.repair}{row.tier ? " · " + row.tier : ""}{row.turnaround ? " · " + row.turnaround : ""}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{sel.kind === "other" ? (otherLabel.trim() || "Something else") : sel.label}{sel.sub ? " · " + sel.sub : ""}</div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        {/* what they are coming in for — every sheet row, every service the register has rung, or something else */}
+        <div>
+          <label style={label}>Coming in for</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {options.map(function(o) {
+              var on = o.key === sel.key;
+              return (
+                <button key={o.key} onClick={function() { setSelKey(o.key); }} title={o.sub || undefined}
+                  style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid " + (on ? "var(--purple)" : "var(--border)"), background: on ? "#7B2FFF1A" : "transparent", color: on ? "var(--purple)" : "var(--text-secondary)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "baseline", gap: 6, transition: "all .15s ease" }}>
+                  <span>{o.label}</span>
+                  {o.price !== null && o.price !== undefined && <span style={{ fontWeight: 500, color: on ? "var(--purple)" : "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{money(o.price)}</span>}
+                  {o.kind === "service" && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", color: on ? "var(--purple)" : "var(--text-faint)" }}>{o.scope === "model" ? "register" : "family"}</span>}
+                </button>
+              );
+            })}
+          </div>
+          {sel.kind === "other" && (
+            <input value={otherLabel} onChange={function(e) { setOtherLabel(e.target.value); }} placeholder="what is it — e.g. speaker, housing, SIM tray" style={Object.assign({}, input, { marginTop: 8 })} />
+          )}
+          {sel.kind === "service" && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6 }}>Price is what the register usually rings for a {sel.type.toLowerCase()} — {sel.sub}. Not on the sheet; quote it, adjust if the job needs it.</div>}
         </div>
 
         {/* the quote */}
         <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
           <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid var(--border-light)" }}>
-            <div style={label}>Sheet</div>
+            <div style={label}>{sheetLabel}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{money(sheet)}</div>
             {floor !== null && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>floor {money(floor)} · {floorSrc}</div>}
           </div>
@@ -352,7 +420,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked }) {
                 style={{ width: "100%", fontSize: 22, fontWeight: 800, padding: 0, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
             </div>
             <div style={{ fontSize: 10.5, color: discTone, marginTop: 2, fontWeight: needsReason ? 700 : 500 }}>
-              {!quotedOk ? "enter a price" : belowFloor ? "−" + money(disc) + " · below the floor" : needsReason ? "−" + money(disc) + " under the sheet" : disc < -0.005 ? "+" + money(-disc) + " over the sheet" : "at the sheet — aim high"}
+              {!quotedOk ? "enter a price" : sheet === null ? "no reference price — your call" : belowFloor ? "−" + money(disc) + " · below the floor" : needsReason ? "−" + money(disc) + (sel.kind === "row" ? " under the sheet" : " under the usual price") : disc < -0.005 ? "+" + money(-disc) + (sel.kind === "row" ? " over the sheet" : " over the usual price") : sel.kind === "row" ? "at the sheet — aim high" : "at the usual price"}
             </div>
           </div>
         </div>
@@ -1044,6 +1112,8 @@ export default function PriceBook() {
       )}
       {booking && (
         <BookPanel row={booking} viewer={auth && auth.userInfo ? auth.userInfo : null} af={auth && auth.authFetch ? auth.authFetch : fetch}
+          deviceRows={(data ? data.rows : []).filter(function(r) { return r.device === booking.device && r.active !== false; })}
+          services={data && data.services ? data.services : null}
           onClose={function() { setBooking(null); }}
           onBooked={function(a) { setBooking(null); setToast({ tone: "var(--green)", text: "Booked · " + (a.customer_name || "") + " · " + a.date_of_appt + (a.appt_time ? " at " + a.appt_time : "") + " · " + a.store }); }} />
       )}

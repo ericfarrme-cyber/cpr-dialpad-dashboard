@@ -210,6 +210,40 @@ export async function GET(request) {
       }
     });
 
+    // ── services: what a diagnostic, data transfer, water-damage clean-out etc.
+    // rings for this model, and for its family when the model itself has not
+    // had one. The booking panel offers these beside the sheet rows so every
+    // way a customer can come in is bookable, priced from real tickets.
+    var SERVICE_TYPES = ["Diagnostic", "Data transfer", "Water damage", "Software", "Cleaning", "Other repair"];
+    var servicesByModel = {};
+    var famAgg = {};
+    Object.keys(actuals).forEach(function(k) {
+      var parts = k.split("|");
+      var model = parts[0], type = parts[1];
+      if (SERVICE_TYPES.indexOf(type) < 0) return;
+      var s = actuals[k]["_any"];
+      if (!s || !s.sold) return;
+      var sum = summarise(s);
+      // A "usual" price has to be usual: the modal price on at least 40% of
+      // jobs ("Other repair" at $100 on 8% of jobs is not a recommendation),
+      // and a model speaks for itself only with three jobs or more.
+      if (sum.sold >= 3) (servicesByModel[model] = servicesByModel[model] || []).push({ type: type, price: sum.pos_list_share !== null && sum.pos_list_share >= 40 ? sum.pos_list : null, sold: sum.sold, share: sum.pos_list_share, scope: "model" });
+      var fam = modelFamily[model] || "other";
+      var fa = famAgg[fam] || (famAgg[fam] = {});
+      var ft = fa[type] || (fa[type] = { sold: 0, lists: {} });
+      ft.sold += s.sold;
+      Object.keys(s.lists).forEach(function(lk) { ft.lists[lk] = (ft.lists[lk] || 0) + s.lists[lk]; });
+    });
+    var servicesByFamily = {};
+    Object.keys(famAgg).forEach(function(fam) {
+      servicesByFamily[fam] = Object.keys(famAgg[fam]).map(function(type) {
+        var ft = famAgg[fam][type];
+        var modal = Object.keys(ft.lists).sort(function(a, b) { return ft.lists[b] - ft.lists[a]; })[0];
+        var share = modal ? round2((ft.lists[modal] / ft.sold) * 100) : null;
+        return { type: type, price: modal && share >= 40 ? parseFloat(modal) : null, sold: ft.sold, share: share, scope: "family" };
+      });
+    });
+
     // ── models the register sells that the sheet has never had ─────────────
     // iPhone 17 had 35 jobs and no row. Recommend the whole product line from
     // the model before it, priced at what the register actually rings where
@@ -281,6 +315,7 @@ export async function GET(request) {
       updated_at_max: updatedMax,
       rows: isAdmin ? rows : rows.filter(function(r) { return r.active !== false; }),
       missing_models: isAdmin ? missingModels : [],
+      services: { types: SERVICE_TYPES, models: servicesByModel, families: servicesByFamily },
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
