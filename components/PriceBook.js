@@ -8,6 +8,7 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeProvider";
+import { QUOTE_REASONS } from "@/lib/quote-reasons";
 
 var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Services" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
@@ -84,7 +85,7 @@ function Acceptance({ a, setPrice, isAdmin }) {
 
 // One price cell: the number to say out loud, the floor beneath it, and what
 // the customer will ask next.
-function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasis }) {
+function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasis, onBook }) {
   var [editing, setEditing] = useState(false);
   var [val, setVal] = useState("");
   var flags = r.flags || [];
@@ -150,26 +151,34 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
       {isAdmin && r.updated_by && !String(r.updated_by).startsWith("import:") && (
         <div style={{ fontSize: 9.5, color: "var(--text-faint)", marginTop: 6 }}>edited {whenStr(r.updated_at)} · {r.updated_by}</div>
       )}
+      {/* The quote becomes the appointment: the customer said yes, book it here. */}
+      {!editMode && !off && onBook && r.set_price !== null && (
+        <button onClick={function(e) { e.stopPropagation(); onBook(r); }}
+          style={{ marginTop: 9, width: "100%", padding: "7px 10px", borderRadius: 7, border: "1px solid var(--purple)", background: "transparent", color: "var(--purple)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", transition: "background .15s ease" }}
+          onMouseEnter={function(e) { e.currentTarget.style.background = "#7B2FFF1A"; }} onMouseLeave={function(e) { e.currentTarget.style.background = "transparent"; }}>
+          Book this quote →
+        </button>
+      )}
     </div>
   );
 }
 
 // The turnaround ladder is the closing tool: when the price is too much, offer
 // time instead of a discount.
-function Ladder({ tiers, isAdmin, editMode, selectedIds, onToggle, onInline }) {
+function Ladder({ tiers, isAdmin, editMode, selectedIds, onToggle, onInline, onBook }) {
   return (
     <div>
       <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 6 }}>Same repair, priced by how soon they need it — offer the slower tier before offering a discount.</div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         {tiers.map(function(r, i) {
-          return <PriceCell key={r.id} r={r} isAdmin={isAdmin} editMode={editMode} selected={!!selectedIds[r.id]} onToggle={onToggle} onInline={onInline} emphasis={i === 0} />;
+          return <PriceCell key={r.id} r={r} isAdmin={isAdmin} editMode={editMode} selected={!!selectedIds[r.id]} onToggle={onToggle} onInline={onInline} emphasis={i === 0} onBook={onBook} />;
         })}
       </div>
     </div>
   );
 }
 
-function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen }) {
+function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook }) {
   var [open, setOpen] = useState(forceOpen);
   useEffect(function() { setOpen(forceOpen); }, [forceOpen]);
   var byRepair = useMemo(function() {
@@ -207,9 +216,9 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
                   {quality && <span style={{ color: "var(--text-muted)", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>— offer the customer a choice</span>}
                 </div>
                 {ladder
-                  ? <Ladder tiers={g.tiers} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={onToggle} onInline={onInline} />
+                  ? <Ladder tiers={g.tiers} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={onToggle} onInline={onInline} onBook={onBook} />
                   : <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                      {g.tiers.map(function(r) { return <PriceCell key={r.id} r={r} isAdmin={isAdmin} editMode={editMode} selected={!!selectedIds[r.id]} onToggle={onToggle} onInline={onInline} />; })}
+                      {g.tiers.map(function(r) { return <PriceCell key={r.id} r={r} isAdmin={isAdmin} editMode={editMode} selected={!!selectedIds[r.id]} onToggle={onToggle} onInline={onInline} onBook={onBook} />; })}
                     </div>}
               </div>
             );
@@ -221,6 +230,201 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Book this quote. The appointment is a consequence of the price the agent
+// just read out: device, repair, tier, sheet price, floor, store and the
+// agent's own name are already known — they add the customer, a time, and
+// what they actually quoted. Any quote under the sheet needs a reason, so the
+// discount becomes a countable category instead of prose in a notes field.
+var BOOK_STORES = [["fishers", "Fishers"], ["bloomington", "Bloomington"], ["indianapolis", "Indianapolis"]];
+var localYmd = function(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
+var fmtPhone = function(s) { var d = String(s || "").replace(/\D/g, "").slice(-10); if (d.length < 4) return d; if (d.length < 7) return "(" + d.slice(0, 3) + ") " + d.slice(3); return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6); };
+
+function BookPanel({ row, viewer, af, onClose, onBooked }) {
+  var today = localYmd(new Date());
+  var tomorrow = (function() { var d = new Date(); d.setDate(d.getDate() + 1); return localYmd(d); })();
+  var homeStore = viewer && viewer.store && BOOK_STORES.some(function(s) { return s[0] === viewer.store; }) ? viewer.store : "fishers";
+  var [f, setF] = useState({ store: homeStore, customer_name: "", customer_phone: "", date_of_appt: today, appt_time: "", quoted: row.set_price === null ? "" : String(row.set_price), reason: "", reason_text: "", notes: "" });
+  var [call, setCall] = useState(null);
+  var [todays, setTodays] = useState(null);
+  var [busy, setBusy] = useState(false);
+  var [err, setErr] = useState(null);
+  var nameRef = useRef(null);
+
+  var sheet = row.set_price;
+  // Eric's rule: the booking floor is 20% under what this actually sells for.
+  // With too few jobs to average, the sheet's own floor stands in.
+  var floor = row.actuals && row.actuals.book_floor !== null && row.actuals.book_floor !== undefined ? row.actuals.book_floor : (row.floor_price !== null && row.floor_price !== undefined ? row.floor_price : null);
+  var floorSrc = row.actuals && row.actuals.book_floor !== null && row.actuals.book_floor !== undefined ? "20% under the average sold" : (floor !== null ? "sheet floor" : null);
+  var quotedNum = parseFloat(f.quoted);
+  var quotedOk = isFinite(quotedNum) && quotedNum >= 0;
+  var disc = quotedOk && sheet !== null ? Math.round((sheet - quotedNum) * 100) / 100 : 0;
+  var needsReason = disc > 0.005;
+  var belowFloor = quotedOk && floor !== null && quotedNum < floor - 0.005;
+  var reasonGiven = f.reason && (f.reason !== "Other" || f.reason_text.trim());
+
+  function set(k, v) { setF(function(p) { var n = Object.assign({}, p); n[k] = v; return n; }); }
+
+  useEffect(function() { nameRef.current && nameRef.current.focus(); }, []);
+  useEffect(function() {
+    function onKey(e) { if (e.key === "Escape") onClose(); }
+    window.addEventListener("keydown", onKey);
+    return function() { window.removeEventListener("keydown", onKey); };
+  }, [onClose]);
+
+  // Today's appointments at the chosen store, so a slot is not double-booked.
+  useEffect(function() {
+    if (f.date_of_appt !== today) { setTodays(null); return; }
+    var alive = true;
+    af("/api/dialpad/appointments?action=today&store=" + encodeURIComponent(f.store)).then(function(r) { return r.json(); })
+      .then(function(j) { if (alive) setTodays(j && j.success ? j.appointments : []); }).catch(function() { if (alive) setTodays([]); });
+    return function() { alive = false; };
+  }, [f.store, f.date_of_appt, today, af]);
+
+  // Did this number just call us? Then the appointment carries the call.
+  function checkPhone() {
+    var d = String(f.customer_phone || "").replace(/\D/g, "").slice(-10);
+    if (d.length !== 10) { setCall(null); return; }
+    af("/api/dialpad/appointments?action=match_call&phone=" + d).then(function(r) { return r.json(); })
+      .then(function(j) { setCall(j && j.success && j.calls && j.calls.length ? j.calls[0] : null); }).catch(function() { setCall(null); });
+  }
+
+  async function submit() {
+    setErr(null);
+    if (!f.customer_name.trim()) { setErr("Customer name"); nameRef.current && nameRef.current.focus(); return; }
+    if (!f.date_of_appt) { setErr("Pick a date"); return; }
+    if (!quotedOk) { setErr("Quoted price"); return; }
+    if (needsReason && !reasonGiven) { setErr("A quote under the sheet needs a reason"); return; }
+    setBusy(true);
+    try {
+      var reason = f.reason === "Other" ? f.reason_text.trim() : (f.reason + (f.reason_text.trim() ? " — " + f.reason_text.trim() : ""));
+      var res = await af("/api/dialpad/appointments", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "add", source: "price_book",
+          store: f.store, customer_name: f.customer_name.trim(), customer_phone: f.customer_phone,
+          date_of_appt: f.date_of_appt, appt_time: f.appt_time, notes: f.notes,
+          repair_price_id: row.id, device: row.device, repair: row.repair, tier: row.tier,
+          canonical_model: row.canonical_model, canonical_repair: row.canonical_repair,
+          sheet_price: sheet, book_floor: floor, quoted_price: quotedNum,
+          quote_reason: needsReason ? reason : null,
+          call_id: call ? call.call_id : null,
+          scheduled_by: viewer && viewer.name ? viewer.name : "",
+        }),
+      });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "not saved");
+      onBooked(j.appointment);
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  var input = { width: "100%", padding: "9px 11px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 13, boxSizing: "border-box" };
+  var label = { fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block" };
+  var chip = function(on) { return { padding: "6px 11px", borderRadius: 999, border: "1px solid " + (on ? "var(--purple)" : "var(--border)"), background: on ? "#7B2FFF1A" : "transparent", color: on ? "var(--purple)" : "var(--text-secondary)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }; };
+  var discTone = belowFloor ? "var(--red)" : needsReason ? "var(--orange)" : "var(--green)";
+
+  return (
+    <>
+      <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.45)", zIndex: 30, animation: "pbFade .2s ease both" }} />
+      <div role="dialog" aria-label="Book this quote" style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(460px, 100vw)", background: "var(--bg-card)", borderLeft: "1px solid var(--border)", boxShadow: "-20px 0 60px rgba(0,0,0,.35)", zIndex: 31, overflowY: "auto", padding: "18px 20px 24px", animation: "pbSlide .28s cubic-bezier(.22,1,.36,1) both", display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10.5, fontWeight: 800, color: "var(--purple)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Book this quote</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text-primary)", marginTop: 3 }}>{row.device}</div>
+            <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>{row.repair}{row.tier ? " · " + row.tier : ""}{row.turnaround ? " · " + row.turnaround : ""}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        {/* the quote */}
+        <div style={{ display: "flex", gap: 10, alignItems: "stretch" }}>
+          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid var(--border-light)" }}>
+            <div style={label}>Sheet</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{money(sheet)}</div>
+            {floor !== null && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>floor {money(floor)} · {floorSrc}</div>}
+          </div>
+          <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid " + (needsReason ? discTone : "var(--border-light)") }}>
+            <div style={label}>Quoted</div>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
+              <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
+              <input value={f.quoted} onChange={function(e) { set("quoted", e.target.value); }} inputMode="decimal"
+                style={{ width: "100%", fontSize: 22, fontWeight: 800, padding: 0, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
+            </div>
+            <div style={{ fontSize: 10.5, color: discTone, marginTop: 2, fontWeight: needsReason ? 700 : 500 }}>
+              {!quotedOk ? "enter a price" : belowFloor ? "−" + money(disc) + " · below the floor" : needsReason ? "−" + money(disc) + " under the sheet" : disc < -0.005 ? "+" + money(-disc) + " over the sheet" : "at the sheet — aim high"}
+            </div>
+          </div>
+        </div>
+        {needsReason && (
+          <div style={{ animation: "pbExpand .2s ease both" }}>
+            <label style={label}>Why under the sheet?</label>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+              {QUOTE_REASONS.map(function(r) { return <button key={r} onClick={function() { set("reason", r); }} style={chip(f.reason === r)}>{r}</button>; })}
+            </div>
+            <input value={f.reason_text} onChange={function(e) { set("reason_text", e.target.value); }} placeholder={f.reason === "Other" ? "say what happened" : "detail (optional)"} style={input} />
+            {belowFloor && <div style={{ fontSize: 11, color: "var(--red)", marginTop: 6 }}>This is under the floor. It will book — and it will be counted.</div>}
+          </div>
+        )}
+
+        {/* store */}
+        <div>
+          <label style={label}>Store</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {BOOK_STORES.map(function(s) { return <button key={s[0]} onClick={function() { set("store", s[0]); }} style={chip(f.store === s[0])}>{s[1]}{viewer && viewer.store === s[0] ? " · yours" : ""}</button>; })}
+          </div>
+        </div>
+
+        {/* customer */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={label}>Customer</label>
+            <input ref={nameRef} value={f.customer_name} onChange={function(e) { set("customer_name", e.target.value); }} placeholder="name" style={input} />
+          </div>
+          <div>
+            <label style={label}>Phone</label>
+            <input value={f.customer_phone} onChange={function(e) { set("customer_phone", fmtPhone(e.target.value)); }} onBlur={checkPhone} placeholder="(317) 555-1234" inputMode="tel" style={input} />
+          </div>
+        </div>
+        {call && (
+          <div style={{ fontSize: 11.5, color: "var(--cyan)", marginTop: -8, animation: "pbExpand .2s ease both" }}>
+            📞 Called {call.store || "us"} {whenStr(call.date_started)}{call.employee ? " · " + call.employee : ""}{call.inquiry ? " · " + String(call.inquiry).slice(0, 60) : ""} — this booking will carry that call
+          </div>
+        )}
+
+        {/* when */}
+        <div>
+          <label style={label}>When</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+            <button onClick={function() { set("date_of_appt", today); }} style={chip(f.date_of_appt === today)}>Today</button>
+            <button onClick={function() { set("date_of_appt", tomorrow); }} style={chip(f.date_of_appt === tomorrow)}>Tomorrow</button>
+            <input type="date" value={f.date_of_appt} onChange={function(e) { set("date_of_appt", e.target.value); }} style={Object.assign({}, input, { width: "auto", padding: "6px 9px" })} />
+            <input type="time" value={f.appt_time} onChange={function(e) { set("appt_time", e.target.value); }} step={900} style={Object.assign({}, input, { width: "auto", padding: "6px 9px" })} />
+          </div>
+          {todays && todays.length > 0 && (
+            <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>
+              Already today at {BOOK_STORES.filter(function(s) { return s[0] === f.store; })[0][1]}: {todays.slice(0, 4).map(function(a) { return (a.appt_time || "—") + " " + (a.customer_name || "").split(" ")[0]; }).join(" · ")}{todays.length > 4 ? " · +" + (todays.length - 4) : ""}
+            </div>
+          )}
+          {todays && todays.length === 0 && <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>Nothing booked there yet today.</div>}
+        </div>
+
+        <div>
+          <label style={label}>Notes</label>
+          <input value={f.notes} onChange={function(e) { set("notes", e.target.value); }} placeholder="colour, cracked back glass too, needs it by 5…" style={input} />
+        </div>
+
+        {err && <div style={{ fontSize: 12, color: "var(--red)", fontWeight: 700 }}>{err}</div>}
+        <button disabled={busy} onClick={submit}
+          style={{ padding: "12px 16px", borderRadius: 10, border: "none", background: "var(--purple)", color: "#fff", fontSize: 14, fontWeight: 800, cursor: busy ? "wait" : "pointer", boxShadow: "0 8px 24px #7B2FFF44", transition: "transform .12s ease" }}
+          onMouseDown={function(e) { e.currentTarget.style.transform = "scale(.98)"; }} onMouseUp={function(e) { e.currentTarget.style.transform = "none"; }}>
+          {busy ? "Booking…" : "Book " + (quotedOk ? money(quotedNum) : "") + " at " + (BOOK_STORES.filter(function(s) { return s[0] === f.store; })[0][1])}
+        </button>
+        <div style={{ fontSize: 10.5, color: "var(--text-faint)", textAlign: "center" }}>Booked as {viewer && viewer.name ? viewer.name : "you"} · shows on the appointments page like any other</div>
+      </div>
+    </>
+  );
+}
+
 export default function PriceBook() {
   var auth = useAuth();
   var [data, setData] = useState(null);
@@ -235,6 +439,7 @@ export default function PriceBook() {
   var [toast, setToast] = useState(null);
   var [history, setHistory] = useState(null);
   var [showHistory, setShowHistory] = useState(false);
+  var [booking, setBooking] = useState(null); // the price row being turned into an appointment
   var searchRef = useRef(null);
 
   var isAdmin = !!(data && data.can_edit);
@@ -602,16 +807,22 @@ export default function PriceBook() {
           </div>
         )}
         {devices.slice(0, 60).map(function(d, i) {
-          return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} />;
+          return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }} />;
         })}
         {devices.length > 60 && <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 12 }}>Showing 60 of {devices.length} — type to narrow it down.</div>}
       </div>
+
+      {booking && (
+        <BookPanel row={booking} viewer={auth && auth.userInfo ? auth.userInfo : null} af={auth && auth.authFetch ? auth.authFetch : fetch}
+          onClose={function() { setBooking(null); }}
+          onBooked={function(a) { setBooking(null); setToast({ tone: "var(--green)", text: "Booked · " + (a.customer_name || "") + " · " + a.date_of_appt + (a.appt_time ? " at " + a.appt_time : "") + " · " + a.store }); }} />
+      )}
 
       {toast && (
         <div style={{ position: "fixed", bottom: 22, left: "50%", transform: "translateX(-50%)", background: "var(--bg-card)", border: "1px solid " + toast.tone, color: toast.tone, padding: "11px 18px", borderRadius: 10, fontSize: 12.5, fontWeight: 700, boxShadow: "0 10px 30px rgba(0,0,0,.3)", zIndex: 20, animation: "pbIn .25s ease both", maxWidth: "90vw" }}>{toast.text}</div>
       )}
 
-      <style>{"@keyframes pbIn { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } } @keyframes pbExpand { from { opacity:0; transform:translateY(-4px) } to { opacity:1; transform:translateY(0) } }"}</style>
+      <style>{"@keyframes pbIn { from { opacity:0; transform:translateY(10px) } to { opacity:1; transform:translateY(0) } } @keyframes pbExpand { from { opacity:0; transform:translateY(-4px) } to { opacity:1; transform:translateY(0) } } @keyframes pbSlide { from { transform:translateX(40px); opacity:0 } to { transform:translateX(0); opacity:1 } } @keyframes pbFade { from { opacity:0 } to { opacity:1 } }"}</style>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { requireAuth } from "@/lib/auth";
 
 function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
 function json(data, status) { return NextResponse.json(data, { status: status || 200, headers: cors() }); }
@@ -111,14 +112,24 @@ export async function GET(request) {
   return json({ success: false, error: "Unknown action" });
 }
 
+function moneyNum(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(n) ? Math.round(n * 100) / 100 : null; }
+
 export async function POST(request) {
   if (!supabase) return json({ success: false, error: "Supabase not configured" });
   var body = await request.json();
   var action = body.action || "add";
 
+  // Writes need a signed-in user. Any role may book or update; deleting one
+  // appointment is a manager's call and wiping a store is Eric's. Until
+  // 2026-09-11 this route accepted writes from anyone with the URL.
+  var gate = await requireAuth(request, { requiredRoles: action === "clear_store" ? ["admin"] : action === "delete" ? ["admin", "manager"] : ["admin", "manager", "employee"] });
+  if (!gate.authorized) return gate.response;
+  var who = gate.result;
+
   if (action === "add") {
+    var fromBook = body.source === "price_book";
     var record = {
-      store: body.store || "",
+      store: body.store || who.store || "",
       customer_name: body.customer_name || "",
       customer_phone: normPhone(body.customer_phone),
       date_set: body.date_set || new Date().toISOString().split("T")[0],
@@ -126,13 +137,40 @@ export async function POST(request) {
       appt_time: body.appt_time || "",
       reason: body.reason || "",
       price_quoted: body.price_quoted || "",
-      scheduled_by: body.scheduled_by || "",
+      // The signed-in person books it. Hand-typed names produced 18 spellings for 8 people.
+      scheduled_by: body.scheduled_by || who.name || "",
       did_arrive: body.did_arrive || "",
       notes: body.notes || "",
       follow_up_needed: body.did_arrive ? body.did_arrive.toLowerCase().includes("no") : false,
     };
+    if (fromBook) {
+      // These columns arrive with sql/migration_appointments_quote.sql. Manual
+      // adds do not touch them, so the appointments page keeps working before
+      // the migration runs; a Price Book booking fails loudly until it does.
+      record.source = "price_book";
+      record.booked_by_email = who.email || null;
+      // Structured quote: the row it came from, the sheet and floor at that
+      // moment, what was actually said, and why if it was under the sheet.
+      var sheet = moneyNum(body.sheet_price), quoted = moneyNum(body.quoted_price);
+      if (!record.customer_name.trim()) return json({ success: false, error: "Customer name is required" }, 400);
+      if (!record.date_of_appt) return json({ success: false, error: "Appointment date is required" }, 400);
+      if (quoted === null) return json({ success: false, error: "Quoted price is required" }, 400);
+      if (sheet !== null && quoted < sheet - 0.005 && !String(body.quote_reason || "").trim()) {
+        return json({ success: false, error: "A quote under the sheet needs a reason" }, 400);
+      }
+      Object.assign(record, {
+        repair_price_id: body.repair_price_id || null,
+        device: body.device || null, repair: body.repair || null, tier: body.tier || null,
+        canonical_model: body.canonical_model || null, canonical_repair: body.canonical_repair || null,
+        sheet_price: sheet, book_floor: moneyNum(body.book_floor), quoted_price: quoted,
+        quote_reason: body.quote_reason ? String(body.quote_reason).slice(0, 200) : null,
+        call_id: body.call_id || null,
+      });
+      if (!record.reason) record.reason = [record.device, record.repair, record.tier].filter(Boolean).join(" · ");
+      if (!record.price_quoted) record.price_quoted = String(quoted);
+    }
     var { data, error } = await supabase.from("appointments").insert(record).select();
-    if (error) return json({ success: false, error: error.message });
+    if (error) return json({ success: false, error: error.message }, 500);
     return json({ success: true, appointment: data[0] });
   }
 

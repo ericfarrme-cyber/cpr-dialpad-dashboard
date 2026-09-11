@@ -99,6 +99,8 @@ function Sparkline({ data, color, width, height }) {
 // ═══ MAIN APP ═══
 function StoreDashboard() {
   var auth = useAuth();
+  // Writes to the appointments route need the session's Bearer token now.
+  var af = auth && auth.authFetch ? auth.authFetch : fetch;
   var [store, setStore] = useState("fishers");
   var [section, setSection] = useState("overview");
   var [loading, setLoading] = useState(true);
@@ -383,7 +385,7 @@ function StoreDashboard() {
     if (!form.customer_name) { setMsg({ type:"error",text:"Customer name required" }); return; }
     var payload = Object.assign({}, form, { store: store, action: editingId ? "update" : "add" });
     if (editingId) payload.id = editingId;
-    var res = await fetch("/api/dialpad/appointments", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
+    var res = await af("/api/dialpad/appointments", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload) });
     var json = await res.json();
     if (json.success) {
       // Auto-switch period to match the appointment's date so the user sees their new appointment immediately
@@ -409,9 +411,9 @@ function StoreDashboard() {
     else setMsg({type:"error",text:json.error});
     setTimeout(function(){setMsg(null);}, 5000);
   };
-  var deleteAppt = async function(id) { if (!confirm("Delete?")) return; await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:id})}); loadData(); };
-  var updateArrival = async function(id, val) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,did_arrive:val})}); loadData(); };
-  var markFollowUpDone = async function(id, notes) { await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_notes:"pending_verification|"+(notes||"Called back")+"|"+new Date().toISOString()})}); loadData(); };
+  var deleteAppt = async function(id) { if (!confirm("Delete?")) return; await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:id})}); loadData(); };
+  var updateArrival = async function(id, val) { await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,did_arrive:val})}); loadData(); };
+  var markFollowUpDone = async function(id, notes) { await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_notes:"pending_verification|"+(notes||"Called back")+"|"+new Date().toISOString()})}); loadData(); };
 
   // Verify follow-ups against Dialpad outbound call data
   var verifyFollowUps = async function() {
@@ -420,7 +422,7 @@ function StoreDashboard() {
     });
     if (pending.length === 0) return;
     try {
-      var res = await fetch("/api/dialpad/appointments", {
+      var res = await af("/api/dialpad/appointments", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "verify_followups", store: store })
@@ -450,7 +452,7 @@ function StoreDashboard() {
       wb.SheetNames.forEach(function(sn){var ws=wb.Sheets[sn];var data=XLSX.utils.sheet_to_json(ws,{header:1,defval:"",raw:false});if(data.length<2)return;var hi=-1;for(var ri=0;ri<Math.min(data.length,10);ri++){var row=data[ri];if(!row)continue;for(var ci=0;ci<row.length;ci++){if(String(row[ci]||"").toLowerCase().trim()==="customer name"){hi=ri;break;}}if(hi>=0)break;}if(hi<0)return;var col={};var hdr=data[hi];for(var ci=0;ci<hdr.length;ci++){var h=String(hdr[ci]||"").toLowerCase().trim();if(h.includes("customer name"))col.name=ci;else if(h.includes("phone"))col.phone=ci;else if(h.includes("date set"))col.date_set=ci;else if(h.includes("date of"))col.date_appt=ci;else if(h.includes("time")&&!h.includes("date"))col.time=ci;else if(h.includes("reason")||h.includes("quotes"))col.reason=ci;else if(h.includes("scheduled")||h.includes("your name"))col.scheduled_by=ci;else if(h.includes("arrive"))col.arrived=ci;}for(var ci=0;ci<hdr.length;ci++){var h=String(hdr[ci]||"").toLowerCase().trim();if(h==="notes"&&ci!==col.reason)col.notes=ci;}
       for(var ri=hi+1;ri<data.length;ri++){var row=data[ri];if(!row)continue;var name=col.name!==undefined?cleanStr(row[col.name]):"";if(!name||name.toLowerCase()==="customer name")continue;var tv=col.time!==undefined?cleanStr(row[col.time]):"";if(tv.match(/^\d{2}:\d{2}:\d{2}$/))tv=tv.slice(0,5);if(tv&&!isNaN(parseFloat(tv))&&parseFloat(tv)<1){var mins=Math.round(parseFloat(tv)*1440);tv=String(Math.floor(mins/60)).padStart(2,"0")+":"+String(mins%60).padStart(2,"0");}var ph=col.phone!==undefined?cleanStr(row[col.phone]).replace(/\.0$/,""):"";allRows.push({customer_name:name,customer_phone:ph,date_set:fmtDate(col.date_set!==undefined?row[col.date_set]:""),date_of_appt:fmtDate(col.date_appt!==undefined?row[col.date_appt]:""),appt_time:tv,reason:col.reason!==undefined?cleanStr(row[col.reason]):"",price_quoted:"",scheduled_by:col.scheduled_by!==undefined?cleanStr(row[col.scheduled_by]):"",did_arrive:col.arrived!==undefined?cleanStr(row[col.arrived]):"",notes:col.notes!==undefined?cleanStr(row[col.notes]):""});}});
       if(allRows.length===0){setMsg({type:"error",text:"No appointment data found"});setImporting(false);e.target.value="";return;}
-      var total=0;for(var bi=0;bi<allRows.length;bi+=100){var batch=allRows.slice(bi,bi+100);var res=await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"bulk_import",store:store,rows:batch})});var json=await res.json();if(json.success)total+=json.imported;}
+      var total=0;for(var bi=0;bi<allRows.length;bi+=100){var batch=allRows.slice(bi,bi+100);var res=await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"bulk_import",store:store,rows:batch})});var json=await res.json();if(json.success)total+=json.imported;}
       setMsg({type:"success",text:"Imported "+total+" appointments from "+file.name});loadData();
     }catch(err){setMsg({type:"error",text:"Import failed: "+err.message});}
     setImporting(false);e.target.value="";
@@ -458,7 +460,7 @@ function StoreDashboard() {
 
   var handleClearStore = async function() {
     var sn=STORES[store]?STORES[store].name:store;if(!confirm("\u26A0\uFE0F Delete ALL appointments for "+sn+"?"))return;var code=prompt("Type DELETE-ALL-"+store.toUpperCase()+" to confirm:");if(code!=="DELETE-ALL-"+store.toUpperCase()){setMsg({type:"error",text:"Cancelled"});return;}
-    var res=await fetch("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"clear_store",store:store,confirm:code})});var json=await res.json();if(json.success){setMsg({type:"success",text:"Cleared"});loadData();}else setMsg({type:"error",text:json.error});
+    var res=await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"clear_store",store:store,confirm:code})});var json=await res.json();if(json.success){setMsg({type:"success",text:"Cleared"});loadData();}else setMsg({type:"error",text:json.error});
   };
 
   var storeName = STORES[store] ? STORES[store].name : store;

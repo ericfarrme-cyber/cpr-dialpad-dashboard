@@ -159,6 +159,9 @@ export async function GET(request) {
         pos_list_share: modal && s.sold ? round2((s.lists[modal] / s.sold) * 100) : null,
       };
       if (isAdmin) out.avg_collected = s.sold ? round2(s.collected / s.sold) : null;
+      // The booking floor: 20% under what this has actually sold for (Eric,
+      // 2026-09-11). Needs a real sample; below that the sheet floor stands.
+      out.book_floor = s.sold >= 3 ? round2(0.8 * (s.collected / s.sold)) : null;
       return out;
     }
 
