@@ -99,24 +99,43 @@ if (!APPLY) {
   process.exit(0);
 }
 
-// upsert in chunks on the natural key
+// Re-seed semantics: only rows still marked as import-sourced are replaced.
+// A price Eric or Matt has edited in the UI carries a different updated_by and
+// survives a re-run of this script. A blind upsert would have clobbered it.
+const hdr = { apikey: K, Authorization: `Bearer ${K}`, "Content-Type": "application/json" };
+const existing = await fetch(`${U}/rest/v1/repair_prices?select=id,updated_by`, { headers: hdr }).then((r) => r.json());
+const humanEdited = existing.filter((r) => !String(r.updated_by || "").startsWith("import:")).length;
+const importRows = existing.length - humanEdited;
+if (importRows > 0) {
+  const del = await fetch(`${U}/rest/v1/repair_prices?updated_by=like.import:*`, {
+    method: "DELETE", headers: { ...hdr, Prefer: "return=minimal" },
+  });
+  if (!del.ok) { console.error(`FAILED clearing prior import: ${del.status} ${(await del.text()).slice(0, 200)}`); process.exitCode = 1; }
+  else console.log(`\ncleared ${importRows} prior import rows; kept ${humanEdited} human-edited rows`);
+}
+
+// Skip any (device, repair, tier) a human has already set, so the seed never
+// re-introduces a price that was deliberately changed.
+const keep = new Set(
+  (await fetch(`${U}/rest/v1/repair_prices?select=device,repair,tier`, { headers: hdr }).then((r) => r.json()))
+    .map((r) => `${r.device}|${r.repair}|${r.tier ?? ""}`)
+);
+const toInsert = records.filter((r) => !keep.has(`${r.device}|${r.repair}|${r.tier ?? ""}`));
+
 let written = 0;
-for (let i = 0; i < records.length; i += 200) {
-  const chunk = records.slice(i, i + 200);
-  const res = await fetch(`${U}/rest/v1/repair_prices?on_conflict=device,repair,tier`, {
+for (let i = 0; i < toInsert.length && process.exitCode !== 1; i += 200) {
+  const chunk = toInsert.slice(i, i + 200);
+  const res = await fetch(`${U}/rest/v1/repair_prices`, {
     method: "POST",
-    headers: {
-      apikey: K, Authorization: `Bearer ${K}`,
-      "Content-Type": "application/json",
-      Prefer: "resolution=merge-duplicates,return=representation",
-    },
+    headers: { ...hdr, Prefer: "return=representation" },
     body: JSON.stringify(chunk),
   });
   if (!res.ok) {
     console.error(`FAILED at chunk ${i}: ${res.status} ${(await res.text()).slice(0, 300)}`);
-    process.exit(1);
+    process.exitCode = 1;
+    break;
   }
   written += (await res.json()).length;
-  process.stdout.write(`  wrote ${written}/${records.length}\r`);
+  process.stdout.write(`  wrote ${written}/${toInsert.length}\r`);
 }
-console.log(`\nimported ${written} rows`);
+console.log(`\nimported ${written} rows` + (records.length - toInsert.length ? ` (${records.length - toInsert.length} skipped: already set by a person)` : ""));
