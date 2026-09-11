@@ -18,7 +18,11 @@ alter table public.appointments
   add column if not exists book_floor        numeric(10,2),  -- 20% under the 6-month average, at the moment of the quote
   add column if not exists quoted_price      numeric(10,2),
   add column if not exists quote_reason      text,           -- required whenever quoted_price < sheet_price
-  add column if not exists booked_by_email   text;
+  add column if not exists booked_by_email   text,
+  add column if not exists turnaround        text;           -- "1–2 hrs", "same day", "3–5 days" — what the customer was told
+
+-- Added 2026-09-11 (evening), after the first run of this file. Safe to re-run whole.
+alter table public.appointments add column if not exists turnaround text;
 
 create index if not exists appointments_canon_idx
   on public.appointments (canonical_model, canonical_repair, date_of_appt desc);

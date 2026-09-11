@@ -237,6 +237,25 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
 // what they actually quoted. Any quote under the sheet needs a reason, so the
 // discount becomes a countable category instead of prose in a notes field.
 var BOOK_STORES = [["fishers", "Fishers"], ["bloomington", "Bloomington"], ["indianapolis", "Indianapolis"]];
+// What agents have actually told customers, mined from 974 appointments:
+// "1-2hrs" ×73, "same day" ×24, "1-2 days" ×16, "2 hrs"/"1 hour" ×35, "3-4 hrs",
+// "2-3 days", "next day" — plus the console ladder's business-day tiers.
+var TURNAROUNDS = ["Under 1 hr", "1–2 hrs", "2–3 hrs", "3–4 hrs", "Same day", "Next day", "1–2 days", "2–3 days", "3–5 days", "5–10 days"];
+// The sheet writes "1-2 hrs", "2-3 BD", "same day"; map those onto the chips.
+var normalizeTurnaround = function(s) {
+  var t = String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  if (/same\s*-?\s*day/.test(t)) return "Same day";
+  if (/next\s*day|24\s*(hrs?|hours?)/.test(t)) return "Next day";
+  var m = t.match(/(\d+)\s*(?:-|–|to)\s*(\d+)\s*(bd|business|days?|hrs?|hours?)/);
+  if (m) {
+    var a = m[1], b = m[2], unit = /^(bd|business|day)/.test(m[3]) ? "days" : "hrs";
+    var cand = a + "–" + b + " " + unit;
+    if (TURNAROUNDS.indexOf(cand) >= 0) return cand;
+    if (unit === "days" && a === "3" && b === "5") return "3–5 days";
+  }
+  return "";
+};
 var localYmd = function(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 var fmtPhone = function(s) { var d = String(s || "").replace(/\D/g, "").slice(-10); if (d.length < 4) return d; if (d.length < 7) return "(" + d.slice(0, 3) + ") " + d.slice(3); return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6); };
 
@@ -278,6 +297,12 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
   var [otherLabel, setOtherLabel] = useState("");
   var sel = options.filter(function(o) { return o.key === selKey; })[0] || options[0];
   var selRow = sel.kind === "row" ? sel.row : null;
+  // Turnaround the customer is told. Defaults to the sheet row's own figure
+  // ("1-2 hrs" → 1–2 hrs); a service starts blank because it depends on the job.
+  var [tat, setTat] = useState(normalizeTurnaround(row.turnaround));
+  var [tatCustom, setTatCustom] = useState("");
+  useEffect(function() { setTat(normalizeTurnaround(selRow ? selRow.turnaround : "")); setTatCustom(""); }, [selKey, selRow]);
+  var turnaroundOut = tat === "custom" ? tatCustom.trim() : tat;
 
   // The reference price the quote is judged against: the sheet for a sheet
   // row, the register's usual price for a service, nothing for "something else".
@@ -355,6 +380,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
           sheet_price: sheet, book_floor: floor, quoted_price: quotedNum,
           quote_reason: needsReason ? reason : null,
           call_id: call ? call.call_id : null,
+          turnaround: turnaroundOut || null,
           scheduled_by: viewer && viewer.name ? viewer.name : "",
         }),
       });
@@ -475,6 +501,16 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
             </div>
           )}
           {todays && todays.length === 0 && <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-muted)" }}>Nothing booked there yet today.</div>}
+        </div>
+
+        {/* turnaround — what the customer was told, which is what the ladder is for */}
+        <div>
+          <label style={label}>Turnaround{selRow && selRow.turnaround ? <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0 }}> · sheet says {selRow.turnaround}</span> : null}</label>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {TURNAROUNDS.map(function(t) { return <button key={t} onClick={function() { setTat(tat === t ? "" : t); }} style={chip(tat === t)}>{t}</button>; })}
+            <button onClick={function() { setTat(tat === "custom" ? "" : "custom"); }} style={chip(tat === "custom")}>Other…</button>
+          </div>
+          {tat === "custom" && <input value={tatCustom} onChange={function(e) { setTatCustom(e.target.value); }} placeholder="e.g. 7–10 days, part on order" style={Object.assign({}, input, { marginTop: 8 })} autoFocus />}
         </div>
 
         <div>

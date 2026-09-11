@@ -165,8 +165,11 @@ export async function POST(request) {
         sheet_price: sheet, book_floor: moneyNum(body.book_floor), quoted_price: quoted,
         quote_reason: body.quote_reason ? String(body.quote_reason).slice(0, 200) : null,
         call_id: body.call_id || null,
+        turnaround: body.turnaround ? String(body.turnaround).slice(0, 40) : null,
       });
-      if (!record.reason) record.reason = [record.device, record.repair, record.tier].filter(Boolean).join(" · ");
+      // The prose the appointments page shows carries the turnaround too, the
+      // way agents always wrote it ("iPhone 16 screen 1-2hrs $160").
+      if (!record.reason) record.reason = [record.device, record.repair, record.tier, record.turnaround].filter(Boolean).join(" · ");
       if (!record.price_quoted) record.price_quoted = String(quoted);
     }
     var { data, error } = await supabase.from("appointments").insert(record).select();
