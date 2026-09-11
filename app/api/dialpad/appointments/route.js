@@ -142,13 +142,11 @@ export async function POST(request) {
       did_arrive: body.did_arrive || "",
       notes: body.notes || "",
       follow_up_needed: body.did_arrive ? body.did_arrive.toLowerCase().includes("no") : false,
+      // sql/migration_appointments_quote.sql ran 2026-09-11; every add says where it came from.
+      source: fromBook ? "price_book" : "manual",
+      booked_by_email: who.email || null,
     };
     if (fromBook) {
-      // These columns arrive with sql/migration_appointments_quote.sql. Manual
-      // adds do not touch them, so the appointments page keeps working before
-      // the migration runs; a Price Book booking fails loudly until it does.
-      record.source = "price_book";
-      record.booked_by_email = who.email || null;
       // Structured quote: the row it came from, the sheet and floor at that
       // moment, what was actually said, and why if it was under the sheet.
       var sheet = moneyNum(body.sheet_price), quoted = moneyNum(body.quoted_price);
@@ -220,6 +218,8 @@ export async function POST(request) {
         did_arrive: r.did_arrive || "",
         notes: r.notes || "",
         follow_up_needed: r.did_arrive ? String(r.did_arrive).toLowerCase().includes("no") : false,
+        source: "import",
+        booked_by_email: who.email || null,
       };
     });
     var { data, error } = await supabase.from("appointments").insert(records).select();
