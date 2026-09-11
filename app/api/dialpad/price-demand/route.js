@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { resolveModels, resolveModel } from "@/lib/device-model";
-import { classifyCatalogItem, classifyInquiry } from "@/lib/repair-type";
+import { classifyCatalogItem, classifyInquiry, cleanCatalogName, tierOfCatalogLine, isInsuranceLine, TIER_ORDER } from "@/lib/repair-type";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE & DEMAND
@@ -98,6 +98,8 @@ function blankType(type) {
     appt_offered: 0, converted: 0,
     priced_lines: 0, list_total: 0, discount_total: 0, actual_total: 0,
     full_price: 0, discounted: 0, profit: 0,
+    // Screen only: OEM / OLED / LCD split, because those are different prices.
+    tiers: {},
   };
 }
 function bumpType(bag, type, field, amount) {
@@ -238,7 +240,7 @@ export async function GET(request) {
 
     // ── PRICING + REPAIR VOLUME ──────────────────────────────────────────────
     var storeTickets = store === "all" ? tickets : tickets.filter(function(t) { return t.store === store; });
-    var pricedLines = 0, unpricedLines = 0;
+    var pricedLines = 0, unpricedLines = 0, insuranceLines = 0;
     var lineTypeRollup = {};
 
     storeTickets.forEach(function(t) {
@@ -258,6 +260,10 @@ export async function GET(request) {
         if (!it || String(it.category || "").toLowerCase().indexOf("repair") < 0) return;
         var rt = classifyCatalogItem(it.catalog_item).type;
         if (typeFilter !== "all" && rt !== typeFilter) return;
+        var lineName = cleanCatalogName(it.catalog_item);
+        // Insurance claims are priced by the insurer, not by us. Counted, never
+        // averaged — they would read as heavy discounting on a screen.
+        if (isInsuranceLine(lineName)) { insuranceLines++; m.insurance_lines = (m.insurance_lines || 0) + 1; return; }
         var list = num(it.unit_price);
         if (list <= 0) { unpricedLines++; return; }
         var disc = num(it.discount);
@@ -278,6 +284,12 @@ export async function GET(request) {
           // No per-type profit on purpose: cost lives on the ticket, not the
           // line, so splitting it across line items would be an invented number.
           if (disc > 0) mt.discounted++; else mt.full_price++;
+          if (rt === "Screen") {
+            var tk = tierOfCatalogLine(lineName) || "Untiered";
+            var tb = mt.tiers[tk] || (mt.tiers[tk] = { tier: tk, priced_lines: 0, list_total: 0, discount_total: 0, actual_total: 0, full_price: 0, discounted: 0 });
+            tb.priced_lines++; tb.list_total += list; tb.discount_total += disc; tb.actual_total += actual;
+            if (disc > 0) tb.discounted++; else tb.full_price++;
+          }
         }
         var gt = bumpType(lineTypeRollup, rt, "priced_lines");
         if (gt) { gt.list_total += list; gt.actual_total += actual; gt.discount_total += disc; }
@@ -309,6 +321,17 @@ export async function GET(request) {
           discount_pct: x.list_total ? round((x.discount_total / x.list_total) * 100) : null,
           full_price: x.full_price, discounted: x.discounted,
           discounted_share: x.priced_lines ? round((x.discounted / x.priced_lines) * 100) : null,
+          tiers: Object.keys(x.tiers || {}).map(function(tk) {
+            var b = x.tiers[tk];
+            return {
+              tier: b.tier, priced_lines: b.priced_lines,
+              avg_list: round(b.list_total / b.priced_lines),
+              avg_actual: round(b.actual_total / b.priced_lines),
+              discount_pct: b.list_total ? round((b.discount_total / b.list_total) * 100) : null,
+              full_price: b.full_price, discounted: b.discounted,
+              discounted_share: round((b.discounted / b.priced_lines) * 100),
+            };
+          }).sort(function(a, b) { return TIER_ORDER.indexOf(a.tier) - TIER_ORDER.indexOf(b.tier); }),
         };
       }).sort(function(a, b) { return b.priced_lines - a.priced_lines || b.calls - a.calls; });
 
@@ -325,6 +348,7 @@ export async function GET(request) {
         price_type: dom ? dom.type : null,
         price_type_lines: dom ? dom.priced_lines : 0,
         type_count: priced.length,
+        insurance_lines: m.insurance_lines || 0,
         model: m.model,
         family: m.family,
         calls: m.calls,
@@ -374,6 +398,7 @@ export async function GET(request) {
         repairs: storeTickets.length,
         priced_lines: pricedLines,
         unpriced_lines: unpricedLines,
+        insurance_lines: insuranceLines,
         models: rows.length,
       },
       type_filter: typeFilter,

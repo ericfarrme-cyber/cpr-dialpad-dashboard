@@ -41,6 +41,7 @@ function money0(n) {
 export default function MorningBrief() {
   var [state, setState] = useState({ loading: true });
   var [open, setOpen] = useState(true);
+  var [allDiscounts, setAllDiscounts] = useState(false);
 
   // Collapse is remembered per day, so dismissing it in the morning keeps it
   // dismissed until tomorrow's brief is a different brief.
@@ -69,6 +70,7 @@ export default function MorningBrief() {
       fetch("/api/dialpad/stored").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/appointments?action=stats&days=2").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/flags?action=active").then(function (r) { return r.json(); }),
+      fetch("/api/dialpad/discounts?date=" + yKey).then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -107,6 +109,12 @@ export default function MorningBrief() {
 
       var fl = res[3].status === "fulfilled" ? res[3].value : null;
       out.flags = fl && fl.success ? fl : null;
+
+      // Discounts — every repair line rung under list yesterday, and which of
+      // those went under what that repair usually sells for.
+      var dc = res[4].status === "fulfilled" ? res[4].value : null;
+      out.discounts = dc && dc.success ? dc : null;
+      if (!out.discounts) out.missing.push("discount");
 
       setState(out);
     });
@@ -264,6 +272,59 @@ export default function MorningBrief() {
               })}
             </div>
           </div>
+
+          {/* discounts — what was rung under list, and under what it usually sells for */}
+          {state.discounts && (
+            <div style={{ background: RAISED, border: "1px solid " + LINE, borderRadius: 11, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 9 }}>
+                <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".11em", textTransform: "uppercase", color: MUTED }}>
+                  Discounts · {state.discounts.repair_lines} repair line{state.discounts.repair_lines === 1 ? "" : "s"} yesterday
+                </div>
+                {state.discounts.discounted > 0 && <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED }}>{money(state.discounts.discount_total)} given away</span>}
+              </div>
+              <div style={{ display: "flex", gap: 18, flexWrap: "wrap" }}>
+                {[["Discounted", state.discounts.discounted, state.discounts.discounted > 0 ? GOLD : MUTED],
+                  ["Below average", state.discounts.below_avg, state.discounts.below_avg > 0 ? RED : MUTED]].map(function (m) {
+                  return (
+                    <div key={m[0]}>
+                      <div style={{ fontFamily: DISPLAY, fontSize: 20, fontWeight: 700, color: m[2], fontVariantNumeric: "tabular-nums" }}>{m[1]}</div>
+                      <div style={{ fontSize: 11, color: MUTED }}>{m[0]}</div>
+                    </div>
+                  );
+                })}
+                <div style={{ alignSelf: "end", fontSize: 11, color: MUTED, maxWidth: 360, lineHeight: 1.4 }}>
+                  “Below average” is under what that model + repair + tier sold for over {state.discounts.baseline_months} months — the same number the booking floor uses.
+                </div>
+              </div>
+              {state.discounts.lines.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: "1px solid " + LINE }}>
+                  {(allDiscounts ? state.discounts.lines : state.discounts.lines.slice(0, 6)).map(function (l, i) {
+                    var gap = l.avg_collected !== null ? l.collected - l.avg_collected : null;
+                    return (
+                      <div key={l.ticket_number + "-" + i} className="mb-row" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 6px", margin: "0 -6px", borderRadius: 6, fontSize: 12, flexWrap: "wrap" }}>
+                        <a href={"https://cpr.repairq.io/ticket/" + l.ticket_number} target="_blank" rel="noreferrer"
+                          style={{ fontFamily: MONO, color: CYAN, textDecoration: "none", whiteSpace: "nowrap" }}>#{l.ticket_number}</a>
+                        <span style={{ color: INK2, flex: "1 1 220px" }}>
+                          {l.model || l.device} · {l.repair}{l.tier ? " · " + l.tier : ""}
+                          {l.employee && <span style={{ color: MUTED }}> — {l.employee}</span>}
+                        </span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED, whiteSpace: "nowrap" }}>{money(l.list)} → <b style={{ color: INK }}>{money(l.collected)}</b></span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, whiteSpace: "nowrap", color: l.below_avg === true ? RED : l.below_avg === false ? GREEN : MUTED }}>
+                          {l.avg_collected === null ? "no baseline" : (gap < 0 ? "▼ " : "▲ ") + money(Math.abs(gap)) + " vs avg " + money(l.avg_collected)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {state.discounts.lines.length > 6 && (
+                    <div onClick={function () { setAllDiscounts(!allDiscounts); }} style={{ cursor: "pointer", fontFamily: MONO, fontSize: 11, color: CYAN, padding: "6px 0 0" }}>
+                      {allDiscounts ? "show fewer ▲" : "show all " + state.discounts.lines.length + " ▼"}
+                    </div>
+                  )}
+                </div>
+              )}
+              {state.discounts.lines.length === 0 && <div style={{ marginTop: 8, color: GREEN, fontSize: 12 }}>Nothing rung under list yesterday.</div>}
+            </div>
+          )}
 
           {/* Say what is missing rather than showing a confident blank. */}
           {(state.missing.length > 0) && (

@@ -148,6 +148,7 @@ export default function PriceDemandTab({ storeFilter }) {
   var [repairType, setRepairType] = useState("all");
   var [sortBy, setSortBy] = useState("calls");
   var [open, setOpen] = useState(null);
+  var [openTiers, setOpenTiers] = useState({}); // "model|type" -> true, the Screen row dropped open to OEM / OLED / LCD
   var [search, setSearch] = useState("");
   var [limit, setLimit] = useState(20);
   var [refreshing, setRefreshing] = useState(false);
@@ -190,6 +191,7 @@ export default function PriceDemandTab({ storeFilter }) {
       avg_actual: t.avg_actual, discount_pct: t.discount_pct,
       full_price: t.full_price, discounted: t.discounted, discounted_share: t.discounted_share,
       price_type: t.priced_lines ? t.type : null, price_type_lines: t.priced_lines, type_count: 1,
+      insurance_lines: r.insurance_lines || 0,
     };
   }
 
@@ -414,9 +416,21 @@ export default function PriceDemandTab({ storeFilter }) {
                                   </tr></thead>
                                   <tbody>
                                     {r.types.filter(function(x) { return x.priced_lines > 0 || x.calls > 0; }).map(function(x) {
-                                      return (
-                                        <tr key={x.type}>
-                                          <td style={{ padding: "4px 6px 4px 0", color: "var(--text-body)", whiteSpace: "nowrap" }}>{x.type}</td>
+                                      // A screen is not one price: OEM, OLED and LCD are different jobs.
+                                      // The Screen row drops open to show them; other types have no tiers.
+                                      var tiers = (x.tiers || []).filter(function(t) { return t.priced_lines > 0; });
+                                      var tk = r.model + "|" + x.type;
+                                      var canDrop = tiers.length > 0;
+                                      var dropped = canDrop && !!openTiers[tk];
+                                      var rowsOut = [
+                                        <tr key={x.type} onClick={canDrop ? function(e) { e.stopPropagation(); setOpenTiers(function(p) { var n = Object.assign({}, p); if (n[tk]) delete n[tk]; else n[tk] = true; return n; }); } : undefined}
+                                          style={{ cursor: canDrop ? "pointer" : "default", background: dropped ? "#7B2FFF0D" : "transparent", transition: "background .15s ease" }}
+                                          title={canDrop ? "Show OEM / OLED / LCD" : undefined}>
+                                          <td style={{ padding: "4px 6px 4px 0", color: "var(--text-body)", whiteSpace: "nowrap" }}>
+                                            {canDrop && <span style={{ display: "inline-block", width: 12, color: "var(--purple)", fontSize: 9, transform: dropped ? "rotate(90deg)" : "none", transition: "transform .18s ease" }}>▶</span>}
+                                            {x.type}
+                                            {canDrop && !dropped && <span style={{ color: "var(--text-muted)", fontSize: 9.5, marginLeft: 5 }}>{tiers.map(function(t) { return t.tier; }).join(" · ")}</span>}
+                                          </td>
                                           <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.calls || "—"}</td>
                                           <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.priced_lines || "—"}</td>
                                           <td style={{ padding: "4px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{x.avg_list === null ? "—" : money2(x.avg_list)}</td>
@@ -425,12 +439,30 @@ export default function PriceDemandTab({ storeFilter }) {
                                             {x.discount_pct > 0 && <div style={{ color: "var(--orange)", fontSize: 9.5, fontWeight: 500 }}>{pct(x.discount_pct)} off</div>}
                                           </td>
                                         </tr>
-                                      );
+                                      ];
+                                      if (dropped) tiers.forEach(function(t) {
+                                        rowsOut.push(
+                                          <tr key={x.type + "|" + t.tier} style={{ background: "#7B2FFF0D", animation: "pdRow .18s ease both" }}>
+                                            <td style={{ padding: "3px 6px 3px 18px", color: "var(--purple)", fontWeight: 700, fontSize: 10.5, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+                                              {t.tier}
+                                              <span style={{ color: "var(--text-muted)", fontWeight: 500, letterSpacing: 0, marginLeft: 6 }}>{t.full_price} of {t.priced_lines} at full price</span>
+                                            </td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", color: "var(--text-faint)" }}>—</td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{t.priced_lines}</td>
+                                            <td style={{ padding: "3px 6px", textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{money2(t.avg_list)}</td>
+                                            <td style={{ padding: "3px 0 3px 6px", textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+                                              {money2(t.avg_actual)}
+                                              {t.discount_pct > 0 && <div style={{ color: "var(--orange)", fontSize: 9.5, fontWeight: 500 }}>{pct(t.discount_pct)} off</div>}
+                                            </td>
+                                          </tr>
+                                        );
+                                      });
+                                      return rowsOut;
                                     })}
                                   </tbody>
                                 </table>
                                 <div style={{ color: "var(--text-muted)", fontSize: 10.5, marginTop: 8 }}>
-                                  A row with calls but no jobs is demand walking away · avg profit {money2(r.avg_profit)} per ticket
+                                  A row with calls but no jobs is demand walking away · avg profit {money2(r.avg_profit)} per ticket{r.insurance_lines ? " · " + r.insurance_lines + " insurance claim" + (r.insurance_lines === 1 ? "" : "s") + " left out of pricing" : ""}
                                 </div>
                               </div>
                             ) : (
@@ -492,7 +524,7 @@ export default function PriceDemandTab({ storeFilter }) {
         </div>
       </div>
 
-      <style>{"@keyframes pdExpand { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } } @keyframes pdPulse { 0%,100% { opacity:1 } 50% { opacity:.25 } }"}</style>
+      <style>{"@keyframes pdExpand { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:translateY(0) } } @keyframes pdPulse { 0%,100% { opacity:1 } 50% { opacity:.25 } } @keyframes pdRow { from { opacity:0; transform:translateX(-4px) } to { opacity:1; transform:translateX(0) } }"}</style>
     </div>
   );
 }

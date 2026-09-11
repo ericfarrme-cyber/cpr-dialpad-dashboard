@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { resolveModel } from "@/lib/device-model";
-import { classifyCatalogItem, cleanCatalogName } from "@/lib/repair-type";
+import { classifyCatalogItem, cleanCatalogName, tierOfCatalogLine, isInsuranceLine } from "@/lib/repair-type";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE BOOK
@@ -61,18 +61,6 @@ async function fetchAll(table, select, orderBy, apply) {
   return out;
 }
 
-// Which price tier does a RepairQ catalog line correspond to? The catalog
-// encodes it in the name: "(OLED)", "(LCD / Other)", and "Non Original" vs
-// "Original Apple Part" for aftermarket vs OEM.
-function tierOfCatalogLine(name) {
-  var n = String(name || "").toLowerCase();
-  if (/original\s+apple\s+part/.test(n) && !/non[\s-]*original/.test(n)) return "OEM";
-  if (/\(oled\)/.test(n)) return "OLED";
-  if (/lcd/.test(n)) return "LCD";
-  if (/digitizer/.test(n)) return "Digitizer";
-  return null;
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 export async function GET(request) {
   if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" }, { status: 500 });
@@ -105,7 +93,10 @@ export async function GET(request) {
     var months = Math.min(24, Math.max(1, parseInt(searchParams.get("months") || "6", 10)));
     var since = monthsAgo(months);
 
-    var rows = await fetchAll("repair_prices", "*", "sort_order", function(q) { return q.eq("active", true); });
+    // Rows Matt has stopped offering (active = false) stay in the book so
+    // their register history keeps attaching to them and they can be offered
+    // again. Admins get them flagged; everyone else never sees them.
+    var rows = await fetchAll("repair_prices", "*", "sort_order");
 
     // ── what the register actually did for each (model, repair) ─────────────
     var tickets = await fetchAll(
@@ -146,7 +137,7 @@ export async function GET(request) {
         if (!list || list <= 0) return;
         var name = cleanCatalogName(it.catalog_item);
         var key = rm.canonical + "|" + rt;
-        if (/\(protected\)/i.test(name)) {
+        if (isInsuranceLine(name)) {
           var ins = insurance[key] || (insurance[key] = { sold: 0, sum: 0 });
           ins.sold++; ins.sum += list;
           return;
@@ -215,7 +206,7 @@ export async function GET(request) {
       can_edit: isAdmin,
       viewer: who.authorized ? { name: who.result.name, role: who.result.role } : null,
       updated_at_max: updatedMax,
-      rows: rows,
+      rows: isAdmin ? rows : rows.filter(function(r) { return r.active !== false; }),
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
@@ -278,6 +269,13 @@ export async function POST(request) {
           patch.floor_price = derived;
           diffs.push({ field: "floor_price", old_value: oldFloor, new_value: derived, derived: true });
         }
+      }
+      // Offer / stop offering. Recorded in the same ledger as 1 → 0 so the
+      // day LCDs came off the sheet is as findable as the day a price moved.
+      if (c.active !== undefined) {
+        var nvA = c.active === true || c.active === "true" || c.active === 1;
+        var ovA = row.active !== false;
+        if (nvA !== ovA) { patch.active = nvA; diffs.push({ field: "active", old_value: ovA ? 1 : 0, new_value: nvA ? 1 : 0 }); }
       }
       if (!diffs.length) { skipped.push({ id: c.id, why: "unchanged" }); return; }
       patch.updated_at = now;

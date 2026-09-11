@@ -88,14 +88,17 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
   var [editing, setEditing] = useState(false);
   var [val, setVal] = useState("");
   var flags = r.flags || [];
+  var off = r.active === false;
   return (
     <div onClick={editMode ? function() { onToggle(r.id); } : undefined}
       style={{
         flex: "1 1 150px", minWidth: 140, padding: "11px 13px", borderRadius: 10,
         background: selected ? "#7B2FFF14" : "var(--bg-card-inner)",
-        border: "1px solid " + (selected ? "var(--purple)" : emphasis ? "var(--border)" : "var(--border-light)"),
-        cursor: editMode ? "pointer" : "default", transition: "border-color .15s ease, background .15s ease", position: "relative",
+        border: "1px solid " + (selected ? "var(--purple)" : off ? "var(--red)" : emphasis ? "var(--border)" : "var(--border-light)"),
+        borderStyle: off ? "dashed" : "solid", opacity: off && !selected ? 0.55 : 1,
+        cursor: editMode ? "pointer" : "default", transition: "border-color .15s ease, background .15s ease, opacity .15s ease", position: "relative",
       }}>
+      {off && <div style={{ marginBottom: 4 }}><Tag tone="var(--red)">not offered</Tag></div>}
       {editMode && (
         <span style={{ position: "absolute", top: 8, right: 8, width: 14, height: 14, borderRadius: 4, border: "1.5px solid " + (selected ? "var(--purple)" : "var(--border-heavy)"), background: selected ? "var(--purple)" : "transparent", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 10, fontWeight: 900 }}>{selected ? "✓" : ""}</span>
       )}
@@ -259,7 +262,13 @@ export default function PriceBook() {
 
   useEffect(function() { if (!toast) return; var t = setTimeout(function() { setToast(null); }, 3500); return function() { clearTimeout(t); }; }, [toast]);
 
-  var rows = data ? data.rows : [];
+  // Rows taken off the sheet only exist in edit mode, dimmed, so they can be
+  // offered again. Non-admins never receive them from the route.
+  var rows = useMemo(function() {
+    var all = data ? data.rows : [];
+    return editMode ? all : all.filter(function(r) { return r.active !== false; });
+  }, [data, editMode]);
+  var hiddenCount = data ? data.rows.filter(function(r) { return r.active === false; }).length : 0;
   var filtered = useMemo(function() {
     var terms = tok(q);
     return rows.filter(function(r) {
@@ -295,7 +304,7 @@ export default function PriceBook() {
     // line is a tech improvising, not the register's list price.
     return rows.filter(function(r) {
       var a = r.actuals;
-      return a && a.pos_list !== null && r.set_price !== null && a.sold >= 3 && a.pos_list_share >= 50 && Math.abs(a.pos_list - r.set_price) >= 1;
+      return r.active !== false && a && a.pos_list !== null && r.set_price !== null && a.sold >= 3 && a.pos_list_share >= 50 && Math.abs(a.pos_list - r.set_price) >= 1;
     }).sort(function(a, b) { return b.actuals.sold - a.actuals.sold; });
   }, [rows]);
   // Catalog lines the register rings that the sheet has no row for at all.
@@ -357,6 +366,14 @@ export default function PriceBook() {
       setToast({ tone: "var(--red)", text: "Not saved — " + e.message });
     }
     setBusy(false);
+  }
+
+  // Take the selected rows off the sheet (or put them back). No preview step:
+  // nothing numeric changes, it is reversible, and the ledger records it.
+  function setOffered(flag) {
+    var ids = Object.keys(selectedIds);
+    if (!ids.length) return;
+    commit(ids.map(function(id) { return { id: id, active: flag }; }), bulk.reason || (flag ? "offered again" : "no longer offered"));
   }
 
   function inlineSave(r, val) {
@@ -494,6 +511,16 @@ export default function PriceBook() {
                 return <Chip key={rp} onClick={function() { selectWhere(function(r) { return r.repair === rp; }); }}>all {rp}</Chip>;
               })}
               {selectedCount > 0 && <Chip onClick={clearSel} tone="var(--red)">clear</Chip>}
+              <span style={{ flex: 1 }} />
+              {selectedCount > 0 && rows.some(function(r) { return selectedIds[r.id] && r.active !== false; }) && (
+                <button disabled={busy} onClick={function() { setOffered(false); }} title="Take the selected prices off the sheet. Agents stop seeing them; the register history stays attached and they can be offered again."
+                  style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid var(--red)", background: "transparent", color: "var(--red)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Stop offering selected</button>
+              )}
+              {selectedCount > 0 && rows.some(function(r) { return selectedIds[r.id] && r.active === false; }) && (
+                <button disabled={busy} onClick={function() { setOffered(true); }}
+                  style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid var(--green)", background: "transparent", color: "var(--green)", fontSize: 11.5, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Offer again</button>
+              )}
+              {hiddenCount > 0 && selectedCount === 0 && <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{hiddenCount} not offered — shown dimmed</span>}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <select value={bulk.field} onChange={function(e) { setBulk(Object.assign({}, bulk, { field: e.target.value })); setPreview(null); }} style={input}>
@@ -559,7 +586,8 @@ export default function PriceBook() {
                   </div>
                   <div style={{ color: "var(--text-muted)", marginTop: 3 }}>
                     {b.reason ? <em>{b.reason}</em> : <span>no reason given</span>}
-                    {sample && <span> · e.g. {sample.device} {sample.repair}{sample.tier ? " " + sample.tier : ""}: {money(sample.old_value)} → {money(sample.new_value)}</span>}
+                    {sample && sample.field === "active" && <span> · e.g. {sample.device} {sample.repair}{sample.tier ? " " + sample.tier : ""}: {Number(sample.new_value) ? "offered again" : "no longer offered"}</span>}
+                    {sample && sample.field !== "active" && <span> · e.g. {sample.device} {sample.repair}{sample.tier ? " " + sample.tier : ""}: {money(sample.old_value)} → {money(sample.new_value)}</span>}
                   </div>
                 </div>
               );
