@@ -139,6 +139,12 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
       )}
       {r.note && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>}
       <Acceptance a={r.actuals} setPrice={r.set_price} isAdmin={isAdmin} />
+      {r.quotes && r.quotes.given > 0 && (
+        <div style={{ fontSize: 11, marginTop: 4, color: r.quotes.at_sheet === r.quotes.given ? "var(--green)" : "var(--text-secondary)", fontWeight: r.quotes.at_sheet === r.quotes.given ? 700 : 500 }}>
+          {r.quotes.at_sheet} of {r.quotes.given} quote{r.quotes.given === 1 ? "" : "s"} booked at full price this month
+          {r.quotes.showed + r.quotes.no_show > 0 && <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · {r.quotes.showed} showed{r.quotes.no_show ? ", " + r.quotes.no_show + " didn’t" : ""}</span>}
+        </div>
+      )}
       {r.actuals_other && r.actuals_other.sold > 0 && (
         <div style={{ marginTop: 6, fontSize: 10.5, color: "var(--yellow)" }}>
           register also rings <strong>{money(r.actuals_other.pos_list)}</strong> on {r.actuals_other.sold} job{r.actuals_other.sold === 1 ? "" : "s"} — a line this sheet doesn&apos;t have
@@ -303,6 +309,18 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
   var [tatCustom, setTatCustom] = useState("");
   useEffect(function() { setTat(normalizeTurnaround(selRow ? selRow.turnaround : "")); setTatCustom(""); }, [selKey, selRow]);
   var turnaroundOut = tat === "custom" ? tatCustom.trim() : tat;
+  // Who booked it. Defaults to the session's name — but stores share logins
+  // ("General Access"), so the agent can put their own name on it.
+  var [bookedBy, setBookedBy] = useState(viewer && viewer.name ? viewer.name : "");
+  var [roster, setRoster] = useState([]);
+  useEffect(function() {
+    var alive = true;
+    fetch("/api/dialpad/roster?action=list").then(function(r) { return r.json(); })
+      .then(function(j) { if (alive && j && j.success) setRoster((j.employees || []).map(function(e) { return e.name; }).filter(Boolean)); })
+      .catch(function() {});
+    return function() { alive = false; };
+  }, []);
+  var sharedLogin = !!(viewer && viewer.name) && roster.length > 0 && roster.indexOf(viewer.name) < 0;
 
   // The reference price the quote is judged against: the sheet for a sheet
   // row, the register's usual price for a service, nothing for "something else".
@@ -381,7 +399,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
           quote_reason: needsReason ? reason : null,
           call_id: call ? call.call_id : null,
           turnaround: turnaroundOut || null,
-          scheduled_by: viewer && viewer.name ? viewer.name : "",
+          scheduled_by: bookedBy.trim() || (viewer && viewer.name ? viewer.name : ""),
         }),
       });
       var j = await res.json();
@@ -513,9 +531,16 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
           {tat === "custom" && <input value={tatCustom} onChange={function(e) { setTatCustom(e.target.value); }} placeholder="e.g. 7–10 days, part on order" style={Object.assign({}, input, { marginTop: 8 })} autoFocus />}
         </div>
 
-        <div>
-          <label style={label}>Notes</label>
-          <input value={f.notes} onChange={function(e) { set("notes", e.target.value); }} placeholder="colour, cracked back glass too, needs it by 5…" style={input} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={label}>Notes</label>
+            <input value={f.notes} onChange={function(e) { set("notes", e.target.value); }} placeholder="colour, cracked back glass too, needs it by 5…" style={input} />
+          </div>
+          <div>
+            <label style={label}>Booked by{sharedLogin ? <span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: "var(--orange)" }}> · shared login — put your name</span> : null}</label>
+            <input list="pb-roster" value={bookedBy} onChange={function(e) { setBookedBy(e.target.value); }} placeholder="your name" style={Object.assign({}, input, sharedLogin && !roster.some(function(n) { return n === bookedBy; }) ? { borderColor: "var(--orange)" } : {})} />
+            <datalist id="pb-roster">{roster.map(function(n) { return <option key={n} value={n} />; })}</datalist>
+          </div>
         </div>
 
         {err && <div style={{ fontSize: 12, color: "var(--red)", fontWeight: 700 }}>{err}</div>}
@@ -524,7 +549,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
           onMouseDown={function(e) { e.currentTarget.style.transform = "scale(.98)"; }} onMouseUp={function(e) { e.currentTarget.style.transform = "none"; }}>
           {busy ? "Booking…" : "Book " + (quotedOk ? money(quotedNum) : "") + " at " + (BOOK_STORES.filter(function(s) { return s[0] === f.store; })[0][1])}
         </button>
-        <div style={{ fontSize: 10.5, color: "var(--text-faint)", textAlign: "center" }}>Booked as {viewer && viewer.name ? viewer.name : "you"} · shows on the appointments page like any other</div>
+        <div style={{ fontSize: 10.5, color: "var(--text-faint)", textAlign: "center" }}>Booked as {bookedBy.trim() || (viewer && viewer.name ? viewer.name : "you")} · shows on the appointments page like any other</div>
       </div>
     </>
   );

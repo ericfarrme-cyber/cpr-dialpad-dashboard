@@ -305,6 +305,24 @@ export async function GET(request) {
       return { model: m.model, family: m.family, jobs: m.jobs, lines: m.lines, suggested_name: name, template: tpl ? tpl.device : null, recommended: recommended.concat(extras) };
     }).sort(function(a, b) { return b.jobs - a.jobs; });
 
+    // ── quotes booked from this book, this calendar month, per row ──────────
+    // "3 of 4 booked at full price" — the pre-sale half of the acceptance line.
+    var monthStart = new Date().toISOString().slice(0, 7) + "-01";
+    var { data: qRows, error: qErr } = await supabase.from("appointments")
+      .select("repair_price_id,sheet_price,quoted_price,did_arrive")
+      .eq("source", "price_book").gte("date_set", monthStart).not("repair_price_id", "is", null).limit(5000);
+    if (qErr) throw new Error("appointments: " + qErr.message);
+    var quotesByRow = {};
+    (qRows || []).forEach(function(a) {
+      var q = quotesByRow[a.repair_price_id] || (quotesByRow[a.repair_price_id] = { given: 0, at_sheet: 0, showed: 0, no_show: 0 });
+      q.given++;
+      var s = num(a.sheet_price), p = num(a.quoted_price);
+      if (s !== null && p !== null && p >= s - 0.005) q.at_sheet++;
+      var da = String(a.did_arrive || "").toLowerCase();
+      if (da === "yes" || da === "converted") q.showed++; else if (da.indexOf("no") === 0) q.no_show++;
+    });
+    rows.forEach(function(r) { r.quotes = quotesByRow[r.id] || null; });
+
     var updatedMax = rows.reduce(function(m, r) { return r.updated_at > m ? r.updated_at : m; }, "");
     return NextResponse.json({
       success: true,

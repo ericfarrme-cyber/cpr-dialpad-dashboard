@@ -97,6 +97,59 @@ export async function GET(request) {
     return json({ success: true, appointments: data || [] });
   }
 
+  // ── link appointments to the tickets they became ──────────────────────────
+  // An appointment with a phone number and no ticket gets the first ticket
+  // with that phone closed from the day of the visit to 14 days after. Runs
+  // daily from Vercel Cron (Bearer $CRON_SECRET) or by an admin. Never
+  // overwrites a ticket number a person typed, never touches did_arrive.
+  if (action === "link_tickets") {
+    var cronSecret = process.env.CRON_SECRET;
+    var authz = request.headers.get("authorization") || "";
+    var viaCron = !!cronSecret && authz === "Bearer " + cronSecret;
+    if (!viaCron) {
+      var gateL = await requireAuth(request, { requiredRoles: ["admin"] });
+      if (!gateL.authorized) return gateL.response;
+    }
+    var LINK_DAYS = 14;
+    var sinceA = new Date(); sinceA.setUTCDate(sinceA.getUTCDate() - 120);
+    var { data: open, error: oErr } = await supabase.from("appointments")
+      .select("id,customer_phone,date_of_appt,ticket_number")
+      .gte("date_of_appt", sinceA.toISOString().slice(0, 10))
+      .or("ticket_number.is.null,ticket_number.eq.")
+      .not("customer_phone", "is", null).neq("customer_phone", "")
+      .limit(3000);
+    if (oErr) return json({ success: false, error: oErr.message }, 500);
+    var byPhone = {};
+    var tix = [];
+    for (var from = 0; ; from += 1000) {
+      var res = await supabase.from("ticket_grades").select("ticket_number,customer_phone,date_closed")
+        .gte("date_closed", sinceA.toISOString()).not("date_closed", "is", null)
+        .order("ticket_number", { ascending: true }).range(from, from + 999);
+      if (res.error) return json({ success: false, error: "ticket_grades: " + res.error.message }, 500);
+      tix = tix.concat(res.data || []);
+      if ((res.data || []).length < 1000) break;
+    }
+    tix.forEach(function(t) {
+      var d = normPhone(t.customer_phone);
+      if (d.length !== 10) return;
+      (byPhone[d] = byPhone[d] || []).push({ n: t.ticket_number, closed: String(t.date_closed).slice(0, 10) });
+    });
+    var linked = 0, examined = (open || []).length, failures = [];
+    for (var i = 0; i < (open || []).length; i++) {
+      var a = open[i];
+      var cands = byPhone[normPhone(a.customer_phone)];
+      if (!cands || !a.date_of_appt) continue;
+      var end = new Date(a.date_of_appt + "T00:00:00Z"); end.setUTCDate(end.getUTCDate() + LINK_DAYS);
+      var endS = end.toISOString().slice(0, 10);
+      var hit = cands.filter(function(c) { return c.closed >= a.date_of_appt && c.closed <= endS; }).sort(function(x, y) { return x.closed < y.closed ? -1 : 1; })[0];
+      if (!hit) continue;
+      var { error: uErr } = await supabase.from("appointments").update({ ticket_number: String(hit.n), updated_at: new Date().toISOString() }).eq("id", a.id);
+      if (uErr) failures.push({ id: a.id, error: uErr.message }); else linked++;
+    }
+    if (failures.length) console.error("[appointments] link_tickets partial failure:", JSON.stringify(failures.slice(0, 5)));
+    return json({ success: failures.length === 0, examined: examined, linked: linked, failed: failures.length, window_days: LINK_DAYS });
+  }
+
   // Check if a phone number has a recent call audit
   if (action === "match_call") {
     var phone = normPhone(searchParams.get("phone"));

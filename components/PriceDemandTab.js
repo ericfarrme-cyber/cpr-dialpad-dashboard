@@ -81,14 +81,32 @@ function Bar({ value, max, color, height }) {
 
 // Monthly calls-vs-repairs and list-vs-actual price, drawn by hand so the colours
 // come from style props (var() does not resolve in SVG presentation attributes).
-function ModelTrend({ months }) {
+function ModelTrend({ months, events }) {
   var pts = (months || []).filter(function(m) { return m.calls || m.repairs; });
   if (pts.length < 2) return <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Not enough months to trend yet.</div>;
   var W = 520, H = 120, padL = 30, padB = 20, padT = 10;
   var maxV = Math.max.apply(null, pts.map(function(m) { return Math.max(m.calls, m.repairs); })) || 1;
   var bw = (W - padL) / pts.length;
+  // Price changes from the ledger, drawn where they fall inside the month —
+  // the "before / after" Eric described, marked on the chart it applies to.
+  var marks = (events || []).map(function(e) {
+    var idx = pts.findIndex(function(m) { return m.month === String(e.date).slice(0, 7); });
+    if (idx < 0) return null;
+    var dayFrac = (parseInt(String(e.date).slice(8, 10), 10) - 1) / 31;
+    return { x: padL + idx * bw + bw * (0.1 + 0.8 * dayFrac), e: e };
+  }).filter(Boolean);
   return (
     <svg viewBox={"0 0 " + W + " " + H} width="100%" style={{ display: "block", maxWidth: 560 }}>
+      {marks.map(function(mk, i) {
+        return (
+          <g key={"ev" + i}>
+            <line x1={mk.x} x2={mk.x} y1={padT} y2={H - padB} strokeDasharray="3 3" strokeWidth="1.2" style={{ stroke: mk.e.introduced ? "var(--green)" : "var(--orange)" }}>
+              <title>{(mk.e.introduced ? "Added " : "Price ") + mk.e.repair + (mk.e.tier ? " " + mk.e.tier : "") + (mk.e.introduced ? " at $" + mk.e.new_price : " $" + mk.e.old_price + " → $" + mk.e.new_price) + " · " + mk.e.date + (mk.e.reason ? " · " + mk.e.reason : "")}</title>
+            </line>
+            <circle cx={mk.x} cy={padT} r="3" style={{ fill: mk.e.introduced ? "var(--green)" : "var(--orange)" }} />
+          </g>
+        );
+      })}
       {pts.map(function(m, i) {
         var x = padL + i * bw;
         var hc = ((H - padB - padT) * m.calls) / maxV;
@@ -149,6 +167,17 @@ export default function PriceDemandTab({ storeFilter }) {
   var [sortBy, setSortBy] = useState("calls");
   var [open, setOpen] = useState(null);
   var [openTiers, setOpenTiers] = useState({}); // "model|type" -> true, the Screen row dropped open to OEM / OLED / LCD
+  // Quotes booked from the Price Book + price changes from the ledger — the
+  // pre-sale half of elasticity. Separate route, separate fetch, same filters.
+  var [qm, setQm] = useState(null);
+  useEffect(function() {
+    var alive = true;
+    var sp = "?months=" + months + (storeFilter && storeFilter !== "all" ? "&store=" + encodeURIComponent(storeFilter) : "");
+    fetch("/api/dialpad/quote-metrics" + sp).then(function(r) { return r.json(); })
+      .then(function(j) { if (alive) setQm(j && j.success ? j : { success: false, error: (j && j.error) || "request failed" }); })
+      .catch(function(e) { if (alive) setQm({ success: false, error: e.message }); });
+    return function() { alive = false; };
+  }, [months, storeFilter]);
   var [search, setSearch] = useState("");
   var [limit, setLimit] = useState(20);
   var [refreshing, setRefreshing] = useState(false);
@@ -311,6 +340,104 @@ export default function PriceDemandTab({ storeFilter }) {
           )}
         </div>
       )}
+
+      {/* ── quotes: the pre-sale half — does a discount get them in the door? ── */}
+      {qm && qm.success && (function() {
+        var T = qm.totals;
+        var thin = T.decided < qm.min_sample;
+        var bandMax = Math.max.apply(null, qm.bands.map(function(b) { return b.quotes; }).concat([1]));
+        return (
+          <div style={{ background: "var(--bg-card-inner)", border: "1px solid var(--border-light)", borderRadius: 12, padding: 16, marginBottom: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ color: "var(--text-primary)", fontSize: 13.5, fontWeight: 800 }}>Quotes from the Price Book</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>booked since {qm.since} · show rate = showed ÷ (showed + no-show) · pending visits excluded</div>
+            </div>
+            {T.quotes === 0 ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 12 }}>No quotes booked from the Price Book in this window yet. Every “Book this quote” lands here.</div>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 }}>
+                  <Stat label="Quotes booked" value={T.quotes.toLocaleString()} sub={T.pending + " visit" + (T.pending === 1 ? "" : "s") + " still ahead"} delay={0} />
+                  <Stat label="At the sheet" value={pct(T.at_sheet_rate)} sub={T.at_sheet + " of " + (T.quotes - qm.bands[4].quotes) + " with a reference price"} tone={T.at_sheet_rate >= 70 ? "var(--green)" : "var(--yellow)"} delay={60} />
+                  <Stat label="Avg discount" value={T.avg_discount === null ? "—" : money(T.avg_discount)} sub={T.avg_discount_pct === null ? "" : pct(T.avg_discount_pct) + " of the sheet"} tone={T.avg_discount_pct > 10 ? "var(--orange)" : "var(--text-primary)"} delay={120} />
+                  <Stat label="Showed up" value={T.show_rate === null ? "—" : pct(T.show_rate)} sub={T.showed + " showed · " + T.no_show + " no-show" + (T.ticketed ? " · " + T.ticketed + " became a ticket" : "")} tone="var(--cyan)" delay={180} />
+                </div>
+                {thin && (
+                  <div style={{ fontSize: 11.5, color: "var(--yellow)", marginBottom: 12, lineHeight: 1.5 }}>
+                    {T.decided} visit{T.decided === 1 ? " has" : "s have"} been decided so far — under {qm.min_sample}, so the rates below are counts, not conclusions. They firm up as agents book.
+                  </div>
+                )}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 16 }}>
+                  <div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Show rate by discount — the aim-high test</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                      {qm.bands.filter(function(b) { return b.quotes > 0; }).map(function(b) {
+                        return (
+                          <div key={b.key} style={{ display: "grid", gridTemplateColumns: "118px 1fr 50px 110px", gap: 8, alignItems: "center", fontSize: 11.5 }}>
+                            <span style={{ color: "var(--text-body)", fontWeight: 600 }}>{b.label}</span>
+                            <Bar value={b.quotes} max={bandMax} color={b.key === "at_sheet" ? "var(--green)" : b.key === "no_reference" ? "var(--text-faint)" : "var(--orange)"} height={9} />
+                            <span style={{ textAlign: "right", color: "var(--text-primary)", fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>{b.quotes}</span>
+                            <span style={{ textAlign: "right", color: b.decided ? (b.readable ? "var(--text-primary)" : "var(--text-muted)") : "var(--text-faint)", fontVariantNumeric: "tabular-nums", fontSize: 10.5 }}>
+                              {b.decided ? "showed " + b.showed + " of " + b.decided + (b.readable ? " · " + pct(b.show_rate) : "") : "none decided"}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Why it was discounted</div>
+                    {qm.reasons.length === 0 ? <div style={{ color: "var(--text-muted)", fontSize: 11.5 }}>No discounted quotes yet.</div> : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                        {qm.reasons.slice(0, 7).map(function(rs) {
+                          return (
+                            <div key={rs.label} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5 }}>
+                              <span style={{ color: rs.label === "(no reason)" ? "var(--orange)" : "var(--text-body)" }}>{rs.label}</span>
+                              <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{rs.quotes} · avg {rs.avg_discount === null ? "—" : money(rs.avg_discount)}{rs.decided ? " · showed " + rs.showed + "/" + rs.decided : ""}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {T.under_floor > 0 && <div style={{ fontSize: 11, color: "var(--red)", marginTop: 8 }}>{T.under_floor} quote{T.under_floor === 1 ? "" : "s"} went under the floor.</div>}
+                    <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "14px 0 8px" }}>By agent</div>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+                      {qm.agents.slice(0, 8).map(function(ag) {
+                        return (
+                          <div key={ag.label} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5 }}>
+                            <span style={{ color: "var(--text-body)" }}>{ag.label}</span>
+                            <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{ag.quotes} quote{ag.quotes === 1 ? "" : "s"} · {ag.at_sheet_rate === null ? "—" : pct(ag.at_sheet_rate) + " at sheet"}{ag.decided ? " · showed " + ag.showed + "/" + ag.decided : ""}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+            {qm.events.length > 0 && (
+              <div style={{ marginTop: 14, borderTop: "1px solid var(--border-light)", paddingTop: 12 }}>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>Price changes · {qm.event_window_days} days before vs after · marked on each model&apos;s trend below</div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                  {qm.events.slice(0, 8).map(function(e, i) {
+                    var b = e.before, a = e.after;
+                    return (
+                      <div key={e.batch_id + "|" + e.model + "|" + e.repair + "|" + (e.tier || "") + i} style={{ display: "grid", gridTemplateColumns: "84px 1fr 1fr", gap: 10, fontSize: 11.5, alignItems: "baseline" }}>
+                        <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{e.date}</span>
+                        <span style={{ color: "var(--text-body)" }}><strong style={{ color: "var(--text-primary)" }}>{e.model}</strong> {e.repair}{e.tier ? " " + e.tier : ""} · {e.introduced ? "added at " + money(e.new_price) : money(e.old_price) + " → " + money(e.new_price)}</span>
+                        <span style={{ color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>
+                          {b ? b.per_week + "/wk @ " + (b.avg_collected === null ? "—" : money(b.avg_collected)) + " → " : ""}{a.per_week}/wk @ {a.avg_collected === null ? "—" : money(a.avg_collected)}{e.after_days_elapsed < qm.event_window_days ? " · " + e.after_days_elapsed + "d in" : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {qm.events.length > 8 && <div style={{ fontSize: 10.5, color: "var(--text-muted)" }}>+ {qm.events.length - 8} more — each one is on its model&apos;s trend</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── controls ───────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
@@ -475,7 +602,27 @@ export default function PriceDemandTab({ storeFilter }) {
                             <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10 }}>
                               Monthly · <span style={{ color: "var(--cyan)" }}>calls</span> vs <span style={{ color: "var(--green)" }}>repairs</span>
                             </div>
-                            <ModelTrend months={r.months} />
+                            <ModelTrend months={r.months} events={qm && qm.success && qm.events_by_model ? qm.events_by_model[r.model] : null} />
+                            {qm && qm.success && qm.events_by_model && (qm.events_by_model[r.model] || []).length > 0 && (
+                              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                                {(qm.events_by_model[r.model] || []).slice(0, 4).map(function(e, i) {
+                                  var b = e.before, a = e.after;
+                                  return (
+                                    <div key={e.batch_id + i} style={{ fontSize: 11, color: "var(--text-secondary)", display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap", padding: "6px 8px", borderRadius: 7, background: "var(--bg-card)", border: "1px solid var(--border-light)" }}>
+                                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: e.introduced ? "var(--green)" : "var(--orange)", flexShrink: 0 }} />
+                                      <strong style={{ color: "var(--text-primary)" }}>{e.date}</strong>
+                                      <span>{e.repair}{e.tier ? " " + e.tier : ""}: {e.introduced ? "added at " + money2(e.new_price) : money2(e.old_price) + " → " + money2(e.new_price)}</span>
+                                      <span style={{ color: "var(--text-muted)" }}>
+                                        {b ? "before " + b.per_week + "/wk @ " + (b.avg_collected === null ? "—" : money2(b.avg_collected)) + " · " : ""}
+                                        after {a.per_week}/wk @ {a.avg_collected === null ? "—" : money2(a.avg_collected)}
+                                        {e.after_days_elapsed < qm.event_window_days ? " (" + e.after_days_elapsed + " of " + qm.event_window_days + " days so far)" : ""}
+                                        {e.quotes_after ? " · " + e.quotes_after + " quote" + (e.quotes_after === 1 ? "" : "s") + " since" : ""}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
