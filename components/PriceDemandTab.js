@@ -4,6 +4,7 @@
 // a difference of twenty dollars on a repair."
 "use client";
 import { useState, useEffect, useMemo, useRef } from "react";
+import { useAuth } from "@/components/AuthProvider";
 
 var FAMILY_LABEL = { all: "All", phone: "Phones", console: "Consoles", tablet: "Tablets", computer: "Computers", wearable: "Wearables", other: "Other" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "wearable", "other"];
@@ -81,6 +82,120 @@ function Bar({ value, max, color, height }) {
 
 // Monthly calls-vs-repairs and list-vs-actual price, drawn by hand so the colours
 // come from style props (var() does not resolve in SVG presentation attributes).
+// ── Interpretation: what should we be seeing, what should we do ──────────────
+// Two layers. The "reading" is computed here, instantly, from rules that do
+// not need a model — sample size, share at the sheet, missing reasons, floor
+// breaches, price changes still too young to read. "Ask for actions" sends
+// the same numbers to the model for a plain-words headline, reading, actions
+// with an owner, and what to watch. Cached per data shape for the session so
+// reopening the panel does not re-bill.
+function Interpret({ qm, demand }) {
+  var auth = useAuth();
+  var [open, setOpen] = useState(false);
+  var [ai, setAi] = useState(null);
+  var [busy, setBusy] = useState(false);
+  var [err, setErr] = useState(null);
+  var T = qm.totals;
+  var key = useMemo(function() {
+    return "pd_interp:" + qm.store + ":" + qm.months + ":" + T.quotes + ":" + T.decided + ":" + (qm.events || []).length + ":" + new Date().toISOString().slice(0, 10);
+  }, [qm, T]);
+  useEffect(function() {
+    try { var c = window.sessionStorage.getItem(key); if (c) setAi(JSON.parse(c)); else setAi(null); } catch (e) { /* private mode */ }
+  }, [key]);
+
+  // Rules that need no model.
+  var rules = [];
+  var thin = T.decided < qm.min_sample;
+  if (T.quotes === 0) rules.push({ tone: "muted", text: "No quotes booked from the Price Book in this window. Nothing to read yet — every “Book this quote” lands here." });
+  else {
+    rules.push({ tone: thin ? "yellow" : "body", text: thin
+      ? T.quotes + " quote" + (T.quotes === 1 ? "" : "s") + ", " + T.decided + " decided visit" + (T.decided === 1 ? "" : "s") + " — " + qm.min_sample + " are needed before show rates mean anything. Until then, read the counts."
+      : T.decided + " decided visits — show rates are readable." });
+    if (T.at_sheet_rate !== null) rules.push({ tone: T.at_sheet_rate >= 70 ? "green" : "orange", text: T.at_sheet_rate.toFixed(0) + "% of quotes were at the sheet (" + T.at_sheet + " of " + (T.at_sheet + (T.quotes - T.at_sheet - qm.bands[4].quotes)) + "). " + (T.at_sheet_rate >= 70 ? "Agents are holding the line." : "Under 70% means the sheet is being negotiated down before the customer even arrives.") });
+    var atSheet = qm.bands[0], off = qm.bands.slice(1, 4);
+    var offDecided = off.reduce(function(s, b) { return s + b.decided; }, 0), offShowed = off.reduce(function(s, b) { return s + b.showed; }, 0);
+    if (atSheet.decided >= 5 && offDecided >= 5) {
+      var rs = (atSheet.showed / atSheet.decided) * 100, ro = (offShowed / offDecided) * 100;
+      rules.push({ tone: ro > rs + 10 ? "orange" : "green", text: "Show rate at the sheet " + rs.toFixed(0) + "% vs discounted " + ro.toFixed(0) + "% (" + atSheet.decided + " vs " + offDecided + " decided). " + (ro > rs + 10 ? "Discounts are getting people in the door — the question is what they cost." : "Discounting is not buying more show-ups. Aim high.") });
+    }
+    var noReason = (qm.reasons || []).filter(function(r) { return r.label === "(no reason)"; })[0];
+    if (noReason) rules.push({ tone: "orange", text: noReason.quotes + " discounted quote" + (noReason.quotes === 1 ? "" : "s") + " with no reason — should not be possible from the panel; check how they were booked." });
+    if (T.under_floor > 0) rules.push({ tone: "red", text: T.under_floor + " quote" + (T.under_floor === 1 ? "" : "s") + " went under the floor. Each has a reason on it — read them before the next huddle." });
+    var topReason = (qm.reasons || [])[0];
+    if (topReason && topReason.label !== "(no reason)") rules.push({ tone: "body", text: "Most common discount reason: “" + topReason.label + "” (" + topReason.quotes + ", avg " + (topReason.avg_discount === null ? "—" : money(topReason.avg_discount)) + " off)." });
+  }
+  var young = (qm.events || []).filter(function(e) { return e.after_days_elapsed < qm.event_window_days; });
+  var mature = (qm.events || []).filter(function(e) { return e.after_days_elapsed >= qm.event_window_days && e.before && e.after.jobs + e.before.jobs >= 10; });
+  if (young.length) rules.push({ tone: "muted", text: young.length + " price change" + (young.length === 1 ? "" : "s") + " still inside the " + qm.event_window_days + "-day after-window — the before/after is not readable yet (" + young[0].model + " " + young[0].repair + " is " + young[0].after_days_elapsed + " days in)." });
+  mature.slice(0, 2).forEach(function(e) {
+    var dv = e.after.per_week - e.before.per_week;
+    rules.push({ tone: "body", text: e.model + " " + e.repair + (e.tier ? " " + e.tier : "") + " " + money(e.old_price) + " → " + money(e.new_price) + " (" + e.date + "): " + e.before.per_week + " → " + e.after.per_week + " jobs/week, avg collected " + (e.before.avg_collected === null ? "—" : money(e.before.avg_collected)) + " → " + (e.after.avg_collected === null ? "—" : money(e.after.avg_collected)) + ". " + (dv >= 0 ? "Volume held or rose." : "Volume fell.") + " Before/after only — not proof of cause." });
+  });
+
+  async function ask() {
+    setBusy(true); setErr(null);
+    try {
+      var af = auth && auth.authFetch ? auth.authFetch : fetch;
+      var res = await af("/api/dialpad/quote-insights", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ metrics: qm, demand: demand }) });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "no interpretation returned");
+      setAi(j);
+      try { window.sessionStorage.setItem(key, JSON.stringify(j)); } catch (e) { /* ignore */ }
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  var toneColor = { green: "var(--green)", orange: "var(--orange)", red: "var(--red)", yellow: "var(--yellow)", muted: "var(--text-muted)", body: "var(--text-body)" };
+  var canAsk = auth && auth.role && (auth.role === "admin" || auth.role === "manager");
+  return (
+    <div style={{ marginBottom: 12, border: "1px solid " + (open ? "var(--purple)" : "var(--border-light)"), borderRadius: 10, overflow: "hidden", transition: "border-color .2s ease" }}>
+      <div onClick={function() { setOpen(!open); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", cursor: "pointer", userSelect: "none", background: open ? "#7B2FFF0D" : "transparent" }}>
+        <span style={{ color: "var(--purple)", fontSize: 10, transform: open ? "rotate(90deg)" : "none", transition: "transform .2s ease", display: "inline-block", width: 10 }}>▶</span>
+        <span style={{ fontSize: 12.5, fontWeight: 800, color: "var(--text-primary)" }}>What should we be seeing — and doing?</span>
+        <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>{ai ? "interpreted " + new Date(ai.generated_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "reading + actions"}</span>
+      </div>
+      {open && (
+        <div style={{ padding: "4px 14px 14px", animation: "pdExpand .2s ease both" }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "6px 0 6px" }}>Reading</div>
+          <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>
+            {rules.map(function(r, i) { return <li key={i} style={{ fontSize: 12, lineHeight: 1.5, color: toneColor[r.tone] || "var(--text-body)" }}>{r.text}</li>; })}
+          </ul>
+          {ai ? (
+            <div style={{ marginTop: 12, animation: "pdExpand .2s ease both" }}>
+              <div style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.4 }}>{ai.headline}</div>
+              {ai.reading.length > 0 && <>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "10px 0 4px" }}>What it says</div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>{ai.reading.map(function(t, i) { return <li key={i} style={{ fontSize: 12, lineHeight: 1.5, color: "var(--text-body)" }}>{t}</li>; })}</ul>
+              </>}
+              {ai.actions.length > 0 && <>
+                <div style={{ color: "var(--green)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "10px 0 4px" }}>Do this week</div>
+                <ol style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 4 }}>{ai.actions.map(function(t, i) { return <li key={i} style={{ fontSize: 12.5, lineHeight: 1.5, color: "var(--text-primary)", fontWeight: 600 }}>{t}</li>; })}</ol>
+              </>}
+              {ai.watch.length > 0 && <>
+                <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em", margin: "10px 0 4px" }}>Watch next week</div>
+                <ul style={{ margin: 0, paddingLeft: 18, display: "flex", flexDirection: "column", gap: 3 }}>{ai.watch.map(function(t, i) { return <li key={i} style={{ fontSize: 12, lineHeight: 1.5, color: "var(--text-body)" }}>{t}</li>; })}</ul>
+              </>}
+              {ai.caveat && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, fontStyle: "italic" }}>{ai.caveat}</div>}
+              <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 8 }}>
+                <button onClick={ask} disabled={busy} style={{ background: "transparent", border: "1px solid var(--border)", color: "var(--text-secondary)", borderRadius: 7, padding: "5px 10px", fontSize: 11, cursor: "pointer" }}>{busy ? "Thinking…" : "Re-read"}</button>
+                <span style={{ fontSize: 10.5, color: "var(--text-faint)" }}>{ai.model}</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              {canAsk ? (
+                <button onClick={ask} disabled={busy} style={{ background: "var(--purple)", border: "none", color: "#fff", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 800, cursor: busy ? "wait" : "pointer", boxShadow: "0 6px 18px #7B2FFF33" }}>{busy ? "Thinking…" : "Ask for actions"}</button>
+              ) : <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Actions are generated for managers and admins.</span>}
+              <span style={{ fontSize: 10.5, color: "var(--text-muted)" }}>Sends these numbers, not tickets or names beyond the agent list, and answers with a headline, reading, actions with an owner, and what to watch.</span>
+            </div>
+          )}
+          {err && <div style={{ fontSize: 12, color: "var(--red)", marginTop: 8, fontWeight: 700 }}>Not interpreted — {err}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ModelTrend({ months, events }) {
   var pts = (months || []).filter(function(m) { return m.calls || m.repairs; });
   if (pts.length < 2) return <div style={{ color: "var(--text-muted)", fontSize: 11 }}>Not enough months to trend yet.</div>;
@@ -352,6 +467,7 @@ export default function PriceDemandTab({ storeFilter }) {
               <div style={{ color: "var(--text-primary)", fontSize: 13.5, fontWeight: 800 }}>Quotes from the Price Book</div>
               <div style={{ color: "var(--text-muted)", fontSize: 10.5 }}>booked since {qm.since} · show rate = showed ÷ (showed + no-show) · pending visits excluded</div>
             </div>
+            <Interpret qm={qm} demand={{ opportunity_calls: t.opportunity_calls, appt_offered_rate: t.appt_offered_rate, conversion_rate: convRate, repairs: t.repairs }} />
             {T.quotes === 0 ? (
               <div style={{ color: "var(--text-muted)", fontSize: 12 }}>No quotes booked from the Price Book in this window yet. Every “Book this quote” lands here.</div>
             ) : (
