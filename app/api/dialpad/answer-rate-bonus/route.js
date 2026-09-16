@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { indexClosures, isOutsideHours } from "@/lib/store-closures";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANSWER-RATE BONUS — single source of truth
@@ -180,6 +181,21 @@ export async function GET(request) {
       answeredByStore[row.store] += row.answered || 0;
     });
 
+    // Early closes Dialpad never knew about. Its `availability` flag comes from
+    // the department schedule, so a holiday close nobody entered there leaves
+    // the call tagged "open" and counts against the store. store_closures
+    // records what the stores actually did (Eric signed off 2026-09-15,
+    // applying to September: Labor Day, all three closed at 4pm).
+    var closuresRes = await supabase
+      .from("store_closures")
+      .select("store, closure_date, closes_at, opens_at, reason")
+      .gte("closure_date", bounds.start)
+      .lt("closure_date", bounds.endExclusive);
+    if (closuresRes.error) return NextResponse.json({ success: false, error: closuresRes.error.message }, { status: 500 });
+    var closureIdx = indexClosures(closuresRes.data || []);
+    var earlyCloseMissedByStore = {};
+    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; });
+
     (missedRes.data || []).forEach(function(row) {
       if (!row.store || openMissedByStore[row.store] === undefined) return;
       var cats = (row.categories || "").toLowerCase().split(/[,\s|]+/);
@@ -187,6 +203,11 @@ export async function GET(request) {
       if (cats.indexOf("dismissed") >= 0) return;  // declined transfer, handled
       if (String(row.availability || "").toLowerCase() === "closed") {
         closedMissedByStore[row.store] += 1;
+      } else if (isOutsideHours(closureIdx, row.store, row.date_started)) {
+        // Dialpad said open, the store was shut. Counted like any other
+        // after-hours miss: out of the rate, still visible.
+        closedMissedByStore[row.store] += 1;
+        earlyCloseMissedByStore[row.store] += 1;
       } else {
         openMissedByStore[row.store] += 1;
       }
@@ -213,6 +234,8 @@ export async function GET(request) {
         short_call_threshold_seconds: Math.round(SHORT_CALL_MIN_MINUTES * 60),
         open_missed: openMissed,
         after_hours_missed: closedMissedByStore[s],
+        // Of those, the ones excluded because the store closed early that day.
+        early_close_missed: earlyCloseMissedByStore[s],
         total_open: total,
         answer_rate: total > 0 ? Math.round(rate * 10) / 10 : null,
         tier: t.tier,

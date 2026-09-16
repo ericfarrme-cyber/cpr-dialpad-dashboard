@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getDailyCallVolume, getHourlyMissed, getDOWMissed, getCallbackData, getCallRecords, getCallSyncState } from "@/lib/supabase";
+import { getDailyCallVolume, getHourlyMissed, getDOWMissed, getCallbackData, getCallRecords, getCallSyncState, getStoreClosures } from "@/lib/supabase";
+import { indexClosures, isOutsideHours } from "@/lib/store-closures";
 
 // GET /api/dialpad/stored — returns all dashboard data from Supabase
 export async function GET(request) {
@@ -8,14 +9,18 @@ export async function GET(request) {
   const store = searchParams.get("store");
 
   try {
-    const [dailyRaw, missedRaw, dowRaw, callbackRaw, callRecords, syncState] = await Promise.all([
+    const [dailyRaw, missedRaw, dowRaw, callbackRaw, callRecords, syncState, closureRows] = await Promise.all([
       getDailyCallVolume(daysBack),
       getHourlyMissed(daysBack),
       getDOWMissed(daysBack),
       getCallbackData(daysBack),
       getCallRecords({ store, daysBack, limit: 5000 }),
       getCallSyncState(),
+      getStoreClosures(daysBack),
     ]);
+    // Early closes Dialpad never saw — same rule the answer-rate bonus uses, so
+    // the dashboard and the bonus can never disagree about a holiday.
+    const closureIdx = indexClosures(closureRows);
 
     // Build daily call volume from TWO sources:
     // 1. dailyRaw (getDailyCallVolume) — has total and answered per day per store
@@ -29,7 +34,8 @@ export async function GET(request) {
     // and EXCLUDED from `*_missed` (and therefore from `*_total` and the answer
     // rate). Open-hours missed calls behave exactly as before.
     function isClosed(row) {
-      return String(row.availability || "").toLowerCase() === "closed";
+      if (String(row.availability || "").toLowerCase() === "closed") return true;
+      return isOutsideHours(closureIdx, row.store, row.date_started);
     }
 
     // Count missed calls per day per store from missedRaw, split open vs closed

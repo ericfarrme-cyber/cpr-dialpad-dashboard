@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAuth } from "@/components/AuthProvider";
 
 var CYAN = "var(--cyan)";
 var GREEN = "var(--green)";
@@ -38,10 +39,84 @@ function money0(n) {
   return "$" + parseFloat(n || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
 }
 
+// A holiday is coming and nobody has said what the stores are doing. Asking
+// now is the whole point: Dialpad tags a call closed from the department
+// schedule, so an early close entered after the fact cannot retag anything —
+// on Labor Day that left 10 missed calls counting against the stores, six at
+// Fishers, which was the difference between 79.2% and 80.9% for September.
+function HolidayHoursPrompt({ holiday, onSaved, saved, af }) {
+  var [choice, setChoice] = useState(null); // "early" | "closed" | "normal"
+  var [time, setTime] = useState("16:00");
+  var [busy, setBusy] = useState(false);
+  var [err, setErr] = useState(null);
+  var when = holiday.days_away === 0 ? "today" : holiday.days_away === 1 ? "tomorrow" : "in " + holiday.days_away + " days";
+
+  async function save(body) {
+    setBusy(true); setErr(null);
+    try {
+      var res = await af("/api/dialpad/store-hours", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(Object.assign({ action: "set", date: holiday.date, stores: holiday.missing_stores, reason: holiday.name }, body)),
+      });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "not saved");
+      onSaved();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  if (saved) {
+    return (
+      <div style={{ background: RAISED, border: "1px solid " + GREEN, borderRadius: 11, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: GREEN }}>
+        {holiday.name} hours saved — missed calls outside them will not count against the stores.
+      </div>
+    );
+  }
+  return (
+    <div style={{ background: RAISED, border: "1px solid " + GOLD, borderRadius: 11, padding: "12px 14px", marginBottom: 12 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap" }}>
+        <span style={{ fontFamily: DISPLAY, fontSize: 13.5, fontWeight: 700, color: INK }}>{holiday.name} is {when}</span>
+        <span style={{ fontSize: 11.5, color: MUTED }}>
+          What are {holiday.missing_stores.length === 3 ? "the stores" : holiday.missing_stores.join(" and ")} doing? Set it now — after the day, missed calls already counted.
+        </span>
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 10 }}>
+        {[["early", "Closing early"], ["closed", "Closed all day"], ["normal", "Normal hours"]].map(function (c) {
+          var on = choice === c[0];
+          return (
+            <button key={c[0]} onClick={function () { setChoice(c[0]); }} disabled={busy}
+              style={{ padding: "6px 12px", borderRadius: 999, border: "1px solid " + (on ? GOLD : LINE), background: on ? "#FBBF2418" : "transparent", color: on ? GOLD : INK2, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>{c[1]}</button>
+          );
+        })}
+        {choice === "early" && (
+          <>
+            <input type="time" value={time} onChange={function (e) { setTime(e.target.value); }} step={900}
+              style={{ padding: "5px 8px", borderRadius: 7, border: "1px solid " + LINE, background: "var(--bg-input)", color: INK, fontSize: 12 }} />
+            <button disabled={busy} onClick={function () { save({ closes_at: time }); }}
+              style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: GOLD, color: "#0B0D11", fontSize: 11.5, fontWeight: 800, cursor: "pointer" }}>{busy ? "Saving…" : "Save"}</button>
+          </>
+        )}
+        {choice === "closed" && (
+          <button disabled={busy} onClick={function () { save({ closed_all_day: true }); }}
+            style={{ padding: "6px 14px", borderRadius: 7, border: "none", background: GOLD, color: "#0B0D11", fontSize: 11.5, fontWeight: 800, cursor: "pointer" }}>{busy ? "Saving…" : "Save — closed all day"}</button>
+        )}
+        {choice === "normal" && (
+          <span style={{ fontSize: 11.5, color: MUTED }}>Nothing to record — normal hours are what Dialpad already has.</span>
+        )}
+      </div>
+      {err && <div style={{ fontSize: 11.5, color: RED, marginTop: 8, fontWeight: 700 }}>Not saved — {err}</div>}
+    </div>
+  );
+}
+
 export default function MorningBrief() {
   var [state, setState] = useState({ loading: true });
   var [open, setOpen] = useState(true);
   var [allDiscounts, setAllDiscounts] = useState(false);
+  var [hoursSaved, setHoursSaved] = useState(null);
+  var auth = useAuth();
+  // Recording hours changes an answer rate, so the write carries the session.
+  var af = auth && auth.authFetch ? auth.authFetch : fetch;
 
   // Collapse is remembered per day, so dismissing it in the morning keeps it
   // dismissed until tomorrow's brief is a different brief.
@@ -72,6 +147,7 @@ export default function MorningBrief() {
       fetch("/api/dialpad/flags?action=active").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/discounts?date=" + yKey).then(function (r) { return r.json(); }),
       fetch("/api/dialpad/appointments?action=book_source&days=7").then(function (r) { return r.json(); }),
+      fetch("/api/dialpad/store-hours?days=21").then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -121,6 +197,11 @@ export default function MorningBrief() {
       // carries no quote, no reason and no ticket link.
       var bsr = res[5].status === "fulfilled" ? res[5].value : null;
       out.bookSource = bsr && bsr.success ? bsr : null;
+
+      // Holidays with no hours recorded yet. Asked BEFORE the day, because
+      // afterwards Dialpad cannot retag the calls and the missed ones count.
+      var sh = res[6].status === "fulfilled" ? res[6].value : null;
+      out.storeHours = sh && sh.success ? sh : null;
 
       setState(out);
     });
@@ -190,6 +271,11 @@ export default function MorningBrief() {
 
       {open && (
         <div style={{ padding: "16px 20px 18px" }}>
+          {/* holiday hours prompt — before the day, not after */}
+          {state.storeHours && state.storeHours.holidays.filter(function (h) { return h.needs_hours; }).map(function (h) {
+            return <HolidayHoursPrompt key={h.date} holiday={h} af={af} onSaved={function () { setHoursSaved(h.date); }} saved={hoursSaved === h.date} />;
+          })}
+
           {/* per store */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 10, marginBottom: 14 }}>
             {STORES.map(function (s) {
