@@ -97,6 +97,31 @@ export async function GET(request) {
     return json({ success: true, appointments: data || [] });
   }
 
+  // Where appointments are being booked from, per store. A booking made from
+  // the Price Book carries the sheet price, what was quoted, why, the
+  // turnaround and the ticket it becomes; one typed by hand carries none of
+  // that, so this is the adoption number worth watching.
+  if (action === "book_source") {
+    var bsDays = Math.min(90, Math.max(1, parseInt(searchParams.get("days") || "7", 10)));
+    var bsSince = new Date(); bsSince.setDate(bsSince.getDate() - bsDays);
+    var { data: bsRows, error: bsErr } = await supabase.from("appointments")
+      .select("store,source,scheduled_by").gte("date_set", bsSince.toISOString().slice(0, 10)).limit(5000);
+    if (bsErr) return json({ success: false, error: bsErr.message }, 500);
+    var bs = {};
+    (bsRows || []).forEach(function(r) {
+      var s = bs[r.store] || (bs[r.store] = { store: r.store, total: 0, price_book: 0, manual_by: {} });
+      s.total++;
+      if (r.source === "price_book") s.price_book++;
+      else if (r.scheduled_by) s.manual_by[r.scheduled_by] = (s.manual_by[r.scheduled_by] || 0) + 1;
+    });
+    var bsOut = Object.keys(bs).map(function(k) {
+      var s = bs[k];
+      var top = Object.keys(s.manual_by).sort(function(a, b) { return s.manual_by[b] - s.manual_by[a]; })[0] || null;
+      return { store: s.store, total: s.total, price_book: s.price_book, share: s.total ? Math.round((s.price_book / s.total) * 100) : null, top_manual: top, top_manual_count: top ? s.manual_by[top] : 0 };
+    }).sort(function(a, b) { return b.total - a.total; });
+    return json({ success: true, days: bsDays, stores: bsOut });
+  }
+
   // ── link appointments to the tickets they became ──────────────────────────
   // An appointment with a phone number and no ticket gets the first ticket
   // with that phone closed from the day of the visit to 14 days after. Runs

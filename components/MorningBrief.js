@@ -71,6 +71,7 @@ export default function MorningBrief() {
       fetch("/api/dialpad/appointments?action=stats&days=2").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/flags?action=active").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/discounts?date=" + yKey).then(function (r) { return r.json(); }),
+      fetch("/api/dialpad/appointments?action=book_source&days=7").then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -115,6 +116,11 @@ export default function MorningBrief() {
       var dc = res[4].status === "fulfilled" ? res[4].value : null;
       out.discounts = dc && dc.success ? dc : null;
       if (!out.discounts) out.missing.push("discount");
+
+      // Where appointments came from this week — a booking typed by hand
+      // carries no quote, no reason and no ticket link.
+      var bsr = res[5].status === "fulfilled" ? res[5].value : null;
+      out.bookSource = bsr && bsr.success ? bsr : null;
 
       setState(out);
     });
@@ -237,6 +243,29 @@ export default function MorningBrief() {
               {state.appts && state.appts.needFollowUp > 0 && (
                 <div style={{ marginTop: 10, fontSize: 11.5, color: GOLD }}>
                   {state.appts.needFollowUp} need follow-up
+                </div>
+              )}
+              {state.bookSource && state.bookSource.stores.length > 0 && (
+                <div style={{ marginTop: 10, paddingTop: 9, borderTop: "1px solid " + LINE }}>
+                  <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".1em", textTransform: "uppercase", color: MUTED, marginBottom: 5 }}>
+                    Booked from the Price Book · last {state.bookSource.days} days
+                  </div>
+                  {state.bookSource.stores.map(function (s) {
+                    var label = (STORES.find(function (x) { return x.key === s.store; }) || {}).label || s.store;
+                    var tone = s.share >= 60 ? GREEN : s.share > 0 ? GOLD : RED;
+                    return (
+                      <div key={s.store} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 11.5, padding: "2px 0" }}>
+                        <span style={{ color: INK2 }}>{label}</span>
+                        <span style={{ fontFamily: MONO, color: tone }}>
+                          {s.price_book} of {s.total}
+                          {s.price_book === 0 && s.top_manual ? <span style={{ color: MUTED }}> · all by hand ({s.top_manual})</span> : null}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div style={{ fontSize: 10.5, color: MUTED, marginTop: 5, lineHeight: 1.45 }}>
+                    Booked by hand means no quote, no discount reason and no ticket link.
+                  </div>
                 </div>
               )}
             </div>

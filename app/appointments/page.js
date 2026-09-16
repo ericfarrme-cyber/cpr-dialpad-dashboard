@@ -1320,6 +1320,16 @@ function StoreDashboard() {
             {showForm && !editingId && (
               <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #7B2FFF33" }}>
                 <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,marginBottom:12 }}>New Appointment</div>
+                {/* A repair booked from the Price Book carries the quote, the discount
+                    reason, the turnaround and the ticket it becomes. Typed here it carries none. */}
+                <a href="/prices" style={{ display:"flex",alignItems:"center",gap:10,textDecoration:"none",padding:"10px 12px",marginBottom:12,borderRadius:9,border:"1px solid var(--purple)",background:"#7B2FFF0D" }}>
+                  <span style={{ fontSize:15 }}>🏷️</span>
+                  <span style={{ flex:1,minWidth:0 }}>
+                    <span style={{ display:"block",color:"var(--purple)",fontSize:12,fontWeight:800 }}>Booking a repair? Start from the Price Book</span>
+                    <span style={{ display:"block",color:"var(--text-muted)",fontSize:10.5,marginTop:1 }}>Find the device, hit “Book this quote” — the price, discount reason and turnaround come with it</span>
+                  </span>
+                  <span style={{ color:"var(--purple)",fontSize:13,fontWeight:800 }}>→</span>
+                </a>
                 <div style={{ display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginBottom:10 }}>
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Customer Name *</label><input value={form.customer_name} onChange={function(e){setForm(Object.assign({},form,{customer_name:e.target.value}));}} style={inputStyle} /></div>
                   <div><label style={{ color:"var(--text-secondary)",fontSize:9,display:"block",marginBottom:2 }}>Phone</label><input value={form.customer_phone} onChange={function(e){setForm(Object.assign({},form,{customer_phone:e.target.value}));}} onBlur={function(e){checkPhone(e.target.value);checkRepeatCustomer(e.target.value);}} placeholder="(317) 555-1234" style={inputStyle} /></div>

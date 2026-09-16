@@ -21,6 +21,7 @@ var FLAG_LABEL = {
 };
 
 var money = function(n) { return n === null || n === undefined ? "—" : "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
+var num = function(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(v); return isFinite(n) ? n : null; };
 var whenStr = function(iso) { if (!iso) return ""; var d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 var isLadder = function(tiers) { return tiers.length > 1 && tiers.every(function(t) { return /day/i.test(t.tier || ""); }); };
 var tok = function(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9+"\s.-]/g, " ").split(/\s+/).filter(Boolean); };
@@ -185,9 +186,101 @@ function Ladder({ tiers, isAdmin, editMode, selectedIds, onToggle, onInline, onB
   );
 }
 
-function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook }) {
+// Edit one device in one pass: every repair and tier it has, prices and part
+// costs side by side, offered on or off, one reason, one save. Matt's first
+// real session was ~70 single-row edits over three hours and half of them
+// carried no reason — this is that session as one form per device.
+function DeviceEditor({ device, rows, onSave, onCancel }) {
+  var [vals, setVals] = useState(function() {
+    var v = {};
+    rows.forEach(function(r) { v[r.id] = { set_price: r.set_price === null ? "" : String(r.set_price), part_price: r.part_price === null ? "" : String(r.part_price), active: r.active !== false }; });
+    return v;
+  });
+  var [reason, setReason] = useState("");
+  var [busy, setBusy] = useState(false);
+  function set(id, k, val) { setVals(function(p) { var n = Object.assign({}, p); n[id] = Object.assign({}, n[id], {}); n[id][k] = val; return n; }); }
+
+  // Only what actually moved, so the ledger records changes and not a re-save.
+  var changes = rows.map(function(r) {
+    var v = vals[r.id] || {};
+    var c = { id: r.id };
+    var sp = v.set_price === "" ? null : parseFloat(v.set_price);
+    if (sp !== null && isFinite(sp) && (r.set_price === null || Math.abs(sp - num(r.set_price)) >= 0.005)) c.set_price = sp;
+    var pp = v.part_price === "" ? null : parseFloat(v.part_price);
+    if (pp !== null && isFinite(pp) && (r.part_price === null || Math.abs(pp - num(r.part_price)) >= 0.005)) c.part_price = pp;
+    if (!!v.active !== (r.active !== false)) c.active = !!v.active;
+    return Object.keys(c).length > 1 ? c : null;
+  }).filter(Boolean);
+  var canSave = changes.length > 0 && reason.trim().length > 0 && !busy;
+
+  async function save() {
+    if (!canSave) return;
+    setBusy(true);
+    try { await onSave(changes, reason.trim()); } finally { setBusy(false); }
+  }
+
+  var cell = { padding: "6px 8px", borderTop: "1px solid var(--border-light)", fontSize: 12 };
+  var priceIn = { width: 88, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12.5, fontWeight: 700, textAlign: "right", fontVariantNumeric: "tabular-nums" };
+  return (
+    <div onClick={function(e) { e.stopPropagation(); }} style={{ border: "1px solid var(--purple)", borderRadius: 10, overflow: "hidden", animation: "pbExpand .2s ease both" }}>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead><tr style={{ color: "var(--text-muted)", fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <th style={{ textAlign: "left", padding: "7px 8px", fontWeight: 700 }}>Repair</th>
+          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 700 }}>Price</th>
+          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 700 }}>Part cost</th>
+          <th style={{ textAlign: "right", padding: "7px 8px", fontWeight: 700 }}>Floor</th>
+          <th style={{ textAlign: "center", padding: "7px 8px", fontWeight: 700 }}>Offered</th>
+        </tr></thead>
+        <tbody>
+          {rows.map(function(r) {
+            var v = vals[r.id] || {};
+            var moved = changes.some(function(c) { return c.id === r.id; });
+            return (
+              <tr key={r.id} style={{ background: moved ? "#7B2FFF0D" : "transparent", opacity: v.active ? 1 : 0.6 }}>
+                <td style={Object.assign({}, cell, { color: "var(--text-body)" })}>
+                  {r.repair}{r.tier ? <span style={{ color: "var(--purple)", fontWeight: 700 }}> · {r.tier}</span> : null}
+                  {r.turnaround ? <span style={{ color: "var(--text-muted)" }}> · {r.turnaround}</span> : null}
+                </td>
+                <td style={Object.assign({}, cell, { textAlign: "right" })}>
+                  <input value={v.set_price} onChange={function(e) { set(r.id, "set_price", e.target.value); }} inputMode="decimal" placeholder="—" style={priceIn} />
+                </td>
+                <td style={Object.assign({}, cell, { textAlign: "right" })}>
+                  <input value={v.part_price} onChange={function(e) { set(r.id, "part_price", e.target.value); }} inputMode="decimal" placeholder="—" style={Object.assign({}, priceIn, { width: 76, fontWeight: 500 })} />
+                </td>
+                <td style={Object.assign({}, cell, { textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" })}>
+                  {r.floor_price === null ? "—" : money(r.floor_price)}
+                  {r.floor_rule ? <div style={{ fontSize: 9.5, color: "var(--text-faint)" }}>{r.floor_rule}</div> : null}
+                </td>
+                <td style={Object.assign({}, cell, { textAlign: "center" })}>
+                  <button onClick={function() { set(r.id, "active", !v.active); }} title={v.active ? "Offered — click to stop offering" : "Not offered — click to offer again"}
+                    style={{ width: 34, height: 19, borderRadius: 999, border: "none", cursor: "pointer", background: v.active ? "var(--green)" : "var(--border-heavy)", position: "relative", transition: "background .15s ease" }}>
+                    <span style={{ position: "absolute", top: 2, left: v.active ? 17 : 2, width: 15, height: 15, borderRadius: "50%", background: "#fff", transition: "left .15s ease" }} />
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 8px", borderTop: "1px solid var(--border-light)", flexWrap: "wrap" }}>
+        <input value={reason} onChange={function(e) { setReason(e.target.value); }} placeholder="why — required, e.g. OLED cost dropped $20"
+          style={{ flex: "1 1 240px", padding: "8px 10px", borderRadius: 8, border: "1px solid " + (changes.length && !reason.trim() ? "var(--orange)" : "var(--border)"), background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12.5 }} />
+        <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{changes.length === 0 ? "nothing changed" : changes.length + " change" + (changes.length === 1 ? "" : "s")}</span>
+        <button onClick={onCancel} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
+        <button onClick={save} disabled={!canSave} title={changes.length && !reason.trim() ? "Say why — it is what makes the history worth having" : undefined}
+          style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: canSave ? "var(--green)" : "var(--border)", color: canSave ? "#0B0D11" : "var(--text-muted)", fontSize: 12.5, fontWeight: 800, cursor: canSave ? "pointer" : "not-allowed" }}>
+          {busy ? "Saving…" : "Save " + (changes.length || "")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook, onDeviceSave }) {
   var [open, setOpen] = useState(forceOpen);
+  var [editingDevice, setEditingDevice] = useState(false);
   useEffect(function() { setOpen(forceOpen); }, [forceOpen]);
+  useEffect(function() { if (!editMode) setEditingDevice(false); }, [editMode]);
   var byRepair = useMemo(function() {
     var m = {};
     rows.forEach(function(r) { (m[r.repair] = m[r.repair] || []).push(r); });
@@ -209,9 +302,20 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
             {!open && lead && lead.set_price !== null && <span> · {byRepair[0].repair}{lead.tier ? " " + lead.tier : ""} from <strong style={{ color: "var(--text-secondary)" }}>{money(lead.set_price)}</strong></span>}
           </div>
         </div>
+        {isAdmin && editMode && !editingDevice && (
+          <button onClick={function(e) { e.stopPropagation(); setOpen(true); setEditingDevice(true); }} title="Every price on this device at once — one reason, one save"
+            style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid var(--purple)", background: "transparent", color: "var(--purple)", fontSize: 11, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Edit all {rows.length}</button>
+        )}
         <Tag>{FAMILY_LABEL[first.family] || first.family}</Tag>
       </div>
-      {open && (
+      {open && editingDevice && (
+        <div style={{ padding: "0 16px 16px" }}>
+          <DeviceEditor device={device} rows={rows.slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; })}
+            onCancel={function() { setEditingDevice(false); }}
+            onSave={async function(changes, reason) { await onDeviceSave(changes, reason); setEditingDevice(false); }} />
+        </div>
+      )}
+      {open && !editingDevice && (
         <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 14, animation: "pbExpand .25s ease both" }}>
           {byRepair.map(function(g) {
             var ladder = isLadder(g.tiers);
@@ -1090,7 +1194,8 @@ export default function PriceBook() {
                 })}
               </div>
               <input value={bulk.amount} onChange={function(e) { setBulk(Object.assign({}, bulk, { amount: e.target.value })); setPreview(null); }} placeholder="20" inputMode="decimal" style={Object.assign({}, input, { width: 90 })} />
-              <input value={bulk.reason} onChange={function(e) { setBulk(Object.assign({}, bulk, { reason: e.target.value })); }} placeholder="why — e.g. OLED cost dropped $20" style={Object.assign({}, input, { flex: "1 1 220px" })} />
+              <input value={bulk.reason} onChange={function(e) { setBulk(Object.assign({}, bulk, { reason: e.target.value })); }} placeholder="why — required, e.g. OLED cost dropped $20"
+                style={Object.assign({}, input, { flex: "1 1 220px" }, preview && preview.length && !bulk.reason.trim() ? { borderColor: "var(--orange)" } : {})} />
               <button disabled={!selectedCount || busy} onClick={buildPreview} style={{ padding: "9px 16px", borderRadius: 8, border: "none", cursor: selectedCount ? "pointer" : "not-allowed", background: selectedCount ? "var(--purple)" : "var(--border)", color: "#fff", fontSize: 12.5, fontWeight: 800 }}>Preview</button>
             </div>
             {preview && (
@@ -1113,8 +1218,9 @@ export default function PriceBook() {
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10, gap: 10, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>{preview.length} price{preview.length === 1 ? "" : "s"} change · saved as one event, dated today, and marked on the Price &amp; Demand trend</span>
-                      <button disabled={busy} onClick={function() { commit(preview.map(function(p) { var c = { id: p.id }; c[bulk.field] = p.to; return c; }), bulk.reason); }}
-                        style={{ padding: "9px 18px", borderRadius: 8, border: "none", cursor: "pointer", background: "var(--green)", color: "#0B0D11", fontSize: 12.5, fontWeight: 800 }}>{busy ? "Saving…" : "Commit " + preview.length}</button>
+                      <button disabled={busy || !bulk.reason.trim()} onClick={function() { commit(preview.map(function(p) { var c = { id: p.id }; c[bulk.field] = p.to; return c; }), bulk.reason); }}
+                        title={bulk.reason.trim() ? undefined : "Say why — it is what makes the history worth having"}
+                        style={{ padding: "9px 18px", borderRadius: 8, border: "none", cursor: bulk.reason.trim() ? "pointer" : "not-allowed", background: bulk.reason.trim() ? "var(--green)" : "var(--border)", color: bulk.reason.trim() ? "#0B0D11" : "var(--text-muted)", fontSize: 12.5, fontWeight: 800 }}>{busy ? "Saving…" : bulk.reason.trim() ? "Commit " + preview.length : "Add a reason to commit"}</button>
                     </div>
                   </>
                 )}
@@ -1157,7 +1263,8 @@ export default function PriceBook() {
           </div>
         )}
         {devices.slice(0, 60).map(function(d, i) {
-          return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }} />;
+          return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }}
+            onDeviceSave={function(changes, reason) { return commit(changes, reason); }} />;
         })}
         {devices.length > 60 && <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 12 }}>Showing 60 of {devices.length} — type to narrow it down.</div>}
       </div>
