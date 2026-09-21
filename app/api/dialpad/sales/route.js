@@ -1,5 +1,44 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
+
+// Gross profit per employee for a period, from graded tickets. The monthly
+// sales imports carry revenue only (profit exists just for accessories), so
+// the Sales & Repairs view reads profit from the same place Daily Profit does:
+// ticket_grades, reconciled to RepairQ's own export (CONTEXT § 10). A ticket
+// counts for the person who added it, resolved through the roster the same
+// way audits are; machines and vendors are dropped, unknown names counted.
+async function gpByEmployee(period) {
+  var p = String(period).split("-");
+  var y = parseInt(p[0], 10), m = parseInt(p[1], 10);
+  if (!y || !m) return { rows: {}, meta: { graded_tickets: 0, unresolved: 0 } };
+  var start = new Date(Date.UTC(y, m - 1, 1)).toISOString();
+  var end = new Date(Date.UTC(y, m, 1)).toISOString();
+  var { data: rosterRows, error: rErr } = await supabase.from("employee_roster").select("name, aliases, active");
+  if (rErr) throw new Error("employee_roster: " + rErr.message);
+  var map = buildResolver(rosterRows || []).map;
+  var out = {}, graded = 0, unresolved = 0;
+  for (var from = 0; ; from += 1000) {
+    var res = await supabase.from("ticket_grades")
+      .select("ticket_number, employee_added, gross_profit, gross_sales")
+      .gte("date_closed", start).lt("date_closed", end)
+      .order("ticket_number", { ascending: true }).range(from, from + 999);
+    if (res.error) throw new Error("ticket_grades: " + res.error.message);
+    (res.data || []).forEach(function(t) {
+      graded++;
+      if (isSystemActor(t.employee_added)) return;
+      var who = resolveNamePersonish(t.employee_added, map);
+      if (!who) { unresolved++; return; }
+      var e = out[who] || (out[who] = { tickets: 0, gp: 0, sales: 0 });
+      e.tickets++;
+      e.gp += parseFloat(t.gross_profit) || 0;
+      e.sales += parseFloat(t.gross_sales) || 0;
+    });
+    if ((res.data || []).length < 1000) break;
+  }
+  Object.keys(out).forEach(function(k) { out[k].gp = Math.round(out[k].gp * 100) / 100; out[k].sales = Math.round(out[k].sales * 100) / 100; });
+  return { rows: out, meta: { graded_tickets: graded, unresolved: unresolved } };
+}
 
 function parseCurrency(val) {
   if (!val) return 0;
@@ -63,13 +102,14 @@ export async function GET(request) {
       period = now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0");
     }
 
-    var [phones, others, accessories, cleanings, cleaningSales, config] = await Promise.all([
+    var [phones, others, accessories, cleanings, cleaningSales, config, gp] = await Promise.all([
       supabase.from("repair_phone").select("*").eq("import_period", period),
       supabase.from("repair_other").select("*").eq("import_period", period),
       supabase.from("sales_accessory").select("*").eq("import_period", period),
       supabase.from("repair_cleaning").select("*").eq("import_period", period),
       supabase.from("cleaning_sales").select("*").eq("import_period", period),
       supabase.from("commission_config").select("*"),
+      gpByEmployee(period),
     ]);
 
     // Build commission rate map
@@ -90,6 +130,9 @@ export async function GET(request) {
       cleanings: cleanings.data || [],
       cleaningSales: cleaningSales.data || [],
       rates: rates,
+      // Gross profit per employee from graded tickets (see gpByEmployee).
+      gp: gp.rows,
+      gp_meta: gp.meta,
     });
   }
 

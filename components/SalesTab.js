@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
+import { cleaningCommissionApplies } from "@/lib/commission-rules";
 
 function StatCard({ label, value, sub, accent }) {
   return (
@@ -48,6 +49,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   var [cleaningSales, setCleaningSales] = useState([]);
   var [rates, setRates] = useState({});
   var [config, setConfig] = useState([]);
+  var [gp, setGp] = useState({});          // employee -> { tickets, gp, sales } from graded tickets
+  var [gpMeta, setGpMeta] = useState(null);
   // Roster + stray-row management
   var [roster, setRoster] = useState([]); // [{ first_name, last_name, store, active, aliases }]
   var [empFilter, setEmpFilter] = useState("roster"); // "all" | "roster" | "strays"
@@ -76,6 +79,8 @@ export default function SalesTab({ viewAs, viewEmployee }) {
         setCleanings(json.cleanings || []);
         setCleaningSales(json.cleaningSales || []);
         setRates(json.rates || {});
+        setGp(json.gp || {});
+        setGpMeta(json.gp_meta || null);
         setPeriod(p || json.period);
         var ap = json.available_periods || [];
         // Always include current month and requested month in dropdown
@@ -252,6 +257,11 @@ export default function SalesTab({ viewAs, viewEmployee }) {
     return Object.values(map).map(function(e) {
       e.total_revenue = e.phone_total + e.other_total + e.accy_total + e.clean_total;
       e.total_tickets = e.phone_tickets + e.other_count + e.accy_count + e.clean_count;
+      // Gross profit from graded tickets (Matt: "we are actively tracking that
+      // instead"). Keyed by roster name, so it lands on roster rows only.
+      var g = gp[e.name];
+      e.total_gp = g ? g.gp : 0;
+      e.gp_tickets = g ? g.tickets : 0;
       // Classify against roster
       e.matchType = classifyName(e.name);
       // Commission calculation — respect enabled flags from config
@@ -262,12 +272,13 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       e.comm_phone = isEnabled("phone_repair_standard") ? e.phone_tickets * (rates.phone_repair_standard || 1) : 0;
       e.comm_other = isEnabled("other_repair_rate") ? e.other_count * (rates.other_repair_rate || 2.5) : 0;
       e.comm_accy = isEnabled("accessory_gp_rate") ? e.accy_gp * (rates.accessory_gp_rate || 0.15) : 0;
-      e.comm_clean = isEnabled("cleaning_rate") ? e.clean_total * (rates.cleaning_rate || 0.10) : 0;
+      // Cleanings stopped paying after August 2026 (lib/commission-rules.js); CLN sales still pay.
+      e.comm_clean = isEnabled("cleaning_rate") && cleaningCommissionApplies(period) ? e.clean_total * (rates.cleaning_rate || 0.10) : 0;
       e.comm_cs = isEnabled("cleaning_sales_rate") ? e.cs_discounted * (rates.cleaning_sales_rate || 0.10) : 0;
       e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean + e.comm_cs;
       return e;
-    }).sort(function(a, b) { return b.total_revenue - a.total_revenue; });
-  }, [phones, others, accessories, cleanings, cleaningSales, rates, config, rosterMatchSet, roster]);
+    }).sort(function(a, b) { return (b.total_gp - a.total_gp) || (b.total_revenue - a.total_revenue); });
+  }, [phones, others, accessories, cleanings, cleaningSales, rates, config, rosterMatchSet, roster, gp, period]);
 
   var totals = useMemo(function() {
     return employees.reduce(function(t, e) {
@@ -275,7 +286,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
       t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count; t.cs_discounted += e.cs_discounted;
       return t;
-    }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0 });
+    }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0, gp: 0, gp_tickets: 0, accy_gp: 0 });
   }, [employees]);
 
   var uploadCSV = async function(file, type) {
@@ -447,8 +458,9 @@ export default function SalesTab({ viewAs, viewEmployee }) {
         t.revenue += e.total_revenue; t.tickets += e.total_tickets; t.commission += e.total_commission;
         t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
         t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count; t.cs_discounted += e.cs_discounted;
+        t.gp += e.total_gp; t.gp_tickets += e.gp_tickets; t.accy_gp += e.accy_gp;
         return t;
-      }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0 })
+      }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0, gp: 0, gp_tickets: 0, accy_gp: 0 })
     : totals;
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading sales data...</div>;
@@ -491,9 +503,9 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       {view === "leaderboard" && (
         <div>
           <div style={{ display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:14,marginBottom:28 }}>
-            <StatCard label={isEmployeeView?"My Revenue":"Total Revenue"} value={fmt(displayTotals.revenue)} accent="var(--green)" sub={displayTotals.tickets + " total tickets"} />
+            <StatCard label={isEmployeeView?"My Gross Profit":"Total Gross Profit"} value={fmt(displayTotals.gp)} accent="var(--green)" sub={displayTotals.gp_tickets + " graded tickets · " + fmt(displayTotals.revenue) + " revenue"} />
             <StatCard label="Phone Repairs" value={displayTotals.phone_tickets} accent="var(--purple)" sub={fmt(displayTotals.phone_total) + " revenue"} />
-            <StatCard label="Accessories" value={displayTotals.accy_count} accent="var(--cyan)" />
+            <StatCard label="Accessory GP" value={fmt(displayTotals.accy_gp)} accent="var(--cyan)" sub={displayTotals.accy_count + " units sold"} />
             <StatCard label={isEmployeeView?"My Commission":"Total Commissions"} value={fmt(displayTotals.commission)} accent="var(--yellow)" sub={isEmployeeView?periodLabel:displayEmployees.length + " employees"} />
           </div>
 
@@ -502,7 +514,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
               {/* Revenue chart — hide for single employee */}
               {!isEmployeeView && (
               <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:20 }}>
-                <SectionHeader title="Revenue by Employee" subtitle={periodLabel} icon="\uD83D\uDCB0" />
+                <SectionHeader title="Gross Profit by Employee" subtitle={periodLabel + (gpMeta ? " \u00B7 " + gpMeta.graded_tickets + " graded tickets" + (gpMeta.unresolved ? ", " + gpMeta.unresolved + " with no roster match" : "") : "")} icon="\uD83D\uDCB0" />
                 <div style={{ height:Math.max(200, displayEmployees.length * 40) }}>
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={displayEmployees} layout="vertical">
@@ -510,13 +522,11 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                       <XAxis type="number" tick={{fill:"#6B6F78",fontSize:10}} tickLine={false} axisLine={false} tickFormatter={function(v){return "$"+v.toLocaleString();}} />
                       <YAxis type="category" dataKey="name" tick={{fill:"#C8CAD0",fontSize:11}} width={130} tickLine={false} axisLine={false} />
                       <Tooltip contentStyle={{background:"var(--border-light)",border:"1px solid var(--border)",borderRadius:8}} formatter={function(v){return "$"+parseFloat(v).toLocaleString(undefined,{minimumFractionDigits:2});}} />
-                      <Bar dataKey="phone_total" name="Phone Repairs" fill="#7B2FFF" stackId="rev" barSize={18} />
-                      <Bar dataKey="other_total" name="Other Repairs" fill="#00D4FF" stackId="rev" />
-                      <Bar dataKey="accy_total" name="Accessories" fill="#4ADE80" stackId="rev" />
-                      <Bar dataKey="clean_total" name="Cleanings" fill="#FBBF24" stackId="rev" radius={[0,4,4,0]} />
+                      <Bar dataKey="total_gp" name="Gross profit" fill="#4ADE80" barSize={18} radius={[0,4,4,0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
+                <div style={{ color:"var(--text-muted)",fontSize:10.5,marginTop:6 }}>Profit is from graded tickets (the same source as Daily Profit), by the person who added the ticket. Revenue by category is still in the table.</div>
               </div>
               )}
 
@@ -563,7 +573,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                   <table style={{ width:"100%",borderCollapse:"collapse",minWidth:900 }}>
                     <thead>
                       <tr style={{ borderBottom:"1px solid var(--border)" }}>
-                        {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Total Revenue","Commission"]).map(function(h,i) {
+                        {(isEmployeeView?["Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Gross Profit","Commission"]:["#","Employee","Phone Repairs","Other Repairs","Accessories","Cleanings","Cln Sales","Gross Profit","Commission"]).map(function(h,i) {
                           return <th key={i} style={{ textAlign:i<=(isEmployeeView?0:1)?"left":"right",padding:"10px 12px",color:"var(--text-muted)",fontSize:10,textTransform:"uppercase" }}>{h}</th>;
                         })}
                         {!isEmployeeView && (empFilter !== "roster" || filterCounts.unmatched > 0) && (
@@ -614,12 +624,13 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                               <div style={{ color:"var(--text-muted)",fontSize:10 }}>{fmt(emp.cs_discounted)}</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_revenue)}</div>
+                              <div style={{ color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_gp)}</div>
+                              <div style={{ color:"var(--text-muted)",fontSize:10 }}>{emp.gp_tickets ? emp.gp_tickets + " tickets · " : ""}{fmt(emp.total_revenue)} revenue</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
                               <div style={{ color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
                               <div style={{ color:"var(--text-muted)",fontSize:9 }}>
-                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+fmt(emp.comm_clean)+" cln | "+fmt(emp.comm_cs)+" sls"}
+                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+(cleaningCommissionApplies(period) ? fmt(emp.comm_clean)+" cln | " : "")+fmt(emp.comm_cs)+" sls"}
                               </div>
                             </td>
                             {/* Actions cell — only for stray rows when the column is visible */}
@@ -679,7 +690,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                         <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.accy_count}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{displayTotals.clean_count}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"var(--text-primary)",fontWeight:700 }}>{fmt(displayTotals.cs_discounted)}</td>
-                        <td style={{ padding:"12px",textAlign:"right",color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.revenue)}</td>
+                        <td style={{ padding:"12px",textAlign:"right",color:"var(--green)",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.gp)}</td>
                         <td style={{ padding:"12px",textAlign:"right",color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(displayTotals.commission)}</td>
                         {(empFilter !== "roster" || filterCounts.unmatched > 0) && <td />}
                       </tr>

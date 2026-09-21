@@ -58,6 +58,7 @@ function sc(v, g, w) { return v >= g ? "var(--green)" : v >= w ? "var(--yellow)"
 // Matched with the same fuzzy matcher used everywhere else so "Hitti, Duncan"
 // and "Duncan" both resolve.
 import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
+import { cleaningCommissionApplies } from "@/lib/commission-rules";
 
 var NON_PHONE_BONUS_EMPLOYEE = "Duncan Hitti";
 
@@ -589,7 +590,9 @@ export default function MyPerformanceTab({ auth, store }) {
     var commPhone = isEnabled("phone_repair_standard") ? phoneTickets * (rates.phone_repair_standard || 1) : 0;
     var commOther = isEnabled("other_repair_rate") ? otherCount * (rates.other_repair_rate || 2.5) : 0;
     var commAccy = isEnabled("accessory_gp_rate") ? accyGP * (rates.accessory_gp_rate || 0.15) : 0;
-    var commClean = isEnabled("cleaning_rate") ? cleanTotal * (rates.cleaning_rate || 0.10) : 0;
+    // Cleanings stopped paying after August 2026 (lib/commission-rules.js); CLN sales still pay.
+    var cleanPays = isEnabled("cleaning_rate") && cleaningCommissionApplies(selectedPeriod);
+    var commClean = cleanPays ? cleanTotal * (rates.cleaning_rate || 0.10) : 0;
     var commCS = isEnabled("cleaning_sales_rate") ? csDiscounted * (rates.cleaning_sales_rate || 0.10) : 0;
     var baseTotal = commPhone + commOther + commAccy + commClean + commCS;
     var hasData = phoneTickets > 0 || otherCount > 0 || accyCount > 0 || cleanCount > 0 || csDiscounted > 0;
@@ -604,7 +607,7 @@ export default function MyPerformanceTab({ auth, store }) {
       phoneTickets: phoneTickets, phoneTotal: phoneTotal, commPhone: commPhone,
       otherCount: otherCount, otherTotal: otherTotal, commOther: commOther,
       accyGP: accyGP, accyCount: accyCount, commAccy: commAccy,
-      cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean,
+      cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean, cleanPays: cleanPays,
       csDiscounted: csDiscounted, commCS: commCS,
       baseTotal: baseTotal,
       tier: tierInfo.tier, tierMultiplier: tierInfo.multiplier, tierBonus: tierBonus,
@@ -613,7 +616,7 @@ export default function MyPerformanceTab({ auth, store }) {
       totalRevenue: phoneTotal + otherTotal + accyGP + cleanTotal + csDiscounted,
       rates: rates, hasData: hasData,
     };
-  }, [salesData, commConfig, empName, empScore]);
+  }, [salesData, commConfig, empName, empScore, selectedPeriod]);
 
   // Shifts this month
   var monthShifts = useMemo(function() {
@@ -1521,9 +1524,10 @@ export default function MyPerformanceTab({ auth, store }) {
                       { cat: "Phone Repairs", qty: commission.phoneTickets, rev: commission.phoneTotal, rate: fmt(commission.rates.phone_repair_standard || 1) + "/ea", comm: commission.commPhone },
                       { cat: "Other Repairs", qty: commission.otherCount, rev: commission.otherTotal, rate: fmt(commission.rates.other_repair_rate || 2.5) + "/ea", comm: commission.commOther },
                       { cat: "Accessory GP", qty: commission.accyCount, rev: commission.accyGP, rate: Math.round((commission.rates.accessory_gp_rate || 0.15) * 100) + "%", comm: commission.commAccy },
-                      { cat: "Cleanings", qty: commission.cleanCount, rev: commission.cleanTotal, rate: Math.round((commission.rates.cleaning_rate || 0.10) * 100) + "%", comm: commission.commClean },
+                      // Cleanings row only while cleanings paid (through Aug 2026); CLN sales replaced it.
+                      commission.cleanPays ? { cat: "Cleanings", qty: commission.cleanCount, rev: commission.cleanTotal, rate: Math.round((commission.rates.cleaning_rate || 0.10) * 100) + "%", comm: commission.commClean } : null,
                       { cat: "CLN Sales", qty: "\u2014", rev: commission.csDiscounted, rate: Math.round((commission.rates.cleaning_sales_rate || 0.10) * 100) + "%", comm: commission.commCS },
-                    ].map(function(row) {
+                    ].filter(Boolean).map(function(row) {
                       return (
                         <tr key={row.cat} style={{ borderBottom: "1px solid var(--border)" }}>
                           <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>{row.cat}</td>
@@ -1905,10 +1909,10 @@ export default function MyPerformanceTab({ auth, store }) {
                   { label: "+3 Phone Repairs / wk", weeklyExtra: 3 * (commission.rates.phone_repair_standard || 1), detail: "About 12 more repairs a month" },
                   { label: "+5 Phone Repairs / wk", weeklyExtra: 5 * (commission.rates.phone_repair_standard || 1), detail: "Push to 5 more per week" },
                   { label: "+$100 Accessory GP / wk", weeklyExtra: 100 * (commission.rates.accessory_gp_rate || 0.15), detail: "Upsell cases + screen protectors" },
-                  { label: "+5 Cleanings / wk", weeklyExtra: 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "5 cleanings at $25 avg" },
+                  commission.cleanPays ? { label: "+5 Cleanings / wk", weeklyExtra: 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "5 cleanings at $25 avg" } : null,
                   { label: "+10 Phone Repairs / wk", weeklyExtra: 10 * (commission.rates.phone_repair_standard || 1), detail: "Strong push" },
-                  { label: "All of the above", weeklyExtra: 10 * (commission.rates.phone_repair_standard || 1) + 100 * (commission.rates.accessory_gp_rate || 0.15) + 5 * 25 * (commission.rates.cleaning_rate || 0.10), detail: "Maximum effort scenario" },
-                ].map(function(scenario) {
+                  { label: "All of the above", weeklyExtra: 10 * (commission.rates.phone_repair_standard || 1) + 100 * (commission.rates.accessory_gp_rate || 0.15) + (commission.cleanPays ? 5 * 25 * (commission.rates.cleaning_rate || 0.10) : 0), detail: "Maximum effort scenario" },
+                ].filter(Boolean).map(function(scenario) {
                   // Scale weekly extra to annual, apply tier multiplier
                   var annualExtra = scenario.weeklyExtra * 52 * commission.tierMultiplier;
                   var weeklyExtraWithMult = scenario.weeklyExtra * commission.tierMultiplier;
