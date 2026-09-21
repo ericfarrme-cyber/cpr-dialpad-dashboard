@@ -51,6 +51,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
   var [config, setConfig] = useState([]);
   var [gp, setGp] = useState({});          // employee -> { tickets, gp, sales } from graded tickets
   var [gpMeta, setGpMeta] = useState(null);
+  var [notCommissioned, setNotCommissioned] = useState([]); // salaried — no per-repair commission
   // Roster + stray-row management
   var [roster, setRoster] = useState([]); // [{ first_name, last_name, store, active, aliases }]
   var [empFilter, setEmpFilter] = useState("roster"); // "all" | "roster" | "strays"
@@ -81,6 +82,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
         setRates(json.rates || {});
         setGp(json.gp || {});
         setGpMeta(json.gp_meta || null);
+        setNotCommissioned(json.not_commissioned || []);
         setPeriod(p || json.period);
         var ap = json.available_periods || [];
         // Always include current month and requested month in dropdown
@@ -275,10 +277,14 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       // Cleanings stopped paying after August 2026 (lib/commission-rules.js); CLN sales still pay.
       e.comm_clean = isEnabled("cleaning_rate") && cleaningCommissionApplies(period) ? e.clean_total * (rates.cleaning_rate || 0.10) : 0;
       e.comm_cs = isEnabled("cleaning_sales_rate") ? e.cs_discounted * (rates.cleaning_sales_rate || 0.10) : 0;
+      // Salaried, not on per-repair commission (bonus_eligible = false — Matt).
+      // The work still shows; the commission is not a payout.
+      e.salaried = notCommissioned.some(function(n) { return n.toLowerCase() === String(e.name).toLowerCase().trim(); });
+      if (e.salaried) { e.comm_phone = 0; e.comm_other = 0; e.comm_accy = 0; e.comm_clean = 0; e.comm_cs = 0; }
       e.total_commission = e.comm_phone + e.comm_other + e.comm_accy + e.comm_clean + e.comm_cs;
       return e;
     }).sort(function(a, b) { return (b.total_gp - a.total_gp) || (b.total_revenue - a.total_revenue); });
-  }, [phones, others, accessories, cleanings, cleaningSales, rates, config, rosterMatchSet, roster, gp, period]);
+  }, [phones, others, accessories, cleanings, cleaningSales, rates, config, rosterMatchSet, roster, gp, period, notCommissioned]);
 
   var totals = useMemo(function() {
     return employees.reduce(function(t, e) {
@@ -628,10 +634,19 @@ export default function SalesTab({ viewAs, viewEmployee }) {
                               <div style={{ color:"var(--text-muted)",fontSize:10 }}>{emp.gp_tickets ? emp.gp_tickets + " tickets · " : ""}{fmt(emp.total_revenue)} revenue</div>
                             </td>
                             <td style={{ padding:"12px",textAlign:"right" }}>
-                              <div style={{ color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
-                              <div style={{ color:"var(--text-muted)",fontSize:9 }}>
-                                {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+(cleaningCommissionApplies(period) ? fmt(emp.comm_clean)+" cln | " : "")+fmt(emp.comm_cs)+" sls"}
-                              </div>
+                              {emp.salaried ? (
+                                <>
+                                  <div style={{ color:"var(--text-muted)",fontSize:13,fontWeight:700 }}>—</div>
+                                  <div style={{ color:"var(--text-muted)",fontSize:9 }}>salaried · no per-repair commission</div>
+                                </>
+                              ) : (
+                                <>
+                                  <div style={{ color:"var(--yellow)",fontSize:15,fontWeight:800 }}>{fmt(emp.total_commission)}</div>
+                                  <div style={{ color:"var(--text-muted)",fontSize:9 }}>
+                                    {fmt(emp.comm_phone)+" rep | "+fmt(emp.comm_other)+" oth | "+fmt(emp.comm_accy)+" acc | "+(cleaningCommissionApplies(period) ? fmt(emp.comm_clean)+" cln | " : "")+fmt(emp.comm_cs)+" sls"}
+                                  </div>
+                                </>
+                              )}
                             </td>
                             {/* Actions cell — only for stray rows when the column is visible */}
                             {!isEmployeeView && (empFilter !== "roster" || filterCounts.unmatched > 0) && (

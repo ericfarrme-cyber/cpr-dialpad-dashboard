@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { indexClosures, isOutsideHours } from "@/lib/store-closures";
+import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ANSWER-RATE BONUS — single source of truth
@@ -292,6 +293,18 @@ export async function GET(request) {
       byUser[uid].hours[st] = (byUser[uid].hours[st] || 0) + (parseFloat(sh.hours) || 0);
     });
 
+    // Who is not bonused at all. employee_roster.bonus_eligible = false is the
+    // one flag for "salaried, not on the per-employee bonuses" — Matt Slade is
+    // the area manager on a separate profit-share (Eric, 2026-09-21: "Matthew
+    // Slade isn't bonused on work like other employees"). He was on this list
+    // for $50 (Jul), $50 (Aug) and $100 (Sep) from his scheduled hours. Kept
+    // visible, paid nothing, left out of the totals.
+    var rosterRes = await supabase.from("employee_roster").select("name, aliases, active, bonus_eligible");
+    if (rosterRes.error) return NextResponse.json({ success: false, error: rosterRes.error.message }, { status: 500 });
+    var rosterMap = buildResolver(rosterRes.data || []).map;
+    var notBonused = {};
+    (rosterRes.data || []).forEach(function(r) { if (r.bonus_eligible === false && r.name) notBonused[String(r.name).trim()] = true; });
+
     // Assign each employee to their max-hours store, attach the store's bonus.
     var employees = Object.keys(byUser).map(function(uid) {
       var u = byUser[uid];
@@ -301,7 +314,9 @@ export async function GET(request) {
         var h = u.hours[st] || 0;
         if (h > maxHours) { maxHours = h; assignedStore = st; }
       });
-      var bonus = assignedStore ? (bonusByStore[assignedStore] || 0) : 0;
+      var canonical = resolveNamePersonish(u.name, rosterMap);
+      var salaried = !!(canonical && notBonused[canonical]);
+      var bonus = assignedStore && !salaried ? (bonusByStore[assignedStore] || 0) : 0;
       return {
         employee: u.name,
         user_id: u.user_id,
@@ -309,6 +324,7 @@ export async function GET(request) {
         assigned_hours: Math.round(maxHours * 100) / 100,
         hours_by_store: u.hours,
         bonus: bonus,
+        not_bonused: salaried,
       };
     }).filter(function(e) {
       // Only employees who actually logged hours at a real store this month.
@@ -324,7 +340,7 @@ export async function GET(request) {
     var totalPayout = employees.reduce(function(sum, e) { return sum + e.bonus; }, 0);
     var employeesByStore = {};
     STORE_KEYS.forEach(function(s) { employeesByStore[s] = 0; });
-    employees.forEach(function(e) { employeesByStore[e.assigned_store] += 1; });
+    employees.forEach(function(e) { if (!e.not_bonused) employeesByStore[e.assigned_store] += 1; });
 
     return NextResponse.json({
       success: true,

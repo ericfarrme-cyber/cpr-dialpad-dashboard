@@ -11,12 +11,13 @@ import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster
 async function gpByEmployee(period) {
   var p = String(period).split("-");
   var y = parseInt(p[0], 10), m = parseInt(p[1], 10);
-  if (!y || !m) return { rows: {}, meta: { graded_tickets: 0, unresolved: 0 } };
+  if (!y || !m) return { rows: {}, meta: { graded_tickets: 0, unresolved: 0 }, not_commissioned: [] };
   var start = new Date(Date.UTC(y, m - 1, 1)).toISOString();
   var end = new Date(Date.UTC(y, m, 1)).toISOString();
-  var { data: rosterRows, error: rErr } = await supabase.from("employee_roster").select("name, aliases, active");
+  var { data: rosterRows, error: rErr } = await supabase.from("employee_roster").select("name, aliases, active, bonus_eligible");
   if (rErr) throw new Error("employee_roster: " + rErr.message);
   var map = buildResolver(rosterRows || []).map;
+  var notCommissioned = (rosterRows || []).filter(function(r) { return r.bonus_eligible === false && r.name; }).map(function(r) { return String(r.name).trim(); });
   var out = {}, graded = 0, unresolved = 0;
   for (var from = 0; ; from += 1000) {
     var res = await supabase.from("ticket_grades")
@@ -37,7 +38,7 @@ async function gpByEmployee(period) {
     if ((res.data || []).length < 1000) break;
   }
   Object.keys(out).forEach(function(k) { out[k].gp = Math.round(out[k].gp * 100) / 100; out[k].sales = Math.round(out[k].sales * 100) / 100; });
-  return { rows: out, meta: { graded_tickets: graded, unresolved: unresolved } };
+  return { rows: out, meta: { graded_tickets: graded, unresolved: unresolved }, not_commissioned: notCommissioned };
 }
 
 function parseCurrency(val) {
@@ -133,6 +134,10 @@ export async function GET(request) {
       // Gross profit per employee from graded tickets (see gpByEmployee).
       gp: gp.rows,
       gp_meta: gp.meta,
+      // Salaried people on no per-repair commission (employee_roster.bonus_eligible
+      // = false — Matt Slade, area manager, separate profit-share). Their rows still
+      // show what they sold; the commission on them is zero, not a payout.
+      not_commissioned: gp.not_commissioned,
     });
   }
 

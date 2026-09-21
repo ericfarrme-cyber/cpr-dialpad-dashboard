@@ -608,6 +608,10 @@ export default function MyPerformanceTab({ auth, store }) {
     var cleanPays = isEnabled("cleaning_rate") && cleaningCommissionApplies(selectedPeriod);
     var commClean = cleanPays ? cleanTotal * (rates.cleaning_rate || 0.10) : 0;
     var commCS = isEnabled("cleaning_sales_rate") ? csDiscounted * (rates.cleaning_sales_rate || 0.10) : 0;
+    // Salaried, not on per-repair commission (employee_roster.bonus_eligible =
+    // false — the area manager). The numbers still show; the pay does not.
+    var salaried = (salesData.not_commissioned || []).some(function(n) { return String(n).toLowerCase() === String(empName || "").toLowerCase().trim(); });
+    if (salaried) { commPhone = 0; commOther = 0; commAccy = 0; commClean = 0; commCS = 0; }
     var baseTotal = commPhone + commOther + commAccy + commClean + commCS;
     var hasData = phoneTickets > 0 || otherCount > 0 || accyCount > 0 || cleanCount > 0 || csDiscounted > 0;
 
@@ -621,7 +625,7 @@ export default function MyPerformanceTab({ auth, store }) {
       phoneTickets: phoneTickets, phoneTotal: phoneTotal, commPhone: commPhone,
       otherCount: otherCount, otherTotal: otherTotal, commOther: commOther,
       accyGP: accyGP, accyCount: accyCount, commAccy: commAccy,
-      cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean, cleanPays: cleanPays,
+      cleanCount: cleanCount, cleanTotal: cleanTotal, commClean: commClean, cleanPays: cleanPays, salaried: salaried,
       csDiscounted: csDiscounted, commCS: commCS,
       baseTotal: baseTotal,
       tier: tierInfo.tier, tierMultiplier: tierInfo.multiplier, tierBonus: tierBonus,
@@ -1525,6 +1529,11 @@ export default function MyPerformanceTab({ auth, store }) {
             {commission && commission.hasData && (
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-secondary)", marginBottom: 12, textTransform: "uppercase" }}>Breakdown</div>
+                {commission.salaried && (
+                  <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--bg-card-inner)", fontSize: 12, color: "var(--text-secondary)" }}>
+                    Salaried role — the work below shows for the record, but it does not pay per-repair commission or the store bonuses. Your bonus is set separately.
+                  </div>
+                )}
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead><tr style={{ borderBottom: "1px solid var(--border)" }}>
                     <th style={{ padding: "8px 12px", textAlign: "left", color: "var(--text-muted)", fontSize: 10 }}>Category</th>
