@@ -456,6 +456,71 @@ export async function POST(request) {
       return NextResponse.json({ success: true, batch_id: addBatch, added: (inserted || []).length, devices: toAdd, rows_per_device: tRows.length, template: template, skipped_existing: names.filter(function(n) { return existing[n]; }), unresolved: unresolved });
     }
 
+    // ── add repairs to a device that is already on the sheet ────────────────
+    // Matt: "the iPhone 16e only gives the option to offer a screen, and I
+    // can't manually add repairs such as Battery." New rows inherit the
+    // device's family, line and canonical model; the repair's canonical key
+    // and floor rule come from the same repair elsewhere on the sheet, so a
+    // new Battery row joins register data and floors exactly like the others.
+    if (body.action === "add_repairs") {
+      var dev = String(body.device || "").trim();
+      var adds = (Array.isArray(body.repairs) ? body.repairs : []).map(function(a) {
+        return { repair: String(a && a.repair || "").trim().slice(0, 60), tier: a && a.tier ? String(a.tier).trim().slice(0, 30) : null, set_price: num(a && a.set_price), part_price: num(a && a.part_price), turnaround: a && a.turnaround ? String(a.turnaround).trim().slice(0, 40) : null };
+      }).filter(function(a) { return a.repair && a.set_price !== null && a.set_price >= 0; });
+      var addReason = body.reason ? String(body.reason).trim().slice(0, 300) : "";
+      if (!dev) return NextResponse.json({ success: false, error: "device is required" }, { status: 400 });
+      if (!adds.length) return NextResponse.json({ success: false, error: "Give each new repair a name and a price" }, { status: 400 });
+      if (!addReason) return NextResponse.json({ success: false, error: "Say why — it is what makes the history worth having" }, { status: 400 });
+
+      var { data: devRows, error: dErr } = await supabase.from("repair_prices").select("*").eq("device", dev);
+      if (dErr) throw new Error(dErr.message);
+      if (!devRows || !devRows.length) return NextResponse.json({ success: false, error: "\"" + dev + "\" is not on the sheet — add the device first" }, { status: 404 });
+      var clash = adds.filter(function(a) { return devRows.some(function(r) { return r.repair === a.repair && (r.tier || "") === (a.tier || ""); }); });
+      if (clash.length) return NextResponse.json({ success: false, error: dev + " already has " + clash.map(function(a) { return a.repair + (a.tier ? " · " + a.tier : ""); }).join(", ") }, { status: 409 });
+
+      // How the rest of the sheet treats each repair name.
+      var names = adds.map(function(a) { return a.repair; });
+      var { data: likeRows, error: lErr } = await supabase.from("repair_prices").select("repair,tier,canonical_repair,floor_rule").in("repair", names).limit(2000);
+      if (lErr) throw new Error(lErr.message);
+      function like(a) {
+        var same = (likeRows || []).filter(function(r) { return r.repair === a.repair; });
+        var sameTier = same.filter(function(r) { return (r.tier || "") === (a.tier || ""); });
+        var pick = function(list, k) { var c = {}; list.forEach(function(r) { if (r[k]) c[r[k]] = (c[r[k]] || 0) + 1; }); return Object.keys(c).sort(function(x, y) { return c[y] - c[x]; })[0] || null; };
+        return { canonical_repair: pick(sameTier, "canonical_repair") || pick(same, "canonical_repair") || a.repair, floor_rule: pick(sameTier, "floor_rule") || pick(same, "floor_rule") };
+      }
+      var base = devRows[0];
+      var maxSort = Math.max.apply(null, devRows.map(function(r) { return r.sort_order || 0; }));
+      var addNow2 = new Date().toISOString();
+      var newRepairRows = adds.map(function(a) {
+        var l = like(a);
+        var floor = a.part_price !== null && l.floor_rule && FLOOR_RULES[l.floor_rule] !== undefined ? round2(a.part_price + FLOOR_RULES[l.floor_rule]) : null;
+        return {
+          family: base.family, model_group: base.model_group, device: dev, repair: a.repair, tier: a.tier,
+          canonical_model: base.canonical_model, canonical_repair: l.canonical_repair,
+          set_price: round2(a.set_price), part_price: a.part_price, floor_price: floor, floor_rule: floor !== null ? l.floor_rule : null,
+          max_discount: null, turnaround: a.turnaround, flags: [], note: null,
+          sort_order: maxSort, active: true, updated_at: addNow2, updated_by: editor,
+        };
+      });
+      var { data: insRows, error: iErr } = await supabase.from("repair_prices").insert(newRepairRows).select("id,device,repair,tier,canonical_model,canonical_repair,set_price");
+      if (iErr) throw new Error("insert: " + iErr.message);
+      var repBatch = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+      var { error: rlErr } = await supabase.from("repair_price_changes").insert((insRows || []).map(function(r) {
+        return {
+          batch_id: repBatch, repair_price_id: r.id, device: r.device, repair: r.repair, tier: r.tier,
+          canonical_model: r.canonical_model, canonical_repair: r.canonical_repair,
+          field: "set_price", old_value: null, new_value: r.set_price,
+          changed_by: editor, changed_at: addNow2, effective_date: addNow2.slice(0, 10),
+          reason: "Added " + r.repair + (r.tier ? " " + r.tier : "") + " to " + r.device + " · " + addReason,
+        };
+      }));
+      if (rlErr) {
+        console.error("[price-book] add_repairs rows inserted but ledger failed, batch " + repBatch + ":", rlErr.message);
+        return NextResponse.json({ success: false, error: "Rows were added but the change could not be recorded (" + rlErr.message + "); batch " + repBatch + " needs review", added: (insRows || []).length }, { status: 500 });
+      }
+      return NextResponse.json({ success: true, batch_id: repBatch, added: (insRows || []).length, device: dev });
+    }
+
     if (body.action !== "update") return NextResponse.json({ success: false, error: "Unknown action" }, { status: 400 });
     var changes = Array.isArray(body.changes) ? body.changes : [];
     if (!changes.length) return NextResponse.json({ success: false, error: "No changes supplied" }, { status: 400 });

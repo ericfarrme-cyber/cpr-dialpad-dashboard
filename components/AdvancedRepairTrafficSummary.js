@@ -66,6 +66,7 @@ export default function AdvancedRepairTrafficSummary() {
   var [picked, setPicked] = useState(null);          // selected month key
   var [hover, setHover] = useState(null);            // {month, bucket, x}
   var [grown, setGrown] = useState(false);           // bar grow-in
+  var [compareTo, setCompareTo] = useState("previous"); // previous | peak | slowest | average
 
   useEffect(function () {
     var cancelled = false;
@@ -90,19 +91,40 @@ export default function AdvancedRepairTrafficSummary() {
 
   var complete = months.filter(function (m) { return m.complete; });
   var latest = complete.length ? complete[complete.length - 1] : null;
-  var baseline = complete.length ? complete[0] : null;
   var sel = useMemo(function () {
     if (!picked) return latest;
     return months.find(function (m) { return m.month === picked; }) || latest;
   }, [picked, months, latest]);
 
   var valueOf = function (m) { return metric === "tickets" ? m.tickets : m.profit; };
+
+  // What the selected month is compared against. It used to be the first
+  // month in the window, which read as "vs May" forever. Matt's ask: the
+  // previous month by default, or the peak, slowest or average month —
+  // peak and slowest follow the Tickets / Profit toggle. The selected month
+  // is never compared with itself.
+  var others = complete.filter(function (m) { return !sel || m.month !== sel.month; });
+  var baseline = useMemo(function () {
+    if (!sel || !others.length) return null;
+    if (compareTo === "previous") {
+      var before = others.filter(function (m) { return m.month < sel.month; });
+      return before.length ? before[before.length - 1] : null;
+    }
+    if (compareTo === "peak") return others.reduce(function (a, b) { return valueOf(b) > valueOf(a) ? b : a; });
+    if (compareTo === "slowest") return others.reduce(function (a, b) { return valueOf(b) < valueOf(a) ? b : a; });
+    // average of the other complete months, shaped like a month
+    var n = others.length;
+    var avg = function (k) { return others.reduce(function (s, m) { return s + (parseFloat(m[k]) || 0); }, 0) / n; };
+    return { month: null, label: n + "-mo avg", tickets: avg("tickets"), revenue: avg("revenue"), profit: avg("profit"), share_of_repair_traffic: avg("share_of_repair_traffic") };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compareTo, sel, others.map(function (m) { return m.month; }).join(","), metric]);
+  var baselineLabel = baseline ? (baseline.month ? mLabel(baseline.month) : baseline.label) : "";
   var maxVal = Math.max.apply(null, complete.map(valueOf).concat([1]));
 
   if (loading) {
     return (
       <div style={{ background: SURFACE, border: "1px solid " + LINE, borderRadius: 14, padding: 22, marginBottom: 26, color: MUTED, fontSize: 13 }}>
-        Loading advanced repair traffic…
+        Loading non-phone repair traffic…
       </div>
     );
   }
@@ -110,7 +132,7 @@ export default function AdvancedRepairTrafficSummary() {
     return (
       <div style={{ background: "rgba(248,113,113,.09)", border: "1px solid rgba(248,113,113,.35)", borderRadius: 12,
                     padding: 16, color: RED, fontSize: 13, marginBottom: 26 }}>
-        Advanced repair traffic failed to load — {err}
+        Non-phone repair traffic failed to load — {err}
       </div>
     );
   }
@@ -119,7 +141,7 @@ export default function AdvancedRepairTrafficSummary() {
   var chartH = 168;
 
   var kpis = [
-    { label: "Advanced repairs", value: String(sel.tickets), accent: BUCKETS[0].color,
+    { label: "Non-phone repairs", value: String(sel.tickets), accent: BUCKETS[0].color,
       delta: baseline ? pctChange(sel.tickets, baseline.tickets) : null },
     { label: "Share of repair work", value: sel.share_of_repair_traffic != null ? sel.share_of_repair_traffic.toFixed(1) + "%" : "—", accent: CYAN,
       delta: baseline && baseline.share_of_repair_traffic ? pctChange(sel.share_of_repair_traffic, baseline.share_of_repair_traffic) : null },
@@ -146,7 +168,7 @@ export default function AdvancedRepairTrafficSummary() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap", marginBottom: 16 }}>
         <div>
           <h2 style={{ fontFamily: DISPLAY, fontSize: 19, fontWeight: 700, color: INK, margin: 0, letterSpacing: "-.02em" }}>
-            Advanced Repair Traffic
+            Non-Phone Repair Traffic
           </h2>
           <div style={{ color: MUTED, fontSize: 12, marginTop: 5 }}>
             Non-phone work closed per month. Repair &amp; claim only — accessory sales excluded.
@@ -168,6 +190,29 @@ export default function AdvancedRepairTrafficSummary() {
         </div>
       </div>
 
+      {/* ── compare to ───────────────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".13em", textTransform: "uppercase", color: MUTED, marginRight: 4 }}>
+          {mLong(sel.month)} compared to
+        </span>
+        {[["previous", "Previous month"], ["peak", "Peak month"], ["slowest", "Slowest month"], ["average", "Average month"]].map(function (c) {
+          var on = compareTo === c[0];
+          return (
+            <button key={c[0]} className="art-chip" onClick={function () { setCompareTo(c[0]); }}
+              style={{ background: on ? "rgba(0,212,255,.10)" : "transparent", border: "1px solid " + (on ? "rgba(0,212,255,.42)" : LINE),
+                       color: on ? CYAN : INK2, borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              {c[1]}
+            </button>
+          );
+        })}
+        {baseline && (
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 4 }}>
+            {baseline.month ? "— " + mLong(baseline.month) + ((compareTo === "peak" || compareTo === "slowest") ? " (by " + (metric === "tickets" ? "tickets" : "profit") + ")" : "") : "— average of the other " + others.length + " months"}
+          </span>
+        )}
+        {!baseline && <span style={{ fontSize: 11, color: MUTED, marginLeft: 4 }}>— no earlier month in the window</span>}
+      </div>
+
       {/* ── KPI strip ────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(176px,1fr))", gap: 1,
                     background: LINE, border: "1px solid " + LINE, borderRadius: 13, overflow: "hidden", marginBottom: 14 }}>
@@ -181,7 +226,7 @@ export default function AdvancedRepairTrafficSummary() {
               <div style={{ fontFamily: DISPLAY, fontSize: 29, fontWeight: 700, color: INK, letterSpacing: "-.035em",
                             margin: "7px 0 3px", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{k.value}</div>
               <div style={{ fontFamily: MONO, fontSize: 11, color: k.delta == null ? MUTED : (k.delta >= 0 ? GREEN : RED) }}>
-                {k.delta == null ? "—" : (k.delta >= 0 ? "▲ " : "▼ ") + Math.abs(k.delta) + "% vs " + mLabel(baseline.month)}
+                {k.delta == null ? "—" : (k.delta >= 0 ? "▲ " : "▼ ") + Math.abs(k.delta) + "% vs " + baselineLabel}
               </div>
             </div>
           );

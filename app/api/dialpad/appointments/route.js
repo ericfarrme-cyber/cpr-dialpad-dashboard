@@ -232,7 +232,7 @@ export async function POST(request) {
       if (!record.date_of_appt) return json({ success: false, error: "Appointment date is required" }, 400);
       if (quoted === null) return json({ success: false, error: "Quoted price is required" }, 400);
       if (sheet !== null && quoted < sheet - 0.005 && !String(body.quote_reason || "").trim()) {
-        return json({ success: false, error: "A quote under the sheet needs a reason" }, 400);
+        return json({ success: false, error: "A quote under the set price needs a reason" }, 400);
       }
       Object.assign(record, {
         repair_price_id: body.repair_price_id || null,

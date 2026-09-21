@@ -22,6 +22,28 @@ var FLAG_LABEL = {
 
 var money = function(n) { return n === null || n === undefined ? "—" : "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 var num = function(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(v); return isFinite(n) ? n : null; };
+// A device's generation, for newest-first ordering and "nearest model" lookups.
+var deviceGen = function(d) {
+  var s = String(d).toLowerCase();
+  var y = s.match(/\b(20\d\d)\b/);                       // MacBooks carry a year
+  if (y) return parseInt(y[1], 10);
+  var g = s.match(/\b(\d{1,2})(?:st|nd|rd|th)\s*gen/);   // "iPad 10th Gen", "iPad Pro 11" 4th gen"
+  if (g) return parseInt(g[1], 10);
+  if (/\bx[sr]?\b/.test(s) && /iphone/.test(s)) return 10;
+  if (/iphone\s+air\b/.test(s)) return 17;              // launched alongside the 17
+  g = s.match(/(\d{1,2})(?:st|nd|rd|th|e)?\b/);          // "16e" is a 16
+  return g ? parseInt(g[1], 10) : -1;
+};
+// Size / tier within a generation: Pro Max & Ultra, Pro, Plus, Air, base, e / mini / FE.
+var deviceVariant = function(d) {
+  var s = String(d).toLowerCase();
+  if (/pro\s*max|ultra|\bmax\b/.test(s)) return 0;
+  if (/\bpro\b/.test(s)) return 1;
+  if (/\bplus\b|\+/.test(s)) return 2;
+  if (/\bair\b/.test(s)) return 3;
+  if (/\d+e\b|\bmini\b|\bfe\b|\blite\b/.test(s)) return 5;
+  return 4;
+};
 var whenStr = function(iso) { if (!iso) return ""; var d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 var isLadder = function(tiers) { return tiers.length > 1 && tiers.every(function(t) { return /day/i.test(t.tier || ""); }); };
 var tok = function(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9+"\s.-]/g, " ").split(/\s+/).filter(Boolean); };
@@ -190,7 +212,58 @@ function Ladder({ tiers, isAdmin, editMode, selectedIds, onToggle, onInline, onB
 // costs side by side, offered on or off, one reason, one save. Matt's first
 // real session was ~70 single-row edits over three hours and half of them
 // carried no reason — this is that session as one form per device.
-function DeviceEditor({ device, rows, onSave, onCancel }) {
+function DeviceEditor({ device, rows, onSave, onCancel, allRows, onAddRepairs }) {
+  // New repairs for this device (Matt: the 16e had Screen only and nowhere to
+  // add Battery). Each suggestion comes from the nearest model in the same
+  // line that already offers that repair — "iPhone 16 Battery is $99.99".
+  var [adding, setAdding] = useState([]);
+  var [draft, setDraft] = useState({ repair: "", tier: "", set_price: "", turnaround: "", part_price: "" });
+  var repairNames = useMemo(function() {
+    var c = {};
+    (allRows || []).forEach(function(r) { c[r.repair] = (c[r.repair] || 0) + 1; });
+    var fam = rows[0] && rows[0].family;
+    var inFam = {};
+    (allRows || []).forEach(function(r) { if (r.family === fam) inFam[r.repair] = 1; });
+    return Object.keys(c).sort(function(a, b) { return (inFam[b] || 0) - (inFam[a] || 0) || c[b] - c[a]; });
+  }, [allRows, rows]);
+  function suggestionFor(repair, tier) {
+    if (!repair) return null;
+    var line = rows[0] ? rows[0].model_group : null;
+    var myGen = deviceGen(device);
+    var cands = (allRows || []).filter(function(r) {
+      return r.device !== device && r.active !== false && r.repair === repair && (r.tier || "") === (tier || "") && r.set_price !== null && (!line || r.model_group === line);
+    });
+    if (!cands.length) return null;
+    // Nearest generation first, then the closest size — a 16e borrows from the
+    // plain 15, not the 15 Pro Max.
+    var myVar = deviceVariant(device);
+    cands.sort(function(a, b) {
+      return (Math.abs(deviceGen(a.device) - myGen) - Math.abs(deviceGen(b.device) - myGen))
+        || (Math.abs(deviceVariant(a.device) - myVar) - Math.abs(deviceVariant(b.device) - myVar));
+    });
+    return cands[0];
+  }
+  var sugg = suggestionFor(draft.repair, draft.tier);
+  var tiersForRepair = useMemo(function() {
+    var t = {};
+    (allRows || []).forEach(function(r) { if (r.repair === draft.repair && r.tier) t[r.tier] = 1; });
+    return Object.keys(t);
+  }, [allRows, draft.repair]);
+  var draftClash = rows.some(function(r) { return r.repair === draft.repair && (r.tier || "") === (draft.tier || ""); })
+    || adding.some(function(a) { return a.repair === draft.repair && (a.tier || "") === (draft.tier || ""); });
+  var draftPrice = draft.set_price !== "" ? parseFloat(draft.set_price) : sugg ? num(sugg.set_price) : NaN;
+  var draftOk = !!draft.repair.trim() && isFinite(draftPrice) && draftPrice >= 0 && !draftClash;
+  function addDraft() {
+    if (!draftOk) return;
+    setAdding(adding.concat([{
+      repair: draft.repair.trim(), tier: draft.tier.trim() || null, set_price: draftPrice,
+      turnaround: draft.turnaround.trim() || (sugg && sugg.turnaround) || null,
+      part_price: draft.part_price !== "" ? parseFloat(draft.part_price) : null,
+      from: draft.set_price === "" && sugg ? sugg.device : null,
+    }]));
+    setDraft({ repair: "", tier: "", set_price: "", turnaround: "", part_price: "" });
+  }
+
   var [vals, setVals] = useState(function() {
     var v = {};
     rows.forEach(function(r) { v[r.id] = { set_price: r.set_price === null ? "" : String(r.set_price), part_price: r.part_price === null ? "" : String(r.part_price), active: r.active !== false }; });
@@ -211,12 +284,13 @@ function DeviceEditor({ device, rows, onSave, onCancel }) {
     if (!!v.active !== (r.active !== false)) c.active = !!v.active;
     return Object.keys(c).length > 1 ? c : null;
   }).filter(Boolean);
-  var canSave = changes.length > 0 && reason.trim().length > 0 && !busy;
+  var total = changes.length + adding.length;
+  var canSave = total > 0 && reason.trim().length > 0 && !busy;
 
   async function save() {
     if (!canSave) return;
     setBusy(true);
-    try { await onSave(changes, reason.trim()); } finally { setBusy(false); }
+    try { await onSave(changes, adding, reason.trim()); } finally { setBusy(false); }
   }
 
   var cell = { padding: "6px 8px", borderTop: "1px solid var(--border-light)", fontSize: 12 };
@@ -260,23 +334,64 @@ function DeviceEditor({ device, rows, onSave, onCancel }) {
               </tr>
             );
           })}
+          {adding.map(function(a, i) {
+            return (
+              <tr key={"new" + i} style={{ background: "#00D4FF0F", animation: "pbExpand .2s ease both" }}>
+                <td style={Object.assign({}, cell, { color: "var(--text-body)" })}>
+                  <span style={{ fontSize: 9, fontWeight: 800, color: "var(--cyan)", letterSpacing: "0.06em", marginRight: 6 }}>NEW</span>
+                  {a.repair}{a.tier ? <span style={{ color: "var(--purple)", fontWeight: 700 }}> · {a.tier}</span> : null}
+                  {a.turnaround ? <span style={{ color: "var(--text-muted)" }}> · {a.turnaround}</span> : null}
+                  {a.from ? <span style={{ color: "var(--text-faint)", fontSize: 10.5 }}> · price from {a.from}</span> : null}
+                </td>
+                <td style={Object.assign({}, cell, { textAlign: "right", fontWeight: 800, fontVariantNumeric: "tabular-nums" })}>{money(a.set_price)}</td>
+                <td style={Object.assign({}, cell, { textAlign: "right", color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" })}>{a.part_price === null ? "—" : money(a.part_price)}</td>
+                <td style={Object.assign({}, cell, { textAlign: "right", color: "var(--text-faint)" })}>—</td>
+                <td style={Object.assign({}, cell, { textAlign: "center" })}>
+                  <button onClick={function() { setAdding(adding.filter(function(_, j) { return j !== i; })); }} title="Remove"
+                    style={{ border: "none", background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: 15 }}>×</button>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+      {/* + Add a repair */}
+      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", padding: "10px 8px", borderTop: "1px dashed var(--border)", background: "var(--bg-card-inner)" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, color: "var(--cyan)", marginRight: 2 }}>＋ Add a repair</span>
+        <input list={"pb-repairs-" + device} value={draft.repair} onChange={function(e) { setDraft(Object.assign({}, draft, { repair: e.target.value, set_price: "" })); }} placeholder="Battery, Charge port…"
+          style={{ width: 150, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12 }} />
+        <datalist id={"pb-repairs-" + device}>{repairNames.map(function(n) { return <option key={n} value={n} />; })}</datalist>
+        <input list={"pb-tiers-" + device} value={draft.tier} onChange={function(e) { setDraft(Object.assign({}, draft, { tier: e.target.value, set_price: "" })); }} placeholder="tier (optional)"
+          style={{ width: 110, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12 }} />
+        <datalist id={"pb-tiers-" + device}>{tiersForRepair.map(function(n) { return <option key={n} value={n} />; })}</datalist>
+        <input value={draft.set_price} onChange={function(e) { setDraft(Object.assign({}, draft, { set_price: e.target.value })); }} inputMode="decimal"
+          placeholder={sugg && sugg.set_price !== null ? String(sugg.set_price) : "price"}
+          style={Object.assign({}, priceIn, { width: 84 })} />
+        <input value={draft.turnaround} onChange={function(e) { setDraft(Object.assign({}, draft, { turnaround: e.target.value })); }} placeholder={sugg && sugg.turnaround ? sugg.turnaround : "turnaround"}
+          style={{ width: 96, padding: "6px 8px", borderRadius: 6, border: "1px solid var(--border)", background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12 }} />
+        <button onClick={addDraft} disabled={!draftOk}
+          style={{ padding: "6px 12px", borderRadius: 7, border: "none", background: draftOk ? "var(--cyan)" : "var(--border)", color: draftOk ? "#0B0D11" : "var(--text-muted)", fontSize: 11.5, fontWeight: 800, cursor: draftOk ? "pointer" : "not-allowed" }}>Add</button>
+        <span style={{ fontSize: 10.5, color: draftClash ? "var(--orange)" : "var(--text-muted)", flexBasis: "100%", paddingLeft: 2 }}>
+          {draftClash ? device + " already has " + draft.repair + (draft.tier ? " · " + draft.tier : "") + " — edit it above instead"
+            : sugg ? "Suggested from " + sugg.device + ": " + money(sugg.set_price) + (sugg.turnaround ? " · " + sugg.turnaround : "") + " — leave the price blank to use it"
+            : draft.repair ? "No other model in this line offers " + draft.repair + " — set the price" : ""}
+        </span>
+      </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 8px", borderTop: "1px solid var(--border-light)", flexWrap: "wrap" }}>
         <input value={reason} onChange={function(e) { setReason(e.target.value); }} placeholder="why — required, e.g. OLED cost dropped $20"
-          style={{ flex: "1 1 240px", padding: "8px 10px", borderRadius: 8, border: "1px solid " + (changes.length && !reason.trim() ? "var(--orange)" : "var(--border)"), background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12.5 }} />
-        <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{changes.length === 0 ? "nothing changed" : changes.length + " change" + (changes.length === 1 ? "" : "s")}</span>
+          style={{ flex: "1 1 240px", padding: "8px 10px", borderRadius: 8, border: "1px solid " + (total && !reason.trim() ? "var(--orange)" : "var(--border)"), background: "var(--bg-input)", color: "var(--text-primary)", fontSize: 12.5 }} />
+        <span style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap" }}>{total === 0 ? "nothing changed" : [changes.length ? changes.length + " change" + (changes.length === 1 ? "" : "s") : null, adding.length ? adding.length + " new" : null].filter(Boolean).join(" · ")}</span>
         <button onClick={onCancel} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Cancel</button>
-        <button onClick={save} disabled={!canSave} title={changes.length && !reason.trim() ? "Say why — it is what makes the history worth having" : undefined}
+        <button onClick={save} disabled={!canSave} title={total && !reason.trim() ? "Say why — it is what makes the history worth having" : undefined}
           style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: canSave ? "var(--green)" : "var(--border)", color: canSave ? "#0B0D11" : "var(--text-muted)", fontSize: 12.5, fontWeight: 800, cursor: canSave ? "pointer" : "not-allowed" }}>
-          {busy ? "Saving…" : "Save " + (changes.length || "")}
+          {busy ? "Saving…" : "Save " + (total || "")}
         </button>
       </div>
     </div>
   );
 }
 
-function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook, onDeviceSave }) {
+function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook, onDeviceSave, allRows }) {
   var [open, setOpen] = useState(forceOpen);
   var [editingDevice, setEditingDevice] = useState(false);
   useEffect(function() { setOpen(forceOpen); }, [forceOpen]);
@@ -304,15 +419,15 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
         </div>
         {isAdmin && editMode && !editingDevice && (
           <button onClick={function(e) { e.stopPropagation(); setOpen(true); setEditingDevice(true); }} title="Every price on this device at once — one reason, one save"
-            style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid var(--purple)", background: "transparent", color: "var(--purple)", fontSize: 11, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Edit all {rows.length}</button>
+            style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid var(--purple)", background: "transparent", color: "var(--purple)", fontSize: 11, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>Edit · add repair</button>
         )}
         <Tag>{FAMILY_LABEL[first.family] || first.family}</Tag>
       </div>
       {open && editingDevice && (
         <div style={{ padding: "0 16px 16px" }}>
-          <DeviceEditor device={device} rows={rows.slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; })}
+          <DeviceEditor device={device} rows={rows.slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; })} allRows={allRows}
             onCancel={function() { setEditingDevice(false); }}
-            onSave={async function(changes, reason) { await onDeviceSave(changes, reason); setEditingDevice(false); }} />
+            onSave={async function(changes, adds, reason) { var ok = await onDeviceSave(device, changes, adds, reason); if (ok !== false) setEditingDevice(false); }} />
         </div>
       )}
       {open && !editingDevice && (
@@ -350,11 +465,14 @@ var BOOK_STORES = [["fishers", "Fishers"], ["bloomington", "Bloomington"], ["ind
 // What agents have actually told customers, mined from 974 appointments:
 // "1-2hrs" ×73, "same day" ×24, "1-2 days" ×16, "2 hrs"/"1 hour" ×35, "3-4 hrs",
 // "2-3 days", "next day" — plus the console ladder's business-day tiers.
-var TURNAROUNDS = ["Under 1 hr", "1–2 hrs", "2–3 hrs", "3–4 hrs", "Same day", "Next day", "1–2 days", "2–3 days", "3–5 days", "5–10 days"];
+// "1 hour" leads because it is the standard phone-screen promise (Matt,
+// 2026-09-21 — it replaced "Under 1 hr").
+var TURNAROUNDS = ["1 hour", "1–2 hrs", "2–3 hrs", "3–4 hrs", "Same day", "Next day", "1–2 days", "2–3 days", "3–5 days", "5–10 days"];
 // The sheet writes "1-2 hrs", "2-3 BD", "same day"; map those onto the chips.
 var normalizeTurnaround = function(s) {
   var t = String(s || "").toLowerCase().replace(/\s+/g, " ").trim();
   if (!t) return "";
+  if (/^(under\s*)?1\s*(hr|hour)s?$|^(under|within) an? hour$/.test(t)) return "1 hour";
   if (/same\s*-?\s*day/.test(t)) return "Same day";
   if (/next\s*day|24\s*(hrs?|hours?)/.test(t)) return "Next day";
   var m = t.match(/(\d+)\s*(?:-|–|to)\s*(\d+)\s*(bd|business|days?|hrs?|hours?)/);
@@ -429,12 +547,16 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
   // The reference price the quote is judged against: the sheet for a sheet
   // row, the register's usual price for a service, nothing for "something else".
   var sheet = sel.kind === "row" ? selRow.set_price : sel.kind === "service" ? sel.price : null;
-  var sheetLabel = sel.kind === "row" ? "Sheet" : sel.kind === "service" ? "Register usually" : "No reference";
+  var sheetLabel = sel.kind === "row" ? "Set price" : sel.kind === "service" ? "Register usually" : "No reference";
   // Eric's rule: the booking floor is 20% under what this actually sells for.
   // With too few jobs to average, the sheet's own floor stands in.
   var floor = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? selRow.actuals.book_floor
     : selRow && selRow.floor_price !== null && selRow.floor_price !== undefined ? selRow.floor_price
     : sel.kind === "service" && sel.price !== null ? Math.round(sel.price * 0.8 * 100) / 100 : null;
+  // A floor above the price itself is a stale part cost, not a floor — it made
+  // quoting the full set price show "below the floor" in red (8 rows as of
+  // 2026-09-15, e.g. 17 Pro Max back glass $239.99 with a $259.99 floor).
+  if (floor !== null && sheet !== null && sheet !== undefined && floor > sheet) floor = null;
   var floorSrc = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? "20% under the average sold"
     : selRow && floor !== null ? "sheet floor" : sel.kind === "service" && floor !== null ? "20% under what it usually rings" : null;
   // Switching what they are coming in for resets the quote to that option's price.
@@ -484,7 +606,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
     if (sel.kind === "other" && !otherLabel.trim()) { setErr("Say what they're coming in for"); return; }
     if (!f.date_of_appt) { setErr("Pick a date"); return; }
     if (!quotedOk) { setErr("Quoted price"); return; }
-    if (needsReason && !reasonGiven) { setErr("A quote under the sheet needs a reason"); return; }
+    if (needsReason && !reasonGiven) { setErr("A quote under the set price needs a reason"); return; }
     setBusy(true);
     try {
       var reason = f.reason === "Other" ? f.reason_text.trim() : (f.reason + (f.reason_text.trim() ? " — " + f.reason_text.trim() : ""));
@@ -560,21 +682,38 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
             <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{money(sheet)}</div>
             {floor !== null && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 2 }}>floor {money(floor)} · {floorSrc}</div>}
           </div>
+          {/* Quoted price. It has to LOOK editable — Matt wasn't sure it was —
+              so it is a real input with a border and a pencil, and the common
+              moves are one tap away with the set price marked as the pick. */}
           <div style={{ flex: 1, padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid " + (needsReason ? discTone : "var(--border-light)") }}>
-            <div style={label}>Quoted</div>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 2 }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
-              <input value={f.quoted} onChange={function(e) { set("quoted", e.target.value); }} inputMode="decimal"
-                style={{ width: "100%", fontSize: 22, fontWeight: 800, padding: 0, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
+            <div style={Object.assign({}, label, { display: "flex", justifyContent: "space-between" })}>
+              <span>Quoted to customer</span><span style={{ fontWeight: 500, textTransform: "none", letterSpacing: 0, color: "var(--purple)" }}>✎ tap to change</span>
             </div>
-            <div style={{ fontSize: 10.5, color: discTone, marginTop: 2, fontWeight: needsReason ? 700 : 500 }}>
-              {!quotedOk ? "enter a price" : sheet === null ? "no reference price — your call" : belowFloor ? "−" + money(disc) + " · below the floor" : needsReason ? "−" + money(disc) + (sel.kind === "row" ? " under the sheet" : " under the usual price") : disc < -0.005 ? "+" + money(-disc) + (sel.kind === "row" ? " over the sheet" : " over the usual price") : sel.kind === "row" ? "at the sheet — aim high" : "at the usual price"}
+            <label style={{ display: "flex", alignItems: "center", gap: 2, border: "1.5px solid var(--purple)", borderRadius: 8, padding: "3px 8px", background: "var(--bg-input)", cursor: "text" }}>
+              <span style={{ fontSize: 20, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
+              <input value={f.quoted} onChange={function(e) { set("quoted", e.target.value); }} onFocus={function(e) { e.target.select(); }} inputMode="decimal" aria-label="Quoted price"
+                style={{ width: "100%", fontSize: 20, fontWeight: 800, padding: "2px 0", border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
+            </label>
+            <div style={{ fontSize: 10.5, color: discTone, marginTop: 4, fontWeight: needsReason ? 700 : 600 }}>
+              {!quotedOk ? "enter a price" : sheet === null ? "no reference price — your call" : belowFloor ? "−" + money(disc) + " · below the floor" : needsReason ? "−" + money(disc) + (sel.kind === "row" ? " under the set price" : " under the usual price") : disc < -0.005 ? "+" + money(-disc) + (sel.kind === "row" ? " over the set price" : " over the usual price") : sel.kind === "row" ? money(quotedNum) + " — at listed price!" : money(quotedNum) + " — the usual price"}
             </div>
           </div>
         </div>
+        {sheet !== null && sheet !== undefined && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginTop: -6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Quote</span>
+            {[{ v: sheet, t: money(sheet) + " · recommended" }, { v: sheet - 10, t: "−$10" }, { v: sheet - 20, t: "−$20" }]
+              .filter(function(o) { return o.v > 0; })
+              .map(function(o, i) {
+                var on = quotedOk && Math.abs(quotedNum - o.v) < 0.005;
+                return <button key={i} onClick={function() { set("quoted", (Math.round(o.v * 100) / 100).toFixed(2)); }}
+                  style={Object.assign({}, chip(on), i === 0 && !on ? { borderColor: "var(--green)", color: "var(--green)" } : {})}>{o.t}</button>;
+              })}
+          </div>
+        )}
         {needsReason && (
           <div style={{ animation: "pbExpand .2s ease both" }}>
-            <label style={label}>Why under the sheet?</label>
+            <label style={label}>Why under the set price?</label>
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
               {QUOTE_REASONS.map(function(r) { return <button key={r} onClick={function() { set("reason", r); }} style={chip(f.reason === r)}>{r}</button>; })}
             </div>
@@ -898,10 +1037,30 @@ export default function PriceBook() {
     });
   }, [rows, q, family]);
 
+  // Newest model first inside each line (Matt, 2026-09-21). Sheet order had
+  // gone ragged once devices were added from a template — each new model sits
+  // just above the one it was copied from, so 17 Pro Max, 16 Pro Max, 17 Pro,
+  // 16 Pro. Lines keep the sheet's order; inside a line, higher generation
+  // first, then Pro Max / Ultra, Pro, Plus, Air, base, e / mini / FE.
   var devices = useMemo(function() {
     var m = {}, order = [];
     filtered.forEach(function(r) { if (!m[r.device]) { m[r.device] = []; order.push(r.device); } m[r.device].push(r); });
-    return order.map(function(d) { return { device: d, rows: m[d] }; });
+    var lineRank = {};
+    order.forEach(function(d) { var k = (m[d][0].family || "") + "|" + (m[d][0].model_group || ""); if (lineRank[k] === undefined) lineRank[k] = Object.keys(lineRank).length; });
+    var pos = {};
+    order.forEach(function(d, i) { pos[d] = i; });
+    var gen = deviceGen;
+    var variant = deviceVariant;
+    var sorted = order.slice().sort(function(a, b) {
+      var ka = (m[a][0].family || "") + "|" + (m[a][0].model_group || ""), kb = (m[b][0].family || "") + "|" + (m[b][0].model_group || "");
+      if (ka !== kb) return lineRank[ka] - lineRank[kb];
+      var ga = gen(a), gb = gen(b);
+      if (ga !== gb) return gb - ga;
+      var va = variant(a), vb = variant(b);
+      if (va !== vb) return va - vb;
+      return pos[a] - pos[b];
+    });
+    return sorted.map(function(d) { return { device: d, rows: m[d] }; });
   }, [filtered]);
 
   var famCounts = useMemo(function() {
@@ -997,6 +1156,24 @@ export default function PriceBook() {
     var ids = Object.keys(selectedIds);
     if (!ids.length) return;
     commit(ids.map(function(id) { return { id: id, active: flag }; }), bulk.reason || (flag ? "offered again" : "no longer offered"));
+  }
+
+  // New repairs on an existing device — one ledger batch, same reason rule.
+  async function addRepairs(device, adds, reason) {
+    try {
+      var af = auth && auth.authFetch ? auth.authFetch : fetch;
+      var res = await af("/api/dialpad/price-book", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add_repairs", device: device, reason: reason, repairs: adds }),
+      });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "not added");
+      setToast({ tone: "var(--green)", text: "Added " + j.added + " repair" + (j.added === 1 ? "" : "s") + " to " + device });
+      return true;
+    } catch (e) {
+      setToast({ tone: "var(--red)", text: "Not added — " + e.message });
+      return false;
+    }
   }
 
   function inlineSave(r, val) {
@@ -1264,7 +1441,13 @@ export default function PriceBook() {
         )}
         {devices.slice(0, 60).map(function(d, i) {
           return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }}
-            onDeviceSave={function(changes, reason) { return commit(changes, reason); }} />;
+            allRows={data ? data.rows : []}
+            onDeviceSave={async function(device, changes, adds, reason) {
+              if (adds && adds.length) { var ok = await addRepairs(device, adds, reason); if (!ok) return false; }
+              if (changes && changes.length) await commit(changes, reason);
+              else if (adds && adds.length) load();
+              return true;
+            }} />;
         })}
         {devices.length > 60 && <div style={{ color: "var(--text-muted)", fontSize: 12, textAlign: "center", padding: 12 }}>Showing 60 of {devices.length} — type to narrow it down.</div>}
       </div>
