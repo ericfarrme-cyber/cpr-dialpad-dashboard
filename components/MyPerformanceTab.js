@@ -567,8 +567,22 @@ export default function MyPerformanceTab({ auth, store }) {
     var config = commConfig.config || {};
     function isEnabled(key) { return config[key] !== false; }
 
+    // Pay rows match on the WHOLE name only. matchName() accepts a first-name
+    // hit, which in August 2026 handed Luke Stirling's paycheck a stray "Luke
+    // Schooley" row ($90.38 shown, $133.38 correct) and put Matthew Slade's
+    // commission on Matthew Ziegler's page in March, April and August. The
+    // sales imports carry full "First Last" names, so exact (or "Last, First")
+    // is all a paycheck should ever accept. (Eric, 2026-09-21.)
+    var sameName = function(a, b) {
+      var x = String(a || "").toLowerCase().replace(/\s+/g, " ").trim();
+      var y = String(b || "").toLowerCase().replace(/\s+/g, " ").trim();
+      if (!x || !y) return false;
+      if (x === y) return true;
+      var flip = function(s) { var p = s.split(",").map(function(t) { return t.trim(); }); return p.length === 2 ? p[1] + " " + p[0] : s; };
+      return flip(x) === flip(y);
+    };
     var findEmp = function(arr) {
-      return (arr || []).find(function(e) { return matchName(empName, e.employee); });
+      return (arr || []).find(function(e) { return sameName(empName, e.employee); });
     };
 
     var phone = findEmp(salesData.phones);
