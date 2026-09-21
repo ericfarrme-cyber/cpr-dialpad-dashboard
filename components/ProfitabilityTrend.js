@@ -66,6 +66,21 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
   var [hover, setHover] = useState(null);
   var [mounted, setMounted] = useState(false);
   var wrapRef = useRef(null);
+  // Area manager profit share: rate × company net profit above an annual
+  // threshold, calendar year. The terms live in commission_config rows
+  // (am_profit_share_rate / am_profit_share_threshold), never in this repo.
+  var [share, setShare] = useState(null);
+  useEffect(function() {
+    var live = true;
+    fetch("/api/dialpad/sales?action=commission_config").then(function(r) { return r.json(); }).then(function(j) {
+      if (!live || !j || !j.success) return;
+      var byKey = {};
+      (j.config || []).forEach(function(c) { byKey[c.config_key] = c; });
+      var rate = byKey.am_profit_share_rate, thr = byKey.am_profit_share_threshold;
+      if (rate && thr && rate.enabled !== false) setShare({ rate: parseFloat(rate.config_value), threshold: parseFloat(thr.config_value) });
+    }).catch(function() { /* the card simply does not render */ });
+    return function() { live = false; };
+  }, []);
 
   useEffect(function() {
     var live = true;
@@ -133,8 +148,31 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
     // A margin is a ratio, never a sum of monthly ratios.
     STORE_KEYS.forEach(function(k) { per[k].netMargin = per[k].grossRev > 0 ? per[k].netProfit / per[k].grossRev : 0; });
     comp.netMargin = comp.grossRev > 0 ? comp.netProfit / comp.grossRev : 0;
-    return { year: year, per: per, company: comp, monthCount: months.length };
+    // Which months of the year are missing — January and February 2026 were
+    // never entered, so a YTD that quietly omits them would read as truth.
+    var have = {};
+    months.forEach(function(d) { have[String(d.period).slice(5, 7)] = true; });
+    var lastSaved = parseInt(String(months[months.length - 1].period).slice(5, 7), 10);
+    var missing = [];
+    for (var mi = 1; mi <= lastSaved; mi++) { var mm = String(mi).padStart(2, "0"); if (!have[mm]) missing.push(year + "-" + mm); }
+    return { year: year, per: per, company: comp, monthCount: months.length, missing: missing, lastSaved: lastSaved };
   }, [data]);
+
+  // Profit share so far this year, and where the year is heading at the
+  // current average. Both stated with what they leave out.
+  var shareCalc = useMemo(function() {
+    if (!ytd || !share || !isFinite(share.rate) || !isFinite(share.threshold)) return null;
+    var profit = ytd.company.netProfit;
+    var excess = Math.max(0, profit - share.threshold);
+    var avg = ytd.monthCount ? profit / ytd.monthCount : 0;
+    var projected = avg * 12;
+    return {
+      profit: profit, excess: excess, earned: excess * share.rate,
+      gap: share.threshold - profit,
+      projected: projected, projectedShare: Math.max(0, projected - share.threshold) * share.rate,
+      monthsLeft: 12 - ytd.lastSaved,
+    };
+  }, [ytd, share]);
 
   var activeKeys = STORE_KEYS.filter(function(k) { return !hidden[k]; });
   var m = METRICS.filter(function(x) { return x.key === metric; })[0];
@@ -253,6 +291,40 @@ export default function ProfitabilityTrend({ period, onSelectPeriod }) {
               {isPct ? pct(ytd.company[metric]) : moneyFull(ytd.company[metric])}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Area manager profit share ─────────────────────────────────────── */}
+      {ytd && shareCalc && (
+        <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap", marginBottom: 16, padding: "12px 14px", borderRadius: 10, border: "1px solid " + (shareCalc.excess > 0 ? "#4ADE8055" : "var(--border-light)"), background: "var(--bg-card-inner)" }}>
+          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.07em" }}>
+            Area manager profit share · {ytd.year}
+            <div style={{ color: "var(--text-faint)", fontSize: 9, fontWeight: 500, textTransform: "none", letterSpacing: 0, marginTop: 2 }}>
+              {Math.round(share.rate * 100)}% of company net profit above {moneyFull(share.threshold)} · calendar year
+            </div>
+          </div>
+          <div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 600, marginBottom: 2 }}>Net profit YTD</div>
+            <div style={{ color: shareCalc.profit >= 0 ? "var(--text-body)" : "var(--red)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{moneyFull(shareCalc.profit)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 600, marginBottom: 2 }}>{shareCalc.excess > 0 ? "Above threshold" : "To the threshold"}</div>
+            <div style={{ color: shareCalc.excess > 0 ? "var(--green)" : "var(--text-body)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{moneyFull(shareCalc.excess > 0 ? shareCalc.excess : shareCalc.gap)}</div>
+          </div>
+          <div style={{ paddingLeft: 18, borderLeft: "1px solid var(--border)" }}>
+            <div style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 600, marginBottom: 2 }}>Share earned so far</div>
+            <div style={{ color: shareCalc.earned > 0 ? "var(--green)" : "var(--text-muted)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{moneyFull(shareCalc.earned)}</div>
+          </div>
+          <div>
+            <div style={{ color: "var(--text-secondary)", fontSize: 10, fontWeight: 600, marginBottom: 2 }}>On pace for</div>
+            <div style={{ color: "var(--text-body)", fontSize: 14, fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{moneyFull(shareCalc.projected)} <span style={{ color: "var(--text-muted)", fontWeight: 500, fontSize: 11 }}>→ share {moneyFull(shareCalc.projectedShare)}</span></div>
+            <div style={{ color: "var(--text-faint)", fontSize: 9, marginTop: 1 }}>{ytd.monthCount}-month average × 12 · {shareCalc.monthsLeft} month{shareCalc.monthsLeft === 1 ? "" : "s"} still to come</div>
+          </div>
+          {ytd.missing.length > 0 && (
+            <div style={{ flexBasis: "100%", color: "var(--yellow)", fontSize: 11, marginTop: 2 }}>
+              {ytd.missing.map(monthLabel).join(" and ")} {ytd.missing.length === 1 ? "is" : "are"} not entered yet — YTD and the pace above leave {ytd.missing.length === 1 ? "that month" : "those months"} out. Enter them below and this updates.
+            </div>
+          )}
         </div>
       )}
 
