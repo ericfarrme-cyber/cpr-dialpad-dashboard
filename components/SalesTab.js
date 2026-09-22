@@ -111,9 +111,11 @@ export default function SalesTab({ viewAs, viewEmployee }) {
 
   useEffect(function() { loadData(currentPeriod); }, []);
 
-  // Fetch roster once for matching
+  // Fetch roster once for matching. This called /api/employees, which does not
+  // exist, so the roster never loaded and every real employee wore a "no roster
+  // match" badge. The roster lives at /api/dialpad/roster.
   useEffect(function() {
-    fetch("/api/employees").then(function(r) { return r.json(); }).then(function(json) {
+    fetch("/api/dialpad/roster?action=list").then(function(r) { return r.json(); }).then(function(json) {
       // Be tolerant of multiple response shapes:
       //   { success: true, employees: [...] }
       //   { employees: [...] }
@@ -291,6 +293,7 @@ export default function SalesTab({ viewAs, viewEmployee }) {
       t.revenue += e.total_revenue; t.tickets += e.total_tickets; t.commission += e.total_commission;
       t.phone_tickets += e.phone_tickets; t.phone_total += e.phone_total;
       t.other_count += e.other_count; t.accy_count += e.accy_count; t.clean_count += e.clean_count; t.cs_discounted += e.cs_discounted;
+      t.gp += e.total_gp; t.gp_tickets += e.gp_tickets; t.accy_gp += e.accy_gp;
       return t;
     }, { revenue: 0, tickets: 0, commission: 0, phone_tickets: 0, phone_total: 0, other_count: 0, accy_count: 0, clean_count: 0, cs_discounted: 0, gp: 0, gp_tickets: 0, accy_gp: 0 });
   }, [employees]);
