@@ -1319,10 +1319,14 @@ function StoreDashboard() {
                 })}
               </div>
               <div style={{ display:"flex",gap:6 }}>
-                <label style={{ padding:"7px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-secondary)",fontSize:11,cursor:importing?"wait":"pointer" }}>
-                  {importing?"Importing...":"\uD83D\uDCE4 Import"}<input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} disabled={importing} style={{ display:"none" }} />
-                </label>
-                <button onClick={handleClearStore} style={{ padding:"7px 12px",borderRadius:6,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer" }}>Clear</button>
+                {/* Bulk load, not a way to book \u2014 a manager's tool, and the
+                    route says so too. */}
+                {canBlankForm && (
+                  <label style={{ padding:"7px 12px",borderRadius:6,border:"1px solid var(--border)",background:"var(--bg-card)",color:"var(--text-secondary)",fontSize:11,cursor:importing?"wait":"pointer" }}>
+                    {importing?"Importing...":"\uD83D\uDCE4 Import"}<input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} disabled={importing} style={{ display:"none" }} />
+                  </label>
+                )}
+                {canBlankForm && <button onClick={handleClearStore} style={{ padding:"7px 12px",borderRadius:6,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer" }}>Clear</button>}
                 {/* Booking starts at the price. An agent goes to the Price
                     Book, where the quote, the discount reason, the turnaround
                     and the part come with the appointment; a blank form

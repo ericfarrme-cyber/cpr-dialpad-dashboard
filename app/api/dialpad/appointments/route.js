@@ -251,9 +251,24 @@ export async function POST(request) {
   // Writes need a signed-in user. Any role may book or update; deleting one
   // appointment is a manager's call and wiping a store is Eric's. Until
   // 2026-09-11 this route accepted writes from anyone with the URL.
-  var gate = await requireAuth(request, { requiredRoles: action === "clear_store" ? ["admin"] : action === "delete" ? ["admin", "manager"] : ["admin", "manager", "employee"] });
+  var gate = await requireAuth(request, {
+    requiredRoles: action === "clear_store" ? ["admin"]
+      : (action === "delete" || action === "bulk_import") ? ["admin", "manager"]
+      : ["admin", "manager", "employee"],
+  });
   if (!gate.authorized) return gate.response;
   var who = gate.result;
+
+  // "There should be no option otherwise" (Eric, 2026-09-26) has to be true of
+  // the route, not just the page — hiding the blank form only hides it from
+  // people who don't open devtools. An employee books through the Price Book,
+  // which always stamps source: "price_book" and carries the quote, the reason,
+  // the turnaround and the part. Managers and admins still add by hand, which
+  // is how a bad row gets fixed. Nothing is unbookable: the panel's "Something
+  // else" takes any label and any price.
+  if (action === "add" && who.role === "employee" && body.source !== "price_book") {
+    return json({ success: false, error: "Appointments are booked from the Price Book — open /prices and use Book this quote." }, 403);
+  }
 
   if (action === "add") {
     var fromBook = body.source === "price_book";
