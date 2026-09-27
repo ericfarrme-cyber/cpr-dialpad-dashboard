@@ -86,6 +86,36 @@ export async function GET(request) {
       return NextResponse.json({ success: true, batches: list });
     }
 
+    // What agents looked for and did not find, most-asked first. The other end
+    // of the reconcile panel: that one finds gaps after the register rings,
+    // this one finds them while the customer is still on the phone.
+    if (action === "search_misses") {
+      var devAdmin = process.env.NODE_ENV !== "production" && searchParams.get("as_admin") === "1";
+      if (!devAdmin) {
+        var missGate = await requireAuth(request, { requiredRoles: ["admin"] });
+        if (!missGate.authorized) return missGate.response;
+      }
+      var missDays = Math.min(180, Math.max(1, parseInt(searchParams.get("days") || "30", 10)));
+      var missSince = new Date(); missSince.setDate(missSince.getDate() - missDays);
+      var { data: misses, error: mErr } = await supabase.from("search_misses")
+        .select("q,store,searched_by,created_at").gte("created_at", missSince.toISOString())
+        .order("created_at", { ascending: false }).limit(2000);
+      if (mErr) throw new Error(mErr.message);
+      var byQ = {};
+      (misses || []).forEach(function(r) {
+        var k = String(r.q || "").toLowerCase();
+        var g = byQ[k] || (byQ[k] = { q: r.q, times: 0, stores: {}, people: {}, last: r.created_at });
+        g.times++;
+        if (r.store) g.stores[r.store] = (g.stores[r.store] || 0) + 1;
+        if (r.searched_by) g.people[r.searched_by] = (g.people[r.searched_by] || 0) + 1;
+        if (r.created_at > g.last) g.last = r.created_at;
+      });
+      var missList = Object.values(byQ).map(function(g) {
+        return { q: g.q, times: g.times, last: g.last, stores: Object.keys(g.stores), people: Object.keys(g.people) };
+      }).sort(function(a, b) { return b.times - a.times || (a.last < b.last ? 1 : -1); });
+      return NextResponse.json({ success: true, days: missDays, total: (misses || []).length, searches: missList });
+    }
+
     // Who is asking decides whether avg_collected is included.
     var who = await requireAuth(request, { requiredRoles: ["admin", "manager", "employee"] });
     var isAdmin = who.authorized && who.result.role === "admin";
@@ -217,6 +247,10 @@ export async function GET(request) {
     var SERVICE_TYPES = ["Diagnostic", "Data transfer", "Water damage", "Software", "Cleaning", "Other repair"];
     var servicesByModel = {};
     var famAgg = {};
+    // Every store, every device: what a diagnostic usually rings. Typing
+    // "diag" into the search box is asking this question, and the sheet has no
+    // row to answer it.
+    var allAgg = {};
     Object.keys(actuals).forEach(function(k) {
       var parts = k.split("|");
       var model = parts[0], type = parts[1];
@@ -233,6 +267,9 @@ export async function GET(request) {
       var ft = fa[type] || (fa[type] = { sold: 0, lists: {} });
       ft.sold += s.sold;
       Object.keys(s.lists).forEach(function(lk) { ft.lists[lk] = (ft.lists[lk] || 0) + s.lists[lk]; });
+      var at = allAgg[type] || (allAgg[type] = { sold: 0, lists: {} });
+      at.sold += s.sold;
+      Object.keys(s.lists).forEach(function(lk) { at.lists[lk] = (at.lists[lk] || 0) + s.lists[lk]; });
     });
     var servicesByFamily = {};
     Object.keys(famAgg).forEach(function(fam) {
@@ -243,6 +280,14 @@ export async function GET(request) {
         return { type: type, price: modal && share >= 40 ? parseFloat(modal) : null, sold: ft.sold, share: share, scope: "family" };
       });
     });
+    var servicesOverall = Object.keys(allAgg).map(function(type) {
+      var at = allAgg[type];
+      var modal = Object.keys(at.lists).sort(function(a, b) { return at.lists[b] - at.lists[a]; })[0];
+      var share = modal ? round2((at.lists[modal] / at.sold) * 100) : null;
+      // Three jobs before a price is called usual, the same bar a model has to
+      // clear. One cleaning at $119.99 is not what a cleaning costs.
+      return { type: type, price: modal && share >= 40 && at.sold >= 3 ? parseFloat(modal) : null, sold: at.sold, share: share, scope: "all" };
+    }).sort(function(a, b) { return b.sold - a.sold; });
 
     // ── models the register sells that the sheet has never had ─────────────
     // iPhone 17 had 35 jobs and no row. Recommend the whole product line from
@@ -323,6 +368,28 @@ export async function GET(request) {
     });
     rows.forEach(function(r) { r.quotes = quotesByRow[r.id] || null; });
 
+    // ── does discounting actually get the customer through the door? ────────
+    // Every quote ever booked from this book, split by whether it went out at
+    // the set price. Counts lead, not percentages, because the sample is still
+    // small enough that a percentage would overstate it. Shown in the booking
+    // panel the moment someone types a lower number.
+    var { data: evRows, error: evErr } = await supabase.from("appointments")
+      .select("sheet_price,quoted_price,did_arrive").eq("source", "price_book").limit(5000);
+    if (evErr) throw new Error("appointments evidence: " + evErr.message);
+    var ev = { at_sheet: { decided: 0, showed: 0 }, discounted: { decided: 0, showed: 0 }, pending: 0, booked: 0 };
+    (evRows || []).forEach(function(a) {
+      var s = num(a.sheet_price), p = num(a.quoted_price);
+      if (s === null || p === null) return;
+      ev.booked++;
+      var da = String(a.did_arrive || "").toLowerCase();
+      var showed = da === "yes" || da === "converted";
+      var decided = showed || da.indexOf("no") === 0;
+      if (!decided) { ev.pending++; return; }
+      var arm = p >= s - 0.005 ? ev.at_sheet : ev.discounted;
+      arm.decided++;
+      if (showed) arm.showed++;
+    });
+
     var updatedMax = rows.reduce(function(m, r) { return r.updated_at > m ? r.updated_at : m; }, "");
     return NextResponse.json({
       success: true,
@@ -333,7 +400,8 @@ export async function GET(request) {
       updated_at_max: updatedMax,
       rows: isAdmin ? rows : rows.filter(function(r) { return r.active !== false; }),
       missing_models: isAdmin ? missingModels : [],
-      services: { types: SERVICE_TYPES, models: servicesByModel, families: servicesByFamily },
+      services: { types: SERVICE_TYPES, models: servicesByModel, families: servicesByFamily, overall: servicesOverall },
+      quote_evidence: ev,
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
@@ -345,7 +413,30 @@ export async function GET(request) {
 export async function POST(request) {
   if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" }, { status: 500 });
 
-  // Only admins. Managers can read the book; they cannot change a quote.
+  // ── what someone looked for and did not find ─────────────────────────────
+  // Anyone signed in may write one of these; it is the only POST here that is
+  // not an edit. Gaps in the sheet are currently found by reconciling against
+  // the register weeks later — this records them while a customer is still on
+  // the phone. Never blocks the search: the client fires and forgets.
+  var peek = await request.clone().json().catch(function() { return {}; });
+  if (peek && peek.action === "search_miss") {
+    var missGate = await requireAuth(request, { requiredRoles: ["admin", "manager", "employee"] });
+    if (!missGate.authorized) return missGate.response;
+    var q = String(peek.q || "").trim().slice(0, 120);
+    if (q.length < 3) return NextResponse.json({ success: true, recorded: false });
+    var { error: missErr } = await supabase.from("search_misses").insert({
+      q: q, store: peek.store || missGate.result.store || null,
+      searched_by: missGate.result.name || null, searched_by_email: missGate.result.email || null,
+    });
+    if (missErr) {
+      console.error("[price-book] search_miss insert failed:", missErr.message);
+      return NextResponse.json({ success: false, error: missErr.message }, { status: 500 });
+    }
+    return NextResponse.json({ success: true, recorded: true });
+  }
+
+  // Everything else is an edit. Only admins. Managers can read the book; they
+  // cannot change a quote.
   var gate = await requireAuth(request, { requiredRoles: ["admin"] });
   if (!gate.authorized) return gate.response;
   var editor = gate.result.name || gate.result.email;

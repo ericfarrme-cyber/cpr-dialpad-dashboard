@@ -101,6 +101,7 @@ function StoreDashboard() {
   var auth = useAuth();
   // Writes to the appointments route need the session's Bearer token now.
   var af = auth && auth.authFetch ? auth.authFetch : fetch;
+  var canBlankForm = auth && (auth.role === "admin" || auth.role === "manager");
   var [store, setStore] = useState("fishers");
   var [section, setSection] = useState("overview");
   var [loading, setLoading] = useState(true);
@@ -413,6 +414,21 @@ function StoreDashboard() {
   };
   var deleteAppt = async function(id) { if (!confirm("Delete?")) return; await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"delete",id:id})}); loadData(); };
   var updateArrival = async function(id, val) { await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,did_arrive:val})}); loadData(); };
+  // A follow-up older than a week has aged out — calling a no-show back two
+  // weeks later is more work than it's worth (Eric, 2026-09-26). It runs
+  // nightly; this is the same thing on demand, for a manager clearing a
+  // backlog. Bookings that took a deposit are never expired.
+  var expireFollowUps = async function() {
+    if (!window.confirm("Close every follow-up older than 7 days? They stay on the record, marked expired — bookings with a deposit are kept.")) return;
+    try {
+      var r = await af("/api/dialpad/appointments?action=expire_followups");
+      var j = await r.json();
+      if (!j.success) throw new Error(j.error || "failed");
+      setMsg({ type: "success", text: "Closed " + j.expired + " follow-up" + (j.expired === 1 ? "" : "s") + " older than " + j.older_than_days + " days" + (j.kept_for_deposit ? " · kept " + j.kept_for_deposit + " with a deposit" : "") });
+      loadData();
+    } catch (e) { setMsg({ type: "error", text: "Couldn't expire follow-ups — " + e.message }); }
+  };
+
   var markFollowUpDone = async function(id, notes) { await af("/api/dialpad/appointments",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"update",id:id,follow_up_notes:"pending_verification|"+(notes||"Called back")+"|"+new Date().toISOString()})}); loadData(); };
 
   // Verify follow-ups against Dialpad outbound call data
@@ -1307,7 +1323,20 @@ function StoreDashboard() {
                   {importing?"Importing...":"\uD83D\uDCE4 Import"}<input type="file" accept=".xlsx,.xls,.csv" onChange={handleImport} disabled={importing} style={{ display:"none" }} />
                 </label>
                 <button onClick={handleClearStore} style={{ padding:"7px 12px",borderRadius:6,border:"1px solid #F8717122",background:"transparent",color:"var(--red)",fontSize:11,cursor:"pointer" }}>Clear</button>
-                <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);setRepeatInfo(null);}} style={{ padding:"7px 14px",borderRadius:6,border:"none",background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:11,fontWeight:700,cursor:"pointer" }}>{showForm?"Cancel":"+ New"}</button>
+                {/* Booking starts at the price. An agent goes to the Price
+                    Book, where the quote, the discount reason, the turnaround
+                    and the part come with the appointment; a blank form
+                    captures none of those and produced 18 spellings of 8
+                    names. Managers and admins keep the blank form for fixing
+                    a row (Eric, 2026-09-26: "no option otherwise"). */}
+                {canBlankForm ? (
+                  <>
+                    <a href="/prices" style={{ padding:"7px 14px",borderRadius:6,background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:11,fontWeight:700,textDecoration:"none" }}>+ New</a>
+                    <button onClick={function(){setShowForm(!showForm);setEditingId(null);setForm(emptyForm);setMatchedCall(null);setRepeatInfo(null);}} title="Blank form — managers only" style={{ padding:"7px 12px",borderRadius:6,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:11,cursor:"pointer" }}>{showForm?"Cancel":"Blank"}</button>
+                  </>
+                ) : (
+                  <a href="/prices" style={{ padding:"7px 14px",borderRadius:6,background:"linear-gradient(135deg,var(--purple),var(--cyan))",color:"#FFF",fontSize:11,fontWeight:700,textDecoration:"none" }}>+ New</a>
+                )}
               </div>
             </div>
 
@@ -1317,7 +1346,7 @@ function StoreDashboard() {
             {msg && <div style={{ padding:"8px 14px",borderRadius:8,marginBottom:12,background:msg.type==="success"?"#4ADE8012":"#F8717112",border:"1px solid "+(msg.type==="success"?"#4ADE8033":"#F8717133"),color:msg.type==="success"?"var(--green)":"var(--red)",fontSize:12 }}>{msg.text}</div>}
 
             {/* New appointment form */}
-            {showForm && !editingId && (
+            {showForm && canBlankForm && !editingId && (
               <div style={{ background:"var(--bg-card)",borderRadius:12,padding:20,marginBottom:16,border:"1px solid #7B2FFF33" }}>
                 <div style={{ color:"var(--text-primary)",fontSize:13,fontWeight:700,marginBottom:12 }}>New Appointment</div>
                 {/* A repair booked from the Price Book carries the quote, the discount
@@ -1356,6 +1385,18 @@ function StoreDashboard() {
               {apptView === "followup" ? (
                 followUps.length > 0 ? (
                   <div>
+                    {(function() {
+                      var cut = new Date(); cut.setDate(cut.getDate() - 7);
+                      var cutS = cut.toISOString().slice(0, 10);
+                      var aged = followUps.filter(function(a) { return a.date_of_appt < cutS; }).length;
+                      if (!aged) return null;
+                      return (
+                        <div style={{ padding:"10px 18px",display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:"#FBBF2408",borderBottom:"1px solid #FBBF2422" }}>
+                          <span style={{ color:"var(--text-secondary)",fontSize:11 }}>{aged} of these are more than a week old — they close themselves overnight.</span>
+                          {canBlankForm && <button onClick={expireFollowUps} style={{ marginLeft:"auto",padding:"5px 12px",borderRadius:4,border:"1px solid var(--border)",background:"transparent",color:"var(--text-secondary)",fontSize:10,cursor:"pointer" }}>Close them now</button>}
+                        </div>
+                      );
+                    })()}
                     {/* Pending Verification section */}
                     {(function() {
                       var pendingVerify = followUps.filter(function(a) { return (a.follow_up_notes || "").startsWith("pending_verification"); });
@@ -1427,7 +1468,25 @@ function StoreDashboard() {
                             <span style={{ padding:"2px 8px",borderRadius:4,fontSize:10,fontWeight:700,background:sc+"22",color:sc }}>{st}</span>
                           </div>
                           <div style={{ color:"var(--text-body)",fontSize:13 }}>{a.reason}</div>
-                          <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:3 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}{a.appt_time?" at "+a.appt_time:""}{a.scheduled_by?" — "+a.scheduled_by:""}</div>
+                          {/* What the booking engine captured: the quote against the
+                              set price, the part and its deposit, the ticket it became. */}
+                          {(a.quoted_price!==null&&a.quoted_price!==undefined)||a.part_status||a.ticket_number ? (
+                            <div style={{ display:"flex",gap:8,flexWrap:"wrap",alignItems:"center",marginTop:4 }}>
+                              {a.quoted_price!==null&&a.quoted_price!==undefined&&(function(){
+                                var s=parseFloat(a.sheet_price),qp=parseFloat(a.quoted_price);
+                                var off=isFinite(s)&&isFinite(qp)?Math.round((s-qp)*100)/100:null;
+                                var tone=off===null?"var(--text-muted)":off>0.005?"var(--orange)":"var(--green)";
+                                return <span style={{ fontSize:11,color:tone,fontWeight:700 }}>
+                                  ${qp.toFixed(2)}{off===null?"":off>0.005?" · −$"+off.toFixed(2)+(a.quote_reason?" · "+a.quote_reason:""):" · at set price"}
+                                </span>;
+                              })()}
+                              {a.part_status&&<span style={{ fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase",padding:"2px 7px",borderRadius:4,background:a.part_status==="ordered"?"#F59E0B24":"var(--bg-card-inner)",color:a.part_status==="ordered"?"var(--orange)":"var(--text-muted)",border:"1px solid "+(a.part_status==="ordered"?"#F59E0B59":"var(--border)") }}>
+                                {a.part_status==="in_stock"?"part in stock":a.part_status==="ordered"?"part ordered"+(a.deposit_amount?" · $"+parseFloat(a.deposit_amount).toFixed(2):""):"part needed"}
+                              </span>}
+                              {a.ticket_number&&<a href={"https://cpr.repairq.io/ticket/"+a.ticket_number} target="_blank" rel="noreferrer" onClick={function(e){e.stopPropagation();}} style={{ fontSize:11,color:"var(--cyan)",textDecoration:"none" }}>#{a.ticket_number}</a>}
+                            </div>
+                          ) : null}
+                          <div style={{ color:"var(--text-secondary)",fontSize:11,marginTop:3 }}>{a.date_of_appt&&new Date(a.date_of_appt+"T12:00:00").toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})}{a.appt_time?" at "+a.appt_time:""}{a.scheduled_by?" — "+a.scheduled_by:""}{a.turnaround?" · "+a.turnaround:""}</div>
                         </div>
                         <div style={{ display:"flex",gap:4 }} onClick={function(e){e.stopPropagation();}}>
                           {pending && <><button onClick={function(){updateArrival(a.id,"Yes");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #4ADE8033",background:"transparent",color:"var(--green)",fontSize:10,fontWeight:600,cursor:"pointer" }}>Arrived</button><button onClick={function(){updateArrival(a.id,"No");}} style={{ padding:"5px 10px",borderRadius:4,border:"1px solid #F8717133",background:"transparent",color:"var(--red)",fontSize:10,fontWeight:600,cursor:"pointer" }}>No-Show</button></>}

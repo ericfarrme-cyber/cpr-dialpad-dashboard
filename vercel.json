@@ -23,6 +23,10 @@
     {
       "path": "/api/dialpad/appointments?action=link_tickets",
       "schedule": "30 11 * * *"
+    },
+    {
+      "path": "/api/dialpad/appointments?action=expire_followups",
+      "schedule": "40 11 * * *"
     }
   ],
   "functions": {

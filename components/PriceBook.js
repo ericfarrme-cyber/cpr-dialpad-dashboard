@@ -10,6 +10,7 @@ import { useAuth } from "@/components/AuthProvider";
 import { ThemeToggle } from "@/components/ThemeProvider";
 import { QUOTE_REASONS } from "@/lib/quote-reasons";
 import { resolveModel } from "@/lib/device-model";
+import { tokenize as tok, matchesQuery, aliasesFor } from "@/lib/price-search";
 
 var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Services" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
@@ -46,25 +47,6 @@ var deviceVariant = function(d) {
 };
 var whenStr = function(iso) { if (!iso) return ""; var d = new Date(iso); return d.toLocaleDateString(undefined, { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }); };
 var isLadder = function(tiers) { return tiers.length > 1 && tiers.every(function(t) { return /day/i.test(t.tier || ""); }); };
-var tok = function(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9+"\s.-]/g, " ").split(/\s+/).filter(Boolean); };
-
-// What agents actually type is shorthand — "ps5", "series x", "s23" — and the
-// sheet spells those out ("Play Station 5 (all models)"). Without these the
-// most common console search found nothing.
-var aliasesFor = function(canonical, device) {
-  var out = [];
-  var c = String(canonical || "");
-  var m;
-  if ((m = c.match(/^PlayStation (\d)/))) out.push("ps" + m[1], "playstation", "sony");
-  if ((m = c.match(/^Xbox Series ([XS])/))) out.push("series" + m[1].toLowerCase(), "xbox" + m[1].toLowerCase(), "microsoft");
-  if (/^Xbox/.test(c)) out.push("xbox", "microsoft");
-  if (/^Galaxy/.test(c)) out.push("samsung", "galaxy");
-  if (/^Nintendo/.test(c)) out.push("nintendo", "switch");
-  if (/^iPhone|^iPad|^MacBook|^iMac/.test(c)) out.push("apple");
-  if (/^Pixel/.test(c)) out.push("google", "pixel");
-  if (/macbook/i.test(device)) out.push("mac", "laptop");
-  return out;
-};
 
 // ── small pieces ─────────────────────────────────────────────────────────────
 function Chip({ active, onClick, children, tone }) {
@@ -487,7 +469,7 @@ var normalizeTurnaround = function(s) {
 var localYmd = function(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 var fmtPhone = function(s) { var d = String(s || "").replace(/\D/g, "").slice(-10); if (d.length < 4) return d; if (d.length < 7) return "(" + d.slice(0, 3) + ") " + d.slice(3); return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6); };
 
-function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services }) {
+function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, evidence }) {
   var today = localYmd(new Date());
   var tomorrow = (function() { var d = new Date(); d.setDate(d.getDate() + 1); return localYmd(d); })();
   var homeStore = viewer && viewer.store && BOOK_STORES.some(function(s) { return s[0] === viewer.store; }) ? viewer.store : "fishers";
@@ -534,6 +516,15 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
   // Who booked it. Defaults to the session's name — but stores share logins
   // ("General Access"), so the agent can put their own name on it.
   var [bookedBy, setBookedBy] = useState(viewer && viewer.name ? viewer.name : "");
+  // The part. Three states and a deposit — nothing more until there is data to
+  // justify more (Eric, 2026-09-26). Rows the sheet already flags as a part we
+  // don't stock open on "needed" so the question gets asked.
+  var partFlagged = !!(selRow && (selRow.solder_or_order || selRow.non_consigned_part || selRow.supplier_choice));
+  var [partStatus, setPartStatus] = useState("");
+  var [deposit, setDeposit] = useState("");
+  useEffect(function() { setPartStatus(""); setDeposit(""); }, [selKey]);
+  var depositNum = parseFloat(deposit);
+  var depositOk = partStatus !== "ordered" || (isFinite(depositNum) && depositNum > 0);
   var [roster, setRoster] = useState([]);
   useEffect(function() {
     var alive = true;
@@ -607,6 +598,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
     if (!f.date_of_appt) { setErr("Pick a date"); return; }
     if (!quotedOk) { setErr("Quoted price"); return; }
     if (needsReason && !reasonGiven) { setErr("A quote under the set price needs a reason"); return; }
+    if (!depositOk) { setErr("A part on order needs a deposit"); return; }
     setBusy(true);
     try {
       var reason = f.reason === "Other" ? f.reason_text.trim() : (f.reason + (f.reason_text.trim() ? " — " + f.reason_text.trim() : ""));
@@ -625,6 +617,8 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
           quote_reason: needsReason ? reason : null,
           call_id: call ? call.call_id : null,
           turnaround: turnaroundOut || null,
+          part_status: partStatus || null,
+          deposit_amount: partStatus === "ordered" ? depositNum : null,
           scheduled_by: bookedBy.trim() || (viewer && viewer.name ? viewer.name : ""),
         }),
       });
@@ -639,6 +633,22 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
   var label = { fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4, display: "block" };
   var chip = function(on) { return { padding: "6px 11px", borderRadius: 999, border: "1px solid " + (on ? "var(--purple)" : "var(--border)"), background: on ? "#7B2FFF1A" : "transparent", color: on ? "var(--purple)" : "var(--text-secondary)", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }; };
   var discTone = belowFloor ? "var(--red)" : needsReason ? "var(--orange)" : "var(--green)";
+  // Only worth saying when both arms have enough decided visits to mean
+  // anything; below 20 decided in total it says so out loud.
+  var ev = null;
+  if (evidence && evidence.at_sheet && evidence.discounted && evidence.at_sheet.decided >= 3 && evidence.discounted.decided >= 3) {
+    var sRate = evidence.at_sheet.showed / evidence.at_sheet.decided;
+    var dRate = evidence.discounted.showed / evidence.discounted.decided;
+    ev = {
+      s: evidence.at_sheet, d: evidence.discounted,
+      early: evidence.at_sheet.decided + evidence.discounted.decided < 20,
+      // The headline is read off the numbers, not assumed. Today discounting
+      // shows up less; if that ever flips, the panel says so.
+      lead: dRate < sRate - 0.05 ? "Discounted quotes have shown up less often, not more."
+        : dRate > sRate + 0.05 ? "Discounted quotes have shown up more often here."
+        : "Discounting hasn't changed whether they show up.",
+    };
+  }
 
   return (
     <>
@@ -711,6 +721,25 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
               })}
           </div>
         )}
+        {/* What discounting has actually done. Counts, not percentages — the
+            sample is a few dozen decided visits, and a percentage would sound
+            surer than it is. States the record; it doesn't block the booking. */}
+        {needsReason && ev && (
+          <div style={{ display: "flex", gap: 12, alignItems: "center", padding: "10px 12px", borderRadius: 10, border: "1px solid #F59E0B73", background: "#F59E0B1A", animation: "pbExpand .2s ease both" }}>
+            <div style={{ textAlign: "center", paddingRight: 11, borderRight: "1px solid #F59E0B59" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--orange)", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{ev.d.showed}/{ev.d.decided}</div>
+              <div style={{ fontSize: 8.5, color: "var(--text-muted)", letterSpacing: "0.05em", fontWeight: 700 }}>DISCOUNTED</div>
+            </div>
+            <div style={{ textAlign: "center", paddingRight: 4 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: "var(--green)", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>{ev.s.showed}/{ev.s.decided}</div>
+              <div style={{ fontSize: 8.5, color: "var(--text-muted)", letterSpacing: "0.05em", fontWeight: 700 }}>AT SET PRICE</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--text-body)", lineHeight: 1.45, flex: 1 }}>
+              <strong style={{ color: "var(--text-primary)" }}>{ev.lead}</strong>{" "}
+              {ev.s.showed} of {ev.s.decided} quoted at the set price came in; {ev.d.showed} of {ev.d.decided} discounted ones did.{ev.early ? " Early — " + (ev.s.decided + ev.d.decided) + " decided so far." : ""}
+            </div>
+          </div>
+        )}
         {needsReason && (
           <div style={{ animation: "pbExpand .2s ease both" }}>
             <label style={label}>Why under the set price?</label>
@@ -772,6 +801,36 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services })
             <button onClick={function() { setTat(tat === "custom" ? "" : "custom"); }} style={chip(tat === "custom")}>Other…</button>
           </div>
           {tat === "custom" && <input value={tatCustom} onChange={function(e) { setTatCustom(e.target.value); }} placeholder="e.g. 7–10 days, part on order" style={Object.assign({}, input, { marginTop: 8 })} autoFocus />}
+        </div>
+
+        {/* the part — a check mark and, when it's ordered, the deposit */}
+        <div style={{ padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid " + (partStatus === "ordered" ? "var(--orange)" : "var(--border-light)") }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-primary)" }}>Part</span>
+            {[["needed", "Needed"], ["ordered", "Ordered ✓"], ["in_stock", "In stock"]].map(function(p) {
+              var on = partStatus === p[0];
+              return <button key={p[0]} onClick={function() { setPartStatus(on ? "" : p[0]); }}
+                style={Object.assign({}, chip(on), on && p[0] === "ordered" ? { borderColor: "var(--orange)", color: "var(--orange)", background: "#F59E0B1A" } : {})}>{p[1]}</button>;
+            })}
+            {partStatus === "ordered" && (
+              <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Deposit</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 2, border: "1.5px solid " + (depositOk ? "var(--orange)" : "var(--red)"), borderRadius: 8, padding: "3px 9px", background: "var(--bg-input)" }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
+                  <input value={deposit} onChange={function(e) { setDeposit(e.target.value); }} inputMode="decimal" aria-label="Deposit taken" autoFocus
+                    style={{ width: 62, fontSize: 13, fontWeight: 800, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
+                </span>
+              </label>
+            )}
+          </div>
+          {partStatus === "" && partFlagged && (
+            <div style={{ fontSize: 10.5, color: "var(--orange)", marginTop: 6 }}>The sheet flags this one as a part we order — say where it stands.</div>
+          )}
+          {partStatus === "ordered" && (
+            <div style={{ fontSize: 10.5, color: depositOk ? "var(--text-muted)" : "var(--red)", marginTop: 6 }}>
+              {depositOk ? "Taken today and owed against the repair." : "A part on order takes a deposit — every time."}
+            </div>
+          )}
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -1032,10 +1091,37 @@ export default function PriceBook() {
     return rows.filter(function(r) {
       if (family !== "all" && r.family !== family) return false;
       if (!terms.length) return true;
-      var hay = tok([r.device, r.model_group, r.repair, r.tier, r.family, r.canonical_model].join(" ")).concat(aliasesFor(r.canonical_model, r.device));
-      return terms.every(function(t) { return hay.some(function(h) { return h.indexOf(t) >= 0; }); });
+      var hay = tok([r.device, r.model_group, r.repair, r.tier, r.family, r.canonical_model, r.canonical_repair].join(" ")).concat(aliasesFor(r.canonical_model, r.device));
+      return matchesQuery(hay, terms);
     });
   }, [rows, q, family]);
+
+  // Services the register prices but the sheet doesn't list. Typing "diag" or
+  // "dt" used to find nothing at all; now it says what the register rings and
+  // where to book it, because a service attaches to a device.
+  var serviceHits = useMemo(function() {
+    var terms = tok(q);
+    if (!terms.length || !data || !data.services || !data.services.overall) return [];
+    return data.services.overall.filter(function(s) {
+      if (s.type === "Other repair") return false;
+      return matchesQuery(tok(s.type), terms);
+    });
+  }, [q, data]);
+
+  // What someone looked for and didn't find. Fire and forget, once the typing
+  // has stopped — never in the way of the search itself.
+  var missedRef = useRef({});
+  useEffect(function() {
+    var term = q.trim();
+    if (!data || term.length < 3 || filtered.length > 0 || serviceHits.length > 0) return;
+    if (missedRef.current[term.toLowerCase()]) return;
+    var t = setTimeout(function() {
+      missedRef.current[term.toLowerCase()] = 1;
+      var f = auth && auth.authFetch ? auth.authFetch : fetch;
+      f("/api/dialpad/price-book", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "search_miss", q: term }) }).catch(function() {});
+    }, 1400);
+    return function() { clearTimeout(t); };
+  }, [q, filtered.length, serviceHits.length, data, auth]);
 
   // Newest model first inside each line (Matt, 2026-09-21). Sheet order had
   // gone ragged once devices were added from a template — each new model sits
@@ -1224,6 +1310,22 @@ export default function PriceBook() {
           })}
           {data && <span style={{ marginLeft: "auto", fontSize: 10.5, color: "var(--text-muted)" }}>{devices.length} device{devices.length === 1 ? "" : "s"} · acceptance from the last {data.window_months} months</span>}
         </div>
+
+        {/* a service the sheet doesn't list — priced from what the register rings */}
+        {serviceHits.length > 0 && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", marginBottom: 14, borderRadius: 10, border: "1px solid var(--cyan)", background: "#00D4FF0D", fontSize: 12, animation: "pbExpand .22s ease both" }}>
+            {serviceHits.map(function(s) {
+              return (
+                <span key={s.type} style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+                  <strong style={{ color: "var(--cyan)", fontSize: 12.5 }}>{s.type}</strong>
+                  <span style={{ color: "var(--text-primary)", fontWeight: 800, fontVariantNumeric: "tabular-nums" }}>{s.price === null ? "no usual price" : money(s.price)}</span>
+                  <span style={{ color: "var(--text-muted)", fontSize: 10.5 }}>rung {s.sold}×{s.price !== null ? " · " + Math.round(s.share) + "% at that price" : ""}</span>
+                </span>
+              );
+            })}
+            <span style={{ color: "var(--text-muted)", fontSize: 10.5, marginLeft: "auto" }}>Not on the sheet — find the device, then pick it in the booking panel.</span>
+          </div>
+        )}
 
         {error && <div style={{ padding: 18, borderRadius: 12, border: "1px solid var(--red)", color: "var(--red)", fontSize: 13, marginBottom: 14 }}>Couldn&apos;t load the price book — {error}</div>}
         {!data && !error && <div style={{ padding: 50, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading prices…</div>}
@@ -1465,6 +1567,7 @@ export default function PriceBook() {
         <BookPanel row={booking} viewer={auth && auth.userInfo ? auth.userInfo : null} af={auth && auth.authFetch ? auth.authFetch : fetch}
           deviceRows={(data ? data.rows : []).filter(function(r) { return r.device === booking.device && r.active !== false; })}
           services={data && data.services ? data.services : null}
+          evidence={data ? data.quote_evidence : null}
           onClose={function() { setBooking(null); }}
           onBooked={function(a) { setBooking(null); setToast({ tone: "var(--green)", text: "Booked · " + (a.customer_name || "") + " · " + a.date_of_appt + (a.appt_time ? " at " + a.appt_time : "") + " · " + a.store }); }} />
       )}

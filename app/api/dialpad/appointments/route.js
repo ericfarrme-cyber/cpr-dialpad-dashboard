@@ -7,6 +7,7 @@ function json(data, status) { return NextResponse.json(data, { status: status ||
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
 
 function normPhone(p) { return p ? String(p).replace(/\D/g, "").slice(-10) : ""; }
+function num2(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
 
 export async function GET(request) {
   if (!supabase) return json({ success: false, error: "Supabase not configured" });
@@ -135,10 +136,14 @@ export async function GET(request) {
       var gateL = await requireAuth(request, { requiredRoles: ["admin"] });
       if (!gateL.authorized) return gateL.response;
     }
-    var LINK_DAYS = 14;
+    // 14 days was too short. A job whose part had to be ordered closes weeks
+    // after the visit, so those appointments never found their ticket; 30 days
+    // generally, 45 when the booking says a part was on order.
+    var LINK_DAYS = 30;
+    var LINK_DAYS_PART = 45;
     var sinceA = new Date(); sinceA.setUTCDate(sinceA.getUTCDate() - 120);
     var { data: open, error: oErr } = await supabase.from("appointments")
-      .select("id,customer_phone,date_of_appt,ticket_number")
+      .select("id,customer_phone,date_of_appt,ticket_number,part_status")
       .gte("date_of_appt", sinceA.toISOString().slice(0, 10))
       .or("ticket_number.is.null,ticket_number.eq.")
       .not("customer_phone", "is", null).neq("customer_phone", "")
@@ -164,7 +169,8 @@ export async function GET(request) {
       var a = open[i];
       var cands = byPhone[normPhone(a.customer_phone)];
       if (!cands || !a.date_of_appt) continue;
-      var end = new Date(a.date_of_appt + "T00:00:00Z"); end.setUTCDate(end.getUTCDate() + LINK_DAYS);
+      var span = a.part_status === "ordered" ? LINK_DAYS_PART : LINK_DAYS;
+      var end = new Date(a.date_of_appt + "T00:00:00Z"); end.setUTCDate(end.getUTCDate() + span);
       var endS = end.toISOString().slice(0, 10);
       var hit = cands.filter(function(c) { return c.closed >= a.date_of_appt && c.closed <= endS; }).sort(function(x, y) { return x.closed < y.closed ? -1 : 1; })[0];
       if (!hit) continue;
@@ -172,7 +178,47 @@ export async function GET(request) {
       if (uErr) failures.push({ id: a.id, error: uErr.message }); else linked++;
     }
     if (failures.length) console.error("[appointments] link_tickets partial failure:", JSON.stringify(failures.slice(0, 5)));
-    return json({ success: failures.length === 0, examined: examined, linked: linked, failed: failures.length, window_days: LINK_DAYS });
+    return json({ success: failures.length === 0, examined: examined, linked: linked, failed: failures.length, window_days: LINK_DAYS, window_days_part: LINK_DAYS_PART });
+  }
+
+  // ── follow-ups close themselves after a week ─────────────────────────────
+  // Eric, 2026-09-26: "The appointments needed follow-up can fall off after a
+  // week … If they no-showed and we moved on, it's almost more work to call
+  // them back." The list had grown to 227, of which 218 were already older
+  // than a week, and a list nobody can finish is a list nobody reads.
+  // Expired, not deleted: follow_up_done is set and the note says why, so the
+  // no-show itself and anyone who did call back are still on the record.
+  // A booking that took a deposit is never expired — that is money owed.
+  if (action === "expire_followups") {
+    var cronSecretF = process.env.CRON_SECRET;
+    var authzF = request.headers.get("authorization") || "";
+    var viaCronF = !!cronSecretF && authzF === "Bearer " + cronSecretF;
+    if (!viaCronF) {
+      var gateF = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
+      if (!gateF.authorized) return gateF.response;
+    }
+    var FOLLOWUP_DAYS = 7;
+    var cutF = new Date(); cutF.setDate(cutF.getDate() - FOLLOWUP_DAYS);
+    var cutS = cutF.toISOString().slice(0, 10);
+    var dryF = searchParams.get("dry") === "1";
+    var { data: stale, error: sErr } = await supabase.from("appointments")
+      .select("id,date_of_appt,part_status,deposit_amount,follow_up_notes")
+      .eq("follow_up_needed", true).or("follow_up_done.is.null,follow_up_done.eq.false")
+      .lt("date_of_appt", cutS).limit(5000);
+    if (sErr) return json({ success: false, error: sErr.message }, 500);
+    var owesMoney = function(a) { return a.part_status === "ordered" || num2(a.deposit_amount) > 0; };
+    var keep = (stale || []).filter(owesMoney);
+    var drop = (stale || []).filter(function(a) { return !owesMoney(a); });
+    if (dryF) return json({ success: true, dry_run: true, older_than_days: FOLLOWUP_DAYS, would_expire: drop.length, kept_for_deposit: keep.length });
+    var expired = 0, expErrs = [];
+    for (var k = 0; k < drop.length; k++) {
+      var note = "expired|" + (String(drop[k].follow_up_notes || "").split("|")[1] || "no callback made") + "|" + new Date().toISOString();
+      var { error: eErr } = await supabase.from("appointments")
+        .update({ follow_up_done: true, follow_up_notes: note, updated_at: new Date().toISOString() }).eq("id", drop[k].id);
+      if (eErr) expErrs.push(eErr.message); else expired++;
+    }
+    if (expErrs.length) console.error("[appointments] expire_followups partial failure:", JSON.stringify(expErrs.slice(0, 5)));
+    return json({ success: expErrs.length === 0, older_than_days: FOLLOWUP_DAYS, expired: expired, kept_for_deposit: keep.length, failed: expErrs.length });
   }
 
   // Check if a phone number has a recent call audit
@@ -191,6 +237,11 @@ export async function GET(request) {
 }
 
 function moneyNum(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(n) ? Math.round(n * 100) / 100 : null; }
+
+// A part is either already on the shelf, needs ordering, or has been ordered.
+// Only the last one takes money, and it always takes money (Eric, 2026-09-26).
+var PART_STATES = ["needed", "ordered", "in_stock"];
+function partStatus(v) { var s = String(v || "").toLowerCase().trim(); return PART_STATES.indexOf(s) >= 0 ? s : null; }
 
 export async function POST(request) {
   if (!supabase) return json({ success: false, error: "Supabase not configured" });
@@ -224,6 +275,18 @@ export async function POST(request) {
       source: fromBook ? "price_book" : "manual",
       booked_by_email: who.email || null,
     };
+    // The part, on any booking. "Ordered" is the only state that costs the
+    // customer something, and the deposit is not optional there — a part order
+    // with no deposit is the thing we could never see before.
+    var pStat = partStatus(body.part_status);
+    if (pStat) {
+      var dep = moneyNum(body.deposit_amount);
+      if (pStat === "ordered" && (dep === null || dep <= 0)) {
+        return json({ success: false, error: "A part on order needs a deposit" }, 400);
+      }
+      record.part_status = pStat;
+      record.deposit_amount = pStat === "ordered" ? dep : null;
+    }
     if (fromBook) {
       // Structured quote: the row it came from, the sheet and floor at that
       // moment, what was actually said, and why if it was under the sheet.
@@ -260,6 +323,15 @@ export async function POST(request) {
     ["customer_name", "customer_phone", "date_set", "date_of_appt", "appt_time", "reason", "price_quoted", "scheduled_by", "did_arrive", "notes", "follow_up_needed", "follow_up_done", "follow_up_notes", "store"].forEach(function(k) {
       if (body[k] !== undefined) updates[k] = k === "customer_phone" ? normPhone(body[k]) : body[k];
     });
+    if (body.part_status !== undefined) {
+      var uStat = partStatus(body.part_status);
+      var uDep = moneyNum(body.deposit_amount);
+      if (uStat === "ordered" && (uDep === null || uDep <= 0)) return json({ success: false, error: "A part on order needs a deposit" }, 400);
+      updates.part_status = uStat;
+      updates.deposit_amount = uStat === "ordered" ? uDep : null;
+    } else if (body.deposit_amount !== undefined) {
+      updates.deposit_amount = moneyNum(body.deposit_amount);
+    }
     // Auto-set follow_up_needed if marking no-show
     if (updates.did_arrive && updates.did_arrive.toLowerCase().includes("no")) {
       updates.follow_up_needed = true;
