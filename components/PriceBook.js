@@ -531,9 +531,9 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
   useEffect(function() { setPartStatus(""); setDeposit(""); setDepositTouched(false); }, [selKey]);
   var depositNum = parseFloat(deposit);
   var depositOk = partStatus !== "ordered" || (isFinite(depositNum) && depositNum > 0);
-  // Eric, 2026-09-27: part price, or half the repair, whichever is more.
-  // "Repair" is what the customer was quoted, so a discount moves the deposit
-  // with it. Recomputes as the quote changes until the agent types over it.
+  // Eric, 2026-09-27: half the repair, flat. "Repair" is what the customer was
+  // quoted, so a discount moves the deposit with it. Recomputes as the quote
+  // changes until the agent types over it.
   var depSuggest = suggestDeposit(f.quoted, selRow ? selRow.part_price : null);
   useEffect(function() {
     if (partStatus !== "ordered" || depositTouched) return;
@@ -845,10 +845,9 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
             <div style={{ fontSize: 10.5, color: !depositOk ? "var(--red)" : underSuggest ? "var(--orange)" : "var(--text-muted)", marginTop: 6 }}>
               {!depositOk ? "A part on order takes a deposit — every time."
                 : !depSuggest ? "Taken today and owed against the repair."
-                : underSuggest ? "Under the " + money(depSuggest.amount) + " rule — it will book, and it will be counted."
-                : (depSuggest.basis === "part" ? "The part costs " + money(depSuggest.part) + ", more than half the repair." : "Half of " + money(quotedNum) + ".")
-                  + (depSuggest.capped ? " Capped at the quote — the sheet's part cost is higher than the repair." : "")
-                  + " Taken today and owed against it."}
+                : underSuggest ? "Under half of " + money(quotedNum) + " — it will book, and it will be counted."
+                : "Half of " + money(quotedNum) + ", taken today and owed against it."
+                  + (depSuggest.under_part && partFlagged ? " The part costs " + money(depSuggest.part) + " and we order it in — worth asking for more." : "")}
             </div>
           )}
         </div>
