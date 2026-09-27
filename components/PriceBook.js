@@ -11,6 +11,7 @@ import { ThemeToggle } from "@/components/ThemeProvider";
 import { QUOTE_REASONS } from "@/lib/quote-reasons";
 import { resolveModel } from "@/lib/device-model";
 import { tokenize as tok, matchesQuery, aliasesFor } from "@/lib/price-search";
+import { suggestDeposit } from "@/lib/deposit";
 
 var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Services" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
@@ -519,12 +520,26 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
   // The part. Three states and a deposit — nothing more until there is data to
   // justify more (Eric, 2026-09-26). Rows the sheet already flags as a part we
   // don't stock open on "needed" so the question gets asked.
-  var partFlagged = !!(selRow && (selRow.solder_or_order || selRow.non_consigned_part || selRow.supplier_choice));
+  // `flags` is a text[] on the row — 39 rows non_consigned_part (every Samsung
+  // screen), 15 supplier_choice, 12 solder_or_order.
+  var partFlagged = !!(selRow && (selRow.flags || []).some(function(fl) {
+    return fl === "non_consigned_part" || fl === "supplier_choice" || fl === "solder_or_order";
+  }));
   var [partStatus, setPartStatus] = useState("");
   var [deposit, setDeposit] = useState("");
-  useEffect(function() { setPartStatus(""); setDeposit(""); }, [selKey]);
+  var [depositTouched, setDepositTouched] = useState(false);
+  useEffect(function() { setPartStatus(""); setDeposit(""); setDepositTouched(false); }, [selKey]);
   var depositNum = parseFloat(deposit);
   var depositOk = partStatus !== "ordered" || (isFinite(depositNum) && depositNum > 0);
+  // Eric, 2026-09-27: part price, or half the repair, whichever is more.
+  // "Repair" is what the customer was quoted, so a discount moves the deposit
+  // with it. Recomputes as the quote changes until the agent types over it.
+  var depSuggest = suggestDeposit(f.quoted, selRow ? selRow.part_price : null);
+  useEffect(function() {
+    if (partStatus !== "ordered" || depositTouched) return;
+    setDeposit(depSuggest ? depSuggest.amount.toFixed(2) : "");
+  }, [partStatus, depositTouched, depSuggest && depSuggest.amount]); // eslint-disable-line react-hooks/exhaustive-deps
+  var underSuggest = depSuggest && isFinite(depositNum) && depositNum > 0 && depositNum < depSuggest.amount - 0.005;
   var [roster, setRoster] = useState([]);
   useEffect(function() {
     var alive = true;
@@ -817,7 +832,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
                 <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Deposit</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 2, border: "1.5px solid " + (depositOk ? "var(--orange)" : "var(--red)"), borderRadius: 8, padding: "3px 9px", background: "var(--bg-input)" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
-                  <input value={deposit} onChange={function(e) { setDeposit(e.target.value); }} inputMode="decimal" aria-label="Deposit taken" autoFocus
+                  <input value={deposit} onChange={function(e) { setDepositTouched(true); setDeposit(e.target.value); }} onFocus={function(e) { e.target.select(); }} inputMode="decimal" aria-label="Deposit taken" autoFocus
                     style={{ width: 62, fontSize: 13, fontWeight: 800, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
                 </span>
               </label>
@@ -827,8 +842,13 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
             <div style={{ fontSize: 10.5, color: "var(--orange)", marginTop: 6 }}>The sheet flags this one as a part we order — say where it stands.</div>
           )}
           {partStatus === "ordered" && (
-            <div style={{ fontSize: 10.5, color: depositOk ? "var(--text-muted)" : "var(--red)", marginTop: 6 }}>
-              {depositOk ? "Taken today and owed against the repair." : "A part on order takes a deposit — every time."}
+            <div style={{ fontSize: 10.5, color: !depositOk ? "var(--red)" : underSuggest ? "var(--orange)" : "var(--text-muted)", marginTop: 6 }}>
+              {!depositOk ? "A part on order takes a deposit — every time."
+                : !depSuggest ? "Taken today and owed against the repair."
+                : underSuggest ? "Under the " + money(depSuggest.amount) + " rule — it will book, and it will be counted."
+                : (depSuggest.basis === "part" ? "The part costs " + money(depSuggest.part) + ", more than half the repair." : "Half of " + money(quotedNum) + ".")
+                  + (depSuggest.capped ? " Capped at the quote — the sheet's part cost is higher than the repair." : "")
+                  + " Taken today and owed against it."}
             </div>
           )}
         </div>
