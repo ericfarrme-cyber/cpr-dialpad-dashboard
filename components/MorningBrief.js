@@ -148,6 +148,8 @@ export default function MorningBrief() {
       fetch("/api/dialpad/discounts?date=" + yKey).then(function (r) { return r.json(); }),
       fetch("/api/dialpad/appointments?action=book_source&days=7").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/store-hours?days=21").then(function (r) { return r.json(); }),
+      // Admins only (Eric, Matt) — 403 for anyone else, handled below.
+      af("/api/dialpad/price-book?action=sheet_health&months=6").then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -202,6 +204,11 @@ export default function MorningBrief() {
       // afterwards Dialpad cannot retag the calls and the missed ones count.
       var sh = res[6].status === "fulfilled" ? res[6].value : null;
       out.storeHours = sh && sh.success ? sh : null;
+
+      // What the register sells that the sheet doesn't offer, and where the
+      // sheet's own part cost is above the price. Silent for non-admins.
+      var hb = res[7].status === "fulfilled" ? res[7].value : null;
+      out.sheetHealth = hb && hb.success ? hb.sheet_health : null;
 
       setState(out);
     });
@@ -438,6 +445,57 @@ export default function MorningBrief() {
                 </div>
               )}
               {state.discounts.lines.length === 0 && <div style={{ marginTop: 8, color: GREEN, fontSize: 12 }}>Nothing rung under list yesterday.</div>}
+            </div>
+          )}
+
+          {/* the price sheet's own gaps — only worth showing when there are any */}
+          {state.sheetHealth && (state.sheetHealth.missing_repairs.length > 0 || state.sheetHealth.part_over_price.length > 0) && (
+            <div style={{ background: RAISED, border: "1px solid " + LINE, borderRadius: 11, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".11em", textTransform: "uppercase", color: MUTED, marginBottom: 9 }}>
+                Price sheet · needs a look
+              </div>
+
+              {state.sheetHealth.missing_repairs.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11.5, color: INK2, marginBottom: 5 }}>
+                    The register sold {state.sheetHealth.missing_repairs.length === 1 ? "a repair" : state.sheetHealth.missing_repairs.length + " repairs"} the sheet doesn&apos;t offer — an agent quoting {state.sheetHealth.missing_repairs.length === 1 ? "it" : "these"} has nothing to read.
+                  </div>
+                  {state.sheetHealth.missing_repairs.slice(0, 6).map(function (r) {
+                    return (
+                      <div key={r.model + "|" + r.repair} className="mb-row" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 6px", margin: "0 -6px", borderRadius: 6, fontSize: 12, flexWrap: "wrap" }}>
+                        <span style={{ color: INK, flex: "1 1 220px" }}>{r.device} · {r.repair}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED, whiteSpace: "nowrap" }}>{r.jobs} sold · {state.sheetHealth.window_months} mo</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, color: r.pos_list === null ? MUTED : GOLD, whiteSpace: "nowrap" }}>
+                          {r.pos_list === null ? "no usual price" : "rings " + money(r.pos_list)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {state.sheetHealth.missing_repairs.length > 6 && (
+                    <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>+{state.sheetHealth.missing_repairs.length - 6} more</div>
+                  )}
+                </div>
+              )}
+
+              {state.sheetHealth.part_over_price.length > 0 && (
+                <div style={{ marginTop: state.sheetHealth.missing_repairs.length > 0 ? 11 : 0, paddingTop: state.sheetHealth.missing_repairs.length > 0 ? 9 : 0, borderTop: state.sheetHealth.missing_repairs.length > 0 ? "1px solid " + LINE : "none" }}>
+                  <div style={{ fontSize: 11.5, color: INK2, marginBottom: 5 }}>
+                    {state.sheetHealth.part_over_price.length === 1 ? "One row prices" : state.sheetHealth.part_over_price.length + " rows price"} the part above the repair — stale part costs, so the sheet&apos;s own margin reads negative.
+                  </div>
+                  {state.sheetHealth.part_over_price.map(function (r) {
+                    return (
+                      <div key={r.id} className="mb-row" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 6px", margin: "0 -6px", borderRadius: 6, fontSize: 12, flexWrap: "wrap" }}>
+                        <span style={{ color: INK, flex: "1 1 220px" }}>{r.device} · {r.repair}{r.tier ? " · " + r.tier : ""}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, whiteSpace: "nowrap", color: MUTED }}>
+                          charge <b style={{ color: INK }}>{money(r.set_price)}</b> · part <b style={{ color: RED }}>{money(r.part_price)}</b>
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <a href="/prices" style={{ display: "inline-block", marginTop: 10, fontFamily: MONO, fontSize: 11, color: CYAN, textDecoration: "none" }}>Open the Price Book →</a>
             </div>
           )}
 

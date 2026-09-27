@@ -350,6 +350,51 @@ export async function GET(request) {
       return { model: m.model, family: m.family, jobs: m.jobs, lines: m.lines, suggested_name: name, template: tpl ? tpl.device : null, recommended: recommended.concat(extras) };
     }).sort(function(a, b) { return b.jobs - a.jobs; });
 
+    // ── two things wrong with the sheet, surfaced instead of stumbled on ────
+    // The reconcile panel answers "does the sheet quote what the register
+    // rings". These are the other two questions: what does the register sell
+    // that the sheet doesn't offer at all, and where does the sheet's own part
+    // cost exceed the price we charge. Both were found by accident — the
+    // missing iPhone 16 Battery rows while testing search, the upside-down
+    // part costs while setting the deposit rule — so they go on the brief.
+    var sheetRepairs = {};
+    rows.forEach(function(r) {
+      if (r.active === false || !r.canonical_model) return;
+      var cr = r.canonical_repair || (classifyCatalogItem(r.repair) || {}).type;
+      if (cr) sheetRepairs[r.canonical_model + "|" + cr] = true;
+    });
+    var missingRepairs = [];
+    Object.keys(actuals).forEach(function(k) {
+      var parts = k.split("|");
+      var model = parts[0], repair = parts[1];
+      // A model the sheet has never heard of is missingModels' problem, not
+      // this one — otherwise every repair of it would be listed here too.
+      if (!sheetModels[model] || GENERIC_TYPES[repair] || sheetRepairs[k]) return;
+      var s = summarise(actuals[k]["_any"]);
+      if (!s || s.sold < 3) return;
+      missingRepairs.push({
+        model: model, device: deviceByCanonical[model] || model, repair: repair,
+        jobs: s.sold, pos_list: s.pos_list, pos_list_share: s.pos_list_share,
+      });
+    });
+    missingRepairs.sort(function(a, b) { return b.jobs - a.jobs; });
+
+    // A part that costs more than the repair is a stale part cost, not a real
+    // one. They no longer drive the deposit, but they are still wrong, and
+    // they are the rows where the sheet's own margin reads as negative.
+    var partOverPrice = rows.filter(function(r) {
+      return r.active !== false && num(r.part_price) !== null && num(r.set_price) !== null && num(r.part_price) > num(r.set_price);
+    }).map(function(r) {
+      return { id: r.id, device: r.device, repair: r.repair, tier: r.tier, set_price: num(r.set_price), part_price: num(r.part_price) };
+    }).sort(function(a, b) { return (b.part_price - b.set_price) - (a.part_price - a.set_price); });
+
+    var sheetHealth = { window_months: months, missing_repairs: missingRepairs, part_over_price: partOverPrice };
+    // Small enough for the morning brief to ask for on its own.
+    if (action === "sheet_health") {
+      if (!isAdmin) return NextResponse.json({ success: false, error: "Admins only" }, { status: 403 });
+      return NextResponse.json({ success: true, sheet_health: sheetHealth });
+    }
+
     // ── quotes booked from this book, this calendar month, per row ──────────
     // "3 of 4 booked at full price" — the pre-sale half of the acceptance line.
     var monthStart = new Date().toISOString().slice(0, 7) + "-01";
@@ -402,6 +447,7 @@ export async function GET(request) {
       missing_models: isAdmin ? missingModels : [],
       services: { types: SERVICE_TYPES, models: servicesByModel, families: servicesByFamily, overall: servicesOverall },
       quote_evidence: ev,
+      sheet_health: isAdmin ? sheetHealth : null,
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
