@@ -1245,7 +1245,7 @@ export default function DialpadDashboard() {
       <div style={{ padding:28,maxWidth:1600,margin:"0 auto",width:"100%" }}>
         <DataBanner isLive={isLive} isLoading={isLoading} isStored={isStored} lastSync={lastSync} onRefresh={loadStoredData} onLiveRefresh={loadLiveData} />
         {/* Yesterday at a glance, above whatever tab is open. Managers only. */}
-        {!isPreviewing && (auth && (auth.role === "admin" || auth.role === "manager")) && <MorningBrief />}
+        {!isPreviewing && (auth && (auth.role === "admin" || auth.role === "manager")) && <MorningBrief onGoProfitability={function(){setActiveTab("profitability");}} />}
         {activeTab==="scorecard" && <ScorecardTab storeFilter={storeFilter} viewAs={effectiveRole} viewEmployee={previewEmployee} />}
         {activeTab==="overview" && <CallPerformanceTab storeFilter={storeFilter} overviewStats={overviewStats} dailyCalls={dailyCalls} hourlyMissed={hourlyMissed} dowData={dowData} callbackData={callbackData} />}
         {activeTab==="audit" && <AuditTab rawCallData={rawCallData} storeFilter={storeFilter} />}

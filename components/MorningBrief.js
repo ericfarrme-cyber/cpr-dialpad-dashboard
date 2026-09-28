@@ -109,7 +109,7 @@ function HolidayHoursPrompt({ holiday, onSaved, saved, af }) {
   );
 }
 
-export default function MorningBrief() {
+export default function MorningBrief({ onGoProfitability }) {
   var [state, setState] = useState({ loading: true });
   var [open, setOpen] = useState(true);
   var [allDiscounts, setAllDiscounts] = useState(false);
@@ -538,8 +538,12 @@ export default function MorningBrief() {
               No {state.missing.join(" or ")} data for {dayName} — those figures are blank rather than zero.
             </div>
           )}
+          {/* Shrinkage is a month-end figure, not a daily one — it only exists
+              once the inventory report has been reconciled into that month's
+              P&L. The brief says where it stands rather than showing a zero. */}
           <div style={{ marginTop: 10, fontSize: 11, color: MUTED }}>
-            Shrinkage MTD isn’t here yet — the inventory import hasn’t been built.
+            Shrinkage and damage land at month end — import the RepairQ inventory report on the{" "}
+            <a href="#" onClick={function (e) { e.preventDefault(); if (onGoProfitability) onGoProfitability(); }} style={{ color: CYAN, textDecoration: "none" }}>Profitability tab</a>.
           </div>
         </div>
       )}
