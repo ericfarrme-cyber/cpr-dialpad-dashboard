@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { STORES } from "@/lib/constants";
+import { useAuth } from "@/components/AuthProvider";
 import ProfitabilityTrend from "@/components/ProfitabilityTrend";
 
 var STORE_KEYS = Object.keys(STORES);
@@ -641,7 +642,11 @@ export default function ProfitabilityTab() {
       {/* Edit form */}
       {editStore && (
         <StoreForm store={editStore} data={records[editStore] || {}} period={period}
-          onSave={function(data) { saveStore(editStore, data); }} saving={saving} />
+          onSave={function(data) { saveStore(editStore, data); }} saving={saving}
+          /* One inventory report covers all three stores, so the import can fill
+             a store other than the one being edited — merged into that store's
+             saved record rather than replacing it. */
+          onSaveControllables={function(st, vals) { saveStore(st, Object.assign({}, records[st] || {}, vals)); }} />
       )}
 
       {editStore && (
@@ -774,11 +779,19 @@ export default function ProfitabilityTab() {
 }
 
 // ═══ STORE ENTRY FORM ═══
-function StoreForm({ store, data, period, onSave, saving }) {
+function StoreForm({ store, data, period, onSave, saving, onSaveControllables }) {
+  var auth = useAuth();
+  // The extract route is manager-gated, so this one carries the session.
+  var authFetch = auth && auth.authFetch ? auth.authFetch : fetch;
   var [form, setForm] = useState({});
   var [extracting, setExtracting] = useState(false);
   var [extractMsg, setExtractMsg] = useState(null);
   var [extractedRows, setExtractedRows] = useState(null);
+  // Damage / shrinkage read off RepairQ's inventory usage summary.
+  var [shrink, setShrink] = useState(null);
+  var [shrinkBusy, setShrinkBusy] = useState(false);
+  var [shrinkErr, setShrinkErr] = useState(null);
+  var [shrinkSaved, setShrinkSaved] = useState({});
 
   useEffect(function() { setForm(Object.assign({}, data)); }, [store, data]);
 
@@ -844,6 +857,35 @@ function StoreForm({ store, data, period, onSave, saving }) {
       } else { setExtractMsg({ type: "error", text: json.error || "Failed" }); }
     } catch(err) { setExtractMsg({ type: "error", text: err.message }); }
     setExtracting(false); e.target.value = "";
+  };
+
+  // The inventory report covers every location at once, so one upload fills
+  // the store being edited and offers the other two rather than making Matt
+  // screenshot the same page three times.
+  var readShrinkage = async function(e) {
+    var file = e.target.files[0];
+    if (!file) return;
+    setShrinkBusy(true); setShrinkErr(null); setShrink(null); setShrinkSaved({});
+    try {
+      var b64 = await new Promise(function(resolve, reject) {
+        var fr = new FileReader();
+        fr.onload = function() { resolve(String(fr.result).split(",")[1]); };
+        fr.onerror = function() { reject(new Error("Couldn't read that file")); };
+        fr.readAsDataURL(file);
+      });
+      var res = await authFetch("/api/dialpad/extract-shrinkage", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period: period, pages: [{ data: b64, media_type: file.type || "image/png" }] }),
+      });
+      var j = await res.json();
+      if (!j.success) throw new Error(j.error || "extraction failed");
+      setShrink(j);
+      var mine = (j.by_store || []).filter(function(s) { return s.store === store; })[0];
+      if (mine && (mine.damaged || mine.shrinkage || mine.voided)) {
+        setForm(function(p) { return Object.assign({}, p, { damaged: mine.damaged, shrinkage: mine.shrinkage, voided: mine.voided }); });
+      }
+    } catch (err) { setShrinkErr(err.message); }
+    setShrinkBusy(false); e.target.value = "";
   };
 
   var storeName = STORES[store] ? STORES[store].name : store;
@@ -959,17 +1001,93 @@ function StoreForm({ store, data, period, onSave, saving }) {
           usage summary. Grouped separately from fixed expenses because these are the
           numbers that actually move month to month and that the team is judged on. */}
       <div style={{ marginBottom: 16 }}>
-        <div style={{ color: "var(--red)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", marginBottom: 8, letterSpacing: "0.08em" }}>
-          Store Controllables
-          <span style={{ color: "var(--text-secondary)", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
-            entered monthly at reconciliation · not carried forward
-          </span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10, flexWrap: "wrap" }}>
+          <div style={{ color: "var(--red)", fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            Store Controllables
+            <span style={{ color: "var(--text-secondary)", fontWeight: 500, textTransform: "none", letterSpacing: 0, marginLeft: 8 }}>
+              entered monthly at reconciliation · not carried forward
+            </span>
+          </div>
+          <label style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #F8717133", background: "#F8717112", color: "var(--red)", fontSize: 11, fontWeight: 600, cursor: shrinkBusy ? "wait" : "pointer" }}>
+            {shrinkBusy ? "Reading report…" : "📷 Import from inventory report"}
+            <input type="file" accept="image/*,application/pdf" onChange={readShrinkage} disabled={shrinkBusy} style={{ display: "none" }} />
+          </label>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr 1fr", gap: 8 }}>
           {field("Damage", "damaged")}
           {field("Shrinkage", "shrinkage")}
           {field("Voided", "voided")}
         </div>
+
+        {shrinkErr && (
+          <div style={{ marginTop: 8, padding: "8px 12px", borderRadius: 6, background: "#F8717112", border: "1px solid #F8717133", color: "var(--red)", fontSize: 11 }}>
+            Couldn&apos;t read the report — {shrinkErr}
+          </div>
+        )}
+
+        {/* What it read. Nothing is saved for the other stores until someone
+            presses their button, and the fields above stay editable. */}
+        {shrink && (
+          <div style={{ marginTop: 10, background: "var(--bg-card-inner)", borderRadius: 10, padding: 14, border: "1px solid #F8717122" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 8 }}>
+              <div style={{ color: "var(--red)", fontSize: 11, fontWeight: 700 }}>What the report says — check it against RepairQ before saving</div>
+              <div style={{ color: "var(--text-muted)", fontSize: 10 }}>
+                {shrink.period_shown ? "report covers " + shrink.period_shown : "no date range on the report"} · {shrink.line_items.length} line{shrink.line_items.length === 1 ? "" : "s"}
+              </div>
+            </div>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11.5 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  {["Store", "Damage", "Shrinkage", "Voided", ""].map(function(h, i) {
+                    return <th key={i} style={{ padding: "5px 8px", textAlign: i === 0 || i === 4 ? "left" : "right", color: "var(--text-secondary)", fontSize: 9, fontWeight: 700, textTransform: "uppercase" }}>{h}</th>;
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {shrink.by_store.map(function(s) {
+                  var isMine = s.store === store;
+                  var empty = !s.damaged && !s.shrinkage && !s.voided;
+                  return (
+                    <tr key={s.store} style={{ borderBottom: "1px solid var(--border-light)", opacity: empty ? 0.5 : 1 }}>
+                      <td style={{ padding: "6px 8px", color: isMine ? "var(--text-primary)" : "var(--text-body)", fontWeight: isMine ? 700 : 500 }}>
+                        {STORES[s.store] ? STORES[s.store].name : s.store}{isMine ? " · editing" : ""}
+                      </td>
+                      {["damaged", "shrinkage", "voided"].map(function(k) {
+                        return <td key={k} style={{ padding: "6px 8px", textAlign: "right", fontVariantNumeric: "tabular-nums", color: s[k] ? "var(--text-primary)" : "var(--text-muted)" }}>{fmt(s[k])}</td>;
+                      })}
+                      <td style={{ padding: "6px 8px" }}>
+                        {isMine ? <span style={{ color: "var(--text-muted)", fontSize: 10 }}>filled in above</span>
+                          : empty ? <span style={{ color: "var(--text-muted)", fontSize: 10 }}>nothing found</span>
+                          : shrinkSaved[s.store] ? <span style={{ color: "var(--green)", fontSize: 10, fontWeight: 700 }}>saved</span>
+                          : <button onClick={function() { onSaveControllables(s.store, { damaged: s.damaged, shrinkage: s.shrinkage, voided: s.voided }); setShrinkSaved(function(p) { var n = Object.assign({}, p); n[s.store] = 1; return n; }); }}
+                              style={{ padding: "4px 10px", borderRadius: 5, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 10, cursor: "pointer" }}>
+                              Save to {STORES[s.store] ? STORES[s.store].name : s.store}
+                            </button>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {shrink.disagreements.length > 0 && (
+              <div style={{ marginTop: 8, color: "var(--yellow)", fontSize: 10.5 }}>
+                {shrink.disagreements.length} total{shrink.disagreements.length === 1 ? "" : "s"} disagree{shrink.disagreements.length === 1 ? "s" : ""} with the lines behind {shrink.disagreements.length === 1 ? "it" : "them"} — {shrink.disagreements.map(function(d) { return d.store + " " + d.bucket + ": " + fmt(d.summary) + " vs " + fmt(d.line_items); }).join(" · ")}
+              </div>
+            )}
+            {shrink.unclassified.length > 0 && (
+              <div style={{ marginTop: 6, color: "var(--yellow)", fontSize: 10.5 }}>
+                {shrink.unclassified.length} loss{shrink.unclassified.length === 1 ? "" : "es"} couldn&apos;t be bucketed and {shrink.unclassified.length === 1 ? "is" : "are"} NOT in these totals — {shrink.unclassified.slice(0, 4).map(function(u) { return (u.reason || "no reason") + " " + fmt(u.cost); }).join(", ")}{shrink.unclassified.length > 4 ? "…" : ""}
+              </div>
+            )}
+            {shrink.unmatched_locations.length > 0 && (
+              <div style={{ marginTop: 6, color: "var(--yellow)", fontSize: 10.5 }}>
+                Couldn&apos;t match {shrink.unmatched_locations.map(function(u) { return "“" + u.store + "”"; }).join(", ")} to one of our stores — enter those by hand.
+              </div>
+            )}
+            {shrink.notes && <div style={{ marginTop: 6, color: "var(--text-muted)", fontSize: 10.5 }}>{shrink.notes}</div>}
+          </div>
+        )}
       </div>
 
       {/* Other Income — non-operating revenue, added to NET PROFIT */}

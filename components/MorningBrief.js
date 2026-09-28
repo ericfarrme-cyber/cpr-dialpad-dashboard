@@ -150,6 +150,7 @@ export default function MorningBrief() {
       fetch("/api/dialpad/store-hours?days=21").then(function (r) { return r.json(); }),
       // Admins only (Eric, Matt) — 403 for anyone else, handled below.
       af("/api/dialpad/price-book?action=sheet_health&months=6").then(function (r) { return r.json(); }),
+      fetch("/api/dialpad/profitability?action=periods").then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -209,6 +210,24 @@ export default function MorningBrief() {
       // sheet's own part cost is above the price. Silent for non-admins.
       var hb = res[7].status === "fulfilled" ? res[7].value : null;
       out.sheetHealth = hb && hb.success ? hb.sheet_health : null;
+
+      // Months of this calendar year with no P&L saved. January and February
+      // have been missing all year (~−$6,000 between them), which is why the
+      // profit-share card and the YTD both read low. The current month only
+      // counts as missing once it has ended.
+      var pp = res[8].status === "fulfilled" ? res[8].value : null;
+      if (pp && pp.success) {
+        var have = {};
+        (pp.periods || []).forEach(function (p) { have[p] = 1; });
+        var nowI = indyNow();
+        var gaps = [];
+        for (var m = 1; m <= 12; m++) {
+          var key = nowI.getFullYear() + "-" + pad2(m);
+          var ended = m < nowI.getMonth() + 1;
+          if (ended && !have[key]) gaps.push(key);
+        }
+        out.pnlGaps = gaps;
+      }
 
       setState(out);
     });
@@ -496,6 +515,20 @@ export default function MorningBrief() {
               )}
 
               <a href="/prices" style={{ display: "inline-block", marginTop: 10, fontFamily: MONO, fontSize: 11, color: CYAN, textDecoration: "none" }}>Open the Price Book →</a>
+            </div>
+          )}
+
+          {/* months of this year with no P&L saved — the YTD and the profit
+              share are both understated until they are entered */}
+          {state.pnlGaps && state.pnlGaps.length > 0 && (
+            <div style={{ background: RAISED, border: "1px solid " + LINE, borderRadius: 11, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".11em", textTransform: "uppercase", color: MUTED, marginBottom: 7 }}>
+                P&amp;L · {state.pnlGaps.length} month{state.pnlGaps.length === 1 ? "" : "s"} not entered
+              </div>
+              <div style={{ fontSize: 11.5, color: INK2 }}>
+                {state.pnlGaps.map(function (g) { return MON[parseInt(g.slice(5), 10) - 1] + " " + g.slice(0, 4); }).join(" · ")}
+                {" — "}the year-to-date and the profit share both read low until {state.pnlGaps.length === 1 ? "it is" : "they are"} entered.
+              </div>
             </div>
           )}
 
