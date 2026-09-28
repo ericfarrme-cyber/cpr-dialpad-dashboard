@@ -609,11 +609,25 @@ export async function POST(request) {
       if (!adds.length) return NextResponse.json({ success: false, error: "Give each new repair a name and a price" }, { status: 400 });
       if (!addReason) return NextResponse.json({ success: false, error: "Say why — it is what makes the history worth having" }, { status: 400 });
 
-      var { data: devRows, error: dErr } = await supabase.from("repair_prices").select("*").eq("device", dev);
+      // Matt, 2026-09-23: "Adding a repair option should give the ability to
+      // add to all devices in category." The client resolves the category to
+      // an explicit list of device names and sends it, so what is about to
+      // happen is countable before it happens. A device that already has the
+      // repair is SKIPPED and reported, not an error — otherwise one
+      // pre-existing row would block the other forty.
+      var targets = Array.isArray(body.devices) && body.devices.length
+        ? body.devices.map(function(d) { return String(d || "").trim(); }).filter(Boolean)
+        : [dev];
+      targets = targets.filter(function(d, i) { return targets.indexOf(d) === i; });
+      if (targets.length > 200) return NextResponse.json({ success: false, error: "Too many devices in one go (max 200)" }, { status: 400 });
+
+      var { data: devRows, error: dErr } = await supabase.from("repair_prices").select("*").in("device", targets);
       if (dErr) throw new Error(dErr.message);
       if (!devRows || !devRows.length) return NextResponse.json({ success: false, error: "\"" + dev + "\" is not on the sheet — add the device first" }, { status: 404 });
-      var clash = adds.filter(function(a) { return devRows.some(function(r) { return r.repair === a.repair && (r.tier || "") === (a.tier || ""); }); });
-      if (clash.length) return NextResponse.json({ success: false, error: dev + " already has " + clash.map(function(a) { return a.repair + (a.tier ? " · " + a.tier : ""); }).join(", ") }, { status: 409 });
+      var rowsByDevice = {};
+      devRows.forEach(function(r) { (rowsByDevice[r.device] = rowsByDevice[r.device] || []).push(r); });
+      var missingDevices = targets.filter(function(d) { return !rowsByDevice[d]; });
+      var skipped = [];
 
       // How the rest of the sheet treats each repair name.
       var names = adds.map(function(a) { return a.repair; });
@@ -625,20 +639,29 @@ export async function POST(request) {
         var pick = function(list, k) { var c = {}; list.forEach(function(r) { if (r[k]) c[r[k]] = (c[r[k]] || 0) + 1; }); return Object.keys(c).sort(function(x, y) { return c[y] - c[x]; })[0] || null; };
         return { canonical_repair: pick(sameTier, "canonical_repair") || pick(same, "canonical_repair") || a.repair, floor_rule: pick(sameTier, "floor_rule") || pick(same, "floor_rule") };
       }
-      var base = devRows[0];
-      var maxSort = Math.max.apply(null, devRows.map(function(r) { return r.sort_order || 0; }));
       var addNow2 = new Date().toISOString();
-      var newRepairRows = adds.map(function(a) {
-        var l = like(a);
-        var floor = a.part_price !== null && l.floor_rule && FLOOR_RULES[l.floor_rule] !== undefined ? round2(a.part_price + FLOOR_RULES[l.floor_rule]) : null;
-        return {
-          family: base.family, model_group: base.model_group, device: dev, repair: a.repair, tier: a.tier,
-          canonical_model: base.canonical_model, canonical_repair: l.canonical_repair,
-          set_price: round2(a.set_price), part_price: a.part_price, floor_price: floor, floor_rule: floor !== null ? l.floor_rule : null,
-          max_discount: null, turnaround: a.turnaround, flags: [], note: null,
-          sort_order: maxSort, active: true, updated_at: addNow2, updated_by: editor,
-        };
+      var newRepairRows = [];
+      Object.keys(rowsByDevice).forEach(function(d) {
+        var dRows = rowsByDevice[d];
+        var base = dRows[0];
+        var maxSort = Math.max.apply(null, dRows.map(function(r) { return r.sort_order || 0; }));
+        adds.forEach(function(a) {
+          var already = dRows.some(function(r) { return r.repair === a.repair && (r.tier || "") === (a.tier || ""); });
+          if (already) { skipped.push({ device: d, repair: a.repair, tier: a.tier || null }); return; }
+          var l = like(a);
+          var floor = a.part_price !== null && l.floor_rule && FLOOR_RULES[l.floor_rule] !== undefined ? round2(a.part_price + FLOOR_RULES[l.floor_rule]) : null;
+          newRepairRows.push({
+            family: base.family, model_group: base.model_group, device: d, repair: a.repair, tier: a.tier,
+            canonical_model: base.canonical_model, canonical_repair: l.canonical_repair,
+            set_price: round2(a.set_price), part_price: a.part_price, floor_price: floor, floor_rule: floor !== null ? l.floor_rule : null,
+            max_discount: null, turnaround: a.turnaround, flags: [], note: null,
+            sort_order: maxSort, active: true, updated_at: addNow2, updated_by: editor,
+          });
+        });
       });
+      if (!newRepairRows.length) {
+        return NextResponse.json({ success: false, error: (targets.length === 1 ? dev : "Every device selected") + " already has " + adds.map(function(a) { return a.repair + (a.tier ? " · " + a.tier : ""); }).join(", ") }, { status: 409 });
+      }
       var { data: insRows, error: iErr } = await supabase.from("repair_prices").insert(newRepairRows).select("id,device,repair,tier,canonical_model,canonical_repair,set_price");
       if (iErr) throw new Error("insert: " + iErr.message);
       var repBatch = (globalThis.crypto && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()) + "-" + Math.random().toString(16).slice(2);
@@ -655,7 +678,11 @@ export async function POST(request) {
         console.error("[price-book] add_repairs rows inserted but ledger failed, batch " + repBatch + ":", rlErr.message);
         return NextResponse.json({ success: false, error: "Rows were added but the change could not be recorded (" + rlErr.message + "); batch " + repBatch + " needs review", added: (insRows || []).length }, { status: 500 });
       }
-      return NextResponse.json({ success: true, batch_id: repBatch, added: (insRows || []).length, device: dev });
+      return NextResponse.json({
+        success: true, batch_id: repBatch, added: (insRows || []).length, device: dev,
+        devices: Object.keys(rowsByDevice).length,
+        skipped: skipped, missing_devices: missingDevices,
+      });
     }
 
     if (body.action !== "update") return NextResponse.json({ success: false, error: "Unknown action" }, { status: 400 });

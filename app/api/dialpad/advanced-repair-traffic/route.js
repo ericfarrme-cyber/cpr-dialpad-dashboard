@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 
+// Reads request.url for its query string, so it can never be statically
+// rendered — declaring it stops the build logging a Dynamic server usage error.
+export const dynamic = "force-dynamic";
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ADVANCED REPAIR TRAFFIC — non-phone repair volume, mix and profit.
 //
@@ -98,7 +102,11 @@ export async function GET(request) {
         .gte("date_closed", startYMD)
         .order("id", { ascending: true })
         .range(from, from + pageSize - 1);
-      if (storeFilter) q = q.eq("store", storeFilter);
+      // Deliberately NOT filtered by store here. Matt needs a store's share of
+      // the company's non-phone profit ("Bloomington's $5,000 = 33% of
+      // company-wide"), which is unanswerable from a store-filtered read. The
+      // filter is applied in the loop below instead, and the company totals
+      // are computed in the same pass.
       var res = await q;
       if (res.error) {
         return NextResponse.json({ success: false, error: res.error.message }, { status: 500 });
@@ -116,44 +124,74 @@ export async function GET(request) {
         byMonth[key] = {
           month: key,
           tickets: 0, revenue: 0, profit: 0,
+          // Every ticket the store closed that month, Sale included. Non-phone
+          // profit means little without the business it is a share of.
+          business_profit: 0, business_tickets: 0,
+          // The same two figures with the store filter ignored, so a store's
+          // share of the whole company is answerable from a filtered read.
+          company_profit: 0, company_business_profit: 0,
+          company_buckets: { consoles: { profit: 0 }, tablets: { profit: 0 }, computers: { profit: 0 }, misc: { profit: 0 } },
           phone_tickets: 0,
           repairish_total: 0, uncategorised: 0,
           buckets: { consoles: mk(), tablets: mk(), computers: mk(), misc: mk() },
           stores: {},
         };
-        STORE_KEYS.forEach(function (s) { byMonth[key].stores[s] = { tickets: 0, profit: 0 }; });
+        STORE_KEYS.forEach(function (s) {
+          byMonth[key].stores[s] = { tickets: 0, profit: 0, business_profit: 0, buckets: { consoles: mk(), tablets: mk(), computers: mk(), misc: mk() } };
+        });
       }
       return byMonth[key];
     }
     function mk() { return { tickets: 0, profit: 0, turnaround_sum: 0, turnaround_n: 0 }; }
 
     rows.forEach(function (r) {
-      if (!isRepairish(r.ticket_type)) return;          // Sale tickets excluded
       if (!r.date_closed) return;                        // unclosed carries no revenue event
       var key = String(r.date_closed).slice(0, 7);
       var M = monthBucket(key);
+      var inScope = !storeFilter || r.store === storeFilter;
+      var S = r.store && M.stores[r.store] ? M.stores[r.store] : null;
 
-      M.repairish_total += 1;
-      if (!r.device_category) { M.uncategorised += 1; return; }
-      if (r.device_category === "phone") { M.phone_tickets += 1; return; }
+      // The business the non-phone number is a share of: every ticket closed
+      // that month, Sale tickets included. Counted before the repair-only
+      // filter below, and per store as well as in total.
+      var anyGp = parseFloat(r.gross_profit || 0);
+      M.company_business_profit += anyGp;
+      if (inScope) { M.business_profit += anyGp; M.business_tickets += 1; }
+      if (S) S.business_profit += anyGp;
+
+      if (!isRepairish(r.ticket_type)) return;          // Sale tickets excluded from here down
+      if (inScope) M.repairish_total += 1;
+      if (!r.device_category) { if (inScope) M.uncategorised += 1; return; }
+      if (r.device_category === "phone") { if (inScope) M.phone_tickets += 1; return; }
       if (NON_PHONE.indexOf(r.device_category) < 0) return;
 
       var gp = parseFloat(r.gross_profit || 0);
       var gs = parseFloat(r.gross_sales || 0);
+      var bucket = bucketFor(r.device_category);
+      var th = parseFloat(r.turnaround_hours || 0);
+
+      // Company-wide, regardless of the store filter — this is the
+      // denominator for "Bloomington is 33% of company-wide non-phone profit".
+      M.company_profit += gp;
+      if (M.company_buckets[bucket]) M.company_buckets[bucket].profit += gp;
+
+      // Per store, also regardless of the filter, and now split by category so
+      // picking Computers repaints the by-store list (Matt, 2026-09-23).
+      if (S) {
+        S.tickets += 1;
+        S.profit += gp;
+        var sb = S.buckets[bucket];
+        if (sb) { sb.tickets += 1; sb.profit += gp; if (th > 0) { sb.turnaround_sum += th; sb.turnaround_n += 1; } }
+      }
+
+      if (!inScope) return;
       M.tickets += 1;
       M.revenue += gs;
       M.profit += gp;
-
-      var b = M.buckets[bucketFor(r.device_category)];
+      var b = M.buckets[bucket];
       b.tickets += 1;
       b.profit += gp;
-      var th = parseFloat(r.turnaround_hours || 0);
       if (th > 0) { b.turnaround_sum += th; b.turnaround_n += 1; }
-
-      if (r.store && M.stores[r.store]) {
-        M.stores[r.store].tickets += 1;
-        M.stores[r.store].profit += gp;
-      }
     });
 
     var round2 = function (n) { return Math.round(n * 100) / 100; };
@@ -177,8 +215,30 @@ export async function GET(request) {
 
       var stores = {};
       STORE_KEYS.forEach(function (s) {
-        stores[s] = { tickets: M.stores[s].tickets, profit: round2(M.stores[s].profit) };
+        var sv = M.stores[s];
+        var sBuckets = {};
+        Object.keys(sv.buckets).forEach(function (b) {
+          var x = sv.buckets[b];
+          sBuckets[b] = {
+            tickets: x.tickets, profit: round2(x.profit),
+            avg_per_ticket: x.tickets > 0 ? round2(x.profit / x.tickets) : 0,
+            avg_turnaround_hours: x.turnaround_n > 0 ? round2(x.turnaround_sum / x.turnaround_n) : null,
+          };
+        });
+        stores[s] = {
+          tickets: sv.tickets,
+          profit: round2(sv.profit),
+          business_profit: round2(sv.business_profit),
+          // This store's non-phone profit as a share of its own business, and
+          // of the company's non-phone profit.
+          share_of_own_business: sv.business_profit > 0 ? round2((sv.profit / sv.business_profit) * 100) : null,
+          share_of_company_non_phone: M.company_profit > 0 ? round2((sv.profit / M.company_profit) * 100) : null,
+          buckets: sBuckets,
+        };
       });
+
+      var companyBuckets = {};
+      Object.keys(M.company_buckets).forEach(function (b) { companyBuckets[b] = { profit: round2(M.company_buckets[b].profit) }; });
 
       var over = M.profit - BONUS_THRESHOLD;
       return {
@@ -189,6 +249,16 @@ export async function GET(request) {
         avg_per_ticket: M.tickets > 0 ? round2(M.profit / M.tickets) : 0,
         phone_tickets: M.phone_tickets,
         share_of_repair_traffic: denom > 0 ? round2((M.tickets / denom) * 100) : null,
+        // Matt, 2026-09-23: "$11,900 of non-phone profit equates to 22% of
+        // total business profit." Sale tickets are in the denominator because
+        // they are business; they stay out of the numerator because they are
+        // not repair work.
+        business_profit: round2(M.business_profit),
+        business_tickets: M.business_tickets,
+        share_of_business_profit: M.business_profit > 0 ? round2((M.profit / M.business_profit) * 100) : null,
+        company_profit: round2(M.company_profit),
+        company_business_profit: round2(M.company_business_profit),
+        company_buckets: companyBuckets,
         buckets: buckets,
         stores: stores,
         // Data quality — surfaced, never used to silently hide a month.
@@ -222,6 +292,8 @@ export async function GET(request) {
         if (!isRepairish(r.ticket_type) || !r.date_closed) return;
         if (String(r.date_closed).slice(0, 7) !== latestComplete) return;
         if (NON_PHONE.indexOf(r.device_category) < 0) return;
+        // rows are no longer store-filtered at the database, so filter here.
+        if (storeFilter && r.store !== storeFilter) return;
         var who = (r.employee_repaired || "").trim() || "Unattributed";
         if (!tally[who]) tally[who] = { employee: who, tickets: 0, profit: 0 };
         tally[who].tickets += 1;

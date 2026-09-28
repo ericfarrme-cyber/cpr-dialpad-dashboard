@@ -67,6 +67,9 @@ export default function AdvancedRepairTrafficSummary() {
   var [hover, setHover] = useState(null);            // {month, bucket, x}
   var [grown, setGrown] = useState(false);           // bar grow-in
   var [compareTo, setCompareTo] = useState("previous"); // previous | peak | slowest | average
+  // Matt, 2026-09-23: pick a category and the by-store list repaints to it —
+  // "you should be able to see Fishers Computer traffic".
+  var [cat, setCat] = useState("all");                  // all | consoles | tablets | computers | misc
 
   useEffect(function () {
     var cancelled = false;
@@ -139,14 +142,17 @@ export default function AdvancedRepairTrafficSummary() {
   if (!sel) return null;
 
   var chartH = 168;
+  var catMeta = BUCKETS.filter(function (b) { return b.key === cat; })[0] || null;
+  var catLabel = catMeta ? catMeta.label : "All non-phone";
 
   var kpis = [
     { label: "Non-phone repairs", value: String(sel.tickets), accent: BUCKETS[0].color,
       delta: baseline ? pctChange(sel.tickets, baseline.tickets) : null },
     { label: "Share of repair work", value: sel.share_of_repair_traffic != null ? sel.share_of_repair_traffic.toFixed(1) + "%" : "—", accent: CYAN,
       delta: baseline && baseline.share_of_repair_traffic ? pctChange(sel.share_of_repair_traffic, baseline.share_of_repair_traffic) : null },
-    { label: "Revenue", value: money0(sel.revenue), accent: BUCKETS[1].color,
-      delta: baseline ? pctChange(sel.revenue, baseline.revenue) : null },
+    { label: "Share of business profit", value: sel.share_of_business_profit != null ? sel.share_of_business_profit.toFixed(1) + "%" : "—", accent: BUCKETS[1].color,
+      sub: money0(sel.profit) + " of " + money0(sel.business_profit) + " closed",
+      delta: baseline && baseline.share_of_business_profit ? pctChange(sel.share_of_business_profit, baseline.share_of_business_profit) : null },
     { label: "Gross profit", value: money0(sel.profit), accent: GREEN,
       delta: baseline ? pctChange(sel.profit, baseline.profit) : null },
   ];
@@ -190,6 +196,26 @@ export default function AdvancedRepairTrafficSummary() {
         </div>
       </div>
 
+      {/* ── category ──────────────────────────────── */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+        <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".13em", textTransform: "uppercase", color: MUTED, marginRight: 4 }}>Category</span>
+        {[{ key: "all", label: "All non-phone", color: CYAN }].concat(BUCKETS).map(function (c) {
+          var on = cat === c.key;
+          return (
+            <button key={c.key} className="art-chip" onClick={function () { setCat(c.key); }}
+              style={{ background: on ? "rgba(0,212,255,.10)" : "transparent", border: "1px solid " + (on ? c.color : LINE),
+                       color: on ? c.color : INK2, borderRadius: 999, padding: "4px 11px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+              {c.label}
+            </button>
+          );
+        })}
+        {cat !== "all" && (
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 4 }}>
+            — by store below shows {catLabel.toLowerCase()} only; the chart and totals stay all non-phone
+          </span>
+        )}
+      </div>
+
       {/* ── compare to ───────────────────────────────────────── */}
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
         <span style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".13em", textTransform: "uppercase", color: MUTED, marginRight: 4 }}>
@@ -228,6 +254,7 @@ export default function AdvancedRepairTrafficSummary() {
               <div style={{ fontFamily: MONO, fontSize: 11, color: k.delta == null ? MUTED : (k.delta >= 0 ? GREEN : RED) }}>
                 {k.delta == null ? "—" : (k.delta >= 0 ? "▲ " : "▼ ") + Math.abs(k.delta) + "% vs " + baselineLabel}
               </div>
+              {k.sub && <div style={{ fontFamily: MONO, fontSize: 10, color: MUTED, marginTop: 2 }}>{k.sub}</div>}
             </div>
           );
         })}
@@ -413,29 +440,53 @@ export default function AdvancedRepairTrafficSummary() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(330px,1fr))", gap: 14 }}>
         <div style={{ background: SURFACE, border: "1px solid " + LINE, borderRadius: 13, padding: "16px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: INK }}>By store</span>
+            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: INK }}>
+              By store{cat !== "all" ? " · " + catLabel : ""}
+            </span>
             <span style={{ fontSize: 10.5, color: GOLD }}>provisional</span>
           </div>
           <div style={{ fontSize: 11, color: MUTED, margin: "5px 0 14px" }}>
-            Attribution corrected 2026-08-31, forward only. Combined totals are exact.
+            {cat === "all"
+              ? "Share is of company-wide non-phone profit that month. Attribution corrected 2026-08-31, forward only."
+              : catLabel + " profit per store, and each store's share of the company's " + catLabel.toLowerCase() + " profit."}
           </div>
-          {STORES.filter(function (s) { return s.key !== "all"; }).map(function (s) {
-            var v = sel.stores[s.key] || { tickets: 0, profit: 0 };
-            var pct = sel.profit > 0 ? (v.profit / sel.profit) * 100 : 0;
-            return (
-              <div key={s.key} className="art-row" style={{ padding: "8px", margin: "0 -8px", borderRadius: 7 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ color: INK, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />{s.label}
-                  </span>
-                  <span style={{ fontFamily: MONO, fontSize: 12.5, color: INK2 }}>{v.tickets} · {money(v.profit)}</span>
+          {(function () {
+            // The denominator is always company-wide, never the filtered view,
+            // so the three shares add to 100% whichever store is selected.
+            var total = cat === "all"
+              ? sel.company_profit
+              : (sel.company_buckets && sel.company_buckets[cat] ? sel.company_buckets[cat].profit : 0);
+            return STORES.filter(function (s) { return s.key !== "all"; }).map(function (s) {
+              var sv = sel.stores[s.key] || { tickets: 0, profit: 0, buckets: {} };
+              var v = cat === "all" ? sv : (sv.buckets && sv.buckets[cat] ? sv.buckets[cat] : { tickets: 0, profit: 0 });
+              var share = total > 0 ? (v.profit / total) * 100 : 0;
+              var dim = store !== "all" && store !== s.key;
+              return (
+                <div key={s.key} className="art-row" style={{ padding: "8px", margin: "0 -8px", borderRadius: 7, opacity: dim ? 0.45 : 1 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                    <span style={{ color: INK, fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: s.color }} />{s.label}
+                    </span>
+                    <span style={{ fontFamily: MONO, fontSize: 12.5, color: INK2 }}>
+                      {v.tickets} · {money(v.profit)}
+                      <span style={{ color: MUTED }}> · {total > 0 ? share.toFixed(1) + "%" : "—"}</span>
+                    </span>
+                  </div>
+                  <div style={{ height: 5, borderRadius: 3, background: BG, overflow: "hidden", marginTop: 6 }}>
+                    <div className="art-bar" style={{ height: "100%", width: (grown ? share : 0) + "%", background: s.color, borderRadius: 3 }} />
+                  </div>
+                  {cat === "all" && sv.share_of_own_business != null && (
+                    <div style={{ fontFamily: MONO, fontSize: 10, color: MUTED, marginTop: 4 }}>
+                      {sv.share_of_own_business.toFixed(1)}% of its own {money0(sv.business_profit)} business profit
+                    </div>
+                  )}
                 </div>
-                <div style={{ height: 5, borderRadius: 3, background: BG, overflow: "hidden", marginTop: 6 }}>
-                  <div className="art-bar" style={{ height: "100%", width: (grown ? pct : 0) + "%", background: s.color, borderRadius: 3 }} />
-                </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
+          <div style={{ fontFamily: MONO, fontSize: 10.5, color: MUTED, marginTop: 10, paddingTop: 9, borderTop: "1px solid " + LINE }}>
+            Company {cat === "all" ? "non-phone" : catLabel.toLowerCase()} profit {money0(cat === "all" ? sel.company_profit : (sel.company_buckets && sel.company_buckets[cat] ? sel.company_buckets[cat].profit : 0))} · {mLong(sel.month)}
+          </div>
         </div>
 
         <div style={{ background: SURFACE, border: "1px solid " + LINE, borderRadius: 13, padding: "16px 20px" }}>

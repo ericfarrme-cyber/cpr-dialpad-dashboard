@@ -13,7 +13,10 @@ import { resolveModel } from "@/lib/device-model";
 import { tokenize as tok, matchesQuery, aliasesFor } from "@/lib/price-search";
 import { suggestDeposit } from "@/lib/deposit";
 
-var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Services" };
+// `service` holds the PC work — virus removal, Windows reinstall, drive
+// replacement, data transfer, data recovery. Matt renamed it to what it is
+// (2026-09-23). Display only; the family key in the database is unchanged.
+var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Windows Computers" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
 var QUALITY_TIERS = ["LCD", "OLED", "OEM", "Digitizer"];
 var FLAG_LABEL = {
@@ -21,6 +24,11 @@ var FLAG_LABEL = {
   non_consigned_part: "non-consigned part",
   supplier_choice: "supplier choice",
 };
+
+// Matt, 2026-09-23. Apple display assemblies move week to week and the sheet
+// cannot keep up, so the sheet defers rather than pretending.
+var VOLATILE_PART_WARNING = "Part price extremely volatile — check CPR.parts / PhoneLCDparts / Apple Self Service Repair Store before quoting the customer.";
+var isVolatilePart = function(device) { return /macbook|imac|mac\s*mini|mac\s*pro/i.test(String(device || "")); };
 
 var money = function(n) { return n === null || n === undefined ? "—" : "$" + Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
 var num = function(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(v); return isFinite(n) ? n : null; };
@@ -201,6 +209,26 @@ function DeviceEditor({ device, rows, onSave, onCancel, allRows, onAddRepairs })
   // line that already offers that repair — "iPhone 16 Battery is $99.99".
   var [adding, setAdding] = useState([]);
   var [draft, setDraft] = useState({ repair: "", tier: "", set_price: "", turnaround: "", part_price: "" });
+  // Matt, 2026-09-23: "Adding a repair option should give the ability to add to
+  // all devices in category." Price EDITS always stay on this device; only the
+  // additions fan out, and the count is shown before it happens.
+  var [addScope, setAddScope] = useState("device");   // device | line | family
+  var scopeTargets = useMemo(function() {
+    var me = rows[0] || {};
+    var pool = (allRows || []).filter(function(r) { return r.active !== false; });
+    var names = function(pred) {
+      var seen = {}; var out = [];
+      pool.forEach(function(r) { if (pred(r) && !seen[r.device]) { seen[r.device] = 1; out.push(r.device); } });
+      if (out.indexOf(device) < 0) out.push(device);
+      return out;
+    };
+    return {
+      device: [device],
+      line: names(function(r) { return r.model_group === me.model_group && r.family === me.family; }),
+      family: names(function(r) { return r.family === me.family; }),
+    };
+  }, [allRows, rows, device]);
+  var scopeDevices = scopeTargets[addScope] || [device];
   var repairNames = useMemo(function() {
     var c = {};
     (allRows || []).forEach(function(r) { c[r.repair] = (c[r.repair] || 0) + 1; });
@@ -273,7 +301,7 @@ function DeviceEditor({ device, rows, onSave, onCancel, allRows, onAddRepairs })
   async function save() {
     if (!canSave) return;
     setBusy(true);
-    try { await onSave(changes, adding, reason.trim()); } finally { setBusy(false); }
+    try { await onSave(changes, adding, reason.trim(), adding.length ? scopeDevices : [device]); } finally { setBusy(false); }
   }
 
   var cell = { padding: "6px 8px", borderTop: "1px solid var(--border-light)", fontSize: 12 };
@@ -359,6 +387,33 @@ function DeviceEditor({ device, rows, onSave, onCancel, allRows, onAddRepairs })
             : sugg ? "Suggested from " + sugg.device + ": " + money(sugg.set_price) + (sugg.turnaround ? " · " + sugg.turnaround : "") + " — leave the price blank to use it"
             : draft.repair ? "No other model in this line offers " + draft.repair + " — set the price" : ""}
         </span>
+        {/* Where the new repairs land. Only appears once there is something to
+            add, and the count is the actual device count, not a promise. */}
+        {adding.length > 0 && (
+          <div style={{ flexBasis: "100%", display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", paddingTop: 9, marginTop: 4, borderTop: "1px dashed var(--border)" }}>
+            <span style={{ fontSize: 10, fontWeight: 800, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 2 }}>Add to</span>
+            {[
+              { key: "device", label: "This device" },
+              { key: "line", label: "All " + ((rows[0] && rows[0].model_group) || "this line") },
+              { key: "family", label: "All " + (FAMILY_LABEL[rows[0] && rows[0].family] || "this category") },
+            ].map(function(o) {
+              var n = (scopeTargets[o.key] || []).length;
+              var on = addScope === o.key;
+              if (n <= 1 && o.key !== "device") return null;
+              return (
+                <button key={o.key} onClick={function() { setAddScope(o.key); }}
+                  style={{ padding: "5px 11px", borderRadius: 999, border: "1px solid " + (on ? "var(--cyan)" : "var(--border)"), background: on ? "#00D4FF14" : "transparent", color: on ? "var(--cyan)" : "var(--text-secondary)", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>
+                  {o.label} <span style={{ opacity: 0.7 }}>{n}</span>
+                </button>
+              );
+            })}
+            <span style={{ fontSize: 10.5, color: addScope === "device" ? "var(--text-muted)" : "var(--cyan)", marginLeft: 4 }}>
+              {addScope === "device"
+                ? "Price edits above always stay on this device."
+                : "Up to " + (adding.length * scopeDevices.length) + " new row" + (adding.length * scopeDevices.length === 1 ? "" : "s") + " — devices that already have the repair are skipped. Price edits stay on " + device + "."}
+            </span>
+          </div>
+        )}
       </div>
       <div style={{ display: "flex", gap: 8, alignItems: "center", padding: "10px 8px", borderTop: "1px solid var(--border-light)", flexWrap: "wrap" }}>
         <input value={reason} onChange={function(e) { setReason(e.target.value); }} placeholder="why — required, e.g. OLED cost dropped $20"
@@ -410,7 +465,13 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
         <div style={{ padding: "0 16px 16px" }}>
           <DeviceEditor device={device} rows={rows.slice().sort(function(a, b) { return a.sort_order - b.sort_order || a.id - b.id; })} allRows={allRows}
             onCancel={function() { setEditingDevice(false); }}
-            onSave={async function(changes, adds, reason) { var ok = await onDeviceSave(device, changes, adds, reason); if (ok !== false) setEditingDevice(false); }} />
+            onSave={async function(changes, adds, reason, devices) { var ok = await onDeviceSave(device, changes, adds, reason, devices); if (ok !== false) setEditingDevice(false); }} />
+        </div>
+      )}
+      {open && !editingDevice && isVolatilePart(device) && (
+        <div style={{ margin: "0 16px 12px", padding: "9px 12px", borderRadius: 9, border: "1px solid var(--orange)", background: "#F59E0B14", display: "flex", gap: 9, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 13, lineHeight: 1.2 }}>⚠️</span>
+          <span style={{ fontSize: 11.5, color: "var(--orange)", fontWeight: 700, lineHeight: 1.45 }}>{VOLATILE_PART_WARNING}</span>
         </div>
       )}
       {open && !editingDevice && (
@@ -677,6 +738,15 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
           </div>
           <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "transparent", color: "var(--text-muted)", fontSize: 20, cursor: "pointer", lineHeight: 1, padding: 4 }}>×</button>
         </div>
+
+        {/* The quote is about to be read out loud, so the warning belongs here
+            too, not only on the sheet. */}
+        {isVolatilePart(row.device) && (
+          <div style={{ padding: "9px 12px", borderRadius: 9, border: "1px solid var(--orange)", background: "#F59E0B14", display: "flex", gap: 9, alignItems: "flex-start" }}>
+            <span style={{ fontSize: 13, lineHeight: 1.2 }}>⚠️</span>
+            <span style={{ fontSize: 11.5, color: "var(--orange)", fontWeight: 700, lineHeight: 1.45 }}>{VOLATILE_PART_WARNING}</span>
+          </div>
+        )}
 
         {/* what they are coming in for — every sheet row, every service the register has rung, or something else */}
         <div>
@@ -1264,16 +1334,18 @@ export default function PriceBook() {
   }
 
   // New repairs on an existing device — one ledger batch, same reason rule.
-  async function addRepairs(device, adds, reason) {
+  async function addRepairs(device, adds, reason, devices) {
     try {
       var af = auth && auth.authFetch ? auth.authFetch : fetch;
       var res = await af("/api/dialpad/price-book", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "add_repairs", device: device, reason: reason, repairs: adds }),
+        body: JSON.stringify({ action: "add_repairs", device: device, devices: devices && devices.length ? devices : [device], reason: reason, repairs: adds }),
       });
       var j = await res.json();
       if (!j.success) throw new Error(j.error || "not added");
-      setToast({ tone: "var(--green)", text: "Added " + j.added + " repair" + (j.added === 1 ? "" : "s") + " to " + device });
+      var where = j.devices > 1 ? j.devices + " devices" : device;
+      var skipped = (j.skipped || []).length;
+      setToast({ tone: "var(--green)", text: "Added " + j.added + " row" + (j.added === 1 ? "" : "s") + " across " + where + (skipped ? " · " + skipped + " already had it" : "") });
       return true;
     } catch (e) {
       setToast({ tone: "var(--red)", text: "Not added — " + e.message });
@@ -1563,8 +1635,8 @@ export default function PriceBook() {
         {devices.slice(0, 60).map(function(d, i) {
           return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }}
             allRows={data ? data.rows : []}
-            onDeviceSave={async function(device, changes, adds, reason) {
-              if (adds && adds.length) { var ok = await addRepairs(device, adds, reason); if (!ok) return false; }
+            onDeviceSave={async function(device, changes, adds, reason, devices) {
+              if (adds && adds.length) { var ok = await addRepairs(device, adds, reason, devices); if (!ok) return false; }
               if (changes && changes.length) await commit(changes, reason);
               else if (adds && adds.length) load();
               return true;
