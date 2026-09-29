@@ -243,6 +243,7 @@ export default function MyPerformanceTab({ auth, store }) {
   var [storeScore, setStoreScore] = useState(null);
   var [allEmployees, setAllEmployees] = useState([]);
   var [auditData, setAuditData] = useState([]);
+  var [auditMeta, setAuditMeta] = useState(null);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
   // Advanced repair commission — from /api/advanced-repairs?action=my_commission
@@ -369,19 +370,16 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/wheniwork?action=stored-shifts&start=" + shiftStart + "&end=" + shiftEndStr).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tickets?action=employee_tickets&employee=" + encodeURIComponent(empName) + "&days=" + ticketDays).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/weekly-goal?store=" + empStore).then(function(r) { return r.json(); }),
-        // Audit endpoint takes a days-back window. We'll filter client-side to the period.
-        // limit was 300, which silently clipped EVERY store: over 30 days Bloomington
-        // has ~432 scorable audits, Indy ~415, Fishers ~340. The list is store-wide and
-        // only filtered to the employee afterwards, so the cap quietly deleted other
-        // people's calls before this employee's share was even counted.
-        fetch("/api/dialpad/audit?store=" + encodeURIComponent(empStore) + "&limit=1500&days=" + auditDays).then(function(r) { return r.json(); }),
+        // Resolved on the server, across every store — a call taken at another
+        // store is still your call. Until 2026-09-28 this asked for the
+        // employee's ROSTER store and matched names in the browser, which
+        // showed Luke Stirling 0 of his 130 calls.
+        fetch("/api/dialpad/audit?action=for_employee&name=" + encodeURIComponent(empName) + "&days=" + auditDays).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
         fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/answer-rate-bonus?month=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/advanced-repair-traffic?months=14").then(function(r) { return r.json(); }),
-        // Canonical name resolver — the same one the TV rankings use.
-        fetch("/api/dialpad/roster?action=alias_map").then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -441,29 +439,11 @@ export default function MyPerformanceTab({ auth, store }) {
       // sees 29 of his 213 calls. Falls back to the old behaviour if the
       // request failed, so a resolver outage degrades to today rather than to
       // an empty tab.
-      var aliasMap = null, ambiguousAliases = {};
-      if (results[12] && results[12].status === "fulfilled" && results[12].value && results[12].value.success) {
-        aliasMap = results[12].value.map || {};
-        (results[12].value.ambiguous || []).forEach(function(k) { ambiguousAliases[String(k).toLowerCase()] = true; });
-      }
       if (results[6].status === "fulfilled" && results[6].value.audits) {
-        // Filter to this employee, exclude excluded/non-scorable, normalize fields
-        var raw = results[6].value.audits || [];
-        var mine = raw.filter(function(a) {
-          if (a.excluded) return false;
-          if (a.call_type === "non_scorable") return false;
-          var rawName = a.employee || "";
-          var key = String(rawName).trim().toLowerCase();
-          // Claimed by two or more people — credit nobody rather than guess.
-          if (ambiguousAliases[key]) return false;
-          if (aliasMap) {
-            var canonical = aliasMap[key];
-            // Resolver knows this name: trust it exactly, no fuzzy fallback,
-            // or "Alyssa" would still leak into Alec via substring matching.
-            if (canonical) return canonical.toLowerCase() === String(empName || "").trim().toLowerCase();
-          }
-          return matchName(empName, rawName);
-        }).map(normalizeAudit);
+        // The route has already resolved these to this person, across every
+        // store. Nothing left to match on here.
+        var mine = (results[6].value.audits || []).map(normalizeAudit);
+        setAuditMeta(results[6].value.meta || null);
         // For historical periods, filter audits to calls within the selected month.
         if (!viewingCurrent && periodRange) {
           var aStart = periodRange.start;

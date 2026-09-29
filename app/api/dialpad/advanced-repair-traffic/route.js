@@ -295,17 +295,31 @@ export async function GET(request) {
         // rows are no longer store-filtered at the database, so filter here.
         if (storeFilter && r.store !== storeFilter) return;
         var who = (r.employee_repaired || "").trim() || "Unattributed";
-        if (!tally[who]) tally[who] = { employee: who, tickets: 0, profit: 0 };
+        if (!tally[who]) tally[who] = { employee: who, tickets: 0, profit: 0, buckets: { consoles: mk(), tablets: mk(), computers: mk(), misc: mk() } };
         tally[who].tickets += 1;
         tally[who].profit += parseFloat(r.gross_profit || 0);
+        // Split per category so "who leads in consoles" is answerable without
+        // another round trip (Eric, 2026-09-28: "sort by device type to show
+        // who's leading in each category").
+        var tb = tally[who].buckets[bucketFor(r.device_category)];
+        if (tb) { tb.tickets += 1; tb.profit += parseFloat(r.gross_profit || 0); }
       });
       techs = Object.keys(tally).map(function (k) {
         var t = tally[k];
+        var tBuckets = {};
+        Object.keys(t.buckets).forEach(function (b) {
+          tBuckets[b] = {
+            tickets: t.buckets[b].tickets,
+            profit: round2(t.buckets[b].profit),
+            avg_per_ticket: t.buckets[b].tickets > 0 ? round2(t.buckets[b].profit / t.buckets[b].tickets) : 0,
+          };
+        });
         return {
           employee: t.employee,
           tickets: t.tickets,
           profit: round2(t.profit),
           avg_per_ticket: t.tickets > 0 ? round2(t.profit / t.tickets) : 0,
+          buckets: tBuckets,
         };
       }).sort(function (a, b) { return b.tickets - a.tickets; });
     }

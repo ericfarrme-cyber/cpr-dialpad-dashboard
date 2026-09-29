@@ -1484,8 +1484,8 @@ function StoreDashboard() {
                                   ${qp.toFixed(2)}{off===null?"":off>0.005?" · −$"+off.toFixed(2)+(a.quote_reason?" · "+a.quote_reason:""):" · at set price"}
                                 </span>;
                               })()}
-                              {a.part_status&&<span style={{ fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase",padding:"2px 7px",borderRadius:4,background:a.part_status==="ordered"?"#F59E0B24":"var(--bg-card-inner)",color:a.part_status==="ordered"?"var(--orange)":"var(--text-muted)",border:"1px solid "+(a.part_status==="ordered"?"#F59E0B59":"var(--border)") }}>
-                                {a.part_status==="in_stock"?"part in stock":a.part_status==="ordered"?"part ordered"+(a.deposit_amount?" · $"+parseFloat(a.deposit_amount).toFixed(2):""):"part needed"}
+                              {a.part_status&&<span style={{ fontSize:9.5,fontWeight:800,letterSpacing:"0.05em",textTransform:"uppercase",padding:"2px 7px",borderRadius:4,background:a.part_status!=="in_stock"?"#F59E0B24":"var(--bg-card-inner)",color:a.part_status!=="in_stock"?"var(--orange)":"var(--text-muted)",border:"1px solid "+(a.part_status!=="in_stock"?"#F59E0B59":"var(--border)") }}>
+                                {a.part_status==="in_stock"?"part in stock":(a.part_status==="needed"?"part on order":"part ordered")+(a.deposit_amount?" · $"+parseFloat(a.deposit_amount).toFixed(2):"")}
                               </span>}
                               {a.ticket_number&&<a href={"https://cpr.repairq.io/ticket/"+a.ticket_number} target="_blank" rel="noreferrer" onClick={function(e){e.stopPropagation();}} style={{ fontSize:11,color:"var(--cyan)",textDecoration:"none" }}>#{a.ticket_number}</a>}
                             </div>

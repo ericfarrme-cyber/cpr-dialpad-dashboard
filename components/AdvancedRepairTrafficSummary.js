@@ -371,6 +371,17 @@ export default function AdvancedRepairTrafficSummary() {
           {BUCKETS.map(function (b) {
             var v = sel.buckets[b.key] || { tickets: 0, profit: 0, avg_per_ticket: 0, avg_turnaround_hours: null };
             var pct = sel.tickets > 0 ? (v.tickets / sel.tickets) * 100 : 0;
+            // Matt, 2026-09-28: the mix had to break out per store — "I want
+            // the category mix to have each store, individual." The bar is
+            // split into store segments; the line beneath names them, and a
+            // store that closed NONE of this category is called out rather
+            // than left as an absent segment nobody notices.
+            var perStore = STORES.filter(function (st) { return st.key !== "all"; }).map(function (st) {
+              var sv = (sel.stores && sel.stores[st.key] && sel.stores[st.key].buckets && sel.stores[st.key].buckets[b.key]) || { tickets: 0, profit: 0 };
+              return { key: st.key, label: st.label, color: st.color, tickets: sv.tickets, profit: sv.profit };
+            });
+            var segTotal = perStore.reduce(function (a, x) { return a + x.profit; }, 0);
+            var zeros = perStore.filter(function (x) { return !x.profit; });
             return (
               <div key={b.key} className="art-row" style={{ padding: "9px 8px", margin: "0 -8px", borderRadius: 7 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10 }}>
@@ -380,13 +391,33 @@ export default function AdvancedRepairTrafficSummary() {
                   <span style={{ fontFamily: MONO, fontSize: 12.5, color: INK, fontVariantNumeric: "tabular-nums" }}>{money(v.profit)}</span>
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 6 }}>
-                  <div style={{ flex: 1, height: 5, borderRadius: 3, background: BG, overflow: "hidden" }}>
-                    <div className="art-bar" style={{ height: "100%", width: (grown ? pct : 0) + "%", background: b.color, borderRadius: 3 }} />
+                  <div style={{ flex: 1, height: 7, borderRadius: 4, background: BG, overflow: "hidden", display: "flex" }}>
+                    {segTotal > 0
+                      ? perStore.map(function (x) {
+                          return <div key={x.key} className="art-bar" title={x.label + " " + money(x.profit)}
+                            style={{ height: "100%", width: (grown ? (x.profit / segTotal) * 100 : 0) + "%", background: x.color }} />;
+                        })
+                      : <div className="art-bar" style={{ height: "100%", width: (grown ? pct : 0) + "%", background: b.color, borderRadius: 4 }} />}
                   </div>
                   <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED, whiteSpace: "nowrap" }}>
                     {v.tickets} · {money(v.avg_per_ticket)}/tix · {v.avg_turnaround_hours != null ? Math.round(v.avg_turnaround_hours) + "h" : "—"}
                   </span>
                 </div>
+                <div style={{ fontSize: 10.5, color: MUTED, marginTop: 5, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                  {perStore.map(function (x) {
+                    return (
+                      <span key={x.key} style={{ color: x.profit ? INK2 : GOLD }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: x.profit ? x.color : GOLD, display: "inline-block", marginRight: 5 }} />
+                        {x.label} {x.profit ? money0(x.profit) : "none"}
+                      </span>
+                    );
+                  })}
+                </div>
+                {zeros.length > 0 && zeros.length < perStore.length && (
+                  <div style={{ fontSize: 10.5, color: GOLD, marginTop: 4 }}>
+                    {zeros.map(function (z) { return z.label; }).join(" and ")} closed no {b.label.toLowerCase()} this month.
+                  </div>
+                )}
               </div>
             );
           })}
@@ -422,6 +453,36 @@ export default function AdvancedRepairTrafficSummary() {
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", marginTop: 7, fontFamily: MONO, fontSize: 10, color: MUTED }}>
               <span>$0</span><span style={{ color: GOLD }}>{money0(sel.bonus.threshold)} target</span>
+            </div>
+
+            {/* Who is carrying it. The bonus pays out company-wide, so this is
+                not a per-store payout — it is the answer to Matt's question,
+                "which store needs help with non-phone repairs" (2026-09-28).
+                Displayed only; the payout figure above is never recomputed. */}
+            <div style={{ marginTop: 16, paddingTop: 13, borderTop: "1px solid " + LINE }}>
+              <div style={{ fontFamily: MONO, fontSize: 9.5, letterSpacing: ".12em", textTransform: "uppercase", color: MUTED, marginBottom: 9 }}>
+                Who is carrying it
+              </div>
+              {STORES.filter(function (st) { return st.key !== "all"; }).map(function (st) {
+                var sv = (sel.stores && sel.stores[st.key]) || { profit: 0, tickets: 0, share_of_company_non_phone: null };
+                var share = sv.share_of_company_non_phone;
+                return (
+                  <div key={st.key} className="art-row" style={{ padding: "6px 8px", margin: "0 -8px", borderRadius: 7,
+                                opacity: store !== "all" && store !== st.key ? 0.45 : 1 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, fontSize: 12 }}>
+                      <span style={{ color: INK2, display: "inline-flex", alignItems: "center", gap: 7 }}>
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", background: st.color }} />{st.label}
+                      </span>
+                      <span style={{ fontFamily: MONO, color: INK, fontVariantNumeric: "tabular-nums" }}>
+                        {money0(sv.profit)}<span style={{ color: MUTED }}> · {share == null ? "—" : share.toFixed(1) + "%"}</span>
+                      </span>
+                    </div>
+                    <div style={{ height: 4, borderRadius: 3, background: BG, overflow: "hidden", marginTop: 5 }}>
+                      <div className="art-bar" style={{ height: "100%", width: (grown ? (share || 0) : 0) + "%", background: st.color, borderRadius: 3 }} />
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 18,
@@ -491,28 +552,44 @@ export default function AdvancedRepairTrafficSummary() {
 
         <div style={{ background: SURFACE, border: "1px solid " + LINE, borderRadius: 13, padding: "16px 20px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
-            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: INK }}>Closed by</span>
+            <span style={{ fontFamily: DISPLAY, fontSize: 14, fontWeight: 700, color: INK }}>
+              Closed by{cat !== "all" ? " · " + catLabel : ""}
+            </span>
             <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED }}>{mLong(data.technicians_month || sel.month)}</span>
           </div>
-          {(data.technicians || []).slice(0, 7).map(function (t) {
-            var top = (data.technicians[0] || {}).tickets || 1;
-            var un = t.employee === "Unattributed";
-            return (
-              <div key={t.employee} className="art-row" style={{ display: "flex", alignItems: "center", gap: 11,
-                          padding: "7px 8px", margin: "0 -8px", borderRadius: 7 }}>
-                <span style={{ flex: 1, color: un ? MUTED : INK, fontSize: 13, fontWeight: un ? 400 : 600,
-                               fontStyle: un ? "italic" : "normal", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {t.employee}
-                </span>
-                <div style={{ width: 74, height: 5, borderRadius: 3, background: BG, overflow: "hidden" }}>
-                  <div className="art-bar" style={{ height: "100%", width: (grown ? (t.tickets / top) * 100 : 0) + "%",
-                                background: un ? MUTED : CYAN, borderRadius: 3 }} />
+          {/* Everyone, not the first seven. The cap read as "Sam isn't doing
+              non-phone work" when Sam was simply eighth (Matt, 2026-09-28) —
+              a truncated list had become a claim about an employee. Follows
+              the category chips so "who leads in consoles" is one click. */}
+          {(function () {
+            var val = function (t) { return cat === "all" ? t : ((t.buckets && t.buckets[cat]) || { tickets: 0, profit: 0 }); };
+            var list = (data.technicians || [])
+              .map(function (t) { var v = val(t); return { employee: t.employee, tickets: v.tickets, profit: v.profit }; })
+              .filter(function (t) { return t.tickets > 0; })
+              .sort(function (a, b) { return b.profit - a.profit || b.tickets - a.tickets; });
+            if (!list.length) {
+              return <div style={{ color: MUTED, fontSize: 12, padding: "10px 0" }}>Nobody closed {catLabel.toLowerCase()} this month.</div>;
+            }
+            var top = list[0].profit || 1;
+            return list.map(function (t, i) {
+              var un = t.employee === "Unattributed";
+              return (
+                <div key={t.employee} className="art-row" style={{ display: "flex", alignItems: "center", gap: 11,
+                            padding: "7px 8px", margin: "0 -8px", borderRadius: 7 }}>
+                  <span style={{ flex: 1, color: un ? MUTED : INK, fontSize: 13, fontWeight: un ? 400 : 600,
+                                 fontStyle: un ? "italic" : "normal", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {i === 0 && !un && <span style={{ color: GOLD, marginRight: 6 }}>★</span>}{t.employee}
+                  </span>
+                  <div style={{ width: 74, height: 5, borderRadius: 3, background: BG, overflow: "hidden" }}>
+                    <div className="art-bar" style={{ height: "100%", width: (grown ? (t.profit / top) * 100 : 0) + "%",
+                                  background: un ? MUTED : (catMeta ? catMeta.color : CYAN), borderRadius: 3 }} />
+                  </div>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: INK2, width: 26, textAlign: "right" }}>{t.tickets}</span>
+                  <span style={{ fontFamily: MONO, fontSize: 12, color: MUTED, width: 74, textAlign: "right" }}>{money0(t.profit)}</span>
                 </div>
-                <span style={{ fontFamily: MONO, fontSize: 12, color: INK2, width: 26, textAlign: "right" }}>{t.tickets}</span>
-                <span style={{ fontFamily: MONO, fontSize: 12, color: MUTED, width: 74, textAlign: "right" }}>{money0(t.profit)}</span>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </div>
     </div>

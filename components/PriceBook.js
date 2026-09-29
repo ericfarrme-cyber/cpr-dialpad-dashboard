@@ -16,7 +16,11 @@ import { suggestDeposit } from "@/lib/deposit";
 // `service` holds the PC work — virus removal, Windows reinstall, drive
 // replacement, data transfer, data recovery. Matt renamed it to what it is
 // (2026-09-23). Display only; the family key in the database is unchanged.
-var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "Computers", service: "Windows Computers" };
+// `computer` is 101 rows and every one is a MacBook (74 Pro, 27 Air); `service`
+// is the PC work — virus removal, Windows reinstall, drive replacement, data
+// transfer, data recovery. Matt renamed both to what they are (2026-09-23,
+// repeated 09-28). Display only; the family keys in the database are unchanged.
+var FAMILY_LABEL = { all: "All", phone: "Phones", tablet: "Tablets", console: "Consoles", computer: "MacBooks", service: "Windows Computers" };
 var FAMILY_ORDER = ["all", "phone", "console", "tablet", "computer", "service"];
 var QUALITY_TIERS = ["LCD", "OLED", "OEM", "Digitizer"];
 var FLAG_LABEL = {
@@ -591,13 +595,18 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
   var [depositTouched, setDepositTouched] = useState(false);
   useEffect(function() { setPartStatus(""); setDeposit(""); setDepositTouched(false); }, [selKey]);
   var depositNum = parseFloat(deposit);
-  var depositOk = partStatus !== "ordered" || (isFinite(depositNum) && depositNum > 0);
+  // Matt, 2026-09-28: "We're not scheduling an appointment for someone who's
+  // already ordered a part." The deposit hangs off the state that actually
+  // happens at booking — the part still has to be ordered. `ordered` stays a
+  // legal value on the route for anything historical, but the panel no longer
+  // offers it.
+  var depositOk = partStatus !== "needed" || (isFinite(depositNum) && depositNum > 0);
   // Eric, 2026-09-27: half the repair, flat. "Repair" is what the customer was
   // quoted, so a discount moves the deposit with it. Recomputes as the quote
   // changes until the agent types over it.
   var depSuggest = suggestDeposit(f.quoted, selRow ? selRow.part_price : null);
   useEffect(function() {
-    if (partStatus !== "ordered" || depositTouched) return;
+    if (partStatus !== "needed" || depositTouched) return;
     setDeposit(depSuggest ? depSuggest.amount.toFixed(2) : "");
   }, [partStatus, depositTouched, depSuggest && depSuggest.amount]); // eslint-disable-line react-hooks/exhaustive-deps
   var underSuggest = depSuggest && isFinite(depositNum) && depositNum > 0 && depositNum < depSuggest.amount - 0.005;
@@ -674,7 +683,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
     if (!f.date_of_appt) { setErr("Pick a date"); return; }
     if (!quotedOk) { setErr("Quoted price"); return; }
     if (needsReason && !reasonGiven) { setErr("A quote under the set price needs a reason"); return; }
-    if (!depositOk) { setErr("A part on order needs a deposit"); return; }
+    if (!depositOk) { setErr("A part we have to order needs a deposit"); return; }
     setBusy(true);
     try {
       var reason = f.reason === "Other" ? f.reason_text.trim() : (f.reason + (f.reason_text.trim() ? " — " + f.reason_text.trim() : ""));
@@ -694,7 +703,7 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
           call_id: call ? call.call_id : null,
           turnaround: turnaroundOut || null,
           part_status: partStatus || null,
-          deposit_amount: partStatus === "ordered" ? depositNum : null,
+          deposit_amount: partStatus === "needed" ? depositNum : null,
           scheduled_by: bookedBy.trim() || (viewer && viewer.name ? viewer.name : ""),
         }),
       });
@@ -889,20 +898,20 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
         </div>
 
         {/* the part — a check mark and, when it's ordered, the deposit */}
-        <div style={{ padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid " + (partStatus === "ordered" ? "var(--orange)" : "var(--border-light)") }}>
+        <div style={{ padding: "10px 12px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid " + (partStatus === "needed" ? "var(--orange)" : "var(--border-light)") }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-primary)" }}>Part</span>
-            {[["needed", "Needed"], ["ordered", "Ordered ✓"], ["in_stock", "In stock"]].map(function(p) {
+            {[["needed", "Needs ordering"], ["in_stock", "In stock"]].map(function(p) {
               var on = partStatus === p[0];
               return <button key={p[0]} onClick={function() { setPartStatus(on ? "" : p[0]); }}
-                style={Object.assign({}, chip(on), on && p[0] === "ordered" ? { borderColor: "var(--orange)", color: "var(--orange)", background: "#F59E0B1A" } : {})}>{p[1]}</button>;
+                style={Object.assign({}, chip(on), on && p[0] === "needed" ? { borderColor: "var(--orange)", color: "var(--orange)", background: "#F59E0B1A" } : {})}>{p[1]}</button>;
             })}
-            {partStatus === "ordered" && (
+            {partStatus === "needed" && (
               <label style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Deposit</span>
+                <span style={{ fontSize: 10, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Min. deposit</span>
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 2, border: "1.5px solid " + (depositOk ? "var(--orange)" : "var(--red)"), borderRadius: 8, padding: "3px 9px", background: "var(--bg-input)" }}>
                   <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-muted)" }}>$</span>
-                  <input value={deposit} onChange={function(e) { setDepositTouched(true); setDeposit(e.target.value); }} onFocus={function(e) { e.target.select(); }} inputMode="decimal" aria-label="Deposit taken" autoFocus
+                  <input value={deposit} onChange={function(e) { setDepositTouched(true); setDeposit(e.target.value); }} onFocus={function(e) { e.target.select(); }} inputMode="decimal" aria-label="Minimum deposit taken" autoFocus
                     style={{ width: 62, fontSize: 13, fontWeight: 800, border: "none", background: "transparent", color: "var(--text-primary)", fontVariantNumeric: "tabular-nums", outline: "none" }} />
                 </span>
               </label>
@@ -911,12 +920,12 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
           {partStatus === "" && partFlagged && (
             <div style={{ fontSize: 10.5, color: "var(--orange)", marginTop: 6 }}>The sheet flags this one as a part we order — say where it stands.</div>
           )}
-          {partStatus === "ordered" && (
+          {partStatus === "needed" && (
             <div style={{ fontSize: 10.5, color: !depositOk ? "var(--red)" : underSuggest ? "var(--orange)" : "var(--text-muted)", marginTop: 6 }}>
-              {!depositOk ? "A part on order takes a deposit — every time."
+              {!depositOk ? "A part we have to order takes a deposit — every time."
                 : !depSuggest ? "Taken today and owed against the repair."
                 : underSuggest ? "Under half of " + money(quotedNum) + " — it will book, and it will be counted."
-                : "Half of " + money(quotedNum) + ", taken today and owed against it."
+                : "Half of " + money(quotedNum) + " is the minimum — take more if they offer it. Owed against the repair."
                   + (depSuggest.under_part && partFlagged ? " The part costs " + money(depSuggest.part) + " and we order it in — worth asking for more." : "")}
             </div>
           )}

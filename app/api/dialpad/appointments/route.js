@@ -169,7 +169,7 @@ export async function GET(request) {
       var a = open[i];
       var cands = byPhone[normPhone(a.customer_phone)];
       if (!cands || !a.date_of_appt) continue;
-      var span = a.part_status === "ordered" ? LINK_DAYS_PART : LINK_DAYS;
+      var span = PART_TAKES_DEPOSIT[a.part_status] ? LINK_DAYS_PART : LINK_DAYS;
       var end = new Date(a.date_of_appt + "T00:00:00Z"); end.setUTCDate(end.getUTCDate() + span);
       var endS = end.toISOString().slice(0, 10);
       var hit = cands.filter(function(c) { return c.closed >= a.date_of_appt && c.closed <= endS; }).sort(function(x, y) { return x.closed < y.closed ? -1 : 1; })[0];
@@ -206,7 +206,7 @@ export async function GET(request) {
       .eq("follow_up_needed", true).or("follow_up_done.is.null,follow_up_done.eq.false")
       .lt("date_of_appt", cutS).limit(5000);
     if (sErr) return json({ success: false, error: sErr.message }, 500);
-    var owesMoney = function(a) { return a.part_status === "ordered" || num2(a.deposit_amount) > 0; };
+    var owesMoney = function(a) { return !!PART_TAKES_DEPOSIT[a.part_status] || num2(a.deposit_amount) > 0; };
     var keep = (stale || []).filter(owesMoney);
     var drop = (stale || []).filter(function(a) { return !owesMoney(a); });
     if (dryF) return json({ success: true, dry_run: true, older_than_days: FOLLOWUP_DAYS, would_expire: drop.length, kept_for_deposit: keep.length });
@@ -238,9 +238,14 @@ export async function GET(request) {
 
 function moneyNum(v) { if (v === null || v === undefined || v === "") return null; var n = parseFloat(String(v).replace(/[^0-9.\-]/g, "")); return isFinite(n) ? Math.round(n * 100) / 100 : null; }
 
-// A part is either already on the shelf, needs ordering, or has been ordered.
-// Only the last one takes money, and it always takes money (Eric, 2026-09-26).
+// A part is on the shelf or it has to be ordered. "needed" is the state that
+// takes money, and it always takes money (Eric 2026-09-26; corrected 09-28 —
+// Matt: "We're not scheduling an appointment for someone who's already ordered
+// a part," so the deposit was hanging off a state that never occurs at
+// booking). `ordered` stays a legal value for anything historical or entered
+// after the fact; the booking panel no longer offers it.
 var PART_STATES = ["needed", "ordered", "in_stock"];
+var PART_TAKES_DEPOSIT = { needed: true, ordered: true };
 function partStatus(v) { var s = String(v || "").toLowerCase().trim(); return PART_STATES.indexOf(s) >= 0 ? s : null; }
 
 export async function POST(request) {
@@ -296,11 +301,11 @@ export async function POST(request) {
     var pStat = partStatus(body.part_status);
     if (pStat) {
       var dep = moneyNum(body.deposit_amount);
-      if (pStat === "ordered" && (dep === null || dep <= 0)) {
-        return json({ success: false, error: "A part on order needs a deposit" }, 400);
+      if (PART_TAKES_DEPOSIT[pStat] && (dep === null || dep <= 0)) {
+        return json({ success: false, error: "A part we have to order needs a deposit" }, 400);
       }
       record.part_status = pStat;
-      record.deposit_amount = pStat === "ordered" ? dep : null;
+      record.deposit_amount = PART_TAKES_DEPOSIT[pStat] ? dep : null;
     }
     if (fromBook) {
       // Structured quote: the row it came from, the sheet and floor at that
@@ -341,9 +346,9 @@ export async function POST(request) {
     if (body.part_status !== undefined) {
       var uStat = partStatus(body.part_status);
       var uDep = moneyNum(body.deposit_amount);
-      if (uStat === "ordered" && (uDep === null || uDep <= 0)) return json({ success: false, error: "A part on order needs a deposit" }, 400);
+      if (PART_TAKES_DEPOSIT[uStat] && (uDep === null || uDep <= 0)) return json({ success: false, error: "A part we have to order needs a deposit" }, 400);
       updates.part_status = uStat;
-      updates.deposit_amount = uStat === "ordered" ? uDep : null;
+      updates.deposit_amount = PART_TAKES_DEPOSIT[uStat] ? uDep : null;
     } else if (body.deposit_amount !== undefined) {
       updates.deposit_amount = moneyNum(body.deposit_amount);
     }

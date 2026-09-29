@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase, saveAuditResult, getAuditResults, getEmployeePerformance, getStorePerformance, isCallAudited, getEmployeeStatsFromAudits, overrideAudit, excludeAudit, reinstateAudit, deleteAudit, deleteAuditsByEmployee, clearAllAudits, getLowConfidenceAudits } from "@/lib/supabase";
 import { AUDIT_PROMPT, preAuditFilter, transcriptPreCheck } from "@/lib/audit-config";
+import { buildResolver, resolveName } from "@/lib/roster-resolver";
 
 const DIALPAD_BASE = "https://dialpad.com/api/v2";
 const API_KEY = process.env.DIALPAD_API_KEY;
@@ -19,6 +20,56 @@ export async function GET(request) {
   const callType = searchParams.get("callType");
   const limit = parseInt(searchParams.get("limit") || "200");
   const daysBack = parseInt(searchParams.get("days") || "30");
+
+  // ── every call that belongs to one person, wherever they took it ─────────
+  // My Performance used to ask for `?store=<their roster store>` and filter the
+  // names client-side. Two things were wrong with that, both measured
+  // 2026-09-28 over 30 days: a call taken at any OTHER store was invisible —
+  // Luke Stirling is on the roster at Bloomington and works Indianapolis, so
+  // he saw 0 of his 130 calls, Matthew Slade 43 of 91, Duncan Hitti 74 of 112 —
+  // and the resolution happened in the browser, so no two screens had to agree.
+  // Resolved here instead, with no store filter at all.
+  if (action === "for_employee") {
+    var who = (searchParams.get("name") || "").trim();
+    if (!who) return NextResponse.json({ success: false, error: "name is required" }, { status: 400 });
+    if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" }, { status: 500 });
+
+    var { data: rosterRows, error: rErr } = await supabase.from("employee_roster").select("name,aliases,active,store");
+    if (rErr) return NextResponse.json({ success: false, error: rErr.message }, { status: 500 });
+    var resolver = buildResolver(rosterRows || []);
+
+    // Whose page is this? Resolve the requested name the same way, so
+    // "Luke"/"Luke Stirling" both land on the roster spelling.
+    var canonicalMe = resolveName(who, resolver.map) || who;
+
+    var all = await getAuditResults({ store: "all", limit: 4000, daysBack: daysBack });
+    // Every scanned row lands in exactly one of these, so the counts below add
+    // up to `scanned` and a row can never go missing without being named.
+    var mine = [], excluded = 0, nonScorable = 0, ambiguous = 0, unresolved = 0, others = 0;
+    (all || []).forEach(function(a) {
+      if (a.excluded) { excluded++; return; }
+      if (a.call_type === "non_scorable") { nonScorable++; return; }
+      var key = String(a.employee || "").trim().toLowerCase();
+      if (resolver.ambiguous[key]) { ambiguous++; return; }   // claimed by two people — credit nobody
+      var canon = resolveName(a.employee, resolver.map);
+      if (!canon) { unresolved++; return; }
+      if (canon === canonicalMe) mine.push(a); else others++;
+    });
+
+    return NextResponse.json({
+      success: true,
+      employee: canonicalMe,
+      days: daysBack,
+      audits: mine,
+      // Surfaced, never silent: calls the resolver could not place, and calls
+      // an alias claimed for two people.
+      meta: {
+        returned: mine.length, scanned: (all || []).length,
+        excluded: excluded, non_scorable: nonScorable,
+        ambiguous: ambiguous, unresolved: unresolved, other_people: others,
+      },
+    });
+  }
 
   if (action === "employees") {
     let data = await getEmployeePerformance(store);
