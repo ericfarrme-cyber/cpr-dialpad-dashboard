@@ -1038,11 +1038,16 @@ export default function DialpadDashboard() {
   var isAdmin = auth && auth.role === "admin";
   var isPreviewing = previewRole !== null;
 
-  // Load roster for employee preview picker
+  // Load roster for employee preview picker.
+  // The route returns `employees`, not `roster` — this read the wrong key, so
+  // setRosterList([]) ran every time and the "View as employee" dropdown has
+  // never had a single name in it. Found 2026-09-28 while trying to open a
+  // technician's own page, which is exactly what Matt does when he sits down
+  // with someone to show them their numbers.
   useEffect(function() {
     if (isAdmin) {
       fetch("/api/dialpad/roster").then(function(r){return r.json();}).then(function(json) {
-        if (json.success) setRosterList(json.roster || []);
+        if (json.success) setRosterList(json.employees || json.roster || []);
       }).catch(function(){});
     }
   }, [isAdmin]);
