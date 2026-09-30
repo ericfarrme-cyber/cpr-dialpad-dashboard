@@ -536,7 +536,11 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
       {open && !editingDevice && (
         <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 14, animation: "pbExpand .25s ease both" }}>
           {/* the words, on the row they are already reading */}
-          <CloserLines turnaround={(byRepair[0] && byRepair[0].tiers[0] && byRepair[0].tiers[0].turnaround) || first.turnaround || ""} closers={closers} />
+          {/* The first row often has no turnaround while later ones do — this
+              device carries 3-4 hrs on back glass and 1-2 hours on battery
+              but nothing on the screen. Take the first one the device has,
+              not the first row's. */}
+          <CloserLines turnaround={(rows.filter(function(r) { return r.turnaround; })[0] || {}).turnaround || ""} closers={closers} />
           {byRepair.map(function(g) {
             var ladder = isLadder(g.tiers);
             var quality = g.tiers.length > 1 && g.tiers.every(function(t) { return QUALITY_TIERS.indexOf(t.tier) >= 0 || /supplier/i.test(t.tier || ""); });
