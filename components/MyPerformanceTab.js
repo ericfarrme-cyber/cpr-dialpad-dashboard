@@ -244,6 +244,10 @@ export default function MyPerformanceTab({ auth, store }) {
   var [allEmployees, setAllEmployees] = useState([]);
   var [auditData, setAuditData] = useState([]);
   var [auditMeta, setAuditMeta] = useState(null);
+  // This month vs last on the two criteria that are free to hit. Without the
+  // comparison the prompts elsewhere are instructions; with it the number
+  // visibly moves (2026-09-29).
+  var [criteria, setCriteria] = useState(null);
   var [reviewData, setReviewData] = useState(null);
   var [streakData, setStreakData] = useState(null);
   // Advanced repair commission — from /api/advanced-repairs?action=my_commission
@@ -380,6 +384,9 @@ export default function MyPerformanceTab({ auth, store }) {
         fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/answer-rate-bonus?month=" + activePeriod).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/advanced-repair-traffic?months=14").then(function(r) { return r.json(); }),
+        // Appended deliberately at the END: inserting mid-array renumbers
+        // every results[N] below and silently rewires five other reads.
+        fetch("/api/dialpad/audit?action=criteria&name=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -469,6 +476,7 @@ export default function MyPerformanceTab({ auth, store }) {
       // Non-phone threshold bonus. Deliberately strict: Duncan only, and never
       // on a month whose device_category coverage is too low to trust — paying
       // a bonus off data we know is incomplete is worse than paying it late.
+      if (results[12] && results[12].status === "fulfilled" && results[12].value && results[12].value.success) setCriteria(results[12].value);
       if (results[11] && results[11].status === "fulfilled" && results[11].value && results[11].value.success) {
         var npbAll = results[11].value.months || [];
         var npbMonth = npbAll.find(function(m) { return m.month === activePeriod; });
@@ -2554,6 +2562,52 @@ export default function MyPerformanceTab({ auth, store }) {
                   </div>
                 </div>
               </div>
+
+              {/* ── this month vs last, on the two free criteria ──────────────
+                  Warranty and "faster if you book" each score 0.92 of 4.01 on
+                  an opportunity call — the same as a discount — and cost
+                  nothing. Showing the movement is what turns the prompts in
+                  the Price Book from instructions into something you can win
+                  at (2026-09-29). */}
+              {criteria && criteria.current.opportunity_calls > 0 && criteria.previous.opportunity_calls > 0 && (
+                <div style={{ ...card, marginBottom: 16 }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--text-muted)", marginBottom: 12 }}>
+                    The free closers · this month vs last
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {[
+                      { label: "Lifetime warranty", key: "warranty_mentioned", n: criteria.current.counts.warranty, color: "var(--cyan)" },
+                      { label: "Faster w/ appointment", key: "faster_turnaround", n: criteria.current.counts.faster, color: "var(--purple)" },
+                    ].map(function(r) {
+                      var now = criteria.current.rates[r.key], was = criteria.previous.rates[r.key];
+                      var d = (now || 0) - (was || 0);
+                      var tone = d === 0 ? "var(--text-muted)" : d > 0 ? "var(--green)" : "var(--red)";
+                      return (
+                        <div key={r.key} style={{ padding: "12px 14px", borderRadius: 10, background: "var(--bg-card-inner)", border: "1px solid var(--border)" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+                            <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-primary)" }}>{r.label}</span>
+                            <span style={{ fontSize: 11.5, fontWeight: 700, color: tone, fontVariantNumeric: "tabular-nums" }}>
+                              {d === 0 ? "no change" : (d > 0 ? "▲ +" : "▼ ") + d + " pts"}
+                            </span>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 9, marginTop: 7 }}>
+                            <span style={{ fontSize: 12, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{was}%</span>
+                            <span style={{ color: "var(--text-muted)" }}>&rarr;</span>
+                            <span style={{ fontSize: 22, fontWeight: 800, color: tone, fontVariantNumeric: "tabular-nums", letterSpacing: "-.03em" }}>{now}%</span>
+                            <span style={{ fontSize: 11, color: "var(--text-muted)", fontVariantNumeric: "tabular-nums" }}>{r.n} of {criteria.current.opportunity_calls}</span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 4, background: "var(--bg-card)", overflow: "hidden", marginTop: 7 }}>
+                            <div style={{ height: "100%", width: (now || 0) + "%", background: r.color, borderRadius: 4, transition: "width .8s cubic-bezier(.22,.9,.3,1)" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 11, lineHeight: 1.5 }}>
+                    Each is worth <strong style={{ color: "var(--text-secondary)" }}>0.92 of 4.01 points</strong> on an opportunity call &mdash; the same as offering a discount, and neither costs anything.
+                  </div>
+                </div>
+              )}
 
               {/* Opportunity calls breakdown */}
               {callStats.oppCalls > 0 && (

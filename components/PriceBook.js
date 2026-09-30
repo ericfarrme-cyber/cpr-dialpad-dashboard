@@ -31,6 +31,61 @@ var FLAG_LABEL = {
 
 // Matt, 2026-09-23. Apple display assemblies move week to week and the sheet
 // cannot keep up, so the sheet defers rather than pretending.
+// The two closers that score the same as a discount and cost nothing.
+// Warranty is worth 0.92 of 4.01 on an opportunity call; so is "faster if you
+// book". Measured 2026-09-29: nobody clears 25% on warranty and Andrew
+// McLelland had said it 0 times in 102 calls. Above this share the nudge stops
+// asking and gets out of the way — a prompt that never leaves is furniture.
+var CLOSER_THRESHOLD = 20;
+
+// The sentence, not a reminder to say the sentence. Read aloud while the
+// customer is on the line, so it has to be sayable as written.
+function CloserLines({ turnaround, closers }) {
+  var war = closers && closers.current ? closers.current.rates.warranty_mentioned : null;
+  var fast = closers && closers.current ? closers.current.rates.faster_turnaround : null;
+  var opp = closers && closers.current ? closers.current.opportunity_calls : 0;
+  var wc = closers && closers.current ? closers.current.counts.warranty : 0;
+  var fc = closers && closers.current ? closers.current.counts.faster : 0;
+  var plural = function(n) { return n === 1 ? "time" : "times"; };
+  var line = { display: "flex", gap: 10, alignItems: "flex-start", padding: "9px 12px", borderRadius: 9, marginTop: 7 };
+  var quote = { display: "block", fontSize: 13, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.45 };
+  var meta = { display: "block", fontSize: 10.5, color: "var(--text-muted)", marginTop: 3 };
+  return (
+    <div>
+      <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "var(--text-muted)", marginTop: 4 }}>
+        Worth saying — both score, both are free
+      </div>
+      <div style={Object.assign({}, line, { border: "1px solid #00D4FF6B", background: "linear-gradient(100deg,#00D4FF1A,transparent)" })}>
+        <span style={{ fontSize: 15, lineHeight: 1.1 }}>🛡</span>
+        <span>
+          <span style={quote}>&ldquo;And that comes with our lifetime warranty — for as long as you own it.&rdquo;</span>
+          <span style={meta}>
+            {war === null ? "Worth 0.92 points, the same as a discount."
+              : war >= CLOSER_THRESHOLD ? "You say this on " + war + "% of calls — keep it up."
+              : "Worth 0.92 points, same as a discount. You’ve said it " + wc + " " + plural(wc) + " in " + opp + " calls."}
+          </span>
+        </span>
+      </div>
+      {turnaround ? (
+        <div style={Object.assign({}, line, { border: "1px solid #7B2FFF6B", background: "linear-gradient(100deg,#7B2FFF1A,transparent)" })}>
+          <span style={{ fontSize: 15, lineHeight: 1.1 }}>⚡</span>
+          <span>
+            <span style={quote}>&ldquo;If you book it in, we can have it back to you in {turnaround}.&rdquo;</span>
+            <span style={meta}>
+              {fast === null ? "Worth 0.92 points."
+                : "Worth 0.92 points. You’ve said it " + fc + " " + plural(fc) + " in " + opp + " calls (" + fast + "%)."}
+            </span>
+          </span>
+        </div>
+      ) : (
+        <div style={{ fontSize: 10.5, color: "var(--text-faint)", marginTop: 6 }}>
+          No turnaround on this row yet — add one and the &ldquo;we can have it back by&rdquo; line appears here too.
+        </div>
+      )}
+    </div>
+  );
+}
+
 var VOLATILE_PART_WARNING = "Part price extremely volatile — check CPR.parts / PhoneLCDparts / Apple Self Service Repair Store before quoting the customer.";
 var isVolatilePart = function(device) { return /macbook|imac|mac\s*mini|mac\s*pro/i.test(String(device || "")); };
 
@@ -433,7 +488,7 @@ function DeviceEditor({ device, rows, onSave, onCancel, allRows, onAddRepairs })
   );
 }
 
-function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook, onDeviceSave, allRows }) {
+function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onToggle, onInline, forceOpen, onBook, onDeviceSave, allRows, closers }) {
   var [open, setOpen] = useState(forceOpen);
   var [editingDevice, setEditingDevice] = useState(false);
   useEffect(function() { setOpen(forceOpen); }, [forceOpen]);
@@ -480,6 +535,8 @@ function DeviceCard({ device, rows, index, isAdmin, editMode, selectedIds, onTog
       )}
       {open && !editingDevice && (
         <div style={{ padding: "0 16px 16px", display: "flex", flexDirection: "column", gap: 14, animation: "pbExpand .25s ease both" }}>
+          {/* the words, on the row they are already reading */}
+          <CloserLines turnaround={(byRepair[0] && byRepair[0].tiers[0] && byRepair[0].tiers[0].turnaround) || first.turnaround || ""} closers={closers} />
           {byRepair.map(function(g) {
             var ladder = isLadder(g.tiers);
             var quality = g.tiers.length > 1 && g.tiers.every(function(t) { return QUALITY_TIERS.indexOf(t.tier) >= 0 || /supplier/i.test(t.tier || ""); });
@@ -535,7 +592,7 @@ var normalizeTurnaround = function(s) {
 var localYmd = function(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); };
 var fmtPhone = function(s) { var d = String(s || "").replace(/\D/g, "").slice(-10); if (d.length < 4) return d; if (d.length < 7) return "(" + d.slice(0, 3) + ") " + d.slice(3); return "(" + d.slice(0, 3) + ") " + d.slice(3, 6) + "-" + d.slice(6); };
 
-function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, evidence }) {
+function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, evidence, closers }) {
   var today = localYmd(new Date());
   var tomorrow = (function() { var d = new Date(); d.setDate(d.getDate() + 1); return localYmd(d); })();
   var homeStore = viewer && viewer.store && BOOK_STORES.some(function(s) { return s[0] === viewer.store; }) ? viewer.store : "fishers";
@@ -815,6 +872,29 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
               })}
           </div>
         )}
+        {/* The free alternative, offered at the one second the trade is live.
+            A discount averages $33.44 and only pays for itself if the customer
+            was genuinely walking; the warranty closes the same person and
+            keeps it. Shown before the evidence bar because it is the thing
+            they can still act on. */}
+        {needsReason && closers && closers.current.rates.warranty_mentioned !== null && (
+          <div style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "11px 13px", borderRadius: 10,
+                        border: "1px solid #00D4FF80", background: "linear-gradient(100deg,#00D4FF1F,transparent)",
+                        animation: "pbExpand .25s cubic-bezier(.22,1.5,.4,1) both" }}>
+            <span style={{ fontSize: 16, lineHeight: 1.1 }}>🛡</span>
+            <div>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--text-primary)", lineHeight: 1.4 }}>
+                Before you take {money(disc)} off — have you said the lifetime warranty?
+              </div>
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 3, lineHeight: 1.45 }}>
+                {closers.current.rates.warranty_mentioned >= CLOSER_THRESHOLD
+                  ? "You say it on " + closers.current.rates.warranty_mentioned + "% of calls — if you already have here, go ahead."
+                  : <>You&apos;ve said it on <strong style={{ color: "var(--orange)" }}>{closers.current.rates.warranty_mentioned}% of calls this month</strong>. It closes the same customer and keeps the {money(disc)}.</>}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* What discounting has actually done. Counts, not percentages — the
             sample is a few dozen decided visits, and a percentage would sound
             surer than it is. States the record; it doesn't block the booking. */}
@@ -1151,6 +1231,9 @@ export default function PriceBook() {
   var [booking, setBooking] = useState(null); // the price row being turned into an appointment
   var [addingDevice, setAddingDevice] = useState(null); // {} for a blank panel, or a missing-model recommendation to prefill
   var searchRef = useRef(null);
+  // The viewer's own rubric, for the closer prompts. Silent on failure — a
+  // nudge is never worth breaking a price lookup over.
+  var [closers, setClosers] = useState(null);
 
   var isAdmin = !!(data && data.can_edit);
 
@@ -1163,6 +1246,17 @@ export default function PriceBook() {
     }).catch(function(e) { setError(e.message); });
   }
   useEffect(function() { load(); /* eslint-disable-line */ }, []);
+
+  useEffect(function() {
+    var me = auth && auth.userInfo && auth.userInfo.name ? auth.userInfo.name : null;
+    if (!me) return;
+    var alive = true;
+    fetch("/api/dialpad/audit?action=criteria&name=" + encodeURIComponent(me))
+      .then(function(r) { return r.json(); })
+      .then(function(j) { if (alive && j && j.success && j.current.opportunity_calls > 0) setClosers(j); })
+      .catch(function() {});
+    return function() { alive = false; };
+  }, [auth]);
 
   // "/" focuses search from anywhere; Esc clears it.
   useEffect(function() {
@@ -1396,6 +1490,48 @@ export default function PriceBook() {
       </div>
 
       <div style={{ padding: "22px 22px 60px", maxWidth: 1180, margin: "0 auto" }}>
+        {/* ── the free closer, personal and current ──────────────────────────
+            Shows only below the threshold, and turns into a thank-you above
+            it. The prize is the argument: warranty scores the same as a
+            discount and costs nothing. */}
+        {closers && (function() {
+          var c = closers.current;
+          var w = c.rates.warranty_mentioned;
+          if (w === null) return null;
+          var above = w >= CLOSER_THRESHOLD;
+          var max = closers.points.opportunity_max, per = closers.points.per_criterion;
+          // Opportunity-only, never the blended average — see the route.
+          var base = c.opportunity_avg_score;
+          if (base === null || base === undefined) return null;
+          var now = Math.round((base / max) * 100);
+          var could = Math.round(((base + per * (1 - c.counts.warranty / (c.opportunity_calls || 1))) / max) * 100);
+          return (
+            <div style={{ display: "flex", gap: 13, alignItems: "center", flexWrap: "wrap", padding: "12px 15px", marginBottom: 12, borderRadius: 11,
+                          border: "1px solid " + (above ? "#4ADE8073" : "#F59E0B73"),
+                          background: above ? "linear-gradient(100deg,#4ADE801F,#4ADE800A)" : "linear-gradient(100deg,#F59E0B24,#F59E0B0D)",
+                          animation: "pbExpand .45s cubic-bezier(.22,1,.36,1) both" }}>
+              <div style={{ width: 46, height: 46, borderRadius: "50%", flex: "none", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13,
+                            fontVariantNumeric: "tabular-nums",
+                            color: above ? "var(--green)" : "var(--orange)",
+                            background: above ? "#4ADE8029" : "#F59E0B24",
+                            border: "2px solid " + (above ? "#4ADE8080" : "#F59E0B73") }}>{w}%</div>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text-primary)" }}>
+                  {above
+                    ? "You said the lifetime warranty on " + c.counts.warranty + " of " + c.opportunity_calls + " calls this month."
+                    : "You mentioned the lifetime warranty on " + c.counts.warranty + " of your last " + c.opportunity_calls + " calls."}
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 3 }}>
+                  {above
+                    ? "Nothing to fix here — this won’t show again unless it slips."
+                    : <>It scores the same as a discount and costs nothing. Saying it every time takes your opportunity score <strong style={{ color: "var(--text-primary)" }}>{now}</strong> → <strong style={{ color: "var(--green)" }}>{could}</strong>.</>}
+                </div>
+              </div>
+              {above && <div style={{ fontSize: 21 }}>⭐</div>}
+            </div>
+          );
+        })()}
+
         {/* search — the whole page exists for this box */}
         <div style={{ position: "relative", marginBottom: 12 }}>
           <input ref={searchRef} autoFocus value={q} onChange={function(e) { setQ(e.target.value); }}
@@ -1644,6 +1780,7 @@ export default function PriceBook() {
         {devices.slice(0, 60).map(function(d, i) {
           return <DeviceCard key={d.device} device={d.device} rows={d.rows} index={i} isAdmin={isAdmin} editMode={editMode} selectedIds={selectedIds} onToggle={toggle} onInline={inlineSave} forceOpen={devices.length <= 4 || q.trim().length > 0} onBook={function(r) { setBooking(r); }}
             allRows={data ? data.rows : []}
+            closers={closers}
             onDeviceSave={async function(device, changes, adds, reason, devices) {
               if (adds && adds.length) { var ok = await addRepairs(device, adds, reason, devices); if (!ok) return false; }
               if (changes && changes.length) await commit(changes, reason);
@@ -1668,6 +1805,7 @@ export default function PriceBook() {
           deviceRows={(data ? data.rows : []).filter(function(r) { return r.device === booking.device && r.active !== false; })}
           services={data && data.services ? data.services : null}
           evidence={data ? data.quote_evidence : null}
+          closers={closers}
           onClose={function() { setBooking(null); }}
           onBooked={function(a) { setBooking(null); setToast({ tone: "var(--green)", text: "Booked · " + (a.customer_name || "") + " · " + a.date_of_appt + (a.appt_time ? " at " + a.appt_time : "") + " · " + a.store }); }} />
       )}

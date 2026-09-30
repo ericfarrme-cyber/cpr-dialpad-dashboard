@@ -71,6 +71,91 @@ export async function GET(request) {
     });
   }
 
+  // ── one person's rubric, this month and last ─────────────────────────────
+  // Powers the four "free closer" placements (2026-09-29): the Price Book
+  // strip, the script lines on a row, the line at the discount moment, and
+  // month-over-month on My Calls. Warranty and faster-turnaround each score
+  // 0.92 of 4.01 on an opportunity call — the same as a discount — and cost
+  // nothing, yet nobody clears 25%. Resolved through the roster the same way
+  // as for_employee, across every store.
+  if (action === "criteria") {
+    var cName = (searchParams.get("name") || "").trim();
+    if (!cName) return NextResponse.json({ success: false, error: "name is required" }, { status: 400 });
+    if (!supabase) return NextResponse.json({ success: false, error: "Supabase not configured" }, { status: 500 });
+
+    var { data: cRoster, error: cErr } = await supabase.from("employee_roster").select("name,aliases,active,store");
+    if (cErr) return NextResponse.json({ success: false, error: cErr.message }, { status: 500 });
+    var cRes = buildResolver(cRoster || []);
+    var me = resolveName(cName, cRes.map) || cName;
+
+    // Indiana-local month boundaries, so the month rolls when the stores' does.
+    function indyNow() { return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" })); }
+    function ym(d) { return d.getFullYear() + "-" + (d.getMonth() < 9 ? "0" : "") + (d.getMonth() + 1); }
+    var nowI = indyNow();
+    var curKey = searchParams.get("period") || ym(nowI);
+    var cy = parseInt(curKey.slice(0, 4), 10), cm = parseInt(curKey.slice(5, 7), 10);
+    var prevD = new Date(cy, cm - 2, 1);
+    var prevKey = ym(prevD);
+
+    var rows = await getAuditResults({ store: "all", limit: 6000, daysBack: 100 });
+    function blank(k) {
+      return { period: k, opportunity: 0, current_customer: 0, score_sum: 0, scored: 0,
+        opp_score_sum: 0,
+        appt_offered: 0, discount_mentioned: 0, warranty_mentioned: 0, faster_turnaround: 0,
+        status_update_given: 0, eta_communicated: 0, professional_tone: 0, next_steps_explained: 0 };
+    }
+    var acc = {}; acc[curKey] = blank(curKey); acc[prevKey] = blank(prevKey);
+    (rows || []).forEach(function(a) {
+      if (a.excluded || a.call_type === "non_scorable") return;
+      var key = String(a.employee || "").trim().toLowerCase();
+      if (cRes.ambiguous[key]) return;
+      if (resolveName(a.employee, cRes.map) !== me) return;
+      var k = String(a.date_started || "").slice(0, 7);
+      var B = acc[k];
+      if (!B) return;
+      B.score_sum += parseFloat(a.score || 0); B.scored += 1;
+      if (a.call_type === "opportunity") {
+        B.opportunity += 1;
+        B.opp_score_sum += parseFloat(a.score || 0);
+        ["appt_offered", "discount_mentioned", "warranty_mentioned", "faster_turnaround"].forEach(function(f) { if (a[f]) B[f] += 1; });
+      } else {
+        B.current_customer += 1;
+        ["status_update_given", "eta_communicated", "professional_tone", "next_steps_explained"].forEach(function(f) { if (a[f]) B[f] += 1; });
+      }
+    });
+    function shape(B) {
+      var rate = function(n, d) { return d > 0 ? Math.round((n / d) * 100) : null; };
+      return {
+        period: B.period, opportunity_calls: B.opportunity, current_customer_calls: B.current_customer,
+        avg_score: B.scored ? Math.round((B.score_sum / B.scored) * 100) / 100 : null,
+        // The opportunity-only average. `avg_score` blends both call types and
+        // repeat-customer calls score far higher, so measuring an opportunity
+        // criterion against the blended figure overstates where someone
+        // stands — Andrew reads 1.85 blended against 0.64 on opportunity
+        // calls alone. Anything scaled by opportunity_max must use this one.
+        opportunity_avg_score: B.opportunity ? Math.round((B.opp_score_sum / B.opportunity) * 100) / 100 : null,
+        counts: { warranty: B.warranty_mentioned, faster: B.faster_turnaround, appt: B.appt_offered, discount: B.discount_mentioned },
+        rates: {
+          warranty_mentioned: rate(B.warranty_mentioned, B.opportunity),
+          faster_turnaround: rate(B.faster_turnaround, B.opportunity),
+          appt_offered: rate(B.appt_offered, B.opportunity),
+          discount_mentioned: rate(B.discount_mentioned, B.opportunity),
+          status_update_given: rate(B.status_update_given, B.current_customer),
+          eta_communicated: rate(B.eta_communicated, B.current_customer),
+          professional_tone: rate(B.professional_tone, B.current_customer),
+          next_steps_explained: rate(B.next_steps_explained, B.current_customer),
+        },
+      };
+    }
+    return NextResponse.json({
+      success: true, employee: me,
+      // Each free criterion is worth this much of an opportunity call, so the
+      // UI can show the prize without hardcoding the rubric.
+      points: { per_criterion: 0.92, opportunity_max: 4.01 },
+      current: shape(acc[curKey]), previous: shape(acc[prevKey]),
+    });
+  }
+
   if (action === "employees") {
     let data = await getEmployeePerformance(store);
     if (!data || data.length === 0) {
