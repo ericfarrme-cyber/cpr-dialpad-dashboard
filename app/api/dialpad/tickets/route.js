@@ -150,10 +150,17 @@ INSURANCE CLAIM EXCEPTION: If the ticket appears to be an insurance claim (look 
 
 TIMING IS CRITICAL: The down payment is our collateral. It must be collected at or very near ticket intake — within about 2 hours. Compare transaction/payment dates against the ticket creation date.
 
-Scoring if parts were ordered (non-insurance):
-- 100: Down payment or full payment collected within ~2 hours of ticket creation
-- 50: Payment collected but more than 2 hours after intake
-- 0: Part ordered with NO down payment, or payment only collected days later
+GRADE THE FIRST PAYMENT ONLY. Judge the EARLIEST payment on the ticket against the ticket creation time. If a down payment was collected at or near intake, that criterion is MET and scores 100 — later payments do not change it.
+
+ADDITIONAL LATER PAYMENTS ARE A GOOD THING, NEVER A DEDUCTION. A customer who comes back to put more money down is more committed, not less. If a down payment was taken at intake and a further payment arrived days later, that is still 100: say so in the notes and move on. Do NOT apply the 2-hour test to the second payment.
+(Matt Slade, 2026-10-01, on ticket 16464387: $69.99 was collected at intake and a voluntary $20 arrived nine days later; it scored 50 even though the notes said the intake payment "earns full collateral credit". That was the grader contradicting itself.)
+
+Scoring if parts were ordered (non-insurance), based on the FIRST payment:
+- 100: Down payment or full payment collected within ~2 hours of ticket creation (regardless of any later payments)
+- 50: The FIRST payment on the ticket came more than 2 hours after intake
+- 0: Part ordered with NO down payment at all
+
+AMOUNT: a small down payment against an expensive repair is weaker collateral, and that is worth a light touch only — at most 5-10 points off, never more. Taking $100 on a $220 repair is still the employee doing the right thing.
 
 If NO parts were ordered:
 - Mark "payment_not_applicable": true and score 100
@@ -163,7 +170,7 @@ Check the customer information on the ticket for completeness:
 
 A) FULL NAME: Does the customer have a first AND last name on file? (Not just a first name or a company name with no contact person)
 B) PHONE NUMBER: Is there a main phone number?
-C) ALTERNATE PHONE: Is there a second/alternate phone number? This is BONUS credit — employees who take the time to collect an alternate number are going above and beyond. Look at the "All Phones" field — if there are 2+ phone numbers listed, the alternate was collected.
+C) ALTERNATE PHONE: Is there a second/alternate phone number? This is BONUS credit and nothing more — plenty of customers simply do not have a second number to give, and the employee cannot invent one. Collecting it is going above and beyond; NOT collecting it is not a fault. Look at the "All Phones" field — if there are 2+ phone numbers listed, the alternate was collected.
 D) EMAIL ADDRESS: Is there a REAL email address on file? 
 
    FAKE EMAIL DETECTION: Employees sometimes enter fake/placeholder emails to bypass required fields. The following are NOT real emails and should be scored as NO email:
@@ -176,13 +183,17 @@ D) EMAIL ADDRESS: Is there a REAL email address on file?
    
    A REAL email ensures customers get automated Ready for Pickup notifications if we can't reach them by phone. This is important.
 
-Scoring:
-- 95-100: Full name + phone + REAL email + alternate phone (above and beyond)
-- 85-94: Full name + phone + REAL email (no alternate, but solid)
-- 70-84: Name + phone present, real email missing but alternate phone collected
-- 55-69: Name + phone present, no real email, no alternate phone
+Scoring (name + phone + a REAL email is the standard; the alternate is a bonus on top):
+- 100: Full name + phone + REAL email + alternate phone (above and beyond)
+- 93-97: Full name + phone + REAL email, no alternate — this is a GOOD ticket, score it like one
+- 80-88: Name + phone present, real email missing, but alternate phone collected
+- 70-78: Name + phone present, no real email, no alternate phone
 - 25-54: Minimal info — only a name or only a phone number
 - 0-24: Customer info is essentially empty or placeholder
+
+(Matt Slade, 2026-10-01: a missing alternate number was costing about 12 points
+and the band above now costs about 5. The prompt called it bonus credit while
+the bands scored it as a penalty; these now agree.)
 
 ═══ RESPONSE FORMAT ═══
 Respond ONLY with this exact JSON format, no other text:
