@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-09-30 (Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-01 (September tier snapshot run, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -233,6 +233,50 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
   • ⚠ **Applying the migration is blocked at the harness, not by judgement.** Typing DDL into the Supabase SQL editor returns **"Protected-Scope IaC Apply"** from the permission classifier, and the Management API token is dead, so **there is no path for me to change the schema**. Eric pastes `sql/migration_google_listings.sql` into the SQL editor, or adds a permission rule (Settings → Claude Code; the ccd_settings tool cannot touch security settings and says so). Recommendation given: keep the guardrail, it is one paste.
   • **Captured by hand from the public listings 2026-09-30:** Fishers **4.8 / 643**, Bloomington **4.8 / 552**, Indianapolis **4.7 / 885**, Carmel **4.8 / 575**. On 09-10 Carmel was 565 and Fishers 639 — **Carmel is gaining ~2.5× faster**. **Fishers' console listing: 5.0 with 2 reviews, unmoved since 09-10.** Also: the share links in § 3 are mislabelled — `boLKmW7TWqLQMaUsY` resolves to **Bloomington**, not Fishers.
 
+10ag. **Bonus Ledger — SHIPPED 2026-10-01** (`4f60e03`). One screen for every bonus programme,
+per person, per month, with a payment record. Eric: *"I don't want to miss payment on somebody's
+streak or miss a PTO day for someone."* New route `app/api/dialpad/bonuses` (admin + manager read,
+admin write), `components/BonusesTab.js` with its own nav button, and a **Morning Brief card for
+the month that just closed** so the monthly note arrives on login rather than being fetched.
+**The ledger is `tier_celebrations`** — its shape already fits and it carries a unique index on
+`(employee_name, store, event_period, event_type)`, so every write is an idempotent upsert
+(verified against the live table: two upserts, same id, one row). Two new event types this route
+owns, `answer_rate` and `review_bonus`; the tier types stay owned by `tier-history` and are only
+read here, so no two routes write the same dollars. `celebration_queue` now filters to the tier
+types (`?types=all` for everything) and AdminTab is unchanged.
+**Three states, and the distinction is the whole point:** `paid` (row with a payment date),
+`unpaid` (row without one), `unrecorded` (**no row at all** — nobody wrote down whether it was
+paid). The answer-rate bonus has been handed out for months with nothing recording it, so calling
+those "owed" would invent a debt. **`settle_through`** closes the backlog in one action, stamped as
+a bulk reconciliation rather than individually verified.
+**Guardrails, each from a real failure found while auditing against live data:**
+the running month is `in_progress` — never owed, never payable, and `mark_month_paid` refuses it
+outright (on 1 Oct the answer rate off seven hours of shifts would otherwise have read as a **$400
+debt**); a streak is counted **as of the last month the person actually has a score for**, not
+blindly at the requested period, or viewing October before its snapshot reads every streak as 0 and
+says Duncan is three months from his next $100 when he is one; streaks are counted per **person**
+as well as per store and both are shown when they differ (§ 10ah); the review bonus only
+credits someone with a scored month in that period, because today's roster is not evidence of who
+worked a past month; an ineligible person's payable is marked `blocked` and zeroed, **never
+dropped**, and Matt Slade's commission figure is suppressed to match Sales & Repairs; every
+programme reports its own data status, so Google reviews returns `no_data` **with the reason**
+rather than $0; the answer-rate bonus is recorded against the store where the **hours were logged**,
+not the roster store. Dev-only `?as_admin=1` on the read actions (price-book precedent; ignored in
+production, never on POST).
+
+10ah. **Streaks reset on a store transfer — OPEN, needs Eric's call.** `tier-history`'s streak
+query filters on store (`.eq("store", row.store)`), so changing store restarts the count there.
+**Luke Stirling** moved Bloomington → Indianapolis in September. It costs him nothing today (his
+August was Silver, so the run was already broken), but had he been Gold in July and August the move
+would have swallowed a **$100 award silently**. The Bonus Ledger computes **both** numbers and flags
+the difference on the person's card; it does **not** decide which one pays. Changing `tier-history`
+to count the person rather than the store is a payroll edit and needs sign-off.
+
+10ai. **"Spencer" is not on the roster.** Eric, 2026-09-30: *"Yes, go ahead for Duncan and
+Spencer."* There is no Spencer in `employee_roster`, in `dashboard_users`, or on any `ticket_grades`
+row. The September snapshot produced an award for **Duncan only**, and nothing has been paid to an
+unidentified name. Ask Eric who Spencer is before anything is owed to it.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -286,6 +330,21 @@ Grading/audit pipeline hardcoded `claude-sonnet-4-20250514`, retired June 15, 20
 ---
 
 ## 8. Recent changes log
+- **2026-10-01** — **September tier snapshot run** (Eric approved): 8 history rows, 2 events.
+  Final September tiers — Alyssa 70 Platinum, Aerick 68 Gold, Luke 62 Gold, Duncan 60 Gold,
+  Alec 58 Gold, Samuel 53 Silver, Matthew Slade 48 Silver (not bonus-eligible), Andrew 41 Silver.
+  **Duncan Hitti completed a 6-month Gold run — $100 owed, unpaid.** Alec Wilcher promoted
+  Silver → Gold ($0 recognition event). **Aerick Long is one month from his next $100** (5
+  months at Gold+). Checked before running: the snapshot's cleaning-commission term is $0 either way
+  because the `cleanings` table has no rows at all, so it could not pay a commission Eric ended
+  after August — but note the snapshot does **not** import `lib/commission-rules.js`, so if
+  cleanings data ever appears it would pay it. Then **Bonus Ledger** shipped (§ 10ag), and two
+  things it surfaced were written down rather than quietly fixed: streaks reset on a store transfer
+  (§ 10ah) and nobody knows who "Spencer" is (§ 10ai).
+  **September outstanding: $400** — Duncan's $100 streak plus $300 of answer-rate bonuses with
+  no payment recorded (Alec $100, Andrew $100, Alyssa $50, Aerick $50). Across all months the
+  answer-rate programme shows **$1,560 with no payment record going back to March**; that is a
+  missing *record*, not necessarily a missing *payment* — "Settle" closes it in one action.
 - **2026-09-30** — **Indy opening dead zone diagnosed** (§ 10ae): the phone goes unanswered for a median 28 minutes after opening, worst on Tuesdays, costing 14 customers and ~4 points of answer rate. Matt's phantom missed calls are Dialpad's per-handset legs, not a dashboard fault. **Google review tracking built** (§ 10af) but blocked on a dead Supabase Management token and a missing Places key.
 - **2026-09-29** — **The free closers** (§ 10ad): warranty and faster-turnaround score the same as a discount and cost nothing, yet Andrew had said the warranty 0 times in 102 calls. Four placements built on a new `criteria` endpoint, the strip retiring above 20%. Rubric untouched. The discount question answered with money rather than show rate: **break-even is ~23% incremental**.
 - **2026-09-28** — **09-28 meeting Tier 1 + Tier 2 shipped** (§ 10ac): "Closed by" cropped Sam out of his own work; My Calls hid Luke's 130 calls behind a roster-store filter; the deposit hung off a part state that never happens; Computers → MacBooks; category mix and the bonus broken out per store. Plus the "View as employee" picker, empty since it was written. Earlier the same day: Matt's 09-23 email (§ 10ab).
