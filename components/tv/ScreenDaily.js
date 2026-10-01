@@ -253,6 +253,33 @@ export default function ScreenDaily(props) {
                     <div style={{ fontSize: "clamp(14px, 2.2vh, 22px)", fontWeight: 700, color: "#1A2233", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.customer_name || "Walk-in"}</div>
                     <div style={{ fontSize: "clamp(12px, 1.7vh, 16px)", color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.reason || "Repair appointment"}</div>
                   </div>
+                  {/* What they were quoted. Matt, 2026-10-01: the panel showed
+                      device, repair and turnaround but not the price, which is
+                      the one thing the tech needs before the customer walks in.
+                      quoted_price is what was actually said; price_quoted is the
+                      older free-text field, so fall back to it for hand-typed
+                      rows. Silent when neither exists rather than showing $0. */}
+                  {(function() {
+                    var q = a.quoted_price !== null && a.quoted_price !== undefined && a.quoted_price !== ""
+                      ? parseFloat(a.quoted_price)
+                      : parseFloat(String(a.price_quoted || "").replace(/[^0-9.]/g, ""));
+                    if (!isFinite(q) || q <= 0) return null;
+                    var sheet = parseFloat(a.sheet_price);
+                    var under = isFinite(sheet) && q < sheet - 0.005;
+                    return (
+                      <div style={{ textAlign: "right", flexShrink: 0, minWidth: "clamp(78px, 9vw, 120px)" }}>
+                        <div style={{ fontSize: "clamp(16px, 2.6vh, 26px)", fontWeight: 800, fontVariantNumeric: "tabular-nums",
+                                      color: under ? "#D97706" : "#10B981" }}>
+                          {"$" + q.toFixed(2)}
+                        </div>
+                        {under && (
+                          <div style={{ fontSize: "clamp(10px, 1.3vh, 13px)", color: "#D97706", fontWeight: 600 }}>
+                            {"−$" + (sheet - q).toFixed(2) + " off"}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
