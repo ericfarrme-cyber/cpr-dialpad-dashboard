@@ -42,6 +42,21 @@ export default function ScreenDaily(props) {
   var advancedRepairs = props.advancedRepairs || [];
   var advancedStoreStats = props.advancedStoreStats || null;
   var bonusData = props.bonusData || null;
+  // Reviews month-to-date, front and centre (Eric, 2026-09-28). Shows the real
+  // state when there is one and says what is missing when there isn't — a
+  // zero here would read as "we got no reviews", which is a different claim.
+  var reviews = props.reviews || null;
+  var revStore = reviews && reviews.stores ? reviews.stores.find(function(s) { return s.store === store; }) : null;
+  var revGained = revStore ? revStore.gained_this_month : null;
+  var revRating = revStore ? revStore.main_rating : null;
+  var revTotal = revStore ? revStore.main_total : null;
+  var revWaiting = !reviews ? "Review tracking isn’t reporting"
+    : !revStore ? "No listing set up for this store"
+    : revTotal === null ? "Never captured — run the sync"
+    : revGained === null ? "Counting from next month"
+    : null;
+  // 15 five-stars a month is the aim Eric has always set.
+  var REV_TARGET = 15;
 
   // ── Month answer-rate bonus for THIS store ─────────────────────────
   // bonusData is calendar-month scoped (separate from today's rate above).
@@ -126,6 +141,41 @@ export default function ScreenDaily(props) {
           {afterHoursMissed > 0 ? (
             <Stat label="After-hours" value={afterHoursMissed} color="#9CA3AF" />
           ) : null}
+        </div>
+
+        {/* ── Reviews this month ── */}
+        <div style={{ marginTop: "clamp(10px, 2vh, 18px)", paddingTop: "clamp(10px, 1.5vh, 16px)", borderTop: "1px solid #E5E7EB" }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#F59E0B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
+              {"⭐ Reviews This Month"}
+            </div>
+            <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#9CA3AF" }}>
+              {revRating !== null && revTotal !== null ? revRating + " ★ · " + revTotal + " all time" : ""}
+            </div>
+          </div>
+          {revWaiting ? (
+            <div style={{ marginTop: 8, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#9CA3AF" }}>{revWaiting}</div>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
+                <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: "tabular-nums",
+                              color: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }}>
+                  {revGained}
+                </div>
+                <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>of {REV_TARGET}</div>
+              </div>
+              <div style={{ height: 8, borderRadius: 5, background: "#F1F3F6", overflow: "hidden", marginTop: 7 }}>
+                <div style={{ height: "100%", borderRadius: 5, transition: "width .8s cubic-bezier(.22,.9,.3,1)",
+                              width: Math.min(100, (revGained / REV_TARGET) * 100) + "%",
+                              background: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }} />
+              </div>
+              <div style={{ marginTop: 6, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280" }}>
+                {revGained >= REV_TARGET ? "Target hit — nice work ⭐"
+                  : revGained >= 10 ? (REV_TARGET - revGained) + " more to hit the target"
+                  : (10 - revGained) + " more just to clear the floor"}
+              </div>
+            </>
+          )}
         </div>
       </Panel>
 

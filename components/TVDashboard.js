@@ -33,6 +33,9 @@ export default function TVDashboard(props) {
   var [advancedRepairs, setAdvancedRepairs] = useState(null);
   var [advancedStoreStats, setAdvancedStoreStats] = useState(null);
   var [bonusData, setBonusData] = useState(null);
+  // Reviews month-to-date — Eric, 2026-09-28: "it should have a running total
+  // of our reviews for the month. Keep that front and center."
+  var [reviews, setReviews] = useState(null);
   var [dataAge, setDataAge] = useState({ calls: null, appts: null, scores: null, advrep: null });
   var [error, setError] = useState(null);
   var [bootDone, setBootDone] = useState(false);
@@ -71,6 +74,7 @@ export default function TVDashboard(props) {
         fetchWithTimeout("/api/advanced-repairs?action=store_stats&store=" + store + "&period=" + period, 8000),
         fetchWithTimeout("/api/dialpad/answer-rate-bonus", 8000),
         fetchWithTimeout("/api/dialpad/call-leaders?period=" + period, 8000),
+        fetchWithTimeout("/api/dialpad/google-tracking?action=tracking", 8000),
       ]);
       var nowTs = Date.now();
       var newAge = Object.assign({}, dataAge);
@@ -98,6 +102,9 @@ export default function TVDashboard(props) {
       }
       if (results[6].status === "fulfilled" && results[6].value.success) {
         setCallLeaders(results[6].value);
+      }
+      if (results[7].status === "fulfilled" && results[7].value.success) {
+        setReviews(results[7].value);
       }
       setDataAge(newAge);
       // Count successes — if at least one fetch worked, we can show real data
@@ -175,7 +182,7 @@ export default function TVDashboard(props) {
           opacity: screenIdx === 0 ? 1 : 0,
           pointerEvents: screenIdx === 0 ? "auto" : "none",
         })}>
-          <ScreenDaily store={store} storeName={storeName} dailyCalls={dailyCalls} appointments={appointments} advancedRepairs={advancedRepairs} advancedStoreStats={advancedStoreStats} bonusData={bonusData} />
+          <ScreenDaily store={store} storeName={storeName} dailyCalls={dailyCalls} appointments={appointments} advancedRepairs={advancedRepairs} advancedStoreStats={advancedStoreStats} bonusData={bonusData} reviews={reviews} />
         </div>
         {/* Rankings screen */}
         <div style={Object.assign({}, screenStyle, {
