@@ -109,7 +109,7 @@ function HolidayHoursPrompt({ holiday, onSaved, saved, af }) {
   );
 }
 
-export default function MorningBrief({ onGoProfitability }) {
+export default function MorningBrief({ onGoProfitability, onGoBonuses }) {
   var [state, setState] = useState({ loading: true });
   var [open, setOpen] = useState(true);
   var [allDiscounts, setAllDiscounts] = useState(false);
@@ -139,6 +139,11 @@ export default function MorningBrief({ onGoProfitability }) {
     var cancelled = false;
     var y = indyNow(); y.setDate(y.getDate() - 1);
     var yKey = ymd(y);
+    // The bonus month is the LAST calendar month, not yesterday's month: a
+    // bonus is owed once a month closes, and on the 3rd the thing Eric needs to
+    // see is what he owes for the month that just ended.
+    var lm = indyNow(); lm.setDate(1); lm.setMonth(lm.getMonth() - 1);
+    var lastMonthKey = lm.getFullYear() + "-" + pad2(lm.getMonth() + 1);
 
     Promise.allSettled([
       fetch("/api/dialpad/daily-profit?window=10").then(function (r) { return r.json(); }),
@@ -151,6 +156,10 @@ export default function MorningBrief({ onGoProfitability }) {
       // Admins only (Eric, Matt) — 403 for anyone else, handled below.
       af("/api/dialpad/price-book?action=sheet_health&months=6").then(function (r) { return r.json(); }),
       fetch("/api/dialpad/profitability?action=periods").then(function (r) { return r.json(); }),
+      // Last month's bonus ledger. Admin/manager only - 403 for anyone else,
+      // handled below. Appended at the END of this array on purpose: slotting a
+      // fetch into the middle renumbers every res[N] after it.
+      af("/api/dialpad/bonuses?action=month&period=" + lastMonthKey).then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -227,6 +236,43 @@ export default function MorningBrief({ onGoProfitability }) {
           if (ended && !have[key]) gaps.push(key);
         }
         out.pnlGaps = gaps;
+      }
+
+      // Bonuses owed for the month that just closed, plus anyone one month from
+      // an award. Silent for non-admins (the route 403s) and silent when there
+      // is nothing to act on - it is a prompt, not a permanent panel.
+      var bn = res[9].status === "fulfilled" ? res[9].value : null;
+      if (bn && bn.success) {
+        out.bonuses = {
+          period: bn.period,
+          label: bn.period_label,
+          owed: bn.totals.owed_cash + bn.totals.unrecorded_cash,
+          owed_pto: bn.totals.owed_pto + bn.totals.unrecorded_pto,
+          paid: bn.totals.paid_cash,
+          people: (bn.people || []).filter(function (e) {
+            return (e.totals.owed_cash + e.totals.unrecorded_cash + e.totals.owed_pto + e.totals.unrecorded_pto) > 0;
+          }).map(function (e) {
+            return {
+              name: e.name, store: e.store,
+              cash: e.totals.owed_cash + e.totals.unrecorded_cash,
+              pto: e.totals.owed_pto + e.totals.unrecorded_pto,
+              items: e.items.filter(function (i) { return i.state === "unpaid" || i.state === "unrecorded"; })
+                .map(function (i) { return i.label; }),
+            };
+          }),
+          watch: (bn.people || []).filter(function (e) {
+            return e.bonus_eligible && e.has_month
+              && (e.streak.gold.months_to_next === 1 || e.streak.platinum.months_to_next === 1);
+          }).map(function (e) {
+            return {
+              name: e.name,
+              gold: e.streak.gold.months_to_next === 1 ? e.streak.gold.months : null,
+              plat: e.streak.platinum.months_to_next === 1 ? e.streak.platinum.months : null,
+            };
+          }),
+          gaps: (bn.programs || []).filter(function (x) { return x.status === "no_data" || x.status === "error"; })
+            .map(function (x) { return x.label; }),
+        };
       }
 
       setState(out);
@@ -529,6 +575,65 @@ export default function MorningBrief({ onGoProfitability }) {
                 {state.pnlGaps.map(function (g) { return MON[parseInt(g.slice(5), 10) - 1] + " " + g.slice(0, 4); }).join(" · ")}
                 {" — "}the year-to-date and the profit share both read low until {state.pnlGaps.length === 1 ? "it is" : "they are"} entered.
               </div>
+            </div>
+          )}
+
+          {/* Bonuses for the month that just closed. Eric, 2026-10-01: he wants
+              a note each month on what he owes, so a streak payment or a PTO
+              day is never missed. Shown only when there is something to act on. */}
+          {state.bonuses && (state.bonuses.owed > 0 || state.bonuses.owed_pto > 0 || state.bonuses.watch.length > 0) && (
+            <div style={{ background: RAISED, border: "1px solid " + (state.bonuses.owed > 0 || state.bonuses.owed_pto > 0 ? GOLD : LINE), borderRadius: 11, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".11em", textTransform: "uppercase", color: state.bonuses.owed > 0 || state.bonuses.owed_pto > 0 ? GOLD : MUTED, marginBottom: 9 }}>
+                Bonuses &middot; {state.bonuses.label}
+              </div>
+
+              {(state.bonuses.owed > 0 || state.bonuses.owed_pto > 0) && (
+                <div>
+                  <div style={{ fontSize: 11.5, color: INK2, marginBottom: 6 }}>
+                    <b style={{ color: INK, fontSize: 14, fontFamily: MONO }}>{money(state.bonuses.owed)}</b>
+                    {state.bonuses.owed_pto > 0 && <b style={{ color: INK }}>{" + " + state.bonuses.owed_pto + " PTO day" + (state.bonuses.owed_pto === 1 ? "" : "s")}</b>}
+                    {" owed across " + state.bonuses.people.length + " " + (state.bonuses.people.length === 1 ? "person" : "people") + " for " + state.bonuses.label + "."}
+                  </div>
+                  {state.bonuses.people.map(function (e) {
+                    return (
+                      <div key={e.name} className="mb-row" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "5px 6px", margin: "0 -6px", borderRadius: 6, fontSize: 12, flexWrap: "wrap" }}>
+                        <span style={{ color: INK, flex: "1 1 180px" }}>{e.name}</span>
+                        <span style={{ fontSize: 11, color: MUTED, flex: "1 1 160px" }}>{e.items.join(" \u00b7 ")}</span>
+                        <span style={{ fontFamily: MONO, fontSize: 11.5, color: GOLD, whiteSpace: "nowrap" }}>
+                          {money(e.cash)}{e.pto > 0 ? " + " + e.pto + " PTO" : ""}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {state.bonuses.watch.length > 0 && (
+                <div style={{ marginTop: (state.bonuses.owed > 0 || state.bonuses.owed_pto > 0) ? 11 : 0, paddingTop: (state.bonuses.owed > 0 || state.bonuses.owed_pto > 0) ? 9 : 0, borderTop: (state.bonuses.owed > 0 || state.bonuses.owed_pto > 0) ? "1px solid " + LINE : "none" }}>
+                  <div style={{ fontSize: 11.5, color: INK2, marginBottom: 5 }}>One month from an award:</div>
+                  {state.bonuses.watch.map(function (w) {
+                    return (
+                      <div key={w.name} style={{ fontSize: 12, color: INK, padding: "2px 0" }}>
+                        {w.name}
+                        {w.gold != null && <span style={{ color: MUTED }}>{" \u2014 " + w.gold + " months at Gold+, one more earns $100"}</span>}
+                        {w.plat != null && <span style={{ color: MUTED }}>{" \u2014 " + w.plat + " months at Platinum, one more earns a PTO day"}</span>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {state.bonuses.gaps.length > 0 && (
+                <div style={{ marginTop: 9, fontSize: 11, color: GOLD }}>
+                  Not counted: {state.bonuses.gaps.join(", ")} {"\u2014"} no data for {state.bonuses.label}, so the figure above is a floor.
+                </div>
+              )}
+
+              {onGoBonuses && (
+                <button onClick={onGoBonuses} style={{ marginTop: 10, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: MONO, fontSize: 11, color: CYAN }}>
+                  Open the Bonus Ledger {"\u2192"}
+                </button>
+              )}
             </div>
           )}
 

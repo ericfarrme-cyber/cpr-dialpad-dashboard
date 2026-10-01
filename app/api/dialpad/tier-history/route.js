@@ -22,6 +22,11 @@ var TIER_THRESHOLDS = [
   { name: "Bronze",   min: 0,  multiplier: 1.00, ptoPerMonth: 0 },
 ];
 
+// Event types that are celebrations. Other routes write non-celebration rows
+// into `tier_celebrations` (it doubles as the bonus payment ledger), so the
+// queue must not assume every row in the table belongs to it.
+var CELEBRATION_EVENT_TYPES = ["tier_up", "gold_streak", "platinum_streak", "diamond_plaque"];
+
 function tierForScore(score) {
   score = score || 0;
   for (var i = 0; i < TIER_THRESHOLDS.length; i++) {
@@ -395,12 +400,21 @@ export async function GET(request) {
   }
 
   // ── Celebration queue (admin) ──
+  // `tier_celebrations` is now also the payment ledger for the answer-rate and
+  // Google-review bonuses (see app/api/dialpad/bonuses/route.js). Those rows
+  // are not celebrations, so this queue is filtered to the tier event types —
+  // without the filter, AdminTab would start listing answer-rate payments as
+  // "celebrations" with no icon and no description. Pass types=all to see
+  // everything in the table.
   if (action === "celebration_queue") {
     var query = supabase
       .from("tier_celebrations")
       .select("*")
       .order("created_at", { ascending: false })
       .limit(200);
+    if (searchParams.get("types") !== "all") {
+      query = query.in("event_type", CELEBRATION_EVENT_TYPES);
+    }
     if (store) query = query.eq("store", String(store).toLowerCase());
     var statusFilter = searchParams.get("status"); // pending | done | all
     if (statusFilter === "pending" || !statusFilter) {
