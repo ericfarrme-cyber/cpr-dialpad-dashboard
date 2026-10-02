@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { STORES } from "@/lib/constants";
+import { paymentIsNA, computeIntakeRoleScore, computeRepairRoleScore } from "@/lib/compliance-score";
 
 // ── Role-split scoring helpers (April 2026) ──
 function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
@@ -8,32 +9,6 @@ function isRoleSplitEra(dateStr) {
   if (!dateStr) return false;
   return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF();
 }
-function paymentIsNA(t) {
-  if (t == null) return false;
-  if (parseFloat(t.payment_score) !== 100) return false;
-  var n = String(t.payment_notes || "").toLowerCase();
-  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
-}
-function computeIntakeRoleScore(t) {
-  if (!t) return null;
-  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
-  if (diag == null && contact == null) return null;
-  diag = diag == null ? 0 : parseFloat(diag);
-  contact = contact == null ? 0 : parseFloat(contact);
-  pay = pay == null ? 0 : parseFloat(pay);
-  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
-  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
-}
-function computeRepairRoleScore(t) {
-  if (!t) return null;
-  var notes = t.notes_score, pickup = t.categorization_score;
-  if (notes == null && pickup == null) return null;
-  notes = notes == null ? 0 : parseFloat(notes);
-  pickup = pickup == null ? 0 : parseFloat(pickup);
-  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
-  return Math.round((notes * 25 + pickup * 20) / 45);
-}
-
 var STORE_KEYS = Object.keys(STORES);
 
 function clamp(v) { return Math.max(0, Math.min(100, v)); }

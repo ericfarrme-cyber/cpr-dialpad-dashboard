@@ -5,6 +5,7 @@ import ZeroProfitTickets from "@/components/ZeroProfitTickets";
 import { useThemeColors } from "@/lib/theme-colors";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
+import { paymentIsNA, computeIntakeRoleScore, computeRepairRoleScore, secondaryContactBonusFor, hasSecondaryContact, SECONDARY_CONTACT_BONUS } from "@/lib/compliance-score";
 
 var STORE_KEYS = Object.keys(STORES);
 
@@ -17,31 +18,6 @@ function fmt(n) { return "$" + parseFloat(n || 0).toLocaleString(undefined, { mi
 // ── Role-split scoring helpers (April 2026) ──
 function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
 function isRoleSplitEra(dateStr) { if (!dateStr) return false; return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF(); }
-function paymentIsNA(t) {
-  if (t == null || parseFloat(t.payment_score) !== 100) return false;
-  var n = String(t.payment_notes || "").toLowerCase();
-  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
-}
-function computeIntakeRoleScore(t) {
-  if (!t) return null;
-  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
-  if (diag == null && contact == null) return null;
-  diag = diag == null ? 0 : parseFloat(diag);
-  contact = contact == null ? 0 : parseFloat(contact);
-  pay = pay == null ? 0 : parseFloat(pay);
-  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
-  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
-}
-function computeRepairRoleScore(t) {
-  if (!t) return null;
-  var notes = t.notes_score, pickup = t.categorization_score;
-  if (notes == null && pickup == null) return null;
-  notes = notes == null ? 0 : parseFloat(notes);
-  pickup = pickup == null ? 0 : parseFloat(pickup);
-  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
-  return Math.round((notes * 25 + pickup * 20) / 45);
-}
-
 function StatCard({ label, value, sub, accent }) {
   return (
     <div style={{ background:"var(--bg-card)",borderRadius:12,padding:"18px 20px",borderLeft:"3px solid "+accent,minWidth:0 }}>
@@ -234,7 +210,20 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
                           {roleSplitOn ? (
                             <div style={{ color:"var(--text-secondary)",fontSize:10,marginTop:3,display:"flex",gap:10,flexWrap:"wrap" }}>
                               {t.employee_added && (
-                                <span><span style={{ color:"var(--cyan)" }}>{"\uD83D\uDCDD Intake:"}</span> {t.employee_added}{intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontWeight:700,marginLeft:4 }}>{intakeRoleScore}</span>}</span>
+                                <span>
+                                  <span style={{ color:"var(--cyan)" }}>{"\uD83D\uDCDD Intake:"}</span> {t.employee_added}
+                                  {intakeRoleScore != null && <span style={{ color:scoreColor(intakeRoleScore),fontWeight:700,marginLeft:4 }}>{intakeRoleScore}</span>}
+                                  {secondaryContactBonusFor(t) > 0 && (
+                                    <span title="A second phone number was collected on this ticket" style={{ marginLeft:5,padding:"1px 5px",borderRadius:4,fontSize:9,fontWeight:800,color:"var(--green)",border:"1px solid var(--green)" }}>
+                                      +{secondaryContactBonusFor(t)} 2nd contact
+                                    </span>
+                                  )}
+                                  {secondaryContactBonusFor(t) === 0 && hasSecondaryContact(t) && (
+                                    <span title="A second number is on file, but this ticket closed before the bonus started" style={{ marginLeft:5,fontSize:9,color:"var(--text-muted)" }}>
+                                      2nd contact
+                                    </span>
+                                  )}
+                                </span>
                               )}
                               {t.employee_repaired && (
                                 <span><span style={{ color:"var(--purple)" }}>{"\uD83D\uDD27 Repair:"}</span> {t.employee_repaired}{repairRoleScore != null && <span style={{ color:scoreColor(repairRoleScore),fontWeight:700,marginLeft:4 }}>{repairRoleScore}</span>}</span>

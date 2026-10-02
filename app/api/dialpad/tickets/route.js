@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
+import { paymentIsNA, computeIntakeRoleScore, computeRepairRoleScore } from "@/lib/compliance-score";
 
 // ── Role-split scoring helpers (April 2026) ──
 // Splits the 5-category ticket grade into intake-role and repair-role scores.
@@ -18,31 +19,6 @@ function isRoleSplitEra(dateStr) {
 function indyTodayYMD() {
   var d = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Indiana/Indianapolis" }));
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
-}
-function paymentIsNA(t) {
-  if (t == null) return false;
-  if (parseFloat(t.payment_score) !== 100) return false;
-  var n = String(t.payment_notes || "").toLowerCase();
-  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
-}
-function computeIntakeRoleScore(t) {
-  if (!t) return null;
-  var diag = t.diagnostics_score, pay = t.payment_score, contact = t.contact_score;
-  if (diag == null && contact == null) return null;
-  diag = diag == null ? 0 : parseFloat(diag);
-  contact = contact == null ? 0 : parseFloat(contact);
-  pay = pay == null ? 0 : parseFloat(pay);
-  if (paymentIsNA(t)) return Math.round((diag * 30 + contact * 5) / 35);
-  return Math.round((diag * 30 + pay * 20 + contact * 5) / 55);
-}
-function computeRepairRoleScore(t) {
-  if (!t) return null;
-  var notes = t.notes_score, pickup = t.categorization_score;
-  if (notes == null && pickup == null) return null;
-  notes = notes == null ? 0 : parseFloat(notes);
-  pickup = pickup == null ? 0 : parseFloat(pickup);
-  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
-  return Math.round((notes * 25 + pickup * 20) / 45);
 }
 function nameMatches(needle, hay) {
   if (!needle || !hay) return false;

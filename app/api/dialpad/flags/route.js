@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { paymentIsNA, computeRepairRoleScore } from "@/lib/compliance-score";
 
 export const maxDuration = 60;
 
@@ -27,21 +28,6 @@ function jsonResponse(payload, status) {
 // Mirrors logic in tickets-route.js / scorecard-route.js so flag attribution matches the rest of the app.
 function ROLE_SPLIT_CUTOFF() { return "2026-04-01"; }
 function isRoleSplitEra(dateStr) { if (!dateStr) return false; return String(dateStr).substring(0, 10) >= ROLE_SPLIT_CUTOFF(); }
-function paymentIsNA(t) {
-  if (t == null || parseFloat(t.payment_score) !== 100) return false;
-  var n = String(t.payment_notes || "").toLowerCase();
-  return n.indexOf("not applicable") >= 0 || n.indexOf("n/a") >= 0 || n.indexOf("no parts") >= 0;
-}
-function computeRepairRoleScore(t) {
-  if (!t) return null;
-  var notes = t.notes_score, pickup = t.categorization_score;
-  if (notes == null && pickup == null) return null;
-  notes = notes == null ? 0 : parseFloat(notes);
-  pickup = pickup == null ? 0 : parseFloat(pickup);
-  if (paymentIsNA(t)) return Math.round((notes * 40 + pickup * 25) / 65);
-  return Math.round((notes * 25 + pickup * 20) / 45);
-}
-
 // ── Notes-quality gap extraction ──
 // Given a ticket with poor notes_score, identifies the specific things missing
 // so coaching is concrete instead of "your notes were bad".
