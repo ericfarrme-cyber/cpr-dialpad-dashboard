@@ -44,6 +44,8 @@ import { requireAuth } from "@/lib/auth";
 import { GET as answerRateGET } from "../answer-rate-bonus/route";
 import { GET as salesGET } from "../sales/route";
 import { cleaningCommissionApplies } from "@/lib/commission-rules";
+import { GET as advancedGET } from "../../advanced-repairs/route";
+import { buildResolver, resolveName } from "@/lib/roster-resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -248,6 +250,73 @@ async function salesForMonth(period) {
   };
 }
 
+// Advanced (non-phone) repair commission. The rules already live in
+// app/api/advanced-repairs: the tech who completed it earns 10% of profit if
+// that tech is Duncan and 7% otherwise, and Duncan earns a further 3% on every
+// advanced repair somebody ELSE completed. Only closed repairs pay.
+//
+// Read from that route rather than reimplemented here, so there is exactly one
+// place those rates are written down.
+//
+// `repaired_by` holds first names ("Duncan", "Alyssa"), so each one is put
+// through the shared roster resolver. Anything that does not resolve is
+// REPORTED, never dropped quietly — an unresolved name is somebody's money.
+async function advancedForMonth(period, roster) {
+  var d;
+  try {
+    d = await callRouteHandler(advancedGET, "/api/advanced-repairs?action=commissions&period=" + encodeURIComponent(period));
+  } catch (e) {
+    return { status: "error", reason: "Advanced repairs route threw: " + e.message, byPerson: {}, unresolved: [] };
+  }
+  if (!d || !d.success) {
+    return { status: "error", reason: "Advanced repairs route failed: " + ((d && d.error) || "unknown"), byPerson: {}, unresolved: [] };
+  }
+
+  var map = buildResolver(roster || []).map;
+  var byPerson = {}, unresolved = [];
+  (d.by_employee || []).forEach(function(e) {
+    var canonical = resolveName(e.employee, map);
+    if (!canonical) {
+      unresolved.push({ raw: e.employee, amount: e.total_amount });
+      return;
+    }
+    byPerson[canonical] = e;
+  });
+
+  // Whether the month has been locked. lock_period sets commission_locked on
+  // every closed repair in the month, which is this programme's own record of
+  // having been paid.
+  var locked = null;
+  var bounds = (function() {
+    var pp = String(period).split("-");
+    var y = parseInt(pp[0], 10), m = parseInt(pp[1], 10);
+    var ey = m === 12 ? y + 1 : y, em = m === 12 ? 1 : m + 1;
+    return {
+      start: y + "-" + String(m).padStart(2, "0") + "-01",
+      end: ey + "-" + String(em).padStart(2, "0") + "-01",
+    };
+  })();
+  var lk = await supabase.from("advanced_repairs")
+    .select("commission_locked")
+    .eq("status", "closed")
+    .gte("date_closed", bounds.start)
+    .lt("date_closed", bounds.end);
+  if (!lk.error) {
+    var rows = lk.data || [];
+    locked = rows.length > 0 && rows.every(function(r) { return r.commission_locked === true; });
+  }
+
+  return {
+    status: "ok",
+    byPerson: byPerson,
+    unresolved: unresolved,
+    locked: locked,
+    total_repairs: d.total_repairs || 0,
+    total_profit: d.total_profit || 0,
+    total_commission: d.total_commission || 0,
+  };
+}
+
 async function answerRateForMonth(period) {
   var d;
   try {
@@ -276,6 +345,8 @@ async function answerRateForMonth(period) {
 // Matched on the WHOLE name only. `matchName` accepts a first-name hit, which is
 // the bug that put Matthew Slade's commission on Matthew Ziegler's page
 // (docs/CONTEXT.md 10w).
+function isDuncanName(n) { return String(n || "").trim().toLowerCase().indexOf("duncan") === 0; }
+
 function sameName(a, b) {
   a = String(a || "").trim().toLowerCase();
   b = String(b || "").trim().toLowerCase();
@@ -292,7 +363,7 @@ function findRow(arr, name) {
   return (arr || []).find(function(e) { return sameName(e.employee, name); }) || null;
 }
 
-function buildPaycheck(ctx, name, period, sales, thisMonth, eligible) {
+function buildPaycheck(ctx, name, period, sales, thisMonth, eligible, adv) {
   if (!sales || sales.status !== "ok") return { status: "error", items: [], base: 0, tier_bonus: 0, total: 0 };
 
   var cfg = ctx.config || {};
@@ -348,6 +419,32 @@ function buildPaycheck(ctx, name, period, sales, thisMonth, eligible) {
   var mult = thisMonth ? (parseFloat(thisMonth.multiplier) || 1) : 1;
   var tierBonus = eligible ? base * (mult - 1) : 0;
 
+  // Advanced-repair commission sits apart from `base` on purpose: the tier
+  // snapshot's base_commission does not include it, and folding it in would
+  // make every snapshot comparison below read as a disagreement.
+  var advItems = [], advTotal = 0;
+  var a = adv && adv.status === "ok" ? adv.byPerson[name] : null;
+  if (a) {
+    if ((a.primary_count || 0) > 0) {
+      advItems.push({
+        key: "adv_primary", label: "Advanced repairs completed",
+        qty: a.primary_count, qty_label: a.primary_count + " repair" + (a.primary_count === 1 ? "" : "s"),
+        rate: null, rate_label: (isDuncanName(a.employee) ? "10%" : "7%") + " of profit",
+        amount: money(a.primary_amount), note: null,
+      });
+      advTotal += a.primary_amount;
+    }
+    if ((a.overhead_count || 0) > 0) {
+      advItems.push({
+        key: "adv_overhead", label: "Advanced repair override",
+        qty: a.overhead_count, qty_label: a.overhead_count + " repair" + (a.overhead_count === 1 ? "" : "s") + " by others",
+        rate: null, rate_label: "3% of profit",
+        amount: money(a.overhead_amount), note: null,
+      });
+      advTotal += a.overhead_amount;
+    }
+  }
+
   var out = {
     status: "ok",
     items: items,
@@ -355,7 +452,16 @@ function buildPaycheck(ctx, name, period, sales, thisMonth, eligible) {
     multiplier: mult,
     tier: thisMonth ? thisMonth.tier : null,
     tier_bonus: money(tierBonus),
-    total: money(base + tierBonus),
+    advanced: {
+      items: advItems,
+      total: money(advTotal),
+      // This programme keeps its own paid marker: lock_period stamps
+      // commission_locked on every closed repair in the month.
+      locked: adv ? adv.locked : null,
+      status: adv ? adv.status : "error",
+      reason: adv && adv.reason ? adv.reason : null,
+    },
+    total: money(base + tierBonus + advTotal),
     cleanings_ended: !cleanPays,
   };
 
@@ -370,6 +476,10 @@ function buildPaycheck(ctx, name, period, sales, thisMonth, eligible) {
     out.items = items.map(function(i) {
       return Object.assign({}, i, { amount: 0, would_have_been: i.amount, note: "salaried — not commissioned" });
     });
+    out.advanced.items = out.advanced.items.map(function(i) {
+      return Object.assign({}, i, { amount: 0, would_have_been: i.amount });
+    });
+    out.advanced.total = 0;
     out.base = 0; out.tier_bonus = 0; out.total = 0;
     return out;
   }
@@ -400,7 +510,7 @@ function ledgerFind(ledger, name, period, eventType) {
 // labelled in_progress, kept out of every owed total, and cannot be marked
 // paid. Paying one of those out would be paying on a number that is still
 // moving.
-function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress, sales) {
+function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress, sales, adv) {
   var name = person.name;
   var eligible = person.bonus_eligible !== false;
   var mine = ctx.history.filter(function(h) { return h.employee_name === name; });
@@ -427,7 +537,7 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
   var goldStore = streakAt(sameStore, asOf, "Gold");
   var platStore = streakAt(sameStore, asOf, "Platinum");
 
-  var pay = buildPaycheck(ctx, name, period, sales, thisMonth, eligible);
+  var pay = buildPaycheck(ctx, name, period, sales, thisMonth, eligible, adv);
 
   var items = [];
 
@@ -632,7 +742,14 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
       owed_plaques: owedPlaques,
       paycheck_base: pay.base || 0,
       paycheck_tier: pay.tier_bonus || 0,
+      paycheck_advanced: (pay.advanced && pay.advanced.total) || 0,
       paycheck_total: pay.total || 0,
+      // Eric, 2026-10-02: the corner figure is everything owed to this person
+      // for the month, commission included \u2014 not just the hand-out programmes.
+      // The split is kept beside it so it is still obvious which part rides the
+      // paycheck and which part he hands over.
+      total_to_pay: money(owedCash + unrecordedCash + (inProgress ? progCash : 0) + (pay.total || 0)),
+      hand_out_cash: money(owedCash + unrecordedCash + (inProgress ? progCash : 0)),
     },
     // Rides the regular paycheck. Bonus money, but NOT something handed out
     // separately — kept in its own list so the two can never be added together
@@ -641,7 +758,7 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
   };
 }
 
-function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales) {
+function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales, adv) {
   var reviewStores = Object.keys(reviewByStore);
   var cfg = (ctx && ctx.config) || {};
   var dis = (ctx && ctx.configDisabled) || {};
@@ -705,6 +822,24 @@ function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales) 
           + (labelMismatch.length ? "  \u26A0 " + labelMismatch.map(function(x) { return x.key + ' is labelled "' + x.label + '" but pays ' + x.value; }).join("; ") + "." : "")
         : (sales && sales.reason) || "sales route unavailable",
       source: "phone_repairs / cleaning_sales imports + commission_config",
+    },
+    {
+      key: "advanced_repairs",
+      label: "Advanced repair commission",
+      status: !adv || adv.status !== "ok" ? "error" : (adv.unresolved && adv.unresolved.length ? "partial" : "ok"),
+      detail: !adv || adv.status !== "ok"
+        ? ((adv && adv.reason) || "advanced repairs route unavailable")
+        : "10% of profit to Duncan on a repair he completed, 7% to anyone else, plus 3% to Duncan on every advanced repair somebody else completed. Closed repairs only. "
+          + adv.total_repairs + " closed, $" + (adv.total_profit || 0).toFixed(2) + " profit, $" + (adv.total_commission || 0).toFixed(2) + " commission in " + monthLabel(period) + ". "
+          + (adv.locked === true ? "The month is locked, which is this programme\u2019s record of having been paid."
+             : adv.locked === false ? "The month is NOT locked \u2014 nothing here has been recorded as paid."
+             : "Lock state unknown.")
+          + ((adv.unresolved && adv.unresolved.length)
+              ? "  \u26A0 " + adv.unresolved.length + " name" + (adv.unresolved.length === 1 ? "" : "s")
+                + " did not resolve to the roster and " + (adv.unresolved.length === 1 ? "is" : "are") + " left out: "
+                + adv.unresolved.map(function(u) { return u.raw + " ($" + u.amount + ")"; }).join(", ") + "."
+              : ""),
+      source: "advanced_repairs (rates in app/api/advanced-repairs)",
     },
     {
       key: "tier_multiplier",
@@ -779,11 +914,12 @@ export async function GET(request) {
       var ctx = await loadPeriod(period);
       var ar = await answerRateForMonth(period);
       var sales = await salesForMonth(period);
+      var adv = await advancedForMonth(period, ctx.roster);
       var reviewByStore = reviewBonusForPeriod(ctx.reviews, period);
 
       var inProgress = period === currentPeriod();
       var people = ctx.roster.map(function(p) {
-        return buildPerson(ctx, p, period, ar, reviewByStore, inProgress, sales);
+        return buildPerson(ctx, p, period, ar, reviewByStore, inProgress, sales, adv);
       });
 
       // Anyone with a tier row this month who is not on the active roster still
@@ -792,7 +928,7 @@ export async function GET(request) {
       ctx.roster.forEach(function(p) { rosterNames[p.name] = true; });
       ctx.history.filter(function(h) { return h.period === period && !rosterNames[h.employee_name]; })
         .forEach(function(h) {
-          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, reviewByStore, inProgress, sales);
+          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, reviewByStore, inProgress, sales, adv);
           ghost.off_roster = true;
           people.push(ghost);
         });
@@ -810,14 +946,21 @@ export async function GET(request) {
         a.paycheck_base += p.totals.paycheck_base || 0;
         a.paycheck_tier += p.totals.paycheck_tier || 0;
         a.paycheck_total += p.totals.paycheck_total || 0;
+        a.paycheck_advanced += p.totals.paycheck_advanced || 0;
+        a.total_to_pay += p.totals.total_to_pay || 0;
+        a.hand_out_cash += p.totals.hand_out_cash || 0;
         return a;
       }, { owed_cash: 0, unrecorded_cash: 0, paid_cash: 0, owed_pto: 0, unrecorded_pto: 0, paid_pto: 0,
            in_progress_cash: 0, in_progress_pto: 0, owed_plaques: 0,
-           paycheck_base: 0, paycheck_tier: 0, paycheck_total: 0 });
+           paycheck_base: 0, paycheck_tier: 0, paycheck_total: 0, paycheck_advanced: 0,
+           total_to_pay: 0, hand_out_cash: 0 });
       totals.in_progress_cash = money(totals.in_progress_cash);
       totals.paycheck_base = money(totals.paycheck_base);
       totals.paycheck_tier = money(totals.paycheck_tier);
       totals.paycheck_total = money(totals.paycheck_total);
+      totals.paycheck_advanced = money(totals.paycheck_advanced);
+      totals.total_to_pay = money(totals.total_to_pay);
+      totals.hand_out_cash = money(totals.hand_out_cash);
       totals.owed_cash = money(totals.owed_cash);
       totals.unrecorded_cash = money(totals.unrecorded_cash);
       totals.paid_cash = money(totals.paid_cash);
@@ -838,7 +981,7 @@ export async function GET(request) {
           if (d) return d;
           return (b.score || 0) - (a.score || 0);
         }),
-        programs: programStatuses(period, ar, reviewByStore, ctx.roster, ctx, sales),
+        programs: programStatuses(period, ar, reviewByStore, ctx.roster, ctx, sales, adv),
         answer_rate_stores: ar.stores || [],
         review_stores: Object.keys(reviewByStore).map(function(k) { return reviewByStore[k]; }),
         totals: totals,
@@ -869,16 +1012,17 @@ export async function GET(request) {
       // One answer-rate pass per period. Sequential on purpose: each pass is
       // several large reads and firing them all at once has timed out the
       // function before.
-      var arByPeriod = {}, salesByPeriod = {};
+      var arByPeriod = {}, salesByPeriod = {}, advByPeriod = {};
       for (var k = 0; k < periods.length; k++) {
         arByPeriod[periods[k]] = await answerRateForMonth(periods[k]);
         salesByPeriod[periods[k]] = await salesForMonth(periods[k]);
+        advByPeriod[periods[k]] = await advancedForMonth(periods[k], ctx2.roster);
       }
 
       var rows = [];
       periods.forEach(function(p) {
         ctx2.roster.forEach(function(person) {
-          var built = buildPerson(ctx2, person, p, arByPeriod[p], reviewByPeriod[p], p === currentPeriod(), salesByPeriod[p]);
+          var built = buildPerson(ctx2, person, p, arByPeriod[p], reviewByPeriod[p], p === currentPeriod(), salesByPeriod[p], advByPeriod[p]);
           built.items.forEach(function(it) {
             if (it.state !== "unpaid" && it.state !== "unrecorded") return;
             if (it.amount <= 0 && it.pto_days <= 0) return;
@@ -965,15 +1109,16 @@ function composeStatement(p, asMarkdown) {
   // every line say so, because "Bonuses owed — October: $400" computed on
   // 1 October off seven hours of shifts would be a false debt.
   var live = !!p.is_current_month;
-  L.push(h + (live ? "Bonuses on pace — " + p.period_label + " (month still running)" : "Bonuses owed — " + p.period_label));
+  L.push(h + (live ? "On pace — " + p.period_label + " (month still running)" : "What you owe — " + p.period_label));
   L.push("");
   if (live) {
     L.push("Nothing here is payable yet. The answer rate moves until the month closes, and the tier snapshot for " + p.period_label + " has not been taken.");
     L.push("");
   }
-  var cash = live
+  var handOut = live
     ? (p.totals.in_progress_cash || 0) + p.totals.owed_cash + p.totals.unrecorded_cash
     : p.totals.owed_cash + p.totals.unrecorded_cash;
+  var cash = p.totals.total_to_pay != null ? p.totals.total_to_pay : handOut;
   var pto = live
     ? (p.totals.in_progress_pto || 0) + p.totals.owed_pto + p.totals.unrecorded_pto
     : p.totals.owed_pto + p.totals.unrecorded_pto;
@@ -984,9 +1129,11 @@ function composeStatement(p, asMarkdown) {
     L.push((live ? "On pace: $" : "Total: $") + cash.toFixed(2)
       + (pto ? " and " + pto + " PTO day" + (pto === 1 ? "" : "s") : "")
       + (plaques ? " and " + plaques + " wall plaque" + (plaques === 1 ? "" : "s") : ""));
+    L.push("  $" + handOut.toFixed(2) + " handed out, $" + (p.totals.paycheck_total || 0).toFixed(2) + " commission through the paycheck.");
     L.push("");
     p.people.forEach(function(e) {
-      var t = e.totals.owed_cash + e.totals.unrecorded_cash + (live ? (e.totals.in_progress_cash || 0) : 0);
+      var t = e.totals.total_to_pay != null ? e.totals.total_to_pay
+        : e.totals.owed_cash + e.totals.unrecorded_cash + (live ? (e.totals.in_progress_cash || 0) : 0);
       var tp = e.totals.owed_pto + e.totals.unrecorded_pto + (live ? (e.totals.in_progress_pto || 0) : 0);
       var tq = e.totals.owed_plaques || 0;
       if (t === 0 && tp === 0 && tq === 0) return;
@@ -1003,6 +1150,16 @@ function composeStatement(p, asMarkdown) {
           : "$" + i.amount.toFixed(2);
         L.push("  • " + i.label + ": " + what + " — " + i.basis + tagText);
       });
+      var ep = e.paycheck;
+      if (ep && ep.status === "ok" && (ep.total || 0) > 0) {
+        var bits = (ep.items || []).filter(function(x) { return x.amount > 0; })
+          .map(function(x) { return x.label + " $" + x.amount.toFixed(2); });
+        if ((ep.tier_bonus || 0) > 0) bits.push("tier multiplier $" + ep.tier_bonus.toFixed(2));
+        (ep.advanced && ep.advanced.items || []).forEach(function(x) {
+          if (x.amount > 0) bits.push(x.label + " $" + x.amount.toFixed(2));
+        });
+        L.push("  • Commission: $" + ep.total.toFixed(2) + " — " + bits.join(", "));
+      }
     });
   }
   // Streak watch — the whole point of the note.
@@ -1017,14 +1174,20 @@ function composeStatement(p, asMarkdown) {
       if (e.streak.platinum.months_to_next === 1) L.push("  • " + e.name + ": " + e.streak.platinum.months + " months at Platinum+ — one more earns a PTO day");
     });
   }
-  // The paycheck half belongs in the note too, clearly separated so it can
-  // never be mistaken for something to hand out.
   if (p.totals.paycheck_total > 0) {
     L.push("");
-    L.push((asMarkdown ? "### " : "") + "Already in the paycheck — nothing to hand out");
-    L.push("  Per-repair commission $" + (p.totals.paycheck_base || 0).toFixed(2)
+    L.push((asMarkdown ? "### " : "") + "How the commission splits");
+    L.push("  Per-repair $" + (p.totals.paycheck_base || 0).toFixed(2)
       + " + tier multiplier $" + (p.totals.paycheck_tier || 0).toFixed(2)
-      + " = $" + (p.totals.paycheck_total || 0).toFixed(2) + " across the team.");
+      + ((p.totals.paycheck_advanced || 0) > 0 ? " + advanced repairs $" + p.totals.paycheck_advanced.toFixed(2) : "")
+      + " = $" + (p.totals.paycheck_total || 0).toFixed(2) + " across the team, paid through payroll.");
+  }
+
+  var advProg = (p.programs || []).filter(function(x) { return x.key === "advanced_repairs"; })[0];
+  if (advProg && (p.totals.paycheck_advanced || 0) > 0 && /NOT locked/.test(advProg.detail)) {
+    L.push("");
+    L.push("  • $" + p.totals.paycheck_advanced.toFixed(2) + " of advanced-repair commission has not been locked for "
+      + p.period_label + ", so nothing records it as paid. Lock the month on the Advanced Repair Log once it is.");
   }
 
   var gaps = (p.programs || []).filter(function(x) { return x.status === "no_data" || x.status === "partial" || x.status === "error"; });
@@ -1118,10 +1281,11 @@ export async function POST(request) {
       }
       var rbs = reviewBonusForPeriod(ctx.reviews, body.period);
       var salesM = await salesForMonth(body.period);
+      var advM = await advancedForMonth(body.period, ctx.roster);
       var inProg = false; // guarded above
       var results = [];
       for (var j = 0; j < ctx.roster.length; j++) {
-        var built = buildPerson(ctx, ctx.roster[j], body.period, ar, rbs, inProg, salesM);
+        var built = buildPerson(ctx, ctx.roster[j], body.period, ar, rbs, inProg, salesM, advM);
         for (var m = 0; m < built.items.length; m++) {
           var it = built.items[m];
           if (it.state !== "unpaid" && it.state !== "unrecorded") continue;
@@ -1174,8 +1338,9 @@ export async function POST(request) {
         if (arS.status !== "ok") { failures.push({ period: per, error: arS.reason }); continue; }
         var rbS = reviewBonusForPeriod(ctxS.reviews, per);
         var salesS = await salesForMonth(per);
+        var advS = await advancedForMonth(per, ctxS.roster);
         for (var ri = 0; ri < ctxS.roster.length; ri++) {
-          var b2 = buildPerson(ctxS, ctxS.roster[ri], per, arS, rbS, false, salesS);
+          var b2 = buildPerson(ctxS, ctxS.roster[ri], per, arS, rbS, false, salesS, advS);
           for (var ii = 0; ii < b2.items.length; ii++) {
             var it2 = b2.items[ii];
             if (it2.state !== "unpaid" && it2.state !== "unrecorded") continue;

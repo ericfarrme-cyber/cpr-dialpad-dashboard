@@ -343,6 +343,38 @@ function PaycheckBlock({ pay }) {
           </span>
         </div>}
       </div>
+      {pay.advanced && pay.advanced.items && pay.advanced.items.length > 0 && pay.advanced.items.map(function(it) {
+        return (
+          <div key={it.key} style={{
+            display: "flex", alignItems: "baseline", gap: 10, padding: "6px 12px", flexWrap: "wrap",
+            borderTop: "1px solid var(--border-light)", background: tint("var(--cyan)", 6),
+          }}>
+            <span style={{ color: "var(--text-body)", fontSize: 11.5, flex: "1 1 170px" }}>{it.label}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: 10.5, flex: "1 1 150px", fontVariantNumeric: "tabular-nums" }}>
+              {it.qty_label} {"·"} {it.rate_label}
+            </span>
+            <span style={{
+              color: "var(--cyan)", fontSize: 11.5, fontWeight: 800, fontVariantNumeric: "tabular-nums",
+              minWidth: 70, textAlign: "right",
+              textDecoration: pay.not_commissioned ? "line-through" : "none",
+            }}>
+              {money(pay.not_commissioned ? (it.would_have_been || 0) : it.amount)}
+            </span>
+          </div>
+        );
+      })}
+
+      {pay.advanced && pay.advanced.locked === true && pay.advanced.total > 0 && (
+        <div style={{ padding: "6px 12px", borderTop: "1px solid var(--border-light)", color: "var(--green)", fontSize: 10.5 }}>
+          Advanced-repair commission for this month is locked {"—"} that is this programme{"\u2019"}s record of having been paid.
+        </div>
+      )}
+      {pay.advanced && pay.advanced.locked === false && pay.advanced.total > 0 && (
+        <div style={{ padding: "6px 12px", borderTop: "1px solid var(--border-light)", color: "var(--orange)", fontSize: 10.5 }}>
+          The month is not locked, so nothing here has been recorded as paid.
+        </div>
+      )}
+
       {pay.disagrees_with_snapshot && (
         <div style={{ padding: "7px 12px", borderTop: "1px solid var(--border-light)", background: tint("var(--orange)", 7), color: "var(--orange)", fontSize: 10.5, lineHeight: 1.45 }}>
           The tier snapshot recorded {money(pay.disagrees_with_snapshot.stored)} of base commission for this month;
@@ -369,7 +401,13 @@ function btn(kind, busy) {
 // ── Person card ─────────────────────────────────────────────────────────────
 function PersonCard({ p, period, index, canPay, onAction, busyKey }) {
   var live = !!p.in_progress_view;
-  var owes = p.totals.owed_cash + p.totals.unrecorded_cash + (live ? (p.totals.in_progress_cash || 0) : 0);
+  // Eric, 2026-10-02: the corner is everything owed to this person for the
+  // month, commission included. The split sits right under it so it stays
+  // obvious which part he hands over and which part rides the paycheck.
+  var handOut = p.totals.hand_out_cash != null
+    ? p.totals.hand_out_cash
+    : p.totals.owed_cash + p.totals.unrecorded_cash + (live ? (p.totals.in_progress_cash || 0) : 0);
+  var owes = p.totals.total_to_pay != null ? p.totals.total_to_pay : handOut;
   var owesPto = p.totals.owed_pto + p.totals.unrecorded_pto + (live ? (p.totals.in_progress_pto || 0) : 0);
   var [open, setOpen] = useState(owes > 0 || owesPto > 0);
   var sc = STORE_COLOR[p.store] || "var(--purple)";
@@ -415,17 +453,23 @@ function PersonCard({ p, period, index, canPay, onAction, busyKey }) {
           </div>
         </div>
 
-        <div style={{ textAlign: "right", minWidth: 120 }}>
+        <div style={{ textAlign: "right", minWidth: 150 }}>
           <div style={{
-            fontSize: 20, fontWeight: 800, fontVariantNumeric: "tabular-nums",
+            fontSize: 21, fontWeight: 800, fontVariantNumeric: "tabular-nums",
             color: owes > 0 || owesPto > 0 ? (live ? "var(--cyan)" : "var(--red)") : "var(--text-muted)",
           }}>
-            {owes > 0 ? money(owes) : owesPto > 0 ? "" : money(0)}
-            {owesPto > 0 && <span style={{ fontSize: 13, marginLeft: owes > 0 ? 6 : 0, color: "#E0B0FF" }}>+{owesPto} PTO</span>}
+            {money(owes)}
+            {owesPto > 0 && <span style={{ fontSize: 13, marginLeft: 6, color: "#E0B0FF" }}>+{owesPto} PTO</span>}
           </div>
-          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
-            {live ? "on pace this month" : p.totals.paid_cash > 0 ? money(p.totals.paid_cash) + " already paid" : "outstanding this month"}
+          <div style={{ fontSize: 9.5, color: "var(--text-muted)", marginTop: 2, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+            {live ? "on pace this month" : "total for this month"}
           </div>
+          <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 3, fontVariantNumeric: "tabular-nums" }}>
+            {money(handOut)} handed out {"·"} {money(p.totals.paycheck_total || 0)} commission
+          </div>
+          {p.totals.paid_cash > 0 && (
+            <div style={{ fontSize: 10, color: "var(--green)", marginTop: 2 }}>{money(p.totals.paid_cash)} already marked paid</div>
+          )}
         </div>
 
         <div style={{
@@ -612,10 +656,14 @@ export default function BonusesTab() {
       <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}>
         <div>
           <h2 style={{ margin: 0, color: "var(--text-primary)", fontSize: 21, fontWeight: 800, letterSpacing: "-0.01em" }}>Bonus Ledger</h2>
-          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4, maxWidth: 620, lineHeight: 1.5 }}>
-            Every bonus program, per person, with a payment record. <b style={{ color: "var(--red)" }}>Owed</b> means
-            recorded and unpaid. <b style={{ color: "var(--orange)" }}>Not recorded</b> means nobody wrote down whether
-            it was paid {"—"} not that it is unpaid.
+          <div style={{ color: "var(--text-muted)", fontSize: 12, marginTop: 4, maxWidth: 700, lineHeight: 1.55 }}>
+            Every bonus programme, per person. The figure beside each name is{" "}
+            <b style={{ color: "var(--text-body)" }}>everything owed to them for the month</b> {"—"} the bonuses
+            you hand over plus the commission that rides their paycheck, split out underneath.
+            <br />
+            On the hand-out lines, <b style={{ color: "var(--red)" }}>Owed</b> means recorded and unpaid;{" "}
+            <b style={{ color: "var(--orange)" }}>Not recorded</b> means nobody wrote down whether it was paid {"—"} not
+            that it is unpaid.
           </div>
         </div>
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -664,23 +712,23 @@ export default function BonusesTab() {
 
           {/* Hero */}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-            {data.is_current_month ? (
-              <HeroNumber label={"On pace · " + data.period_label} value={(data.totals.in_progress_cash || 0) + outstandingCash}
-                pto={(data.totals.in_progress_pto || 0) + outstandingPto} color="var(--cyan)" emphasis
-                sub="The month is still running. Nothing here is payable yet — the answer rate moves until it closes." />
-            ) : (
-              <HeroNumber label={"Outstanding · " + data.period_label} value={outstandingCash} pto={outstandingPto}
-                color={outstandingCash > 0 || outstandingPto > 0 ? "var(--red)" : "var(--green)"} emphasis
-                sub={outstandingCash > 0 || outstandingPto > 0 ? "Owed plus not-yet-recorded" : "Nothing left for this month"} />
-            )}
+            <HeroNumber
+              label={(data.is_current_month ? "On pace · " : "Total to pay · ") + data.period_label}
+              value={data.totals.total_to_pay || 0}
+              pto={(data.totals.owed_pto || 0) + (data.totals.unrecorded_pto || 0) + (data.is_current_month ? (data.totals.in_progress_pto || 0) : 0)}
+              color={data.is_current_month ? "var(--cyan)" : "var(--red)"} emphasis
+              sub={(data.is_current_month
+                ? "The month is still running, so this is a projection. "
+                : "") + money(data.totals.hand_out_cash || 0) + " handed out + " + money(data.totals.paycheck_total || 0) + " commission across the team."} />
             <HeroNumber label="Recorded unpaid" value={t.owed_cash} pto={t.owed_pto} color="var(--red)"
               sub="A ledger row exists and has no payment date" />
             <HeroNumber label="No payment recorded" value={t.unrecorded_cash} pto={t.unrecorded_pto} color="var(--orange)"
               sub="Computed and earned, but nothing says whether it was paid" />
             <HeroNumber label="Marked paid" value={t.paid_cash} pto={t.paid_pto} color="var(--green)"
               sub="Settled in the ledger" />
-            <HeroNumber label="In the paycheck" value={t.paycheck_total || 0} color="var(--text-body)"
-              sub={"Per-repair commission " + money(t.paycheck_base || 0) + " + tier multiplier " + money(t.paycheck_tier || 0) + " — not handed out"} />
+            <HeroNumber label="Commission" value={t.paycheck_total || 0} color="var(--text-body)"
+              sub={"Per-repair " + money(t.paycheck_base || 0) + " + tier multiplier " + money(t.paycheck_tier || 0)
+                + (t.paycheck_advanced ? " + advanced repairs " + money(t.paycheck_advanced) : "")} />
           </div>
 
           {/* Streak watch — the guardrail */}
