@@ -272,10 +272,11 @@ would have swallowed a **$100 award silently**. The Bonus Ledger computes **both
 the difference on the person's card; it does **not** decide which one pays. Changing `tier-history`
 to count the person rather than the store is a payroll edit and needs sign-off.
 
-10ai. **"Spencer" is not on the roster.** Eric, 2026-09-30: *"Yes, go ahead for Duncan and
-Spencer."* There is no Spencer in `employee_roster`, in `dashboard_users`, or on any `ticket_grades`
-row. The September snapshot produced an award for **Duncan only**, and nothing has been paid to an
-unidentified name. Ask Eric who Spencer is before anything is owed to it.
+10ai. ~~**"Spencer" is not on the roster.**~~ **RESOLVED 2026-10-01 — it was "September".**
+Eric's *"Yes, go ahead for Duncan and Spencer"* was a transcription of *"Duncan and September"*,
+i.e. run the September snapshot so Duncan's completed Gold run registers. There is no such employee
+and nothing was ever owed to that name. Kept here only so the next person who greps the word finds
+the answer rather than re-opening the search.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
@@ -340,7 +341,8 @@ unidentified name. Ask Eric who Spencer is before anything is owed to it.
   after August — but note the snapshot does **not** import `lib/commission-rules.js`, so if
   cleanings data ever appears it would pay it. Then **Bonus Ledger** shipped (§ 10ag), and two
   things it surfaced were written down rather than quietly fixed: streaks reset on a store transfer
-  (§ 10ah) and nobody knows who "Spencer" is (§ 10ai).
+  (§ 10ah) and, briefly, an unidentified "Spencer" — which Eric confirmed the same day was a
+  transcription of **"September"** (§ 10ai). Nothing was owed to an unidentified name.
   **September outstanding: $400** — Duncan's $100 streak plus $300 of answer-rate bonuses with
   no payment recorded (Alec $100, Andrew $100, Alyssa $50, Aerick $50). Across all months the
   answer-rate programme shows **$1,560 with no payment record going back to March**; that is a
