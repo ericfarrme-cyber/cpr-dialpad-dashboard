@@ -50,6 +50,9 @@ var PROGRAM_STATUS = {
   partial: { color: "var(--yellow)", label: "Partial" },
   no_data: { color: "var(--orange)", label: "No data" },
   not_built: { color: "var(--text-muted)", label: "Not built" },
+  // Computed, but nobody reached the bar this year. Different from no data.
+  none_earned: { color: "var(--text-muted)", label: "None earned" },
+  annual: { color: "var(--cyan)", label: "Annual" },
   error: { color: "var(--red)", label: "Failed" },
 };
 
@@ -238,10 +241,12 @@ function StatePill({ state }) {
 }
 
 function ItemRow({ item, canPay, busy, onPay, onUnpay, onRecord }) {
-  var amountText = item.pto_days > 0
-    ? item.pto_days + " PTO day" + (item.pto_days === 1 ? "" : "s")
-    : money(item.amount);
-  var payable = item.amount > 0 || item.pto_days > 0;
+  var amountText = item.plaques > 0
+    ? "Wall plaque"
+    : item.pto_days > 0
+      ? item.pto_days + " PTO day" + (item.pto_days === 1 ? "" : "s")
+      : money(item.amount);
+  var payable = item.amount > 0 || item.pto_days > 0 || item.plaques > 0;
   return (
     <div style={{
       display: "flex", alignItems: "center", gap: 12, padding: "9px 12px", borderRadius: 9,
@@ -271,6 +276,79 @@ function ItemRow({ item, canPay, busy, onPay, onUnpay, onRecord }) {
         ) : (
           <button onClick={onRecord} disabled={busy} style={btn("record", busy)}>Record as paid</button>
         )
+      )}
+    </div>
+  );
+}
+
+// Per-repair commission and the tier multiplier. Bonus money, but it arrives
+// inside the regular paycheck rather than as a separate payment, so it lives in
+// its own block that can never be added into the owed figure.
+function PaycheckBlock({ pay }) {
+  if (!pay || pay.status !== "ok" || !pay.items || !pay.items.length) {
+    return (
+      <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "6px 2px" }}>
+        {pay && pay.status === "error" ? "Commission could not be read for this month." : "No per-repair commission this month."}
+      </div>
+    );
+  }
+  return (
+    <div style={{ borderRadius: 10, border: "1px solid var(--border-light)", overflow: "hidden", opacity: pay.not_commissioned ? 0.62 : 1 }}>
+      <div style={{
+        padding: "7px 12px", background: "var(--bg-card-inner)",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap",
+      }}>
+        <span style={{ color: "var(--text-muted)", fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+          {pay.not_commissioned ? "Work done — not commissioned" : "Already in the paycheck"}
+        </span>
+        <span style={{ color: pay.not_commissioned ? "var(--text-muted)" : "var(--text-body)", fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" }}>
+          {pay.not_commissioned
+            ? "salaried" + (pay.would_have_been ? " (" + money(pay.would_have_been) + " if commissioned)" : "")
+            : money(pay.total)}
+        </span>
+      </div>
+      <div style={{ display: "grid" }}>
+        {pay.items.map(function(it) {
+          return (
+            <div key={it.key} style={{
+              display: "flex", alignItems: "baseline", gap: 10, padding: "6px 12px", flexWrap: "wrap",
+              borderTop: "1px solid var(--border-light)",
+            }}>
+              <span style={{ color: "var(--text-body)", fontSize: 11.5, flex: "1 1 170px" }}>{it.label}</span>
+              <span style={{ color: "var(--text-muted)", fontSize: 10.5, flex: "1 1 150px", fontVariantNumeric: "tabular-nums" }}>
+                {it.qty_label} {"·"} {it.rate_label}
+              </span>
+              <span style={{
+                color: it.amount > 0 ? "var(--text-primary)" : "var(--text-muted)",
+                fontSize: 11.5, fontWeight: 700, fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right",
+                textDecoration: pay.not_commissioned ? "line-through" : "none",
+              }}>
+                {money(pay.not_commissioned ? (it.would_have_been || 0) : it.amount)}
+              </span>
+              {it.note && !pay.not_commissioned && <div style={{ flexBasis: "100%", color: "var(--orange)", fontSize: 10 }}>{it.note}</div>}
+            </div>
+          );
+        })}
+        {!pay.not_commissioned && <div style={{
+          display: "flex", alignItems: "baseline", gap: 10, padding: "6px 12px", flexWrap: "wrap",
+          borderTop: "1px solid var(--border-light)",
+          background: pay.tier_bonus > 0 ? tint(TIER_COLOR[pay.tier] || "var(--text-muted)", 7) : "transparent",
+        }}>
+          <span style={{ color: "var(--text-body)", fontSize: 11.5, fontWeight: 700, flex: "1 1 170px" }}>Tier multiplier</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 10.5, flex: "1 1 150px" }}>
+            {pay.tier ? pay.tier + " " + "\u00d7" + pay.multiplier + " on " + money(pay.base) : "no tier this month"}
+          </span>
+          <span style={{ color: pay.tier_bonus > 0 ? (TIER_COLOR[pay.tier] || "var(--text-primary)") : "var(--text-muted)", fontSize: 11.5, fontWeight: 800, fontVariantNumeric: "tabular-nums", minWidth: 70, textAlign: "right" }}>
+            {money(pay.tier_bonus)}
+          </span>
+        </div>}
+      </div>
+      {pay.disagrees_with_snapshot && (
+        <div style={{ padding: "7px 12px", borderTop: "1px solid var(--border-light)", background: tint("var(--orange)", 7), color: "var(--orange)", fontSize: 10.5, lineHeight: 1.45 }}>
+          The tier snapshot recorded {money(pay.disagrees_with_snapshot.stored)} of base commission for this month;
+          these rates give {money(pay.disagrees_with_snapshot.live)}. Something changed since the snapshot ran
+          {pay.cleanings_ended ? " (charge-port cleanings stopped paying after August 2026, which the snapshot does not apply)" : ""}.
+        </div>
       )}
     </div>
   );
@@ -331,7 +409,7 @@ function PersonCard({ p, period, index, canPay, onAction, busyKey }) {
           <div style={{ color: "var(--text-muted)", fontSize: 11, marginTop: 3 }}>
             <span style={{ textTransform: "capitalize" }}>{p.store || "no store"}</span>
             {p.commission && (p.bonus_eligible
-              ? <span>{" · commission " + money(p.commission.total) + " (" + money(p.commission.base) + " base + " + money(p.commission.tier_bonus) + " tier) — rides the paycheck"}</span>
+              ? <span>{" · " + money(p.totals.paycheck_total || 0) + " in the paycheck"}</span>
               : <span>{" · salaried — no per-repair commission"}</span>
             )}
           </div>
@@ -388,9 +466,12 @@ function PersonCard({ p, period, index, canPay, onAction, busyKey }) {
       }}>
         <div style={{ overflow: "hidden" }}>
           <div style={{ padding: "0 16px 16px", display: "grid", gap: 7 }}>
+            <div style={{ color: "var(--text-muted)", fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.08em", marginTop: 2 }}>
+              Handed out separately
+            </div>
             {p.items.length === 0 ? (
-              <div style={{ color: "var(--text-muted)", fontSize: 11.5, padding: "8px 2px" }}>
-                No bonus items for this month.
+              <div style={{ color: "var(--text-muted)", fontSize: 11.5, padding: "4px 2px" }}>
+                Nothing from the hand-out programmes this month.
               </div>
             ) : p.items.map(function(it, i) {
               var key = p.name + "|" + it.event_type;
@@ -399,6 +480,8 @@ function PersonCard({ p, period, index, canPay, onAction, busyKey }) {
                 onUnpay={function(e) { e.stopPropagation(); onAction("unmark_paid", p, it); }}
                 onRecord={function(e) { e.stopPropagation(); onAction("record_payment", p, it); }} />;
             })}
+
+            <PaycheckBlock pay={p.paycheck} />
           </div>
         </div>
       </div>
@@ -596,6 +679,8 @@ export default function BonusesTab() {
               sub="Computed and earned, but nothing says whether it was paid" />
             <HeroNumber label="Marked paid" value={t.paid_cash} pto={t.paid_pto} color="var(--green)"
               sub="Settled in the ledger" />
+            <HeroNumber label="In the paycheck" value={t.paycheck_total || 0} color="var(--text-body)"
+              sub={"Per-repair commission " + money(t.paycheck_base || 0) + " + tier multiplier " + money(t.paycheck_tier || 0) + " — not handed out"} />
           </div>
 
           {/* Streak watch — the guardrail */}

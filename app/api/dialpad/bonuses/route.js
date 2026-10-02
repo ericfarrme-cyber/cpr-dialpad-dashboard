@@ -42,13 +42,18 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { GET as answerRateGET } from "../answer-rate-bonus/route";
+import { GET as salesGET } from "../sales/route";
+import { cleaningCommissionApplies } from "@/lib/commission-rules";
 
 export const dynamic = "force-dynamic";
 
 // Tier awards are owned by tier-history. Listed here only so this route can
 // tell them apart from the rows it writes itself.
 var TIER_EVENT_TYPES = ["tier_up", "gold_streak", "platinum_streak", "diamond_plaque"];
-var OWNED_EVENT_TYPES = ["answer_rate", "review_bonus", "manual"];
+// A plaque is keyed on the YEAR, not a month, so it never matches a monthly
+// period filter. It is pulled separately or it would never appear at all.
+var YEAR_EVENT_TYPES = ["diamond_plaque"];
+var OWNED_EVENT_TYPES = ["answer_rate", "review_bonus", "diamond_pto", "manual"];
 
 // Google review bonus (§2 of docs/CONTEXT.md, Eric's rule):
 //   10 reviews/month is the floor — nothing pays at or below it
@@ -198,6 +203,19 @@ async function loadPeriod(period) {
   if (ledgerRes.error) throw new Error("Ledger load failed: " + ledgerRes.error.message);
   out.ledger = ledgerRes.data || [];
 
+  // Commission rates. Read here rather than from the sales route's flattened
+  // `rates`, because that object includes rows with enabled = false
+  // (phone_repair_premium, accessory_gp_rate_alt, cleaning_gp_rate) and paying
+  // a disabled rate is a payroll error.
+  var cfgRes = await supabase.from("commission_config").select("config_key, config_value, label, enabled");
+  if (cfgRes.error) throw new Error("commission_config load failed: " + cfgRes.error.message);
+  out.config = {};
+  out.configDisabled = {};
+  (cfgRes.data || []).forEach(function(c) {
+    if (c.enabled === false) { out.configDisabled[c.config_key] = c; return; }
+    out.config[c.config_key] = { value: parseFloat(c.config_value), label: c.label || null };
+  });
+
   // Google review sheet (hand-entered).
   var grRes = await supabase
     .from("google_reviews")
@@ -210,6 +228,26 @@ async function loadPeriod(period) {
 
 // Answer-rate bonus for one month. Loud on failure: this is bonus dollars, and
 // a soft {success:false} with zeros is exactly the June 2026 failure mode.
+// Per-repair commission inputs for a month. Same in-process call the tier
+// snapshot makes, so the two cannot read different numbers.
+async function salesForMonth(period) {
+  var d;
+  try {
+    d = await callRouteHandler(salesGET, "/api/dialpad/sales?action=performance&period=" + encodeURIComponent(period));
+  } catch (e) {
+    return { status: "error", reason: "Sales route threw: " + e.message };
+  }
+  if (!d || !d.success) {
+    return { status: "error", reason: "Sales route failed: " + ((d && d.error) || "unknown") };
+  }
+  return {
+    status: "ok",
+    phones: d.phones || [], others: d.others || [], accessories: d.accessories || [],
+    cleanings: d.cleanings || [], cleaningSales: d.cleaningSales || [],
+    not_commissioned: d.not_commissioned || [],
+  };
+}
+
 async function answerRateForMonth(period) {
   var d;
   try {
@@ -229,6 +267,125 @@ async function answerRateForMonth(period) {
   };
 }
 
+// Per-repair commission, itemised, plus the tier multiplier. This money rides
+// the regular paycheck — it is NOT something Eric hands out separately — but it
+// is bonus money and leaving it off the ledger made the screen look like it only
+// knew about two programmes. Every line shows its own quantity and rate so a
+// wrong total traces to a row.
+//
+// Matched on the WHOLE name only. `matchName` accepts a first-name hit, which is
+// the bug that put Matthew Slade's commission on Matthew Ziegler's page
+// (docs/CONTEXT.md 10w).
+function sameName(a, b) {
+  a = String(a || "").trim().toLowerCase();
+  b = String(b || "").trim().toLowerCase();
+  if (!a || !b) return false;
+  if (a === b) return true;
+  // "Last, First" against "First Last"
+  var flip = function(x) {
+    var c = x.split(",");
+    return c.length === 2 ? (c[1].trim() + " " + c[0].trim()) : x;
+  };
+  return flip(a) === b || a === flip(b);
+}
+function findRow(arr, name) {
+  return (arr || []).find(function(e) { return sameName(e.employee, name); }) || null;
+}
+
+function buildPaycheck(ctx, name, period, sales, thisMonth, eligible) {
+  if (!sales || sales.status !== "ok") return { status: "error", items: [], base: 0, tier_bonus: 0, total: 0 };
+
+  var cfg = ctx.config || {};
+  var rate = function(k, dflt) { return cfg[k] ? cfg[k].value : dflt; };
+
+  var phone = findRow(sales.phones, name);
+  var other = findRow(sales.others, name);
+  var accy  = findRow(sales.accessories, name);
+  var clean = findRow(sales.cleanings, name);
+  var clnS  = findRow(sales.cleaningSales, name);
+
+  // Charge-port cleanings stopped paying after August 2026 (Eric, 2026-09-21).
+  // A dated rule, so August stays exactly as it was paid.
+  var cleanPays = cleaningCommissionApplies(period);
+
+  var items = [];
+  var push = function(key, label, qty, qtyLabel, r, rateLabel, amount, note) {
+    if (!qty && !amount) return;
+    items.push({
+      key: key, label: label, qty: qty, qty_label: qtyLabel,
+      rate: r, rate_label: rateLabel, amount: money(amount), note: note || null,
+    });
+  };
+
+  var rPhone = rate("phone_repair_standard", 1);
+  var rOther = rate("other_repair_rate", 2.5);
+  var rAccy  = rate("accessory_gp_rate", 0.15);
+  var rClean = rate("cleaning_rate", 0.10);
+  var rClnS  = rate("cleaning_sales_rate", 0.10);
+
+  var qPhone = phone ? (phone.repair_tickets || 0) : 0;
+  var qOther = other ? (other.repair_count || 0) : 0;
+  var qAccy  = accy ? (accy.accy_gp || 0) : 0;
+  var qClean = clean ? (clean.clean_total || 0) : 0;
+  var qClnS  = clnS ? (clnS.discounted_sales || clnS.gross_sales || 0) : 0;
+
+  push("phone_repairs", "Phone repairs", qPhone, qPhone + " repair" + (qPhone === 1 ? "" : "s"),
+       rPhone, "$" + rPhone.toFixed(2) + " each", qPhone * rPhone);
+  push("other_repairs", "Non-phone repairs", qOther, qOther + " repair" + (qOther === 1 ? "" : "s"),
+       rOther, "$" + rOther.toFixed(2) + " each", qOther * rOther);
+  push("accessory_gp", "Accessory gross profit", qAccy, "$" + qAccy.toFixed(2) + " GP",
+       rAccy, (rAccy * 100).toFixed(0) + "% of GP", qAccy * rAccy);
+  push("cleanings", "Charge-port cleanings", qClean, "$" + qClean.toFixed(2),
+       rClean, (rClean * 100).toFixed(0) + "%", cleanPays ? qClean * rClean : 0,
+       cleanPays ? null : "stopped paying after " + "2026-08" + " \u2014 counted at $0");
+  push("cleaning_sales", "Cleaning sales", qClnS, "$" + qClnS.toFixed(2),
+       rClnS, (rClnS * 100).toFixed(0) + "%", qClnS * rClnS);
+
+  var base = items.reduce(function(a, i) { return a + i.amount; }, 0);
+
+  // The tier multiplier IS a bonus — it is the money the tier is for — even
+  // though it arrives inside the paycheck rather than as a separate payment.
+  var mult = thisMonth ? (parseFloat(thisMonth.multiplier) || 1) : 1;
+  var tierBonus = eligible ? base * (mult - 1) : 0;
+
+  var out = {
+    status: "ok",
+    items: items,
+    base: money(base),
+    multiplier: mult,
+    tier: thisMonth ? thisMonth.tier : null,
+    tier_bonus: money(tierBonus),
+    total: money(base + tierBonus),
+    cleanings_ended: !cleanPays,
+  };
+
+  // Salaried: no per-repair commission and no tier multiplier
+  // (docs/CONTEXT.md 10w). The snapshot still writes base_commission for them,
+  // so leaving the figure in the totals would put money the person does not
+  // receive into the company-wide paycheck number. Zeroed, never deleted —
+  // the work itself still shows, with what it would have paid.
+  if (!eligible) {
+    out.not_commissioned = true;
+    out.would_have_been = out.total;
+    out.items = items.map(function(i) {
+      return Object.assign({}, i, { amount: 0, would_have_been: i.amount, note: "salaried — not commissioned" });
+    });
+    out.base = 0; out.tier_bonus = 0; out.total = 0;
+    return out;
+  }
+
+  // The snapshot stored its own figure at the time. If the live itemisation
+  // disagrees, something changed since — a rate edit, or the dated cleanings
+  // rule the snapshot does not apply. Surfaced, never reconciled silently.
+  if (eligible && thisMonth && thisMonth.base_commission != null) {
+    var stored = money(thisMonth.base_commission);
+    if (Math.abs(stored - out.base) >= 0.01) {
+      out.disagrees_with_snapshot = { stored: stored, live: out.base, diff: money(out.base - stored) };
+    }
+  }
+  return out;
+}
+
 function ledgerFind(ledger, name, period, eventType) {
   return (ledger || []).find(function(r) {
     return String(r.employee_name) === String(name)
@@ -243,7 +400,7 @@ function ledgerFind(ledger, name, period, eventType) {
 // labelled in_progress, kept out of every owed total, and cannot be marked
 // paid. Paying one of those out would be paying on a number that is still
 // moving.
-function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress) {
+function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress, sales) {
   var name = person.name;
   var eligible = person.bonus_eligible !== false;
   var mine = ctx.history.filter(function(h) { return h.employee_name === name; });
@@ -270,6 +427,8 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress)
   var goldStore = streakAt(sameStore, asOf, "Gold");
   var platStore = streakAt(sameStore, asOf, "Platinum");
 
+  var pay = buildPaycheck(ctx, name, period, sales, thisMonth, eligible);
+
   var items = [];
 
   // ── 1. Tier streak awards (read-only; written by tier-history) ──
@@ -295,6 +454,50 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress)
       notes: ev.notes || null,
     });
   });
+
+  // ── 1b. Diamond plaque — keyed on the YEAR, so it is pulled by year, not by
+  //     month, or it would never appear on any monthly view at all. Shown on
+  //     the months of the year it belongs to.
+  var year = String(period).slice(0, 4);
+  (ctx.ledger || []).forEach(function(ev) {
+    if (ev.employee_name !== name) return;
+    if (YEAR_EVENT_TYPES.indexOf(ev.event_type) < 0) return;
+    if (String(ev.event_period) !== year) return;
+    if (ev.dismissed_at) return;
+    items.push({
+      program: "diamond_plaque",
+      event_type: "diamond_plaque",
+      label: "Diamond plaque",
+      basis: (ev.streak_length || 0) + " Diamond months in " + year,
+      amount: 0, pto_days: 0, plaques: 1,
+      unit: "plaque",
+      ledger_id: ev.id,
+      paid_at: ev.bonus_paid_at || null,
+      state: ev.bonus_paid_at ? "paid" : "unpaid",
+      owner: "tier-history",
+      period_scope: "year",
+    });
+  });
+
+  // ── 1c. Diamond monthly PTO — a Diamond month earns a PTO day on its own,
+  //     separately from the Platinum streak. `pto_earned` is written by the
+  //     snapshot from tier_diamond_pto_per_month.
+  if (thisMonth && (parseFloat(thisMonth.pto_earned) || 0) > 0) {
+    var dRow = ledgerFind(ctx.ledger, name, period, "diamond_pto");
+    items.push({
+      program: "diamond_pto",
+      event_type: "diamond_pto",
+      label: "Diamond month",
+      basis: "Diamond tier in " + period + " \u2014 " + thisMonth.pto_earned + " PTO day per Diamond month",
+      amount: 0, pto_days: parseFloat(thisMonth.pto_earned) || 0,
+      unit: "pto_day",
+      ledger_id: dRow ? dRow.id : null,
+      paid_at: dRow ? dRow.bonus_paid_at : null,
+      state: dRow ? (dRow.bonus_paid_at ? "paid" : "unpaid") : (inProgress ? "in_progress" : "unrecorded"),
+      owner: "bonuses",
+      store: store,
+    });
+  }
 
   // ── 2. Answer-rate bonus ──
   if (arForMonth.status === "ok") {
@@ -375,6 +578,7 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress)
     });
   }
 
+  var owedPlaques = items.reduce(function(s, i) { return s + (i.state === "unpaid" ? (i.plaques || 0) : 0); }, 0);
   var owedCash = items.reduce(function(s, i) { return s + (i.state === "unpaid" ? i.amount : 0); }, 0);
   var progCash = items.reduce(function(s, i) { return s + (i.state === "in_progress" ? i.amount : 0); }, 0);
   var progPto = items.reduce(function(s, i) { return s + (i.state === "in_progress" ? i.pto_days : 0); }, 0);
@@ -425,12 +629,43 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress)
       paid_pto: paidPto,
       in_progress_cash: money(progCash),
       in_progress_pto: progPto,
+      owed_plaques: owedPlaques,
+      paycheck_base: pay.base || 0,
+      paycheck_tier: pay.tier_bonus || 0,
+      paycheck_total: pay.total || 0,
     },
+    // Rides the regular paycheck. Bonus money, but NOT something handed out
+    // separately — kept in its own list so the two can never be added together
+    // into a figure Eric thinks he owes.
+    paycheck: pay,
   };
 }
 
-function programStatuses(period, arForMonth, reviewByStore, roster) {
+function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales) {
   var reviewStores = Object.keys(reviewByStore);
+  var cfg = (ctx && ctx.config) || {};
+  var dis = (ctx && ctx.configDisabled) || {};
+  var r = function(k, d) { return cfg[k] ? cfg[k].value : d; };
+  var pct = function(v) { return (v * 100).toFixed(0) + "%"; };
+
+  // Rates whose stored label disagrees with the value actually paid. Surfaced,
+  // never corrected here — which of the two is right is a payroll decision.
+  var labelMismatch = [];
+  Object.keys(cfg).forEach(function(k) {
+    var lab = cfg[k].label || "";
+    var m = lab.match(/\$\s*([0-9]+(?:\.[0-9]+)?)/);
+    if (m && Math.abs(parseFloat(m[1]) - cfg[k].value) >= 0.005) {
+      labelMismatch.push({ key: k, label: lab, value: cfg[k].value });
+    }
+  });
+
+  var diamondCount = 0;
+  if (ctx && ctx.history) {
+    diamondCount = ctx.history.filter(function(h) {
+      return h.period.slice(0, 4) === String(period).slice(0, 4) && h.tier === "Diamond";
+    }).length;
+  }
+
   return [
     {
       key: "tier_streak",
@@ -456,6 +691,59 @@ function programStatuses(period, arForMonth, reviewByStore, roster) {
         ? "No " + monthLabel(period) + " row in google_reviews — the sheet is entered by hand. This is 'not entered', not 'nothing earned'."
         : reviewStores.length + " of 3 stores entered: " + reviewStores.join(", ") + ". $" + REVIEW_RATE + "/employee per review over " + REVIEW_FLOOR + ", plus $" + REVIEW_RATE + "/employee per photo review.",
       source: "google_reviews (hand-entered)",
+    },
+    {
+      key: "per_repair",
+      label: "Per-repair commission",
+      status: sales && sales.status === "ok" ? "ok" : "error",
+      detail: sales && sales.status === "ok"
+        ? "$" + r("phone_repair_standard", 1).toFixed(2) + " per phone repair, $" + r("other_repair_rate", 2.5).toFixed(2)
+          + " per non-phone repair, " + pct(r("accessory_gp_rate", 0.15)) + " of accessory GP, "
+          + pct(r("cleaning_sales_rate", 0.10)) + " of cleaning sales"
+          + (cleaningCommissionApplies(period) ? ", " + pct(r("cleaning_rate", 0.10)) + " of charge-port cleanings." : ". Charge-port cleanings stopped paying after 2026-08.")
+          + " Rides the paycheck \u2014 listed per person, never counted as owed."
+          + (labelMismatch.length ? "  \u26A0 " + labelMismatch.map(function(x) { return x.key + ' is labelled "' + x.label + '" but pays ' + x.value; }).join("; ") + "." : "")
+        : (sales && sales.reason) || "sales route unavailable",
+      source: "phone_repairs / cleaning_sales imports + commission_config",
+    },
+    {
+      key: "tier_multiplier",
+      label: "Tier multiplier",
+      status: "ok",
+      detail: "Gold \u00d7" + r("tier_gold_multiplier", 1.25) + ", Platinum \u00d7" + r("tier_platinum_multiplier", 1.5)
+        + ", Diamond \u00d7" + r("tier_diamond_multiplier", 1.5) + " on the per-repair commission. Silver and Bronze pay \u00d71."
+        + " This is the money the tier itself is worth, and it arrives inside the paycheck rather than as a separate payment.",
+      source: "employee_tier_history.multiplier \u00d7 commission",
+    },
+    {
+      key: "diamond",
+      label: "Diamond tier",
+      status: diamondCount > 0 ? "ok" : "none_earned",
+      detail: r("tier_diamond_pto_per_month", 1) + " PTO day for every Diamond month (85+), plus a wall plaque at 6 Diamond months in a calendar year. "
+        + (diamondCount > 0 ? diamondCount + " Diamond month" + (diamondCount === 1 ? "" : "s") + " so far in " + String(period).slice(0, 4) + "."
+                            : "Nobody has reached Diamond in " + String(period).slice(0, 4) + " \u2014 the highest score this year is below 85."),
+      source: "employee_tier_history.pto_earned + tier_celebrations",
+    },
+    {
+      key: "am_profit_share",
+      label: "Area manager profit share",
+      status: "annual",
+      // Terms read from commission_config at runtime and never written into
+      // this repo, which is public (docs/CONTEXT.md 10w).
+      detail: cfg.am_profit_share_rate && cfg.am_profit_share_threshold
+        ? pct(cfg.am_profit_share_rate.value) + " of company net profit above the annual threshold, calendar year, for the area manager only. "
+          + "Annual rather than monthly, so it is not a line on this month \u2014 the running figure is the card on the Profitability tab\u2019s Monthly Trend. "
+          + "January and February 2026 are still not entered, so that year-to-date is understated."
+        : "Configured in commission_config; the rate or threshold row is missing or disabled, so nothing is tracked.",
+      source: "commission_config + profitability",
+    },
+    {
+      key: "google_review_store",
+      label: "Store review bonus",
+      status: "not_built",
+      detail: "Eric\u2019s preference, not yet a rule: \u201cthe store with the most reviews gets another twenty-five dollars on their bonus.\u201d "
+        + "Exact rule and effective month not set, so nothing is computed. \u26A0 Never pair a review request with a discount \u2014 Google asks reviewers whether they were incentivised and suppresses the review.",
+      source: "\u2014",
     },
     {
       key: "non_phone",
@@ -490,11 +778,12 @@ export async function GET(request) {
       var period = searchParams.get("period") || priorPeriod(currentPeriod(), 1);
       var ctx = await loadPeriod(period);
       var ar = await answerRateForMonth(period);
+      var sales = await salesForMonth(period);
       var reviewByStore = reviewBonusForPeriod(ctx.reviews, period);
 
       var inProgress = period === currentPeriod();
       var people = ctx.roster.map(function(p) {
-        return buildPerson(ctx, p, period, ar, reviewByStore, inProgress);
+        return buildPerson(ctx, p, period, ar, reviewByStore, inProgress, sales);
       });
 
       // Anyone with a tier row this month who is not on the active roster still
@@ -503,7 +792,7 @@ export async function GET(request) {
       ctx.roster.forEach(function(p) { rosterNames[p.name] = true; });
       ctx.history.filter(function(h) { return h.period === period && !rosterNames[h.employee_name]; })
         .forEach(function(h) {
-          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, reviewByStore, inProgress);
+          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, reviewByStore, inProgress, sales);
           ghost.off_roster = true;
           people.push(ghost);
         });
@@ -517,9 +806,18 @@ export async function GET(request) {
         a.paid_pto += p.totals.paid_pto;
         a.in_progress_cash += p.totals.in_progress_cash;
         a.in_progress_pto += p.totals.in_progress_pto;
+        a.owed_plaques += p.totals.owed_plaques || 0;
+        a.paycheck_base += p.totals.paycheck_base || 0;
+        a.paycheck_tier += p.totals.paycheck_tier || 0;
+        a.paycheck_total += p.totals.paycheck_total || 0;
         return a;
-      }, { owed_cash: 0, unrecorded_cash: 0, paid_cash: 0, owed_pto: 0, unrecorded_pto: 0, paid_pto: 0, in_progress_cash: 0, in_progress_pto: 0 });
+      }, { owed_cash: 0, unrecorded_cash: 0, paid_cash: 0, owed_pto: 0, unrecorded_pto: 0, paid_pto: 0,
+           in_progress_cash: 0, in_progress_pto: 0, owed_plaques: 0,
+           paycheck_base: 0, paycheck_tier: 0, paycheck_total: 0 });
       totals.in_progress_cash = money(totals.in_progress_cash);
+      totals.paycheck_base = money(totals.paycheck_base);
+      totals.paycheck_tier = money(totals.paycheck_tier);
+      totals.paycheck_total = money(totals.paycheck_total);
       totals.owed_cash = money(totals.owed_cash);
       totals.unrecorded_cash = money(totals.unrecorded_cash);
       totals.paid_cash = money(totals.paid_cash);
@@ -540,7 +838,7 @@ export async function GET(request) {
           if (d) return d;
           return (b.score || 0) - (a.score || 0);
         }),
-        programs: programStatuses(period, ar, reviewByStore, ctx.roster),
+        programs: programStatuses(period, ar, reviewByStore, ctx.roster, ctx, sales),
         answer_rate_stores: ar.stores || [],
         review_stores: Object.keys(reviewByStore).map(function(k) { return reviewByStore[k]; }),
         totals: totals,
@@ -571,15 +869,16 @@ export async function GET(request) {
       // One answer-rate pass per period. Sequential on purpose: each pass is
       // several large reads and firing them all at once has timed out the
       // function before.
-      var arByPeriod = {};
+      var arByPeriod = {}, salesByPeriod = {};
       for (var k = 0; k < periods.length; k++) {
         arByPeriod[periods[k]] = await answerRateForMonth(periods[k]);
+        salesByPeriod[periods[k]] = await salesForMonth(periods[k]);
       }
 
       var rows = [];
       periods.forEach(function(p) {
         ctx2.roster.forEach(function(person) {
-          var built = buildPerson(ctx2, person, p, arByPeriod[p], reviewByPeriod[p], p === currentPeriod());
+          var built = buildPerson(ctx2, person, p, arByPeriod[p], reviewByPeriod[p], p === currentPeriod(), salesByPeriod[p]);
           built.items.forEach(function(it) {
             if (it.state !== "unpaid" && it.state !== "unrecorded") return;
             if (it.amount <= 0 && it.pto_days <= 0) return;
@@ -678,23 +977,31 @@ function composeStatement(p, asMarkdown) {
   var pto = live
     ? (p.totals.in_progress_pto || 0) + p.totals.owed_pto + p.totals.unrecorded_pto
     : p.totals.owed_pto + p.totals.unrecorded_pto;
-  if (cash === 0 && pto === 0) {
+  var plaques = p.totals.owed_plaques || 0;
+  if (cash === 0 && pto === 0 && plaques === 0) {
     L.push(live ? "Nothing on pace for " + p.period_label + " yet." : "Nothing outstanding for " + p.period_label + ".");
   } else {
-    L.push((live ? "On pace: $" : "Total: $") + cash.toFixed(2) + (pto ? " and " + pto + " PTO day" + (pto === 1 ? "" : "s") : ""));
+    L.push((live ? "On pace: $" : "Total: $") + cash.toFixed(2)
+      + (pto ? " and " + pto + " PTO day" + (pto === 1 ? "" : "s") : "")
+      + (plaques ? " and " + plaques + " wall plaque" + (plaques === 1 ? "" : "s") : ""));
     L.push("");
     p.people.forEach(function(e) {
       var t = e.totals.owed_cash + e.totals.unrecorded_cash + (live ? (e.totals.in_progress_cash || 0) : 0);
       var tp = e.totals.owed_pto + e.totals.unrecorded_pto + (live ? (e.totals.in_progress_pto || 0) : 0);
-      if (t === 0 && tp === 0) return;
-      L.push((asMarkdown ? "**" : "") + e.name + (asMarkdown ? "**" : "") + " (" + (e.store || "?") + ")" + " — $" + t.toFixed(2) + (tp ? " + " + tp + " PTO day" + (tp === 1 ? "" : "s") : ""));
+      var tq = e.totals.owed_plaques || 0;
+      if (t === 0 && tp === 0 && tq === 0) return;
+      L.push((asMarkdown ? "**" : "") + e.name + (asMarkdown ? "**" : "") + " (" + (e.store || "?") + ")" + " — $" + t.toFixed(2)
+        + (tp ? " + " + tp + " PTO day" + (tp === 1 ? "" : "s") : "")
+        + (tq ? " + " + tq + " plaque" + (tq === 1 ? "" : "s") : ""));
       e.items.forEach(function(i) {
         if (i.state !== "unpaid" && i.state !== "unrecorded" && i.state !== "in_progress") return;
-        if (i.amount <= 0 && i.pto_days <= 0) return;
+        if (i.amount <= 0 && i.pto_days <= 0 && !i.plaques) return;
         var tagText = i.state === "unrecorded" ? " [no payment recorded]"
           : i.state === "in_progress" ? " [month still running — not payable yet]" : "";
-        L.push("  • " + i.label + ": " + (i.pto_days ? i.pto_days + " PTO day" + (i.pto_days === 1 ? "" : "s") : "$" + i.amount.toFixed(2))
-          + " — " + i.basis + tagText);
+        var what = i.plaques ? "a wall plaque"
+          : i.pto_days ? i.pto_days + " PTO day" + (i.pto_days === 1 ? "" : "s")
+          : "$" + i.amount.toFixed(2);
+        L.push("  • " + i.label + ": " + what + " — " + i.basis + tagText);
       });
     });
   }
@@ -710,6 +1017,16 @@ function composeStatement(p, asMarkdown) {
       if (e.streak.platinum.months_to_next === 1) L.push("  • " + e.name + ": " + e.streak.platinum.months + " months at Platinum+ — one more earns a PTO day");
     });
   }
+  // The paycheck half belongs in the note too, clearly separated so it can
+  // never be mistaken for something to hand out.
+  if (p.totals.paycheck_total > 0) {
+    L.push("");
+    L.push((asMarkdown ? "### " : "") + "Already in the paycheck — nothing to hand out");
+    L.push("  Per-repair commission $" + (p.totals.paycheck_base || 0).toFixed(2)
+      + " + tier multiplier $" + (p.totals.paycheck_tier || 0).toFixed(2)
+      + " = $" + (p.totals.paycheck_total || 0).toFixed(2) + " across the team.");
+  }
+
   var gaps = (p.programs || []).filter(function(x) { return x.status === "no_data" || x.status === "partial" || x.status === "error"; });
   if (gaps.length) {
     L.push("");
@@ -800,10 +1117,11 @@ export async function POST(request) {
         return json({ success: false, error: "Answer rate could not be computed for " + body.period + " (" + ar.reason + "), so this month cannot be settled in bulk. Mark items individually." }, 503);
       }
       var rbs = reviewBonusForPeriod(ctx.reviews, body.period);
+      var salesM = await salesForMonth(body.period);
       var inProg = false; // guarded above
       var results = [];
       for (var j = 0; j < ctx.roster.length; j++) {
-        var built = buildPerson(ctx, ctx.roster[j], body.period, ar, rbs, inProg);
+        var built = buildPerson(ctx, ctx.roster[j], body.period, ar, rbs, inProg, salesM);
         for (var m = 0; m < built.items.length; m++) {
           var it = built.items[m];
           if (it.state !== "unpaid" && it.state !== "unrecorded") continue;
@@ -855,8 +1173,9 @@ export async function POST(request) {
         var arS = await answerRateForMonth(per);
         if (arS.status !== "ok") { failures.push({ period: per, error: arS.reason }); continue; }
         var rbS = reviewBonusForPeriod(ctxS.reviews, per);
+        var salesS = await salesForMonth(per);
         for (var ri = 0; ri < ctxS.roster.length; ri++) {
-          var b2 = buildPerson(ctxS, ctxS.roster[ri], per, arS, rbS, false);
+          var b2 = buildPerson(ctxS, ctxS.roster[ri], per, arS, rbS, false, salesS);
           for (var ii = 0; ii < b2.items.length; ii++) {
             var it2 = b2.items[ii];
             if (it2.state !== "unpaid" && it2.state !== "unrecorded") continue;
