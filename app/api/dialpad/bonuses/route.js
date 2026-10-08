@@ -55,7 +55,14 @@ var TIER_EVENT_TYPES = ["tier_up", "gold_streak", "platinum_streak", "diamond_pl
 // A plaque is keyed on the YEAR, not a month, so it never matches a monthly
 // period filter. It is pulled separately or it would never appear at all.
 var YEAR_EVENT_TYPES = ["diamond_plaque"];
-var OWNED_EVENT_TYPES = ["answer_rate", "review_bonus", "diamond_pto", "manual"];
+// `non_phone` is the advanced / non-phone volume bonus. It is recorded by hand
+// rather than computed, deliberately: the two candidate bases disagree by four
+// to five times — the advanced-repair log puts September non-phone profit at
+// $4,586, while ticket device categories put it at $17,359 excluding the
+// uncategorised bucket and $22,287 including it. A formula over numbers that
+// far apart would be a guess wearing a decimal point, so Eric sets the figure
+// per month until the category diagnostic (open item 11) settles the base.
+var OWNED_EVENT_TYPES = ["answer_rate", "review_bonus", "diamond_pto", "non_phone", "manual"];
 
 // Google review bonus (§2 of docs/CONTEXT.md, Eric's rule):
 //   10 reviews/month is the floor — nothing pays at or below it
@@ -673,6 +680,39 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
       owner: "bonuses",
     });
   }
+
+  // ── 4. Anything else this route owns that is already in the ledger ──
+  //    Without this, a row written by hand — a recorded non-phone bonus, a
+  //    one-off — would sit in the table and never reach the screen. A payable
+  //    nobody can see is a payable nobody pays.
+  var emitted = {};
+  items.forEach(function(i) { emitted[i.event_type] = true; });
+  (ctx.ledger || []).forEach(function(ev) {
+    if (ev.employee_name !== name) return;
+    if (String(ev.event_period) !== String(period)) return;
+    if (OWNED_EVENT_TYPES.indexOf(ev.event_type) < 0) return;
+    if (emitted[ev.event_type]) return;
+    if (ev.dismissed_at) return;
+    var amt = Number(ev.bonus_amount) || 0;
+    if (amt <= 0) return;
+    var isPto = ev.bonus_unit === "pto_day";
+    items.push({
+      program: ev.event_type,
+      event_type: ev.event_type,
+      label: ev.event_type === "non_phone" ? "Non-phone repair bonus"
+        : ev.event_type === "manual" ? "One-off bonus"
+        : ev.event_type.replace(/_/g, " "),
+      basis: ev.notes || "recorded by hand",
+      amount: isPto ? 0 : money(amt),
+      pto_days: isPto ? amt : 0,
+      unit: ev.bonus_unit || "cash",
+      ledger_id: ev.id,
+      paid_at: ev.bonus_paid_at || null,
+      state: ev.bonus_paid_at ? "paid" : "unpaid",
+      owner: "bonuses",
+      store: ev.store || store,
+    });
+  });
 
   // Ineligible people keep their tier row and their numbers; they just cannot
   // be paid from it. The row is marked blocked and zeroed rather than dropped —
