@@ -923,9 +923,19 @@ function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales, 
     {
       key: "non_phone",
       label: "Non-phone repair bonus (Duncan)",
-      status: "not_built",
-      detail: "Agreed in principle — $100 at $15,000/month of console + tablet + computer + misc profit, plus $75 per $1,000 above. Not implemented: blocked on Daily Profit accuracy and closed-ticket sync (open items 2 and 3). Nothing is computed or owed from here.",
-      source: "—",
+      status: "ok",
+      // This WAS described here as "not built", which was wrong: the rule has
+      // been computed on the Non-Phone Repair Traffic tab since 2026-09-01.
+      // What was missing is the wiring into this ledger, so the figure is
+      // recorded by hand against the month rather than pulled.
+      detail: "$100 on reaching $15,000/month of console + tablet + computer + misc profit, "
+        + "then $50 per FULL $1,000 above it; partial thousands do not pay. Computed on the "
+        + "Non-Phone Repair Traffic tab (BONUS_THRESHOLD / BONUS_BASE / BONUS_PER_1000 in "
+        + "advanced-repair-traffic) and recorded here by hand, so the two cannot silently diverge — "
+        + "check the figure matches that card before paying. "
+        + "⚠ The base excludes tickets with no device category; September had $4,928 of those, "
+        + "which would move the payout if they are really non-phone work (open item 11).",
+      source: "advanced-repair-traffic → recorded by hand",
     },
   ];
 }

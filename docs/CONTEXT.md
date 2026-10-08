@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-01 (September tier snapshot run, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -51,9 +51,15 @@ Jul 80.4/80.4/79.2 → 77.6/79.1/77.6 · Aug 87.5/80.4/82.0 → 85.4/79.7/80.5.
 ### Answer-rate bonus — AGREED DIRECTION (NOT YET IMPLEMENTED, exact table pending Eric)
 With two people per shift: **85% becomes the bonus floor, 90% is the expectation, <80% is poor performance.** Eric has NOT confirmed the exact new tier table or effective month. **Sequencing: test-call scrub first → one clean month → then re-tier.**
 
-### Duncan non-phone repair bonus — AGREED DIRECTION (NOT YET IMPLEMENTED)
+### Duncan non-phone repair bonus — **IMPLEMENTED, rate settled at $50**
 - Scope: **consoles + tablets + computers + miscellaneous** repair profit (revenue − COGS), all three stores combined.
-- $100 for hitting **$15,000/month**, plus **$75 per $1,000 above** (Eric said $75 twice; Matt floated $50 — confirm).
+- $100 for hitting **$15,000/month**, plus **$50 per FULL $1,000 above**; partial thousands do not pay.
+  ~~$75 per $1,000 (Eric said $75 twice; Matt floated $50 — confirm)~~ **RESOLVED 2026-10-08 at $50.**
+  The rule has been live in `app/api/dialpad/advanced-repair-traffic/route.js` since 2026-09-01
+  (`BONUS_THRESHOLD` 15000 / `BONUS_BASE` 100 / `BONUS_PER_1000` 50) and renders on the Non-Phone
+  Repair Traffic tab. Eric settled it by showing that card. ⚠ This entry previously said "NOT YET
+  IMPLEMENTED", and the Bonus Ledger repeated that — both were wrong; only the wiring into the
+  ledger was missing.
 - Baseline reference: $12,615 avg Jan–Jul 2026; July ~$12–13.5k. Fairer baseline window is Mar–Jul (Duncan not in role Jan–Feb).
 - **Blocked until Daily Profit accuracy is fixed and closed-ticket sync works.**
 
@@ -278,6 +284,49 @@ i.e. run the September snapshot so Duncan's completed Gold run registers. There 
 and nothing was ever owed to that name. Kept here only so the next person who greps the word finds
 the answer rather than re-opening the search.
 
+10aj. **Non-phone bonus — built since September, rate settled at $50, now on the ledger**
+(2026-10-08). Correcting a claim this file and the Bonus Ledger both made: the rule was **not**
+unbuilt. `advanced-repair-traffic/route.js` has computed it since 2026-09-01 and the Non-Phone
+Repair Traffic tab has been showing it. **September 2026: $17,358.87 of non-phone profit, $2,358.87
+over the $15,000 threshold → $100 + 2 × $50 = $200** (Fishers $7,275 / 41.9%, Bloomington
+$5,492 / 31.6%, Indianapolis $4,592 / 26.4%). Recorded against Duncan for 2026-09 as an unpaid
+`non_phone` row; his September total is **$894.10** ($300 handed out + $594.10 commission).
+**Recorded by hand, not pulled**, so the ledger and the card cannot silently diverge — check they
+agree before paying. ⚠ The base **excludes tickets with no device category**; September had
+**$4,928** of those, and if they are really non-phone work the payout moves (open item 11).
+An independent parse of ticket categories gave $17,359 against the card's $17,358.87, so the base
+itself is agreed by two routes.
+Also fixed: a ledger row whose `event_type` had no explicit branch in `buildPerson` was written to
+`tier_celebrations` and then **never rendered**. There is now a catch-all for any owned, undismissed,
+non-zero row. A payable nobody can see is a payable nobody pays.
+
+10ak. **Matt's Amex — nine statements filed, and the importer audited** (2026-10-08).
+Parsed deterministically from the PDFs rather than through `extract-amex`; **all nine reconcile to
+the cent** against each statement's own stated total for Matt (562 transactions). Strongest check:
+March already read $147.04 and the independent parse gives $147.04 — the one month that had been
+imported correctly reproduces exactly.
+**Filed, per store:** Mar $147.04 · Apr $259.89 · May $147.80 · Jun $516.65 ·
+Jul $160.00 · Aug $129.53. June is large because of a single **$1,075.78 Midas** bill.
+**Four defects found in the existing flow, all of which had corrupted the data:**
+(a) **April's figure had been copied into five months** — Apr–Sep all carried the identical
+breakdown `{gas 122.49, software 69, other 60.64}` = $252.13; only March was ever genuinely imported,
+and Aug/Sep had also been hand-edited to inconsistent per-store values ($120/$105/$84.04).
+(b) **One statement never covers one calendar month** — they close mid-month (the January one runs
+12 Dec – 13 Jan) and the route filters to the target month, so importing them one at a time
+captures only the first ~13 days of each month and silently drops the rest. Two statements per month
+are required; the UI supports merging but nothing says so.
+(c) **The parts-vendor list misses real parts vendors** — LAPTOPSCREEN ($1,099), iFixit ($487),
+Parts HQ ($88), LaptopKey ($21): $1,694 that would have been booked as Matt's overhead instead of COGS.
+(d) **AT&T Uverse would double-count** — $1,292 across the statements, while `internet_security`
+is already filled at $508/$508/$485 every month. Excluded.
+**Not filed:** January ($159.28) and February ($1,174.68) are computed and waiting on those P&L rows
+existing (10f) — creating a row holding only an Amex figure would make the YTD and the profit-share
+read worse in a misleading way. September is **partial** (these statements only reach 11 Sep; the rest
+is on the October statement) and was left alone rather than filed as a third of a month.
+A December 2025 Alibaba charge ($39.45) has no row to go to.
+⚠ `extract-amex` is **unauthenticated** and calls the Anthropic API — anyone with the URL can spend
+on the key.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -331,6 +380,14 @@ the answer rather than re-opening the search.
 ---
 
 ## 8. Recent changes log
+- **2026-10-08** — **Matt's Amex filed for Mar–Aug** after auditing the importer, which turned
+  out to have been copying April's figure into five months (§ 10ak). All nine statements reconcile
+  to the cent. Four defects in the existing flow documented, including a parts list that misses
+  LAPTOPSCREEN and iFixit and an AT&T double-count. **Duncan's non-phone bonus** recorded for
+  September at **$200**, and the $75-vs-$50 question settled at **$50** — the rule turned out to
+  have been live on the Non-Phone Repair Traffic tab since 2026-09-01, so both this file and the
+  Bonus Ledger were wrong to call it unbuilt (§ 10aj). Fixed a Bonus Ledger bug the same change
+  exposed: a ledger row with no explicit branch was stored and never rendered.
 - **2026-10-01** — **September tier snapshot run** (Eric approved): 8 history rows, 2 events.
   Final September tiers — Alyssa 70 Platinum, Aerick 68 Gold, Luke 62 Gold, Duncan 60 Gold,
   Alec 58 Gold, Samuel 53 Silver, Matthew Slade 48 Silver (not bonus-eligible), Andrew 41 Silver.
