@@ -22,6 +22,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
+import { placeLooksLikeOurs } from "@/lib/place-match";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,12 @@ export async function GET(request) {
         if (!l.place_id) {
           var found = await findPlaceId(l.label, key);
           if (!found) { failures.push({ listing: l.label, error: "no Places match for that name" }); continue; }
+          // Never save a match that does not look like one of our shops.
+          var vet = placeLooksLikeOurs(l, found.matched, found.address);
+          if (!vet.ok) {
+            failures.push({ listing: l.label, error: "rejected: " + vet.why, matched: found.matched, address: found.address });
+            continue;
+          }
           var { error: uE } = await supabase.from("google_listings").update({ place_id: found.place_id }).eq("id", l.id);
           if (uE) { failures.push({ listing: l.label, error: "place_id not saved: " + uE.message }); continue; }
           l.place_id = found.place_id;
