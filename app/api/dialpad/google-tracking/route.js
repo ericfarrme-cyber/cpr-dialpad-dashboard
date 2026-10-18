@@ -41,16 +41,34 @@ function monthStart(ymd) { return ymd.slice(0, 8) + "01"; }
 // Places API (New). A listing with no place_id gets one from a text search of
 // its own label, which is why the migration leaves place_id null rather than
 // guessing a value that would silently track the wrong shop.
-async function findPlaceId(label, key) {
+// Ask for several results and pick the one that IS the listing we want, rather
+// than taking Google's top hit on faith.
+//
+// All four of a store's pages share an address and a phone, and the parent
+// store outranks its own departments on every query — so "Electronics at CPR
+// Fishers IN" returns "CPR Cell Phone Repair" first and the electronics page
+// further down. Taking result [0] is what collapsed six listings onto their
+// parent. The vetting function is the selector: the first candidate it accepts
+// wins, and if it accepts none we report what Google actually offered.
+async function findPlaceId(listing, query, key) {
   var res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress" },
-    body: JSON.stringify({ textQuery: label, maxResultCount: 1 }),
+    body: JSON.stringify({ textQuery: query, maxResultCount: 10 }),
   });
   if (!res.ok) throw new Error("Places searchText " + res.status + ": " + (await res.text()).slice(0, 200));
   var j = await res.json();
-  var p = (j.places || [])[0];
-  return p ? { place_id: p.id, matched: (p.displayName && p.displayName.text) || null, address: p.formattedAddress || null } : null;
+  var places = j.places || [];
+  var considered = [];
+  for (var i = 0; i < places.length; i++) {
+    var p = places[i];
+    var name = (p.displayName && p.displayName.text) || null;
+    var addr = p.formattedAddress || null;
+    considered.push(name);
+    var vet = placeLooksLikeOurs(listing, name, addr);
+    if (vet.ok) return { place_id: p.id, matched: name, address: addr, rank: i + 1, considered: considered };
+  }
+  return { place_id: null, considered: considered, why: places.length ? "none of the " + places.length + " results was the right page" : "no results" };
 }
 
 async function fetchPlace(placeId, key) {
@@ -161,12 +179,17 @@ export async function GET(request) {
       var l = listings[i];
       try {
         if (!l.place_id) {
-          var found = await findPlaceId(searchQueryFor(l), key);
-          if (!found) { failures.push({ listing: l.label, error: "no Places match", query: searchQueryFor(l) }); continue; }
-          // Never save a match that does not look like one of our shops.
-          var vet = placeLooksLikeOurs(l, found.matched, found.address);
-          if (!vet.ok) {
-            failures.push({ listing: l.label, error: "rejected: " + vet.why, query: searchQueryFor(l), matched: found.matched, address: found.address });
+          // findPlaceId vets every candidate and returns only one it accepts,
+          // so there is nothing left to re-check here.
+          var qry = searchQueryFor(l);
+          var found = await findPlaceId(l, qry, key);
+          if (!found || !found.place_id) {
+            failures.push({
+              listing: l.label,
+              error: (found && found.why) || "no Places match",
+              query: qry,
+              google_offered: (found && found.considered) || [],
+            });
             continue;
           }
           var { error: uE } = await supabase.from("google_listings").update({ place_id: found.place_id }).eq("id", l.id);
