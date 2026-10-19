@@ -327,6 +327,70 @@ A December 2025 Alibaba charge ($39.45) has no row to go to.
 ⚠ `extract-amex` is **unauthenticated** and calls the Anthropic API — anyone with the URL can spend
 on the key.
 
+10al. **Review bonus — DESIGN SETTLED 2026-10-19, NOT BUILT, needs Eric + Matt sign-off.**
+Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqonwWVMv9
+(private — Eric shares it with Matt from the page's Share menu). Nothing wired to payroll.
+  • **Store tier on REAL review counts: 10 / 15 / 20 → $50 / $75 / $100** per eligible person,
+    highest tier only, across that store's four pages. **Eric set the floor at 10** after rejecting a
+    proposed 6: *"The floor of 6 is absolutely despicable. We interact with 300-some customers a month
+    per store and for us to have a review rate that low means that we are not providing great customer
+    service."* Measured rate: Fishers 2.4% / Bloomington 3.3% / Indy 3.0% — **company 2.9%**, 23.3
+    reviews against 803 customers a month. 10 = 3.7% = 1 customer in 27.
+  • **Named in the review $10; $20 if the page has fewer than 10 reviews.** Eric rejected $25
+    ("way too much"), then set the differential at $10. The premium is bounded **by construction**:
+    75 reviews of headroom across 9 pages → **max $750 ever**, ~$266 at the measured 35.5% naming
+    rate, and it retires itself as pages fill — no expiry rule to maintain.
+  • **An unnamed review pays nothing individually; it counts one toward the store tier.** Eric's call,
+    and the data supports it: timing cannot attribute it. For non-phone tickets, exactly one tech is a
+    candidate on **50.7% of store-days**, and with the realistic 0–3 day posting lag **only 6.0%**
+    (79% have three or more).
+  • **×3 department multiplier KILLED.** I proposed weighting department-page reviews ×3 toward the
+    tier; Eric: *"Your continuing to motivate less overall reviews."* He was right — it let a store
+    reach 10 with four real reviews, paying the same money for less work. **Rule that replaced it: the
+    floor is always real reviews, and department focus is bought by ADDING money (the $20), never by
+    discounting the count.** Any future change must keep that monotonicity: every extra review must
+    raise someone's pay.
+  • **No tier multiplier.** Verified in code, not assumed: `tier-history/route.js:186` applies
+    `t.multiplier` to `baseTotal` = phone + other repairs + accessory GP + cleanings + cleaning sales,
+    i.e. **per-repair commission only**. Answer-rate, streak and non-phone bonuses are all flat; the
+    review bonus is too.
+  • **1★/2★ halves the store's tier that month, a second zeroes it. Named bonuses survive.**
+    Open: does a 3★ trigger it? Fishers computers is a new page sitting at 3.0 with one review.
+  • **Assignment is max hours that month**, same rule as the answer-rate bonus. October: Fishers
+    Aerick 144h + Alyssa 109h; Bloomington Alec 139h + Andrew 127h (Slade 43h, salaried/excluded);
+    Indianapolis Samuel 137h + Luke 80h + Duncan 72h. **Duncan and Luke are the only two who split
+    stores** — Duncan bloo 35h / indy 72h / fish 23h, so 44% of his hours generate reviews for a pool
+    he is not paid from. Decision: leave it, the $10/$20 named bonus is what follows the person.
+    Revisit only if his named credits cluster at non-assigned stores.
+  • **Cost and break-even:** $488/mo if all three stores hit 10 ($350 tier + $138 named), which is
+    **6.1 extra tickets of 803 (0.76%)** at the measured **$80.22 GP/ticket** (2,408 tickets Jul–Sep,
+    $193,166). $733 at 15, $977 at 20. The CPR franchise ad fund already costs $855/mo.
+  • ⚠ **10 is the number that pays; tell them 13.** A store performing at exactly 10/mo lands at 9 or
+    fewer **45.8% of the time** through ordinary fluctuation (16.6% at 13/mo). The count itself is
+    exact — this is month-to-month variation in the outcome, not measurement error, and it means a 9
+    cannot be distinguished from slacking. The answer-rate bonus has no such wobble because it is a
+    ratio over ~500 calls. A two-month rolling average does **not** fix it (46% → 47% at the
+    threshold) and was rejected. Frame it like the phones: 10 to get paid, 13 to get paid most months.
+    Not yet checkable against history — snapshots only start 2026-10-18.
+  • **The nine department pages are NEW** (Eric, 2026-10-19), so their 15 reviews against the main
+    pages' 2,094 is a **cold start, not neglect** — an earlier framing of mine that was unfair. Non-phone
+    is 27.1% of September tickets and profit (169 tickets, $17,245) against 0.71% of reviews; true as a
+    stock, but no page banks reviews it never had the chance to collect. `google_listings.created_at` is
+    when WE started tracking, not when Google created the listing, so listing age is not measurable here.
+  • **Build first, independent of the bonus: per-category review links.** All 12 pages have a
+    `place_id`, so `https://search.google.com/local/writereview?placeid=<id>` exists for each. A console
+    ticket closing should hand the tech the console page's link. Costs nothing, and if the route does not
+    exist no bonus fixes it. Precedent that a dashboard nudge alone works: warranty mentions went
+    **12.4% → 24.2%** after the free-closers strip (z=3.77, p<0.001) with no money attached.
+  • **Held in reserve, NOT recommended yet:** a department gate on the upper tiers only ($75 needs 15
+    total and ≥3 department; $100 needs 20 and ≥5). Raises the bar instead of lowering it and never
+    blocks the floor. Do not ship it alongside the $20 premium — launching both at once makes it
+    impossible to tell which one moved anything.
+  • **Never pair a review request with a discount.** Google asks reviewers whether they were
+    incentivised and suppresses the review if they say yes. This design pays the employee, not the
+    customer, which is the safe side of that line.
+  • Still open: **who is "Donovan"**, named in an Indy review and on no roster.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -380,6 +444,16 @@ on the key.
 ---
 
 ## 8. Recent changes log
+- **2026-10-19** — **Review bonus designed end to end** (§ 10al) and mocked up as the shipping tab.
+  Two of my proposals were wrong and Eric killed both: a floor of 6 (he set 10) and a ×3 department
+  multiplier that would have let a store earn the same money for four reviews instead of ten. The rule
+  that replaced the multiplier is the one to keep: **the floor is always real reviews; department focus
+  is bought by adding money, never by discounting the count.** Also measured and corrected: an unnamed
+  review cannot be attributed by timing (only 6.0% of cases have a single candidate tech over a 0–3 day
+  lag), the tier multiplier verifiably touches per-repair commission only, and a store at exactly 10
+  reviews a month misses the floor 45.8% of the time through ordinary fluctuation. The nine department
+  pages are new, so their low counts are a cold start rather than neglect — an earlier framing of mine
+  that was unfair to the staff. **Nothing built, nothing wired to payroll.**
 - **2026-10-08** — **Matt's Amex filed for Mar–Aug** after auditing the importer, which turned
   out to have been copying April's figure into five months (§ 10ak). All nine statements reconcile
   to the cent. Four defects in the existing flow documented, including a parts list that misses
