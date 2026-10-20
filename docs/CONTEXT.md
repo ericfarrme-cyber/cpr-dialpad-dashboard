@@ -354,8 +354,26 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
     `t.multiplier` to `baseTotal` = phone + other repairs + accessory GP + cleanings + cleaning sales,
     i.e. **per-repair commission only**. Answer-rate, streak and non-phone bonuses are all flat; the
     review bonus is too.
+  • **ONLY 5★ REVIEWS COUNT** (Eric, 2026-10-20: *"3 stars just dont count at all. 5 stars are the only
+    ones."*). A 4★ or 3★ counts for nothing — not toward the tier, no named credit. Measured on the 31
+    captured reviews: **80.6% are 5★** (25), 3 are 4★, 2 are 3★, 1 is 1★. So ten five-star needs
+    ~**12.4 reviews** and the real bar is **24% higher** than the headline number suggests.
+  • ⚠⚠ **BLOCKER: the Places API cannot count 5★ reviews, so the bonus as specified is not yet
+    computable.** `google-tracking/route.js:76` asks for `rating,userRatingCount,reviews` — an **average**,
+    a **total**, and a relevance **sample**. There is no star histogram, and it is **not derivable from the
+    average**: the rating is published to one decimal, so the star-sum uncertainty is ±0.05×n — **±32 stars
+    on Fishers main, ±28 Bloomington, ±44 Indianapolis**, which cannot resolve even one review let alone
+    separate a 4★ from a 5★. (It IS resolvable on the department pages, n≤8.) **The fix is a different
+    Google API, not a different key: the Business Profile Reviews API returns every review with its star
+    rating for listings we own, via OAuth as the business owner rather than the Places key.** Until that
+    exists, Matt's Business Profile inbox is the only exact source — which is already where he confirms
+    names, so the manual path works, it just does not scale to an automatic tier.
   • **1★/2★ halves the store's tier that month, a second zeroes it. Named bonuses survive.**
-    Open: does a 3★ trigger it? Fishers computers is a new page sitting at 3.0 with one review.
+    ⚠ Flagged for Eric, not changed: under 5★-only a bad review **already** earns nothing, so the halving
+    is a second punishment on a now-smaller countable pool. **3★ and 4★ do not trigger the penalty — they
+    simply do not count.**
+  • ~~Who is "Donovan"?~~ **RESOLVED 2026-10-20 — not an employee** (Eric). No credit; the review still
+    counts toward the store's 5★ total. Unmatched names are surfaced, never guessed.
   • **Assignment is max hours that month**, same rule as the answer-rate bonus. October: Fishers
     Aerick 144h + Alyssa 109h; Bloomington Alec 139h + Andrew 127h (Slade 43h, salaried/excluded);
     Indianapolis Samuel 137h + Luke 80h + Duncan 72h. **Duncan and Luke are the only two who split
@@ -389,7 +407,6 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
   • **Never pair a review request with a discount.** Google asks reviewers whether they were
     incentivised and suppresses the review if they say yes. This design pays the employee, not the
     customer, which is the safe side of that line.
-  • Still open: **who is "Donovan"**, named in an Indy review and on no roster.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
@@ -444,6 +461,13 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
 ---
 
 ## 8. Recent changes log
+- **2026-10-20** — **Only 5★ reviews count** (Eric) and **"Donovan" resolved as not an employee**.
+  The 5★ rule surfaced a real blocker rather than a tweak: **the Places API cannot count five-star
+  reviews**, and the average cannot be used to derive them (±32–±44 stars of rounding on the main pages).
+  The Business Profile Reviews API is the fix and needs owner OAuth, not the Places key — so the bonus
+  is specified but **not computable from what is built**, and every 5★ figure on the mock-up is labelled
+  an estimate at the measured 80.6% rate. 80.6% 5★ also means ten five-star takes ~12.4 reviews, i.e.
+  the bar is 24% higher than it reads. See § 10al.
 - **2026-10-19** — **Review bonus designed end to end** (§ 10al) and mocked up as the shipping tab.
   Two of my proposals were wrong and Eric killed both: a floor of 6 (he set 10) and a ×3 department
   multiplier that would have let a store earn the same money for four reviews instead of ten. The rule
