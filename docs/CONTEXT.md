@@ -374,6 +374,37 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
     simply do not count.**
   • ~~Who is "Donovan"?~~ **RESOLVED 2026-10-20 — not an employee** (Eric). No credit; the review still
     counts toward the store's 5★ total. Unmatched names are surfaced, never guessed.
+  • **SHIPPED 2026-10-20** (`4141266`): `components/ReviewsTab.js` + a ⭐ **Reviews** nav button
+    (admin/manager, same gate as the Bonus Ledger), and three new actions on `google-tracking`:
+    `?action=credits` (proposed name credits), `?action=five_star` (the hand-entered counts), and
+    `POST {action:"save_five_star"}`. **It pays nobody** — no ledger row is written, the bonus is not
+    approved, and every store card prints "not payable" beside the amount it would pay.
+  • **Eric's four decisions, 2026-10-20:** stars counted **manually** for now; effective month
+    **October 2026** ("there's still time in the month"); the $20 threshold reads **total** reviews,
+    not five-star, because it asks whether a page is established. The fourth answer — *"I think it
+    needs to have at least one star"* — was ambiguous and is **still unresolved**; the 1★ halving is
+    left exactly as he set it earlier. Nothing pays, so it does not block.
+  • **`review_five_star` migration RUN by Eric 2026-10-20** in the SQL editor, after my own attempt
+    failed: the Chrome tab opened in a hidden window and Chrome throttles those, so the page never
+    reached `document_idle` (the same background-tab freeze as 2026-09-11 — not a permission refusal
+    this time). The Supabase Management API token in `~/.claude.json` is **still 401**, so there is
+    still no DDL path for me. Verified live afterwards: insert → 201; a second upsert on the same
+    `(period, store)` returned **the same id** with the count corrected rather than a duplicate row;
+    a negative count is rejected by the check constraint (`23514`). Table left empty.
+  • **2026-09-30 totals seeded as snapshots** (`source: "hand_capture"`, from § 10af) so October has
+    a pre-month baseline. Without it `gained_this_month` is null for every page and the tab reads
+    "—" everywhere. October gains are now real subtractions: Fishers **+4**, Bloomington **+5**,
+    Indianapolis **+5**, Carmel **+5**.
+  • **Credit logic audited offline against live data before the push:** 10 payable credits,
+    **$120 proposed** — 8 × $10 on main pages, **2 × $20 on Fishers electronics** (8 reviews, under
+    the threshold). Matthew Slade appears at **$0 "not bonus-eligible"** rather than being dropped.
+    No amount on any 3★/4★ row, no $20 on a main page, all 31 items resolved to a listing.
+  • ⚠ **A green `npm run build` is NOT proof a component works.** `ReviewsTab` first imported
+    `authFetch` from `@/lib/auth` — the **server** module, which does not export it — so every request
+    from the tab would have gone out unauthenticated. The build **only warned** ("Attempted import
+    error"), and compiled successfully. `authFetch` lives on the **`useAuth()` context**
+    (`components/AuthProvider.js:79`); the working pattern is `BonusesTab.js:538`. Grep the build log
+    for "Attempted import error" after adding any component, not just for "Failed to compile".
   • **Assignment is max hours that month**, same rule as the answer-rate bonus. October: Fishers
     Aerick 144h + Alyssa 109h; Bloomington Alec 139h + Andrew 127h (Slade 43h, salaried/excluded);
     Indianapolis Samuel 137h + Luke 80h + Duncan 72h. **Duncan and Luke are the only two who split
@@ -461,6 +492,13 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
 ---
 
 ## 8. Recent changes log
+- **2026-10-20 (later)** — **Reviews tab shipped** (`4141266`, § 10al) and the `review_five_star`
+  migration run by Eric. The tab shows what can be counted and says loudly what cannot: a red banner
+  on the five-star blocker, every 5★ figure labelled an estimate, and "migration not run" in the
+  entry boxes rather than a silent zero. Seeded the 30 Sep hand-captured totals so October's gains
+  compute. **Nothing pays anybody.** Two bugs caught before they reached Eric: a server-module
+  `authFetch` import that the build only warned about, and a test script whose `Object.assign`
+  clobbered its own auth headers.
 - **2026-10-20** — **Only 5★ reviews count** (Eric) and **"Donovan" resolved as not an employee**.
   The 5★ rule surfaced a real blocker rather than a tweak: **the Places API cannot count five-star
   reviews**, and the average cannot be used to derive them (±32–±44 stars of rounding on the main pages).
