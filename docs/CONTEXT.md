@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP credited to nobody needs Eric's call § 10an) — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -439,6 +439,115 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
     incentivised and suppresses the review if they say yes. This design pays the employee, not the
     customer, which is the safe side of that line.
 
+10am. **Matt's 2026-10-23 call — four things shipped 2026-10-27** (`b9a80a5`, `a31984f`,
+`2b2d431`, `3fa9d7c`). Eric approved the build order and the five decisions inside it ("no claw
+back … the rule should attribute it to the person who repaired it … Otherwise I like your build
+order. Go").
+  • **TV reviews screen** (`components/tv/ScreenReviews.js`, `?action=review_leaders`): who has
+    been named in a 5★ review at this store and across all three, which pages are still worth $20,
+    and reviews gained this month. Rotation went 2 screens → 3. The route is **deliberately
+    unauthenticated and deliberately thin** — names and counts only, no review text, no dollars, no
+    payment state — because the TV hangs unsigned-in in a public part of the shop. Matt Slade is
+    shown with "salaried" rather than hidden; a board that omits him would read as untrue. Company
+    today: Aerick 5, Samuel 3, Andrew 2, Alec/Alyssa/Luke 1.
+  • ⚠ **The `google_listings` seed re-run on 2026-10-20 doubled every row.** `on conflict do
+    nothing` **needs a constraint to conflict ON**, and there was none, so it inserted a second copy
+    of all 13 listings instead of doing nothing — a line that reads like a safeguard and was a
+    no-op. Not inert: the nightly sync then hunted place_ids for the new empty rows and matched
+    **different Google pages** for Indy electronics and consoles, writing **8 days of null
+    snapshots** against them, so Indy's real history sat on one row while junk went to another. The
+    "$20 pages" list read **18 when there are 9**. Fixed 2026-10-27: 13 duplicate rows + 16 null
+    snapshots deleted after confirming none held a real count (rollback in
+    `rollback-google-listing-dupes.json`), every read now dedupes defensively and reports
+    `duplicates_dropped`, and **`sql/migration_google_listings_unique.sql` was run by Eric** — it
+    has to `coalesce(store,'~competitor~')` because Carmel is stored with `store = null` and
+    Postgres treats nulls as distinct, so a plain index would not have stopped a second Carmel row
+    either. **Indianapolis consoles took its first ever review on 2026-10-21.**
+  • **Price Book — the agent's own discount record.** Matt: *"appointments under your name average
+    like thirty dollars discount across all appointments, try to aim high."* A strip showing the
+    viewer's own quotes booked, how many went out at the sheet, their average discount, and the
+    company's. **Loud only on Matt's literal rule** — every one of the last five more than $10
+    under — and one quote at the sheet clears it. That restraint is measured: **129 of 173 booked
+    quotes (74.6%) go out under the sheet**, so an alarm on "you discounted" would fire on everyone
+    every day and become furniture. Exactly **1 of 8** people is loud today (Alec). Company figures:
+    **173 quotes, 44 at the sheet (25.4%), $22.15 average off** (negatives floored at $0 — quoting
+    above the sheet is not a discount to bank). Names resolve through the roster, never as typed:
+    167 of 173 attribute; the 6 that do not (a shared "General Access" session, one `-Alec Wilcher`)
+    get **no record rather than somebody else's**.
+  • **Two reasons the "register rings a different number" message now stays quiet.**
+    **Matt's 80% bar** drops 12 of 31 — and this matters more than it reads: **eight of the twelve
+    are iPhone OLED screens where the six-month modal is a price that no longer exists.** 17 Pro Max
+    rang $269.99 on **31 of 31** jobs before August and **$249.99 — the sheet's own number — on 20
+    of its last 27.** Same inversion on 16 Pro Max, 17 Pro, 16 Pro, 17, 15 Pro Max, 14 Pro Max, 14
+    Pro and S25 Ultra. **The message was telling agents the sheet was wrong when the sheet was
+    right**; low agreement is the fingerprint of a price change the modal cannot see.
+    **Eric's 30-day rule** (*"If you just updated it within thirty days it probably should exclude
+    that altogether"*) reads `repair_price_changes` where `field = 'set_price'`, **not**
+    `updated_at` — the row timestamp moves for a turnaround or a part cost too, and only a change to
+    the price should silence a comparison about the price (110 rows carry a human `updated_at` in the
+    window; **99** actually had their price changed). **Inert today**: none of the 99 has a register
+    mismatch at all, because adopting a register price removes the mismatch by definition. It bites
+    the next time Matt sets a price the register disagrees with. The reconcile panel honours the
+    30-day rule but keeps its own lower 50% bar — it is Matt's review queue and should surface more
+    than a live call should. **Still open there: iPhone 14 Pro Camera, sheet $149.99 vs register
+    $99.99 on 4 of 4 jobs, and iPhone 14 Camera $99.99 vs $86.**
+  • **Damaged & defective parts** — a fifth view in Ticket Compliance (`components/DamagedParts.js`,
+    `app/api/dialpad/damaged-parts`, admin/manager). Eric's rule applied where the data carries it
+    and **refused where it does not**: **defective** 17 lines with `repaired_by` filled on 17 of 17,
+    but **thirteen of the seventeen are the same aftermarket grade** ("Aftermarket Pro: XO7 Soft"
+    OLED assemblies) across eight people and all three stores, so **the part leads the screen** — a
+    per-person list alone would read as a competence ranking of a supplier problem. Trend worth
+    watching: 1 in May, then 2, 4, 2, 3, **5 in October**. **Damaged** 38 lines with `repaired_by` on
+    only 7, and **31 of 38 are accessories** (Casper tempered glass, 24 at Fishers — one unit out of
+    a ten-pack), so that half is reported **by store, never by person**; attributing by ticket owner
+    instead would have put **21 of the 38 on Aerick** purely because the tickets are his.
+    ⚠ **No dollar value exists on any of the 55 lines** — `unit_price` and `line_total` are 0 and
+    `item_details` has no cost field. Joining to `repair_prices.part_price` was tried and rejected:
+    those costs are the stale ones Eric already said to disregard (15 Pro Max reads $40 next to
+    16 Pro Max at $370), and **$3,405.86 built on them would be fabricated**. The money is the P&L's
+    damage/shrinkage lines. `priced_lines` is computed, so the message retires itself if RepairQ ever
+    starts sending a value.
+  • **Morning Brief → "Charges waived"** (`discounts?action=waived&date=`). A waived charge is the
+    100% discount and RepairQ files it in the line's **status** ("Sold … Charge Waived"), not the
+    discount column, so the Discounts card directly above it **has never counted one**: **291 lines
+    in six months, Indianapolis 168 / Fishers 83 / Bloomington 40.** Yesterday's lines with ticket
+    links and who rang them, then month-to-date against **the same slice** of the previous month.
+    64 of 117 waived repairs match a live sheet row at **$211.94** average, so the figure is a
+    **floor with the unpriced count beside it** — the rest are Diagnostic and "Other repair", which
+    the sheet deliberately does not price per model, and 141 of 291 are accessories. Reads today:
+    **October 49 lines, $2,189.88+ at sheet, against 42 by the same date in September.**
+    ⚠ Caught while verifying: RepairQ often writes the labour line **and** the part line for one job
+    and categorises both "repair", so the first cut priced one waived iPhone 11 screen twice
+    ($259.98). Deduped per ticket per model+repair+tier; October-through-24 moved $1,749.90 →
+    $1,619.91.
+  • Also: `demand-analysis` declared dynamic, ending the "Dynamic server usage" error it logged on
+    every build.
+  ⚠ **Verified against live production data through the routes, not in the browser** — local dev has
+  no auth bypass, so the Price Book strip, the Damaged view and the waived card are Eric's to
+  confirm. Routes were exercised with `?as_admin=1` where it exists and the damaged-parts route
+  returns **401** without a session.
+
+10an. **$20,291.80 of gross profit is credited to nobody — OPEN, needs Eric's call.**
+Promised measurement before touching attribution (rule 2). `sales/route.js` groups ticket GP by
+**`employee_added`** and drops system actors, so every ticket RepairQ opens under **"API, Assurant
+ServiceNetwork"** — the insurance claims — is credited to **no one**. Aug–Oct 2026: **246 tickets,
+$20,291.80, 10.4% of three months' GP.**
+Moving credit to the repairer, Aug–Oct: **Samuel +$6,099 · Andrew +$5,179 · Alyssa +$4,900 ·
+Luke +$4,067 · Duncan +$1,618**, against **Slade −$1,267 · Aerick −$397 · Alec −$35**. Totals
+balance to $0.00 either way. Exactly the people who do insurance work.
+**The fix is one line, not a parser**: `ticket_grades.employee_repaired` and the line-level
+`item_details[].repaired_by` agree on *which* tickets have a repairer (1,765 both, **0 either-only**)
+and on the name in 1,692 of 1,765 — the other 73 are genuinely multi-repairer. So
+`employee_repaired || employee_added` recovers all 246.
+**No dollars move.** Verified in code, not assumed: the commission base comes from the sales-import
+rows, not from `ticket_grades`; `scorecard/route.js` **already** prefers `employee_repaired` and
+already splits intake vs repair compliance by role. This changes **what each person sees as their own
+gross profit** on Sales & Repairs and My Performance, which is why it is Eric's call rather than a
+quiet correctness fix.
+**Separate, smaller:** `zero-profit/route.js` uses `resolveName`, which does **not** flip
+"Last, First". Its inputs are mostly "First Last" already so the only split is **"Sam Tomey" (4)
+from "Samuel Tomey" (46)** — left alone rather than bundled.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -492,6 +601,22 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
 ---
 
 ## 8. Recent changes log
+- **2026-10-27** — **Matt's 10-23 call built out in four commits** (§ 10am): a TV reviews screen,
+  the agent's own discount record on the Price Book, two reasons the register-price message stays
+  quiet, Damaged & Defective inside Ticket Compliance, and Charges Waived on the Morning Brief.
+  Three findings outweigh the features. **The listings seed doubled every row** on 2026-10-20 —
+  `on conflict do nothing` with no constraint to conflict on — and the sync then wrote eight days of
+  snapshots against two wrong Google pages; cleaned up, deduped defensively, unique index run by
+  Eric. **Matt's 80% bar turned out to be hiding a real inversion**: on nine iPhone and Samsung
+  screens the register has already come DOWN to the sheet's number in the last 60 days, so the
+  message was telling agents the sheet was wrong when it was right. And **$20,291.80 of GP is
+  credited to nobody** because insurance tickets are owned by "API, Assurant ServiceNetwork"
+  (§ 10an) — measured, not changed; it is a one-line fix and it moves no dollars, but it changes
+  what five people see as their own number, so it waits on Eric.
+  Two things the audits caught before shipping: `resolveName` does not flip "Last, First", so the
+  damaged view first labelled all eight current employees former staff; and the waived card priced
+  one iPhone 11 screen twice because RepairQ files the labour line and the part line both as
+  "repair".
 - **2026-10-20 (later)** — **Reviews tab shipped** (`4141266`, § 10al) and the `review_five_star`
   migration run by Eric. The tab shows what can be counted and says loudly what cannot: a red banner
   on the five-star blocker, every 5★ figure labelled an estimate, and "migration not run" in the
