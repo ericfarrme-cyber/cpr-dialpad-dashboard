@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef } from "react";
 import ScreenDaily from "@/components/tv/ScreenDaily";
 import ScreenRankings from "@/components/tv/ScreenRankings";
+import ScreenReviews from "@/components/tv/ScreenReviews";
 
 var STORE_NAMES = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
 var ROTATION_MS = 30000;        // 30 sec per screen
@@ -25,7 +26,7 @@ export default function TVDashboard(props) {
   var storeName = STORE_NAMES[store] || store;
 
   // ── State ────────────────────────────────────────────────────────────
-  var [screenIdx, setScreenIdx] = useState(0); // 0 = Daily, 1 = Rankings
+  var [screenIdx, setScreenIdx] = useState(0); // 0 = Daily, 1 = Rankings, 2 = Reviews
   var [dailyCalls, setDailyCalls] = useState(null);
   var [appointments, setAppointments] = useState(null);
   var [scorecard, setScorecard] = useState(null);
@@ -36,6 +37,10 @@ export default function TVDashboard(props) {
   // Reviews month-to-date — Eric, 2026-09-28: "it should have a running total
   // of our reviews for the month. Keep that front and center."
   var [reviews, setReviews] = useState(null);
+  // Who gets named, for the leaderboard. Counts only — the route keeps
+  // review text and dollar figures behind auth, because the TV is not
+  // signed in and hangs in a public part of the shop.
+  var [reviewLeaders, setReviewLeaders] = useState(null);
   var [dataAge, setDataAge] = useState({ calls: null, appts: null, scores: null, advrep: null });
   var [error, setError] = useState(null);
   var [bootDone, setBootDone] = useState(false);
@@ -75,6 +80,9 @@ export default function TVDashboard(props) {
         fetchWithTimeout("/api/dialpad/answer-rate-bonus", 8000),
         fetchWithTimeout("/api/dialpad/call-leaders?period=" + period, 8000),
         fetchWithTimeout("/api/dialpad/google-tracking?action=tracking", 8000),
+        // Appended at the END on purpose: inserting mid-array renumbers
+        // every results[N] below it and silently rewires the other reads.
+        fetchWithTimeout("/api/dialpad/google-tracking?action=review_leaders", 8000),
       ]);
       var nowTs = Date.now();
       var newAge = Object.assign({}, dataAge);
@@ -106,6 +114,9 @@ export default function TVDashboard(props) {
       if (results[7].status === "fulfilled" && results[7].value.success) {
         setReviews(results[7].value);
       }
+      if (results[8].status === "fulfilled" && results[8].value.success) {
+        setReviewLeaders(results[8].value);
+      }
       setDataAge(newAge);
       // Count successes — if at least one fetch worked, we can show real data
       var successCount = results.filter(function(r) {
@@ -131,7 +142,7 @@ export default function TVDashboard(props) {
   // ── Rotation timer ───────────────────────────────────────────────────
   useEffect(function() {
     var t = setInterval(function() {
-      setScreenIdx(function(i) { return (i + 1) % 2; });
+      setScreenIdx(function(i) { return (i + 1) % 3; });
     }, ROTATION_MS);
     return function() { clearInterval(t); };
   }, []);
@@ -191,6 +202,13 @@ export default function TVDashboard(props) {
         })}>
           <ScreenRankings store={store} storeName={storeName} dailyCalls={dailyCalls} scorecard={scorecard} callLeaders={callLeaders} />
         </div>
+        {/* Reviews screen */}
+        <div style={Object.assign({}, screenStyle, {
+          opacity: screenIdx === 2 ? 1 : 0,
+          pointerEvents: screenIdx === 2 ? "auto" : "none",
+        })}>
+          <ScreenReviews store={store} storeName={storeName} reviewLeaders={reviewLeaders} reviews={reviews} />
+        </div>
       </div>
 
       {/* ── Bottom bar: page dots + freshness ─────────────────────────── */}
@@ -204,6 +222,7 @@ export default function TVDashboard(props) {
         <div style={{ display: "flex", gap: 10 }}>
           <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 0 ? "#00D4FF" : "#E5E7EB", transition: "background 0.3s" }} />
           <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 1 ? "#FF2D95" : "#E5E7EB", transition: "background 0.3s" }} />
+          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 2 ? "#F59E0B" : "#E5E7EB", transition: "background 0.3s" }} />
         </div>
         <FreshnessIndicator dataAge={dataAge} error={error} />
       </div>

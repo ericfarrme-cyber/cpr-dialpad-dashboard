@@ -19,6 +19,7 @@
 // GET  ?action=listings   the tracked listings and their latest reading
 // GET  ?action=tracking   per store: this month's gain, rating, per listing
 // GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
+// GET  ?action=review_leaders  who gets named, counts only — safe for the TV
 // GET  ?action=five_star  the hand-entered five-star counts for a period
 // POST {action:'save_five_star', period, store, five_star_count, ...}  (admin/manager)
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
@@ -84,6 +85,34 @@ async function fetchPlace(placeId, key) {
 }
 
 
+// One row per (store, listing_type), whatever the table actually holds.
+//
+// On 2026-10-20 a re-run of the seed doubled every listing: `on conflict do
+// nothing` needs a constraint to conflict on, and there was none. The sync then
+// resolved DIFFERENT place_ids for two of the copies and wrote eight days of
+// null snapshots against them, so a store's history was split across two rows.
+// The duplicates were deleted on 2026-10-27 and sql/migration_google_listings_unique.sql
+// adds the index -- but until that is run, and after it for safety, every read
+// goes through here so a duplicate can never double a count on screen.
+//
+// Keeps the row that is actually working: one with a place_id beats one
+// without, then the lower id, which is the original.
+function dedupeListings(rows) {
+  var best = {}, dropped = 0;
+  (rows || []).forEach(function(l) {
+    var key = (l.store == null ? "~competitor~" : String(l.store)) + "|" + String(l.listing_type);
+    var cur = best[key];
+    if (!cur) { best[key] = l; return; }
+    dropped += 1;
+    var curHas = !!cur.place_id, newHas = !!l.place_id;
+    if (newHas && !curHas) best[key] = l;
+    else if (newHas === curHas && Number(l.id) < Number(cur.id)) best[key] = l;
+  });
+  var out = Object.keys(best).map(function(k) { return best[k]; });
+  out.sort(function(a, b) { return Number(a.id) - Number(b.id); });
+  return { listings: out, duplicates_dropped: dropped };
+}
+
 // The five-star counts a person entered. Separate from the snapshots on
 // purpose: those are what Google reported, this is what somebody counted.
 //
@@ -115,8 +144,9 @@ export async function GET(request) {
 
   // ── the tracked listings, each with its most recent reading ───────────────
   if (action === "listings") {
-    var { data: ls, error: lErr } = await supabase.from("google_listings").select("*").eq("active", true).order("store").order("listing_type");
+    var { data: lsRaw, error: lErr } = await supabase.from("google_listings").select("*").eq("active", true).order("store").order("listing_type");
     if (lErr) return json({ success: false, error: lErr.message }, 500);
+    var lsDe = dedupeListings(lsRaw); var ls = lsDe.listings;
     var { data: snaps, error: sErr } = await supabase.from("google_review_snapshots")
       .select("listing_id,captured_on,rating,total_reviews,source").order("captured_on", { ascending: false }).limit(5000);
     if (sErr) return json({ success: false, error: sErr.message }, 500);
@@ -126,14 +156,16 @@ export async function GET(request) {
       success: true,
       listings: (ls || []).map(function(l) { return Object.assign({}, l, { latest: latest[l.id] || null }); }),
       needs_place_id: (ls || []).filter(function(l) { return !l.place_id; }).length,
+      duplicates_dropped: lsDe.duplicates_dropped,
     });
   }
 
   // ── what moved this month ─────────────────────────────────────────────────
   if (action === "tracking") {
     var today = indyToday(), mStart = monthStart(today);
-    var { data: L, error: e1 } = await supabase.from("google_listings").select("*").eq("active", true);
+    var { data: LRaw, error: e1 } = await supabase.from("google_listings").select("*").eq("active", true);
     if (e1) return json({ success: false, error: e1.message }, 500);
+    var LDe = dedupeListings(LRaw); var L = LDe.listings;
     var { data: S, error: e2 } = await supabase.from("google_review_snapshots")
       .select("listing_id,captured_on,rating,total_reviews").order("captured_on", { ascending: true }).limit(20000);
     if (e2) return json({ success: false, error: e2.message }, 500);
@@ -191,8 +223,98 @@ export async function GET(request) {
       competitors: out.filter(function(r) { return !r.is_ours; }),
       // Surfaced, never silent: the sync cannot run for these.
       listings_without_place_id: out.filter(function(r) { return !r.has_place_id; }).length,
+      // Loud rather than silent: if this is ever non-zero the seed has been
+      // re-run without the unique index.
+      duplicates_dropped: LDe.duplicates_dropped,
       ever_captured: out.filter(function(r) { return r.captured_on; }).length,
       total_listings: out.length,
+    });
+  }
+
+  // ── who gets named in reviews ──────────────────────────────────
+  //
+  // DELIBERATELY UNAUTHENTICATED, and deliberately thin. The TV in each shop is
+  // not signed in, so this returns only what may hang on a wall: names, counts,
+  // and which pages still have no reviews. No review text, no dollar amounts,
+  // no payment state. `credits` keeps all of that behind admin/manager.
+  //
+  // Eric, 2026-10-23: "most named employee in reviews ... for the three stores,
+  // and then most named employee for the particular store." The point is that
+  // the bonus advertises itself on the floor instead of living in a back office.
+  if (action === "review_leaders") {
+    var rlPeriod = searchParams.get("period") || indyToday().slice(0, 7);
+
+    var { data: rlLRaw, error: rlE1 } = await supabase.from("google_listings").select("id,store,listing_type,is_ours,place_id");
+    if (rlE1) return json({ success: false, error: rlE1.message }, 500);
+    var rlL = dedupeListings(rlLRaw).listings;
+    var { data: rlItems, error: rlE2 } = await supabase.from("google_review_items")
+      .select("listing_id,rating,text,posted_at,author").limit(5000);
+    if (rlE2) return json({ success: false, error: rlE2.message }, 500);
+    var { data: rlSnap, error: rlE3 } = await supabase.from("google_review_snapshots")
+      .select("listing_id,captured_on,total_reviews").order("captured_on", { ascending: false }).limit(5000);
+    if (rlE3) return json({ success: false, error: rlE3.message }, 500);
+    var { data: rlRoster, error: rlE4 } = await supabase.from("employee_roster")
+      .select("name,aliases,bonus_eligible,active").eq("active", true);
+    if (rlE4) return json({ success: false, error: rlE4.message }, 500);
+
+    var rlById = {}; (rlL || []).forEach(function(l) { rlById[l.id] = l; });
+    var rlTotal = {};
+    (rlSnap || []).forEach(function(sn) { if (rlTotal[sn.listing_id] === undefined) rlTotal[sn.listing_id] = sn.total_reviews; });
+
+    // Only 5-star reviews count for anything (Eric, 2026-10-20), so the
+    // leaderboard counts them and nothing else. A 4-star naming someone is not
+    // a smaller credit, it is no credit.
+    var company = {}, perStore = { fishers: {}, bloomington: {}, indianapolis: {} };
+    var counted = 0, namedTotal = 0;
+    (rlItems || []).forEach(function(it) {
+      if (Number(it.rating) !== 5) return;
+      counted += 1;
+      var l = rlById[it.listing_id] || {};
+      if (!l.is_ours) return;
+      var who = creditReview(it.text, rlRoster || []);
+      if (!who.length) return;
+      namedTotal += 1;
+      who.forEach(function(c) {
+        // An ineligible person is still shown as named — the screen is about
+        // recognition, and hiding Matt would make the board read as untrue.
+        company[c.name] = company[c.name] || { name: c.name, count: 0, payable: c.payable };
+        company[c.name].count += 1;
+        if (l.store && perStore[l.store]) {
+          perStore[l.store][c.name] = perStore[l.store][c.name] || { name: c.name, count: 0, payable: c.payable };
+          perStore[l.store][c.name].count += 1;
+        }
+      });
+    });
+
+    function rank(obj) {
+      return Object.keys(obj).map(function(k) { return obj[k]; })
+        .sort(function(a, b) { return b.count - a.count || a.name.localeCompare(b.name); });
+    }
+
+    // Pages still waiting for their first reviews — the $20 ones. Named here so
+    // the screen can point at a specific page rather than say "get reviews".
+    var thin = (rlL || []).filter(function(l) {
+      return l.is_ours !== false && l.listing_type !== "main" && (rlTotal[l.id] || 0) < 10;
+    }).map(function(l) {
+      return { store: l.store, listing_type: l.listing_type, total_reviews: rlTotal[l.id] || 0 };
+    }).sort(function(a, b) { return a.total_reviews - b.total_reviews; });
+
+    return json({
+      success: true,
+      period: rlPeriod,
+      company: rank(company),
+      by_store: {
+        fishers: rank(perStore.fishers),
+        bloomington: rank(perStore.bloomington),
+        indianapolis: rank(perStore.indianapolis),
+      },
+      thin_pages: thin,
+      named_bonus: { main: 10, thin: 20 },
+      // Honest about the denominator: this counts the reviews Google handed us,
+      // which is a relevance sample and not the full set.
+      five_star_seen: counted,
+      named_seen: namedTotal,
+      coverage_note: "Counts the five-star reviews Google returned, which is a sample rather than every review. Leaderboard order is indicative; the Business Profile inbox is the record.",
     });
   }
 
@@ -217,8 +339,9 @@ export async function GET(request) {
     var cGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
     if (!cGate.authorized) return cGate.response;
 
-    var { data: cL, error: cE1 } = await supabase.from("google_listings").select("id,store,listing_type,label,is_ours");
+    var { data: cLRaw, error: cE1 } = await supabase.from("google_listings").select("id,store,listing_type,label,is_ours,place_id");
     if (cE1) return json({ success: false, error: cE1.message }, 500);
+    var cL = dedupeListings(cLRaw).listings;
     var { data: cSnap, error: cE2 } = await supabase.from("google_review_snapshots")
       .select("listing_id,captured_on,total_reviews").order("captured_on", { ascending: false }).limit(5000);
     if (cE2) return json({ success: false, error: cE2.message }, 500);
@@ -320,8 +443,11 @@ export async function GET(request) {
       }, 503);
     }
 
-    var { data: listings, error: lE } = await supabase.from("google_listings").select("*").eq("active", true);
+    var { data: listingsRaw, error: lE } = await supabase.from("google_listings").select("*").eq("active", true);
     if (lE) return json({ success: false, error: lE.message }, 500);
+    // Without this the sync hunts a place_id for a duplicate row and can match
+    // a DIFFERENT Google page, which is exactly what happened on 2026-10-20.
+    var listings = dedupeListings(listingsRaw).listings;
 
     var today2 = indyToday();
     var wrote = 0, resolved = 0, newReviews = 0, failures = [];
