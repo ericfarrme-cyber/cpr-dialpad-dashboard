@@ -5,9 +5,22 @@ import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster
 // Gross profit per employee for a period, from graded tickets. The monthly
 // sales imports carry revenue only (profit exists just for accessories), so
 // the Sales & Repairs view reads profit from the same place Daily Profit does:
-// ticket_grades, reconciled to RepairQ's own export (CONTEXT § 10). A ticket
-// counts for the person who added it, resolved through the roster the same
-// way audits are; machines and vendors are dropped, unknown names counted.
+// ticket_grades, reconciled to RepairQ's own export (CONTEXT § 10).
+//
+// A ticket counts for the person who REPAIRED it, falling back to whoever
+// added it (Eric, 2026-10-27: "the rule should attribute it to the person who
+// repaired it"). This is already how scorecard, insights, zero-profit,
+// customer-journey and tickets attribute; this route was the last one reading
+// employee_added alone, and the gap was not cosmetic: RepairQ opens every
+// insurance claim under "API, Assurant ServiceNetwork", which isSystemActor
+// drops, so 246 tickets carrying $20,291.80 of Aug-Oct profit were credited to
+// nobody. No dollars move — commission is computed from the sales-import rows,
+// not from here — this only changes whose profit it is shown as.
+//
+// Names resolve through the roster; machines and vendors are dropped, unknown
+// names counted. meta.by_repairer / by_adder say which side of the fallback
+// each ticket landed on, so a future drop in employee_repaired is visible
+// rather than silently re-crediting the opener.
 async function gpByEmployee(period) {
   var p = String(period).split("-");
   var y = parseInt(p[0], 10), m = parseInt(p[1], 10);
@@ -18,18 +31,22 @@ async function gpByEmployee(period) {
   if (rErr) throw new Error("employee_roster: " + rErr.message);
   var map = buildResolver(rosterRows || []).map;
   var notCommissioned = (rosterRows || []).filter(function(r) { return r.bonus_eligible === false && r.name; }).map(function(r) { return String(r.name).trim(); });
-  var out = {}, graded = 0, unresolved = 0;
+  var out = {}, graded = 0, unresolved = 0, byRepairer = 0, byAdder = 0;
   for (var from = 0; ; from += 1000) {
     var res = await supabase.from("ticket_grades")
-      .select("ticket_number, employee_added, gross_profit, gross_sales")
+      .select("ticket_number, employee_added, employee_repaired, gross_profit, gross_sales")
       .gte("date_closed", start).lt("date_closed", end)
       .order("ticket_number", { ascending: true }).range(from, from + 999);
     if (res.error) throw new Error("ticket_grades: " + res.error.message);
     (res.data || []).forEach(function(t) {
       graded++;
-      if (isSystemActor(t.employee_added)) return;
-      var who = resolveNamePersonish(t.employee_added, map);
+      var repaired = String(t.employee_repaired || "").trim();
+      var useRepairer = repaired && !isSystemActor(repaired);
+      var raw = useRepairer ? repaired : t.employee_added;
+      if (isSystemActor(raw)) return;
+      var who = resolveNamePersonish(raw, map);
       if (!who) { unresolved++; return; }
+      if (useRepairer) byRepairer++; else byAdder++;
       var e = out[who] || (out[who] = { tickets: 0, gp: 0, sales: 0 });
       e.tickets++;
       e.gp += parseFloat(t.gross_profit) || 0;
@@ -38,7 +55,7 @@ async function gpByEmployee(period) {
     if ((res.data || []).length < 1000) break;
   }
   Object.keys(out).forEach(function(k) { out[k].gp = Math.round(out[k].gp * 100) / 100; out[k].sales = Math.round(out[k].sales * 100) / 100; });
-  return { rows: out, meta: { graded_tickets: graded, unresolved: unresolved }, not_commissioned: notCommissioned };
+  return { rows: out, meta: { graded_tickets: graded, unresolved: unresolved, by_repairer: byRepairer, by_adder: byAdder }, not_commissioned: notCommissioned };
 }
 
 function parseCurrency(val) {
