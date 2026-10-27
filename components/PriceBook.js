@@ -1572,13 +1572,25 @@ export default function PriceBook() {
           var m = data.my_quotes;
           var co = data.company_quotes;
           var pct = m.quotes ? Math.round((m.at_sheet / m.quotes) * 100) : 0;
+          // Three states, not two. The alarm stays a fixed, clearable rule —
+          // but there was no other end to it, so clearing a run dropped you
+          // into the same grey line as everyone else and nothing said you had.
+          // Praise is allowed to be relative where an alarm is not: being above
+          // the company average costs nothing here, it just gets the plain line.
+          var beating = co && co.avg_discount !== null && m.avg_discount <= co.avg_discount;
           if (!m.on_a_run) {
             return (
-              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12, display: "flex", gap: 7, flexWrap: "wrap", alignItems: "baseline" }}>
-                <strong style={{ color: "var(--text-secondary)", fontWeight: 700 }}>Your quotes</strong>
+              <div style={{ fontSize: 11.5, color: beating ? "var(--text-secondary)" : "var(--text-muted)", marginBottom: 12, display: "flex", gap: 7, flexWrap: "wrap", alignItems: "baseline" }}>
+                <strong style={{ color: beating ? "var(--green)" : "var(--text-secondary)", fontWeight: 700 }}>
+                  {beating ? "✓ Your quotes" : "Your quotes"}
+                </strong>
                 <span>{m.quotes} booked · <strong style={{ color: pct >= 50 ? "var(--green)" : "var(--text-secondary)" }}>{m.at_sheet} at the sheet</strong> · {money(m.avg_discount)} average off</span>
                 {co && co.avg_discount !== null && (
-                  <span style={{ color: "var(--text-faint)" }}>company {money(co.avg_discount)} off, {co.at_sheet} of {co.quotes} at the sheet</span>
+                  <span style={{ color: "var(--text-faint)" }}>
+                    {beating
+                      ? "under the company’s " + money(co.avg_discount) + " — you hold the line better than most"
+                      : "company " + money(co.avg_discount) + " off, " + co.at_sheet + " of " + co.quotes + " at the sheet"}
+                  </span>
                 )}
               </div>
             );

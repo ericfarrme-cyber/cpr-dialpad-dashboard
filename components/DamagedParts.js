@@ -53,10 +53,10 @@ function Ranked({ rows, max, color, empty, note, onPick, picked }) {
   return (
     <div>
       {note && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 7, lineHeight: 1.45 }}>{note}</div>}
-      {rows.map(function(r) {
+      {rows.map(function(r, bi) {
         var on = picked === r.name;
         return (
-          <div key={r.name} onClick={onPick ? function() { onPick(on ? null : r.name); } : undefined}
+          <div key={r.name} className={onPick ? "ddp-hit" : undefined} onClick={onPick ? function() { onPick(on ? null : r.name); } : undefined}
             style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 7, cursor: onPick ? "pointer" : "default",
                      background: on ? "#7B2FFF14" : "transparent" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
@@ -65,7 +65,7 @@ function Ranked({ rows, max, color, empty, note, onPick, picked }) {
                 {r.on_roster === false && <span style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: 7 }}>no longer on the roster</span>}
               </div>
               <div style={{ height: 4, borderRadius: 2, background: "var(--border-light)", marginTop: 4 }}>
-                <div style={{ height: 4, borderRadius: 2, width: Math.max(4, (r.lines / top) * 100) + "%", background: color }} />
+                <div className="ddp-bar" style={{ height: 4, borderRadius: 2, width: Math.max(4, (r.lines / top) * 100) + "%", background: color, animationDelay: Math.min(bi, 8) * 45 + "ms" }} />
               </div>
             </div>
             <div style={{ fontSize: 13, fontWeight: 800, color: color, fontVariantNumeric: "tabular-nums", minWidth: 26, textAlign: "right" }}>{r.lines}</div>
@@ -78,7 +78,7 @@ function Ranked({ rows, max, color, empty, note, onPick, picked }) {
 
 function Panel({ title, children, right }) {
   return (
-    <div style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: 12, padding: "16px 18px", flex: "1 1 300px", minWidth: 290 }}>
+    <div className="ddp-panel" style={{ background: "var(--bg-card)", border: "1px solid var(--border-light)", borderRadius: 12, padding: "16px 18px", flex: "1 1 300px", minWidth: 290 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10, marginBottom: 10 }}>
         <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.09em", textTransform: "uppercase", color: "var(--text-secondary)" }}>{title}</span>
         {right && <span style={{ fontSize: 10.5, color: "var(--text-faint)" }}>{right}</span>}
@@ -105,7 +105,7 @@ function Rows({ rows, showPerson }) {
         <tbody>
           {rows.map(function(r, i) {
             return (
-              <tr key={r.ticket_number + "|" + i} style={{ borderTop: "1px solid var(--border-light)" }}>
+              <tr key={r.ticket_number + "|" + i} className="ddp-row ddp-hit" style={{ borderTop: "1px solid var(--border-light)", animationDelay: Math.min(i, 16) * 18 + "ms" }}>
                 <td style={{ padding: "7px 10px" }}>
                   <a href={REPAIRQ_TICKET + r.ticket_number} target="_blank" rel="noreferrer"
                     style={{ color: "var(--cyan)", textDecoration: "none", fontVariantNumeric: "tabular-nums" }}>{r.ticket_number}</a>
@@ -182,6 +182,20 @@ export default function DamagedParts({ storeFilter }) {
 
   return (
     <div>
+      {/* Restrained on purpose: the bars grow because "one line dominates" is
+          the finding, so letting it draw itself is the point rather than
+          decoration. Nothing here delays a number being readable. The global
+          prefers-reduced-motion rule in globals.css switches all of it off. */}
+      <style>{`
+        @keyframes ddpUp { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+        @keyframes ddpGrow { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+        @keyframes ddpRow { from { opacity: 0 } to { opacity: 1 } }
+        .ddp-panel { animation: ddpUp .42s cubic-bezier(.22,1,.36,1) both }
+        .ddp-bar { transform-origin: left center; animation: ddpGrow .55s cubic-bezier(.22,1,.36,1) both }
+        .ddp-row { animation: ddpRow .3s ease both }
+        .ddp-hit { transition: background .15s ease }
+        .ddp-hit:hover { background: var(--bg-hover) }
+      `}</style>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginBottom: 14 }}>
         {[3, 6, 12].map(function(m) {
           return (
