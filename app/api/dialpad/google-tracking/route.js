@@ -474,10 +474,18 @@ export async function GET(request) {
           resolved++;
         }
         var place = await fetchPlace(l.place_id, key);
+        // fetchPlace throws on any non-200, so getting here means Google
+        // answered for this place. Places then OMITS userRatingCount on a page
+        // with no reviews rather than sending 0 — so an absent count is a real
+        // zero, not a failure, and storing null made two live pages
+        // (Bloomington electronics, Indianapolis computers — both verified on
+        // Maps as our own listings with no reviews) read as "unknown" and drop
+        // out of every gain calculation. rating stays null on purpose: a page
+        // with no reviews has no rating, and 0 would drag any average.
         var { error: snapErr } = await supabase.from("google_review_snapshots").upsert({
           listing_id: l.id, captured_on: today2,
           rating: place.rating === undefined ? null : place.rating,
-          total_reviews: place.userRatingCount === undefined ? null : place.userRatingCount,
+          total_reviews: place.userRatingCount === undefined ? 0 : place.userRatingCount,
           source: "places_api",
         }, { onConflict: "listing_id,captured_on" });
         if (snapErr) { failures.push({ listing: l.label, error: "snapshot: " + snapErr.message }); continue; }
