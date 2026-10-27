@@ -45,11 +45,16 @@ function Stat({ label, value, sub, color }) {
   );
 }
 
-// A ranked list with a proportional bar. The bar is scaled to the top row, so
-// "one line dominates" is visible before anyone reads a number.
+// A ranked list with a proportional bar. The bar is scaled to the largest row,
+// so "one line dominates" is visible before anyone reads a number.
+// Scale to the MAX, never to rows[0]: the by-month lists are ordered by month,
+// not by count, so the first row is whatever May happened to be. Scaling to it
+// gave Oct (5 lines against May's 1) a bar 500% of its track, which escaped the
+// card and widened the page. The track clips as well, so no future list can
+// overflow even if the arithmetic is wrong again.
 function Ranked({ rows, max, color, empty, note, onPick, picked }) {
   if (!rows || rows.length === 0) return <div style={{ color: "var(--text-muted)", fontSize: 12, padding: "10px 0" }}>{empty}</div>;
-  var top = max || rows[0].lines || 1;
+  var top = max || rows.reduce(function(a, r) { return Math.max(a, r.lines || 0); }, 0) || 1;
   return (
     <div>
       {note && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginBottom: 7, lineHeight: 1.45 }}>{note}</div>}
@@ -64,8 +69,8 @@ function Ranked({ rows, max, color, empty, note, onPick, picked }) {
                 {r.name}
                 {r.on_roster === false && <span style={{ fontSize: 10, color: "var(--text-faint)", marginLeft: 7 }}>no longer on the roster</span>}
               </div>
-              <div style={{ height: 4, borderRadius: 2, background: "var(--border-light)", marginTop: 4 }}>
-                <div className="ddp-bar" style={{ height: 4, borderRadius: 2, width: Math.max(4, (r.lines / top) * 100) + "%", background: color, animationDelay: Math.min(bi, 8) * 45 + "ms" }} />
+              <div style={{ height: 4, borderRadius: 2, background: "var(--border-light)", marginTop: 4, overflow: "hidden" }}>
+                <div className="ddp-bar" style={{ height: 4, borderRadius: 2, width: Math.min(100, Math.max(4, (r.lines / top) * 100)) + "%", background: color, animationDelay: Math.min(bi, 8) * 45 + "ms" }} />
               </div>
             </div>
             <div style={{ fontSize: 13, fontWeight: 800, color: color, fontVariantNumeric: "tabular-nums", minWidth: 26, textAlign: "right" }}>{r.lines}</div>
