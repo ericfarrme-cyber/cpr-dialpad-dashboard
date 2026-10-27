@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useMemo } from "react";
 import ZeroProfitTickets from "@/components/ZeroProfitTickets";
+import DamagedParts from "@/components/DamagedParts";
 import { useThemeColors } from "@/lib/theme-colors";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell } from "recharts";
 import { STORES } from "@/lib/constants";
@@ -68,7 +69,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
 
   var SUBTABS = isEmployeeView
     ? [{ id: "overview", label: "My Compliance", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "My Tickets", icon: "\uD83C\uDFAB" }]
-    : [{ id: "overview", label: "Overview", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" }, { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" }, { id: "zero_profit", label: "Zero / Negative Profit", icon: "\uD83D\uDCC9" }];
+    : [{ id: "overview", label: "Overview", icon: "\uD83D\uDCCA" }, { id: "tickets", label: "All Tickets", icon: "\uD83C\uDFAB" }, { id: "employees", label: "By Employee", icon: "\uD83D\uDC64" }, { id: "zero_profit", label: "Zero / Negative Profit", icon: "\uD83D\uDCC9" }, { id: "damaged", label: "Damaged & Defective", icon: "\uD83D\uDD27" }];
 
   if (loading) return <div style={{ padding:40,textAlign:"center",color:"var(--text-muted)" }}>Loading compliance data...</div>;
 
@@ -402,6 +403,10 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
           )}
         </div>
       )}
+      {view === "damaged" && (
+        <DamagedParts storeFilter={storeFilter} />
+      )}
+
       {view === "zero_profit" && (
         <ZeroProfitTickets storeFilter={storeFilter} />
       )}
