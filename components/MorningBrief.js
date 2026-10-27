@@ -160,6 +160,10 @@ export default function MorningBrief({ onGoProfitability, onGoBonuses }) {
       // handled below. Appended at the END of this array on purpose: slotting a
       // fetch into the middle renumbers every res[N] after it.
       af("/api/dialpad/bonuses?action=month&period=" + lastMonthKey).then(function (r) { return r.json(); }),
+      // Charges waived yesterday. Appended at the END for the same reason the
+      // bonus fetch was: inserting one mid-array renumbers every res[N] below
+      // it and silently rewires the other reads.
+      fetch("/api/dialpad/discounts?action=waived&date=" + yKey).then(function (r) { return r.json(); }),
     ]).then(function (res) {
       if (cancelled) return;
       var out = { loading: false, date: yKey, stores: {}, missing: [] };
@@ -241,6 +245,13 @@ export default function MorningBrief({ onGoProfitability, onGoBonuses }) {
       // Bonuses owed for the month that just closed, plus anyone one month from
       // an award. Silent for non-admins (the route 403s) and silent when there
       // is nothing to act on - it is a prompt, not a permanent panel.
+      // A waived charge is the 100% discount, and RepairQ hides it in the
+      // line's status rather than the discount column, so it never showed up
+      // in the Discounts card above.
+      var wv = res[10].status === "fulfilled" ? res[10].value : null;
+      out.waived = wv && wv.success ? wv : null;
+      if (!out.waived) out.missing.push("waived");
+
       var bn = res[9].status === "fulfilled" ? res[9].value : null;
       if (bn && bn.success) {
         out.bonuses = {
@@ -510,6 +521,68 @@ export default function MorningBrief({ onGoProfitability, onGoBonuses }) {
                 </div>
               )}
               {state.discounts.lines.length === 0 && <div style={{ marginTop: 8, color: GREEN, fontSize: 12 }}>Nothing rung under list yesterday.</div>}
+            </div>
+          )}
+
+          {/* charges waived — the 100% discount, which RepairQ files under the
+              line's status instead of its discount column. The sheet value is
+              a FLOOR, never a total: diagnostics, "other repair" and
+              accessories have no sheet price, and the card says how many. */}
+          {state.waived && (
+            <div style={{ background: RAISED, border: "1px solid " + LINE, borderRadius: 11, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap", marginBottom: 9 }}>
+                <div style={{ fontFamily: MONO, fontSize: 10, letterSpacing: ".11em", textTransform: "uppercase", color: MUTED }}>
+                  Charges waived · {state.waived.day.count} line{state.waived.day.count === 1 ? "" : "s"} yesterday
+                </div>
+                {state.waived.day.priced > 0 && (
+                  <span style={{ fontFamily: MONO, fontSize: 11, color: MUTED }}>
+                    {money(state.waived.day.sheet_value)}+ at sheet prices
+                  </span>
+                )}
+              </div>
+
+              {state.waived.day.count === 0 ? (
+                <div style={{ color: GREEN, fontSize: 12 }}>Nothing given away yesterday.</div>
+              ) : (
+                <div style={{ borderTop: "1px solid " + LINE }}>
+                  {state.waived.day.lines.map(function (l, i) {
+                    return (
+                      <div key={l.ticket_number + "-" + i} className="mb-row" style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "6px 6px", margin: "0 -6px", borderRadius: 6, fontSize: 12, flexWrap: "wrap" }}>
+                        <a href={"https://cpr.repairq.io/ticket/" + l.ticket_number} target="_blank" rel="noreferrer"
+                          style={{ fontFamily: MONO, color: CYAN, textDecoration: "none", whiteSpace: "nowrap" }}>#{l.ticket_number}</a>
+                        <span style={{ color: INK2, flex: "1 1 220px" }}>
+                          {l.model || l.device}
+                          {l.repair ? " · " + l.repair + (l.tier ? " " + l.tier : "") : " · " + l.category}
+                          {l.person && <span style={{ color: MUTED }}> — {l.person}</span>}
+                        </span>
+                        <span style={{ fontFamily: MONO, fontSize: 11, whiteSpace: "nowrap", color: l.sheet_price !== null ? GOLD : MUTED }}>
+                          {l.sheet_price !== null
+                            ? money(l.sheet_price) + " waived"
+                            : l.same_repair_as_above ? "same repair as above" : "no sheet price"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div style={{ marginTop: 9, paddingTop: 8, borderTop: "1px solid " + LINE, fontSize: 11, color: MUTED, lineHeight: 1.5 }}>
+                <strong style={{ color: INK2 }}>{state.waived.month_to_date.count} so far this month</strong>
+                {" "}({money(state.waived.month_to_date.sheet_value)}+ at sheet)
+                {" · "}
+                {state.waived.prev_month_to_date.count} by this point last month.
+                {" "}
+                {Object.keys(state.waived.month_to_date.by_store).length > 0 && (
+                  <span>
+                    {STORES.filter(function (st) { return state.waived.month_to_date.by_store[st.key]; })
+                      .map(function (st) { return st.label + " " + state.waived.month_to_date.by_store[st.key]; })
+                      .join(" · ")}.
+                  </span>
+                )}
+                {state.waived.month_to_date.unpriced > 0 && (
+                  <span> {state.waived.month_to_date.unpriced} of them are diagnostics, “other repair” or accessories, which the sheet doesn’t price — so the dollar figure is a floor, not a total.</span>
+                )}
+              </div>
             </div>
           )}
 
