@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP credited to nobody needs Eric's call § 10an) — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -552,28 +552,47 @@ order. Go").
     on purpose — the **alarm stays a fixed, clearable rule** (a relative alarm can never be
     cleared by everyone) while **praise is allowed to be relative**, because being above average
     costs nothing, it just gets the plain line. Today: 5 green, 2 plain, 1 loud.
+  • **The by-month bars ran off the page — found by Eric in production, not by me** (`cd629c0`).
+    `Ranked` scaled every bar to **`rows[0]`**, which is the largest row only when the list is sorted by
+    count. `monthly()` sorts **chronologically**, so May's 1 line became the denominator and October's 5
+    rendered at **500% of its track**, escaped the card and widened the whole page. Both halves were
+    affected. Now scaled to the real max and the track **clips**, so a future list cannot overflow even if
+    the arithmetic is wrong again. ⚠ The lesson is the one already in this file: the three panels share one
+    component, and a shared component inherits an assumption from whichever caller came first — here,
+    "the list is sorted by size".
   ⚠ **Verified against live production data through the routes, not in the browser** — local dev has
   no auth bypass, so the Price Book strip, the Damaged view and the waived card are Eric's to
   confirm. Routes were exercised with `?as_admin=1` where it exists and the damaged-parts route
   returns **401** without a session.
 
-10an. **$20,291.80 of gross profit is credited to nobody — OPEN, needs Eric's call.**
+10an. ~~**$20,291.80 of gross profit is credited to nobody.**~~ **FIXED 2026-10-27** (`63f0748`), Eric: *"the rule should attribute it to the person who repaired it."*
 Promised measurement before touching attribution (rule 2). `sales/route.js` groups ticket GP by
 **`employee_added`** and drops system actors, so every ticket RepairQ opens under **"API, Assurant
 ServiceNetwork"** — the insurance claims — is credited to **no one**. Aug–Oct 2026: **246 tickets,
 $20,291.80, 10.4% of three months' GP.**
-Moving credit to the repairer, Aug–Oct: **Samuel +$6,099 · Andrew +$5,179 · Alyssa +$4,900 ·
-Luke +$4,067 · Duncan +$1,618**, against **Slade −$1,267 · Aerick −$397 · Alec −$35**. Totals
-balance to $0.00 either way. Exactly the people who do insurance work.
+⚠ **The per-person split first recorded here was wrong and is corrected below.** Re-measured
+against the live route after the change, Aug–Oct: **$173,978.14 credited before, $194,269.94
+after**, 0 tickets dropped (was 246), 1 unresolved name either way. Deltas: **Samuel +$5,882.79 ·
+Alyssa +$4,502.82 · Luke +$3,988.09 · Andrew +$3,471.95 · Duncan +$2,526.18 ·
+Slade +$462.70 · Aerick +$8.49**, against **Alec −$551.22** — summing to $20,291.80 exactly.
+The earlier note had Slade, Aerick and Alec all *losing* money; only Alec does. **605 tickets
+change hands between people** and net to zero, so the recovered total is the insurance 246 alone.
+Exactly the people who do insurance work. The recovery figure ($20,291.80 / 246 tickets) reproduced
+exactly on both measurements; only the split moved, so treat a per-person number in this file as
+needing a re-run before anyone is told it.
 **The fix is one line, not a parser**: `ticket_grades.employee_repaired` and the line-level
 `item_details[].repaired_by` agree on *which* tickets have a repairer (1,765 both, **0 either-only**)
 and on the name in 1,692 of 1,765 — the other 73 are genuinely multi-repairer. So
 `employee_repaired || employee_added` recovers all 246.
-**No dollars move.** Verified in code, not assumed: the commission base comes from the sales-import
+**No dollars moved.** Verified in code, not assumed: the commission base comes from the sales-import
 rows, not from `ticket_grades`; `scorecard/route.js` **already** prefers `employee_repaired` and
-already splits intake vs repair compliance by role. This changes **what each person sees as their own
-gross profit** on Sales & Repairs and My Performance, which is why it is Eric's call rather than a
-quiet correctness fix.
+already splits intake vs repair compliance by role. What changed is **what each person sees as their
+own gross profit** on Sales & Repairs and My Performance — which is why it waited on Eric rather
+than going in as a quiet correctness fix.
+The route now returns **`gp_meta.by_repairer` / `by_adder`** (Aug 582/223, Sep 625/204, Oct 557/176)
+so a future drop in `employee_repaired` surfaces instead of silently re-crediting whoever opened the
+ticket. `sales/route.js` was the **last** route reading `employee_added` alone; scorecard, insights,
+zero-profit, customer-journey and tickets were already on the fallback.
 **Separate, smaller:** `zero-profit/route.js` uses `resolveName`, which does **not** flip
 "Last, First". Its inputs are mostly "First Last" already so the only split is **"Sam Tomey" (4)
 from "Samuel Tomey" (46)** — left alone rather than bundled.
@@ -631,6 +650,17 @@ from "Samuel Tomey" (46)** — left alone rather than bundled.
 ---
 
 ## 8. Recent changes log
+- **2026-10-27 (later)** — **GP attribution fixed** (`63f0748`, § 10an) on Eric's go-ahead, isolated
+  in its own commit as a payroll-adjacent file. Aug–Oct credited GP goes **$173,978.14 → $194,269.94**;
+  the 246 insurance tickets RepairQ opens as "API, Assurant ServiceNetwork" now reach the technician who
+  did the work. Verified end to end against the live route, not just a probe — every per-person figure
+  matched to the cent. **I also had to correct myself**: the per-person split recorded in § 10an that
+  morning was wrong (it showed Slade, Aerick and Alec all losing money; only Alec does). The recovery
+  total was right both times.
+  Separately, **Eric caught a live rendering bug I shipped the same day** — the Damaged & Defective
+  by-month bars were drawn at up to 500% of their track and ran off the page (`cd629c0`). A shared bar
+  component had inherited "the list is sorted by size" from its first two callers; the month list is
+  sorted by month. Scaled to the real max and the track now clips.
 - **2026-10-27** — **Matt's 10-23 call built out in four commits** (§ 10am): a TV reviews screen,
   the agent's own discount record on the Price Book, two reasons the register-price message stays
   quiet, Damaged & Defective inside Ticket Compliance, and Charges Waived on the Morning Brief.
