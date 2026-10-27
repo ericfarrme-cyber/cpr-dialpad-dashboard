@@ -38,6 +38,17 @@ var FLAG_LABEL = {
 // asking and gets out of the way — a prompt that never leaves is furniture.
 var CLOSER_THRESHOLD = 20;
 
+// How much of the register has to agree before "it rings a different number"
+// is a claim about the catalog rather than noise.
+//
+// Matt, 2026-10-23: "once it hits under eighty percent of jobs, just drop
+// off that message." Below that the modal price is one of several the
+// register uses, so the sheet is not being contradicted -- it is being
+// compared to an average dressed up as a list price. The reconcile panel
+// keeps its own, lower bar on purpose: that one is Matt's review queue and
+// should surface more than a live call should.
+var REGISTER_AGREEMENT = 80;
+
 // The sentence, not a reminder to say the sentence. Read aloud while the
 // customer is on the line, so it has to be sayable as written.
 function CloserLines({ turnaround, closers }) {
@@ -135,10 +146,17 @@ function Tag({ children, tone }) {
 
 // What actually happened at the register for this price. Framed as ACCEPTANCE,
 // never as an average — the point is to argue for holding the line.
-function Acceptance({ a, setPrice, isAdmin }) {
+function Acceptance({ a, setPrice, isAdmin, recentlySet }) {
   if (!a || !a.sold) return null;
   var low = a.sold >= 10 && a.full_price_rate !== null && a.full_price_rate < 20;
-  var mismatch = a.pos_list !== null && setPrice !== null && Math.abs(a.pos_list - setPrice) >= 1;
+  // Two reasons not to say "the register rings a different number", both from
+  // the 2026-10-23 call. Matt: under 80% agreement it is not the catalog
+  // speaking. Eric: "If you just updated it within thirty days it probably
+  // should exclude that altogether" -- six months of history still carries the
+  // old price, so the message would argue against the edit just made.
+  var mismatch = a.pos_list !== null && setPrice !== null && Math.abs(a.pos_list - setPrice) >= 1
+    && a.pos_list_share !== null && a.pos_list_share >= REGISTER_AGREEMENT
+    && !recentlySet;
   return (
     <div style={{ marginTop: 7, display: "flex", flexDirection: "column", gap: 3 }}>
       <div style={{ fontSize: 11, color: low ? "var(--orange)" : "var(--text-secondary)", fontWeight: low ? 700 : 500 }}>
@@ -211,7 +229,7 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
         </div>
       )}
       {r.note && <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.4 }}>{r.note}</div>}
-      <Acceptance a={r.actuals} setPrice={r.set_price} isAdmin={isAdmin} />
+      <Acceptance a={r.actuals} setPrice={r.set_price} isAdmin={isAdmin} recentlySet={r.price_recently_set} />
       {r.quotes && r.quotes.given > 0 && (
         <div style={{ fontSize: 11, marginTop: 4, color: r.quotes.at_sheet === r.quotes.given ? "var(--green)" : "var(--text-secondary)", fontWeight: r.quotes.at_sheet === r.quotes.given ? 700 : 500 }}>
           {r.quotes.at_sheet} of {r.quotes.given} quote{r.quotes.given === 1 ? "" : "s"} booked at full price this month
@@ -1362,9 +1380,12 @@ export default function PriceBook() {
     // A disagreement needs a real catalog price behind it: at least three jobs
     // and the majority at one number. A single job rung at $40 on a charge-port
     // line is a tech improvising, not the register's list price.
+    // A price somebody set in the last 30 days is excluded here too (Eric:
+    // "exclude that altogether") -- the register history behind it is older
+    // than the decision, so it is not evidence against it yet.
     return rows.filter(function(r) {
       var a = r.actuals;
-      return r.active !== false && a && a.pos_list !== null && r.set_price !== null && a.sold >= 3 && a.pos_list_share >= 50 && Math.abs(a.pos_list - r.set_price) >= 1;
+      return r.active !== false && !r.price_recently_set && a && a.pos_list !== null && r.set_price !== null && a.sold >= 3 && a.pos_list_share >= 50 && Math.abs(a.pos_list - r.set_price) >= 1;
     }).sort(function(a, b) { return b.actuals.sold - a.actuals.sold; });
   }, [rows]);
   // Catalog lines the register rings that the sheet has no row for at all.
@@ -1532,6 +1553,55 @@ export default function PriceBook() {
                 </div>
               </div>
               {above && <div style={{ fontSize: 21 }}>⭐</div>}
+            </div>
+          );
+        })()}
+
+        {/* ── your own discounting, and the company's ───────────────────────
+            Matt, 2026-10-23: "If it said your last five converted or scheduled
+            appointments were more than ten dollars off" and "appointments
+            under your name average like thirty dollars discount across all
+            appointments, try to aim high."
+
+            Loud only on his literal rule. 74.6% of every quote booked from
+            this book goes out under the sheet, so an alarm on "you
+            discounted" would fire on everybody forever and stop being read —
+            the furniture problem the free-closers strip was built to dodge.
+            A single quote at the sheet clears the run. */}
+        {data && data.my_quotes && (function() {
+          var m = data.my_quotes;
+          var co = data.company_quotes;
+          var pct = m.quotes ? Math.round((m.at_sheet / m.quotes) * 100) : 0;
+          if (!m.on_a_run) {
+            return (
+              <div style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 12, display: "flex", gap: 7, flexWrap: "wrap", alignItems: "baseline" }}>
+                <strong style={{ color: "var(--text-secondary)", fontWeight: 700 }}>Your quotes</strong>
+                <span>{m.quotes} booked · <strong style={{ color: pct >= 50 ? "var(--green)" : "var(--text-secondary)" }}>{m.at_sheet} at the sheet</strong> · {money(m.avg_discount)} average off</span>
+                {co && co.avg_discount !== null && (
+                  <span style={{ color: "var(--text-faint)" }}>company {money(co.avg_discount)} off, {co.at_sheet} of {co.quotes} at the sheet</span>
+                )}
+              </div>
+            );
+          }
+          return (
+            <div style={{ display: "flex", gap: 13, alignItems: "center", flexWrap: "wrap", padding: "12px 15px", marginBottom: 12, borderRadius: 11,
+                          border: "1px solid #F59E0B73", background: "linear-gradient(100deg,#F59E0B24,#F59E0B0D)",
+                          animation: "pbExpand .45s cubic-bezier(.22,1,.36,1) both" }}>
+              <div style={{ width: 46, height: 46, borderRadius: "50%", flex: "none", display: "grid", placeItems: "center", fontWeight: 800, fontSize: 13,
+                            fontVariantNumeric: "tabular-nums", color: "var(--orange)", background: "#F59E0B24", border: "2px solid #F59E0B73" }}>
+                {money(m.avg_discount).replace(/\.00$/, "")}
+              </div>
+              <div style={{ flex: 1, minWidth: 240 }}>
+                <div style={{ fontSize: 13.5, fontWeight: 800, color: "var(--text-primary)" }}>
+                  Your last five quotes all went out more than {money(m.run_dollars).replace(/\.00$/, "")} under the sheet.
+                </div>
+                <div style={{ fontSize: 11.5, color: "var(--text-secondary)", marginTop: 3 }}>
+                  {m.recent.map(function(d) { return money(d).replace(/\.00$/, ""); }).join(" · ")} off.
+                  {" "}Across {m.quotes} quotes you average <strong style={{ color: "var(--orange)" }}>{money(m.avg_discount)}</strong> off and {m.at_sheet} went out at the sheet
+                  {co && co.avg_discount !== null && <span> — the company averages {money(co.avg_discount)}</span>}.
+                  {" "}Aim high: one quote at the sheet clears this.
+                </div>
+              </div>
             </div>
           );
         })()}

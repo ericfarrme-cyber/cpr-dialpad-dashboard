@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { resolveModel } from "@/lib/device-model";
 import { classifyCatalogItem, cleanCatalogName, tierOfCatalogLine, isInsuranceLine } from "@/lib/repair-type";
+import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PRICE BOOK
@@ -32,6 +33,27 @@ export const dynamic = "force-dynamic";
 
 var PAGE = 1000;
 var FLOOR_RULES = { "part+80": 80, "part+50": 50, "part+60": 60, "part+70": 70 };
+
+// How long a human price edit silences the "register rings a different
+// number" comparison (Eric, 2026-10-23). Applied where rows are loaded.
+var RECENT_EDIT_DAYS = 30;
+
+// The agent's own discounting record, shown at the top of the book.
+// Matt, 2026-10-23: "If it said your last five converted or scheduled
+// appointments were more than ten dollars off" / "appointments under your
+// name average like thirty dollars discount across all appointments, try to
+// aim high."
+//
+// Measured on the 173 booked quotes that carry both prices: the company
+// gives away $20.01 a quote and only 44 (25.4%) go out at the sheet. An
+// alarm that fired on "you discounted" would therefore fire on everyone,
+// every day, and become furniture -- the mistake the free-closers strip was
+// built to avoid. So the LOUD state is Matt's literal rule (every one of
+// the last five more than $10 under), which anybody clears by booking a
+// single quote at the sheet, and the quiet line just states the numbers.
+var MY_MIN_QUOTES = 5;   // below this, show nothing rather than judge a sample
+var MY_RUN = 5;          // "your last five"
+var MY_RUN_DOLLARS = 10; // "more than ten dollars off"
 
 function num(v) {
   if (v === null || v === undefined || v === "") return null;
@@ -134,6 +156,30 @@ export async function GET(request) {
     // a template), then order the sheet in memory.
     var rows = await fetchAll("repair_prices", "*", "id");
     rows.sort(function(a, b) { return (a.sort_order - b.sort_order) || (a.id - b.id); });
+
+    // A price a person set in the last 30 days is a decision, not drift.
+    //
+    // Six months of register history still carries the OLD number, so right
+    // after an edit the "register rings a different price" message argues
+    // against the edit that was just made.
+    //
+    // Read from the ledger, not from `updated_at`: the row's timestamp moves
+    // for any edit -- a turnaround, a part cost, taking the row off the sheet --
+    // and only a change to the PRICE should silence a comparison about the
+    // price. Measured 2026-10-27: 110 rows carry a human `updated_at` inside
+    // the window but only 99 of them actually had their set_price changed.
+    var recentCut = new Date(Date.now() - RECENT_EDIT_DAYS * 86400000).toISOString();
+    var { data: recentSets, error: rsErr } = await supabase.from("repair_price_changes")
+      .select("repair_price_id,changed_at")
+      .eq("field", "set_price").gte("changed_at", recentCut)
+      .not("repair_price_id", "is", null).limit(5000);
+    if (rsErr) throw new Error("repair_price_changes: " + rsErr.message);
+    var setRecently = {};
+    (recentSets || []).forEach(function(c) { setRecently[c.repair_price_id] = c.changed_at; });
+    rows.forEach(function(r) {
+      r.price_set_at = setRecently[r.id] || null;
+      r.price_recently_set = !!setRecently[r.id];
+    });
 
     // ── what the register actually did for each (model, repair) ─────────────
     var tickets = await fetchAll(
@@ -419,7 +465,8 @@ export async function GET(request) {
     // small enough that a percentage would overstate it. Shown in the booking
     // panel the moment someone types a lower number.
     var { data: evRows, error: evErr } = await supabase.from("appointments")
-      .select("sheet_price,quoted_price,did_arrive").eq("source", "price_book").limit(5000);
+      .select("id,sheet_price,quoted_price,did_arrive,scheduled_by,date_set")
+      .eq("source", "price_book").limit(5000);
     if (evErr) throw new Error("appointments evidence: " + evErr.message);
     var ev = { at_sheet: { decided: 0, showed: 0 }, discounted: { decided: 0, showed: 0 }, pending: 0, booked: 0 };
     (evRows || []).forEach(function(a) {
@@ -435,6 +482,59 @@ export async function GET(request) {
       if (showed) arm.showed++;
     });
 
+    // -- what this agent, personally, has been giving away ------------------
+    // Names resolve through the roster rather than being compared as typed:
+    // the live data holds "Alyssa" and "-Alec Wilcher" beside the full names,
+    // and the stores share logins, so the typed "Booked by" name is the person
+    // and the session email is not. A name that does not resolve to one roster
+    // person (a shared "General Access" session) gets no record at all, rather
+    // than somebody else's.
+    var { data: myRoster } = await supabase.from("employee_roster").select("name,aliases,active");
+    var nameMap = buildResolver(myRoster || []).map;
+    var byAgent = {};
+    var coAll = { quotes: 0, at_sheet: 0, discount: 0 };
+    (evRows || []).slice().sort(function(a, b) {
+      // newest first; id breaks the tie so "last five" is stable within a day
+      if (a.date_set !== b.date_set) return a.date_set < b.date_set ? 1 : -1;
+      return (b.id || 0) - (a.id || 0);
+    }).forEach(function(a) {
+      var sp = num(a.sheet_price), qp = num(a.quoted_price);
+      if (sp === null || qp === null) return;
+      var off = Math.max(0, round2(sp - qp));
+      coAll.quotes++;
+      coAll.discount += off;
+      if (off <= 0.005) coAll.at_sheet++;
+      var person = resolveNamePersonish(a.scheduled_by, nameMap);
+      if (!person) return;
+      var g = byAgent[person] || (byAgent[person] = { quotes: 0, at_sheet: 0, discount: 0, recent: [] });
+      g.quotes++;
+      g.discount += off;
+      if (off <= 0.005) g.at_sheet++;
+      if (g.recent.length < MY_RUN) g.recent.push(off);
+    });
+    var company = {
+      quotes: coAll.quotes,
+      at_sheet: coAll.at_sheet,
+      avg_discount: coAll.quotes ? round2(coAll.discount / coAll.quotes) : null,
+    };
+    var myQuotes = null;
+    var meName = who.authorized ? resolveNamePersonish(who.result.name, nameMap) : null;
+    if (meName && byAgent[meName] && byAgent[meName].quotes >= MY_MIN_QUOTES) {
+      var mine = byAgent[meName];
+      // The loud state, and the only one: every one of the last five more than
+      // $10 under the sheet. One quote at the sheet ends it.
+      var onRun = mine.recent.length === MY_RUN && mine.recent.every(function(d) { return d > MY_RUN_DOLLARS; });
+      myQuotes = {
+        name: meName,
+        quotes: mine.quotes,
+        at_sheet: mine.at_sheet,
+        avg_discount: round2(mine.discount / mine.quotes),
+        recent: mine.recent,
+        run_dollars: MY_RUN_DOLLARS,
+        on_a_run: onRun,
+      };
+    }
+
     var updatedMax = rows.reduce(function(m, r) { return r.updated_at > m ? r.updated_at : m; }, "");
     return NextResponse.json({
       success: true,
@@ -447,6 +547,9 @@ export async function GET(request) {
       missing_models: isAdmin ? missingModels : [],
       services: { types: SERVICE_TYPES, models: servicesByModel, families: servicesByFamily, overall: servicesOverall },
       quote_evidence: ev,
+      my_quotes: myQuotes,
+      company_quotes: company,
+      recent_edit_days: RECENT_EDIT_DAYS,
       sheet_health: isAdmin ? sheetHealth : null,
     });
   } catch (e) {

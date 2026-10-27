@@ -441,6 +441,10 @@ Return ONLY valid JSON:
 // ═══════════════════════════════════════════════════════════
 // MAIN HANDLER
 // ═══════════════════════════════════════════════════════════
+// Reads request.url, so it can never be static. Without this Next tries to
+// prerender it and logs a Dynamic server usage error on every build.
+export const dynamic = "force-dynamic";
+
 export async function GET(request) {
   try {
     var { searchParams } = new URL(request.url);
