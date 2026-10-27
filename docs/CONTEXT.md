@@ -534,6 +534,24 @@ order. Go").
     names as RepairQ writes them ("Stirling, Luke") while every other screen says "Luke Stirling";
     the new card would have sat directly under the old one spelling the same people two ways, so
     both now go through the roster.
+  • **Motion, after Eric asked whether these were as polished as they could be** (`36d9f93`).
+    The answer was partly no and partly "deliberately not". **A real defect, now fixed app-wide:**
+    twelve components define `@keyframes` and exactly one (BonusesTab) ever checked
+    `prefers-reduced-motion`. One block in `app/globals.css` now covers every animation and
+    transition in the app, including ones added later, with a `data-keep-motion` opt-out — so a
+    new component does NOT need its own guard. (Side effect: loading spinners go static under that
+    setting. Correct behaviour; `data-keep-motion` reverses it if anyone objects.)
+    **Damaged & Defective** had no motion at all and is the one screen where some earns its place
+    — "one line dominates" is the finding, so the bars draw themselves. **The Price Book strip
+    deliberately got none**: an agent reads it with a customer on the phone and anything that
+    defers the number costs a call. **The Morning Brief was left alone** — it has no entrance
+    animation anywhere, so animating one card would read as a glitch.
+    What the strip got instead is the state it was missing: it had only loud and grey, so clearing
+    a run dropped you into the same line as everyone else and nothing said you had. A **third,
+    green state** now fires when your average is at or under the company's. Note the asymmetry is
+    on purpose — the **alarm stays a fixed, clearable rule** (a relative alarm can never be
+    cleared by everyone) while **praise is allowed to be relative**, because being above average
+    costs nothing, it just gets the plain line. Today: 5 green, 2 plain, 1 loud.
   ⚠ **Verified against live production data through the routes, not in the browser** — local dev has
   no auth bypass, so the Price Book strip, the Damaged view and the waived card are Eric's to
   confirm. Routes were exercised with `?as_admin=1` where it exists and the damaged-parts route
