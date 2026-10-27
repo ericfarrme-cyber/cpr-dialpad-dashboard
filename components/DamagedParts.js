@@ -222,6 +222,13 @@ export default function DamagedParts({ storeFilter }) {
         )}
         <Stat label="People involved" value={d.by_person.length}
           sub={d.by_person.length > 1 ? "Spread across the bench, which is what a part problem looks like" : "A single person — worth a closer look"} />
+        {/* The supplier taking the part back changes what a defect costs: the
+            bench time and the customer coming back, not the part itself. */}
+        <Stat label="Going back to the supplier" value={(d.rma_total || 0) + " of " + d.lines}
+          sub={Object.keys(d.rma || {}).length
+            ? Object.keys(d.rma).map(function(k) { return d.rma[k] + " " + k.toLowerCase(); }).join(" · ") + " — the part is recovered, the bench time is not"
+            : "No RMA recorded on any of them"}
+          color={(d.rma_total || 0) === d.lines ? "var(--green)" : "var(--text-primary)"} />
       </div>
 
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>

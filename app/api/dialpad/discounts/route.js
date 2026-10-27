@@ -18,6 +18,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { resolveModel } from "@/lib/device-model";
 import { classifyCatalogItem, cleanCatalogName, tierOfCatalogLine, isInsuranceLine } from "@/lib/repair-type";
+import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +27,21 @@ var BASELINE_MONTHS = 6;
 var MIN_BASELINE_LINES = 3;
 
 function num(v) { var n = parseFloat(v); return isFinite(n) ? n : 0; }
+
+// item_details writes "Stirling, Luke"; every other screen in the dashboard
+// says "Luke Stirling". Both cards on the Morning Brief read from here, so
+// both go through the roster -- one card saying "Long, Aerick" next to another
+// saying "Aerick Long" is the kind of small wrongness that makes a page look
+// untrustworthy. A name that does not resolve keeps its own, flipped so it at
+// least reads as a person: former staff still rang these.
+function personName(raw, map) {
+  var n = String(raw === null || raw === undefined ? "" : raw).replace(/\s+/g, " ").trim();
+  if (!n || isSystemActor(n)) return null;
+  var hit = resolveNamePersonish(n, map);
+  if (hit) return hit;
+  var m = n.match(/^([^,]+),\s*(.+)$/);
+  return m ? m[2].trim() + " " + m[1].trim() : n;
+}
 function round2(n) { return Math.round(n * 100) / 100; }
 function indyDate(iso) {
   // Calendar day in Indiana for a timestamptz — "yesterday" must mean the
@@ -146,6 +162,9 @@ export async function GET(request) {
         return v === undefined ? null : v;
       }
 
+      var { data: wRoster } = await supabase.from("employee_roster").select("name,aliases,active");
+      var wMap = buildResolver(wRoster || []).map;
+
       var monthKey = date.slice(0, 7);
       var dayOfMonth = parseInt(date.slice(8, 10), 10);
       var prevD = new Date(date + "T00:00:00Z"); prevD.setUTCDate(1); prevD.setUTCMonth(prevD.getUTCMonth() - 1);
@@ -180,7 +199,7 @@ export async function GET(request) {
           var row = {
             ticket_number: t.ticket_number, store: t.store || null, date: ymdIndy,
             category: l.category, device: t.device, model: l.model, repair: l.repair, tier: l.tier,
-            catalog: l.catalog, person: l.sold_by || l.repaired_by || null,
+            catalog: l.catalog, person: personName(l.sold_by || l.repaired_by, wMap),
             sheet_price: price, insurance: l.insurance,
             // True when the same repair on the same ticket was already priced,
             // so the line is shown but deliberately not counted again.
@@ -245,6 +264,9 @@ export async function GET(request) {
       (rows || []).forEach(function(r) { meta[r.ticket_number] = r; });
     }
 
+    var { data: dRoster } = await supabase.from("employee_roster").select("name,aliases,active");
+    var dMap = buildResolver(dRoster || []).map;
+
     var lines = [];
     var totalLines = 0;
     day.forEach(function(t) {
@@ -257,7 +279,7 @@ export async function GET(request) {
         lines.push({
           ticket_number: t.ticket_number,
           store: m.store || null,
-          employee: l.sold_by || m.employee_added || null,
+          employee: personName(l.sold_by || m.employee_added, dMap),
           device: t.device, model: l.model, repair: l.repair, tier: l.tier,
           list: round2(l.list), discount: round2(l.discount), collected: round2(l.collected),
           avg_collected: avg, baseline_lines: b ? b.n : 0,

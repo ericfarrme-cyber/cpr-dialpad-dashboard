@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
+import { cleanCatalogName } from "@/lib/repair-type";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DAMAGED & DEFECTIVE PARTS
@@ -66,6 +67,21 @@ function isWaived(raw) { return /charge waived/i.test(String(raw || "")); }
 function displayName(raw) {
   var m = norm(raw).match(/^([^,]+),\s*(.+)$/);
   return m ? norm(m[2]) + " " + norm(m[1]) : norm(raw);
+}
+
+// RepairQ stores the whole scraped hover blob in catalog_item -- the name,
+// then "details x", then the name AGAIN, then Type / MFR / SKU / Supplier /
+// Bin / Inventory status. cleanCatalogName cuts it at " details"; without it
+// the table prints a paragraph per row.
+//
+// The blob is not all noise: "Inventory status Pending RMA" / "RMA Sent" says
+// whether the supplier has taken the part back, which is the next question
+// after "thirteen of seventeen are the same grade".
+function rmaStatus(raw) {
+  var m = String(raw || "").replace(/\s+/g, " ").match(/Inventory status ([A-Za-z ]+?)(?: view item|$)/i);
+  if (!m) return null;
+  var v = norm(m[1]);
+  return v && v.toLowerCase() !== "sold" ? v : null;
 }
 
 // "Apple OLED Assembly Compatible For iPhone 14 Pro (Aftermarket Pro: XO7
@@ -153,7 +169,8 @@ export async function GET(request) {
         // dropped -- the part still failed -- but is flagged so the screen can
         // say so instead of listing a former employee as if they were staff.
         var who = resolved || (rawWho && !isSystemActor(rawWho) ? displayName(rawWho) : null);
-        var name = norm(it.catalog_item);
+        var name = cleanCatalogName(it.catalog_item);
+        var rma = rmaStatus(it.catalog_item);
 
         var row = {
           ticket_number: t.ticket_number,
@@ -169,6 +186,7 @@ export async function GET(request) {
           repaired_by: who,
           repaired_by_raw: rawWho || null,
           on_roster: !!resolved,
+          rma: rma,
           waived: isWaived(it && it.status),
           value: value,
         };
@@ -215,6 +233,11 @@ export async function GET(request) {
       g.spellings[r.grade] = (g.spellings[r.grade] || 0) + 1;
       if (r.store) g.stores[r.store] = (g.stores[r.store] || 0) + 1;
     });
+    // How many of these the supplier has taken back. A defective part under
+    // RMA costs us the bench time, not the part.
+    var rmaCounts = {};
+    defective.forEach(function(r) { if (r.rma) rmaCounts[r.rma] = (rmaCounts[r.rma] || 0) + 1; });
+
     var byGrade = Object.keys(gradeAgg).map(function(k) {
       var g = gradeAgg[k];
       var name = Object.keys(g.spellings).sort(function(a, b) { return g.spellings[b] - g.spellings[a]; })[0];
@@ -245,6 +268,8 @@ export async function GET(request) {
         by_part: byPart,
         by_grade: byGrade,
         by_month: monthly(defective),
+        rma: rmaCounts,
+        rma_total: defective.filter(function(r) { return !!r.rma; }).length,
         rows: defective.sort(function(a, b) { return String(b.date_closed).localeCompare(String(a.date_closed)); }),
       },
       damaged: {
