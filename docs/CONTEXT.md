@@ -458,7 +458,7 @@ order. Go").
     snapshots** against them, so Indy's real history sat on one row while junk went to another. The
     "$20 pages" list read **18 when there are 9**. Fixed 2026-10-27: 13 duplicate rows + 16 null
     snapshots deleted after confirming none held a real count (rollback in
-    `rollback-google-listing-dupes.json`), every read now dedupes defensively and reports
+    `rollback-google-listing-dupes.json`, in the session scratchpad, not the repo), every read now dedupes defensively and reports
     `duplicates_dropped`, and **`sql/migration_google_listings_unique.sql` was run by Eric** — it
     has to `coalesce(store,'~competitor~')` because Carmel is stored with `store = null` and
     Postgres treats nulls as distinct, so a plain index would not have stopped a second Carmel row
