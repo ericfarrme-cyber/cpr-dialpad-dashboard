@@ -522,6 +522,18 @@ order. Go").
     $1,619.91.
   • Also: `demand-analysis` declared dynamic, ending the "Dynamic server usage" error it logged on
     every build.
+  • **Mock-up of all three, from the real rows:**
+    https://claude.ai/artifact/1e5KF5XBxE9Gxq1uK8bpSR (private — Eric shares it from the page's
+    Share menu). Laying them out found three more bugs, fixed in `34285ef`:
+    **(a)** the damaged/defective table printed RepairQ's entire scraped hover blob per row —
+    `partKey` and `gradeOf` already cut it so the grouping was right and only the cell was wrong;
+    `cleanCatalogName` fixes it. **(b)** That blob is not all noise: "Inventory status" says
+    whether MobileSentrix has taken the part back, and **they have taken back all seventeen**
+    (15 Pending RMA, 2 RMA Sent). So a defect costs the bench time and a customer coming back, not
+    the part — now a column and a stat. **(c)** Both Morning Brief cards printed `item_details`
+    names as RepairQ writes them ("Stirling, Luke") while every other screen says "Luke Stirling";
+    the new card would have sat directly under the old one spelling the same people two ways, so
+    both now go through the roster.
   ⚠ **Verified against live production data through the routes, not in the browser** — local dev has
   no auth bypass, so the Price Book strip, the Damaged view and the waived card are Eric's to
   confirm. Routes were exercised with `?as_admin=1` where it exists and the damaged-parts route
