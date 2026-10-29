@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -439,6 +439,45 @@ Mock-up for the review-tracking tab: https://claude.ai/artifact/BSEASg8eYoSUpqon
     incentivised and suppresses the review if they say yes. This design pays the employee, not the
     customer, which is the safe side of that line.
 
+10ao. **The franchisor owns the nine department listings — and it costs the bonus almost nothing**
+(Eric, 2026-10-29: *"we only have access to the main accounts through our GBP. the console, computer,
+and electronic are owned by the franchisor"*). Measured before concluding anything, because the
+obvious read — "so nine twelfths of the data is unreachable" — is backwards.
+  • **The ownership split falls on the opposite side of the computability split.** The Business
+    Profile Reviews API needs owner/manager OAuth, so it can only ever reach the **three main
+    pages** — which are **exactly the three that cannot be derived any other way** (n = 559 / 648 /
+    892; a one-decimal average leaves the star sum uncertain by 0.05×n, i.e. ±28 to ±45 stars).
+    The nine franchisor pages are small enough that Places already hands over **every review with
+    its own star rating**. So the pages Eric cannot reach are the ones he does not need an API for.
+  • **`exactFiveStar()` in `google-tracking/route.js`** derives a per-page five-star count or
+    **refuses with a reason** — never a silent estimate. Three ways to be exact: the page has 0
+    reviews; every review is held; or the unsampled remainder is **pinned** by the published average
+    (the rounding band must contain a single integer star sum, and the remainder's deficit from a
+    perfect 5r must be **0 or 1**). At a deficit of 2 it refuses, and that strictness is the point:
+    7 reviews summing to 33 is *five 5s + two 4s* (5 five-star) **or** *six 5s + one 3* (6
+    five-star) — same published average, different payout. 14 unit cases, every branch exercised,
+    including an empty rounding band, which means the average and the count came from **different
+    captures** and is reported as such rather than folded in with the ambiguous case.
+  • ⚠ **Lifetime exact is NOT monthly exact, and the bonus is monthly.** The arithmetic pins Fishers
+    electronics at **6 five-star lifetime**, but says nothing about *when* its 3 unsampled reviews
+    were posted. For the monthly count: **8 of 12 pages are exact** (every review held, with
+    `posted_at` — populated on 42 of 42 items), Fishers electronics is **0–3 unknown** (its 3
+    undated reviews were all on the page by the first snapshot, 18 Oct; the 5 held are Jun 29 – Sep
+    1), and the 3 mains are not derivable. I first wrote "all nine department pages are exactly
+    countable" — true of lifetime, wrong about the thing that pays.
+  • **October five-star so far, counted exactly where it can be:** Bloomington **1** (Matthew Slade,
+    consoles, 10-21), Indianapolis **2** (Slade consoles 10-20, Skylar Games electronics 10-27),
+    Fishers **0**. Every store is **INCOMPLETE pending its main page**, and the two Bloomington main
+    reviews we happen to hold (Tristan Simms, Tristen Thomas, both 10-04) are a sample, not a count.
+  • **The manual ask therefore shrinks from 12 pages to 4** — the three mains plus Fishers
+    electronics — and to 3 as soon as that page's remaining reviews get sampled. ⚠ **Not wired to
+    the entry UI**: `review_five_star.five_star_count` currently means *the store's total*, and
+    re-reading it as *the main page only* changes what Matt types. The table is empty so nothing
+    would be migrated, but it is a one-line decision for Eric, not a quiet correctness fix.
+  • **Do not ask the franchisor for manager access on the nine pages** — measured as buying nothing.
+  • Also fixed here: `?action=credits` had `five_star_countable: false` flat, which is now too
+    pessimistic; it reads `"department_pages_only"` with the reason split by page.
+
 10am. **Matt's 2026-10-23 call — four things shipped 2026-10-27** (`b9a80a5`, `a31984f`,
 `2b2d431`, `3fa9d7c`). Eric approved the build order and the five decisions inside it ("no claw
 back … the rule should attribute it to the person who repaired it … Otherwise I like your build
@@ -650,6 +689,15 @@ from "Samuel Tomey" (46)** — left alone rather than bundled.
 ---
 
 ## 8. Recent changes log
+- **2026-10-29** — **Eric: the franchisor owns the nine department listings.** Measured rather
+  than assumed, and the conclusion inverts the worry (§ 10ao): the Business Profile Reviews API can
+  only reach the three main pages, and those are precisely the three whose five-star counts cannot
+  be derived from public data at any sample size. The nine he cannot reach are small enough that
+  Google already sends every review with its stars. Built `exactFiveStar()` to derive a count or
+  refuse with a reason — 14 unit cases, every branch exercised. **Then caught my own overclaim:**
+  the arithmetic pins a *lifetime* count, and the bonus pays *monthly*, so it is 8 of 12 pages exact
+  for October, not 9. The manual entry drops from 12 pages to 4, but re-reading the entry box as
+  "main page only" is Eric's call, so it is not wired. Nothing pays anybody.
 - **2026-10-27 (later)** — **GP attribution fixed** (`63f0748`, § 10an) on Eric's go-ahead, isolated
   in its own commit as a payroll-adjacent file. Aug–Oct credited GP goes **$173,978.14 → $194,269.94**;
   the 246 insurance tickets RepairQ opens as "API, Assurant ServiceNetwork" now reach the technician who

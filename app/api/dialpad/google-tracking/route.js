@@ -113,6 +113,80 @@ function dedupeListings(rows) {
   return { listings: out, duplicates_dropped: dropped };
 }
 
+// How many of a page's reviews are five-star -- computed EXACTLY, or refused.
+//
+// Eric's rule (2026-10-20) is that only five-star reviews count, and the
+// Places API never sends a star histogram. But the ownership split (Eric,
+// 2026-10-29: the three main listings are ours through GBP, the nine
+// department pages belong to the franchisor) turns out to fall on exactly the
+// right side of what is computable from public data:
+//
+//   * A page whose whole review set is in `google_review_items` is counted by
+//     reading the stars Google already gave us. Every review, no arithmetic.
+//     Places returns ~5 reviews, so this covers any page at or under that.
+//   * A page with a few unsampled reviews left can still be pinned. The
+//     published average fixes the TOTAL star sum when the one-decimal rounding
+//     band contains a single integer; the residual's deficit from a perfect
+//     5r then says how many are not five-star. That is only FORCED when the
+//     deficit is 0 (all five) or 1 (exactly one four) -- at a deficit of 2 the
+//     page could hold two fours or one three, which are different five-star
+//     counts, so we refuse. Deliberately strict: a count that is merely likely
+//     is an estimate, and estimates must not look like counts.
+//   * The main pages (n = 559 / 648 / 892) cannot be pinned at all: the
+//     rounding band is +/-0.05n, which is +/-32 to +/-44 stars. Refused, with
+//     the reason, forever -- no sample size fixes this.
+//
+// Returns { count, exact, method, reason }. `exact` false means the caller
+// must present it as an estimate or not at all; it never means zero.
+function exactFiveStar(total, avg, items) {
+  var held = items || [];
+  var heldFive = held.filter(function(r) { return Number(r.rating) === 5; }).length;
+  if (total === 0) return { count: 0, exact: true, method: "no reviews on the page", reason: null };
+  if (total === null || total === undefined) return { count: null, exact: false, method: null, reason: "never captured" };
+  if (held.length >= total) {
+    return { count: heldFive, exact: true, method: "every one of the " + total + " reviews is held with its own star rating", reason: null };
+  }
+  var residual = total - held.length;
+  if (avg === null || avg === undefined) {
+    return { count: null, exact: false, method: null, reason: "no published average, so the " + residual + " unsampled review(s) cannot be pinned" };
+  }
+  // The star sum is pinned only when the rounding band holds one integer.
+  var lo = Math.ceil((avg - 0.05) * total - 1e-9), hi = Math.floor((avg + 0.05) * total + 1e-9);
+  if (lo > hi) {
+    // No integer star sum rounds to this average at this review count, so the
+    // two readings cannot both be current -- usually a snapshot that moved
+    // after the review items were captured. Named rather than folded into the
+    // ambiguous case, because this one means the INPUTS disagree.
+    return { count: null, exact: false, method: null,
+      reason: "no whole number of stars averages to " + avg + " across " + total + " reviews — the average and the count are from different captures" };
+  }
+  if (lo !== hi) {
+    return { count: null, exact: false, method: null,
+      reason: "the one-decimal average leaves the star sum anywhere in [" + lo + ", " + hi + "] across " + total + " reviews, so a four cannot be told from a five" };
+  }
+  var heldSum = held.reduce(function(a, r) { return a + (Number(r.rating) || 0); }, 0);
+  var residSum = lo - heldSum;
+  var deficit = 5 * residual - residSum;
+  if (deficit < 0 || residSum < residual) {
+    // Arithmetically impossible: the sample and the average disagree. Say so
+    // rather than returning a number built on it.
+    return { count: null, exact: false, method: null,
+      reason: "the held reviews and the published average are inconsistent (residual of " + residual + " would need to sum to " + residSum + ")" };
+  }
+  if (deficit > 1) {
+    return { count: null, exact: false, method: null,
+      reason: "the " + residual + " unsampled review(s) are " + deficit + " stars short of perfect, which several different five-star counts satisfy" };
+  }
+  // deficit 0 -> every residual review is a five. deficit 1 -> exactly one four.
+  return {
+    count: heldFive + residual - deficit,
+    exact: true,
+    method: held.length + " of " + total + " held, the remaining " + residual +
+      " pinned by the published average (" + (deficit === 0 ? "all five-star" : "exactly one four-star") + ")",
+    reason: null,
+  };
+}
+
 // The five-star counts a person entered. Separate from the snapshots on
 // purpose: those are what Google reported, this is what somebody counted.
 //
@@ -170,6 +244,22 @@ export async function GET(request) {
       .select("listing_id,captured_on,rating,total_reviews").order("captured_on", { ascending: true }).limit(20000);
     if (e2) return json({ success: false, error: e2.message }, 500);
 
+    // Needed for the exact five-star derivation below: the per-review stars
+    // Google already handed us. A failure here must not blank the whole
+    // screen, so it degrades to "no exact count" rather than a 500 -- but it
+    // is reported, not swallowed.
+    //
+    // ⚠ `action=tracking` is UNAUTHENTICATED (the TV reads this route without a
+    // session). The select is therefore deliberately `listing_id,rating` and
+    // nothing else -- no author, no review text, no posted_at. Anyone widening
+    // it has to re-check that, or a public endpoint starts handing out
+    // customers' names and words. `?action=credits` is where the full items
+    // live, behind admin/manager.
+    var { data: IT, error: e3 } = await supabase.from("google_review_items")
+      .select("listing_id,rating").limit(20000);
+    var itemsByListing = {};
+    (IT || []).forEach(function(r) { (itemsByListing[r.listing_id] = itemsByListing[r.listing_id] || []).push(r); });
+
     var byListing = {};
     (S || []).forEach(function(s) { (byListing[s.listing_id] = byListing[s.listing_id] || []).push(s); });
 
@@ -181,6 +271,11 @@ export async function GET(request) {
       var before = null;
       for (var i = 0; i < rows.length; i++) { if (rows[i].captured_on < mStart) before = rows[i]; }
       var gained = newest && before ? newest.total_reviews - before.total_reviews : null;
+      var fsCalc = exactFiveStar(
+        newest ? newest.total_reviews : null,
+        newest ? newest.rating : null,
+        itemsByListing[l.id] || []
+      );
       return {
         id: l.id, store: l.store, listing_type: l.listing_type, label: l.label, is_ours: l.is_ours,
         has_place_id: !!l.place_id,
@@ -194,6 +289,13 @@ export async function GET(request) {
         captured_on: newest ? newest.captured_on : null,
         gained_this_month: gained,
         baseline_on: before ? before.captured_on : null,
+        // Exact where the arithmetic forces it, refused with a reason where it
+        // does not. The nine department pages all land on the exact side and
+        // the three main pages never can -- see exactFiveStar.
+        five_star: fsCalc.count,
+        five_star_exact: fsCalc.exact,
+        five_star_method: fsCalc.method,
+        five_star_why_not: fsCalc.reason,
         // Honest about why a number is absent, rather than showing a zero.
         note: !newest ? "never captured" : (!before ? "no reading from before " + mStart + " yet — gain unknown until next month" : null),
       };
@@ -205,6 +307,30 @@ export async function GET(request) {
       s.listings.push(r);
       if (r.listing_type === "main") { s.main_rating = r.rating; s.main_total = r.total_reviews; }
       if (r.gained_this_month !== null) s.gained_this_month = (s.gained_this_month || 0) + r.gained_this_month;
+      // Five-star accounting per store, split by whether it is counted or
+      // still owed. The tier is a store total across all four pages, so a
+      // partial sum must NEVER be presented as the store's number -- the
+      // screen needs to know how many pages are missing, which is what
+      // five_star_pages_pending carries.
+      if (r.five_star_exact) {
+        s.five_star_exact_sum = (s.five_star_exact_sum || 0) + (r.five_star || 0);
+        s.five_star_pages_counted = (s.five_star_pages_counted || 0) + 1;
+      } else {
+        s.five_star_pages_pending = (s.five_star_pages_pending || 0) + 1;
+        (s.five_star_pending_pages = s.five_star_pending_pages || []).push({
+          listing_type: r.listing_type, total_reviews: r.total_reviews, why_not: r.five_star_why_not,
+        });
+      }
+    });
+
+    // A store's tier number is only complete when every one of its pages is
+    // counted. Stated as a flag so no screen has to infer it.
+    Object.keys(stores).forEach(function(k) {
+      var st = stores[k];
+      st.five_star_exact_sum = st.five_star_exact_sum || 0;
+      st.five_star_pages_counted = st.five_star_pages_counted || 0;
+      st.five_star_pages_pending = st.five_star_pages_pending || 0;
+      st.five_star_complete = st.five_star_pages_pending === 0;
     });
 
     // The five-star counts a person entered for this month, if the table is
@@ -228,6 +354,14 @@ export async function GET(request) {
       duplicates_dropped: LDe.duplicates_dropped,
       ever_captured: out.filter(function(r) { return r.captured_on; }).length,
       total_listings: out.length,
+      // How much of the five-star count is now computed rather than typed.
+      // The split is the ownership split: the franchisor's nine department
+      // pages are small enough to count exactly from public data, and the
+      // three main pages Eric owns are the ones that need the Business
+      // Profile Reviews API. Reported so the screen states which is which.
+      five_star_exact_pages: out.filter(function(r) { return r.is_ours && r.five_star_exact; }).length,
+      five_star_pending_pages: out.filter(function(r) { return r.is_ours && !r.five_star_exact; }).length,
+      review_items_error: e3 ? e3.message : null,
     });
   }
 
@@ -333,8 +467,10 @@ export async function GET(request) {
   //    separate a 4 from a 5. Exact five-star counts need the Business Profile
   //    Reviews API (owner OAuth), or a person reading the inbox.
   //
-  // So `five_star_countable` is false and every derived five-star figure is
-  // labelled an estimate. Nothing here computes a payable amount.
+  // So the five-star figures DERIVED FROM THIS SAMPLE are labelled estimates.
+  // Exact per-page counts, where the arithmetic forces them, come from
+  // ?action=tracking instead -- see exactFiveStar. Nothing here computes a
+  // payable amount either way.
   if (action === "credits") {
     var cGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
     if (!cGate.authorized) return cGate.response;
@@ -406,8 +542,15 @@ export async function GET(request) {
       // Measured, not assumed -- and the sample it is measured on is small.
       five_star_share: scored ? mix[5] / scored : null,
       five_star_share_sample: scored,
-      five_star_countable: false,
-      five_star_blocker: "Places API returns a total and a one-decimal average, never a star breakdown. Star-sum uncertainty is 0.05 x review count (+/-32 on Fishers main, +/-44 on Indianapolis), so a 4 star cannot be told from a 5 star. Exact counts need the Business Profile Reviews API (owner OAuth) or a person reading the Business Profile inbox.",
+      // Partially countable, and the split is worth stating precisely because
+      // it decides how much of this is manual. Eric owns only the three main
+      // listings through GBP; the nine department pages are the franchisor's.
+      // Those nine are all small enough to count exactly from public data
+      // (?action=tracking derives them), so the pages he CANNOT reach are the
+      // ones he does not need the API for, and the three he CAN reach are the
+      // only ones that need it.
+      five_star_countable: "department_pages_only",
+      five_star_blocker: "Exact per-page five-star counts are derived for the nine department listings (every review is held, or the unsampled remainder is pinned by the published average). The three main listings cannot be derived at any sample size: a one-decimal average leaves the star sum uncertain by 0.05 x review count, which is +/-28 to +/-45 stars at 559-892 reviews. Those three need the Business Profile Reviews API (owner OAuth on the listings Eric owns) or a person reading the Business Profile inbox.",
       text_coverage: "Places returns a relevance sample of reviews, not all of them. This list is incomplete by design; review totals are exact.",
       items: rows.sort(function(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }),
     });
