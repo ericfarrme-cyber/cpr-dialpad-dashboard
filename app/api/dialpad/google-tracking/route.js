@@ -8,14 +8,27 @@
 // console listing separated from the repair listing, which a monthly total
 // cannot answer. See sql/migration_google_listings.sql.
 //
-// THE RULE IS DELIBERATELY SIMPLE (Eric, 2026-10-30: "it just needs to flag if
-// it notices that there's a 1-star and then everything else we just count as a
-// review"). Every review counts toward the store tier, and a 1-star raises a
-// FLAG for a person to look at -- it does not dock anybody automatically. That
-// replaces the earlier five-star-only rule, which was not computable from this
-// data source at all: Places sends a total and a one-decimal average, never a
-// star histogram. Counting every review makes the tier EXACT, because the
-// total is the one figure Google gives us exactly.
+// THE RULE (Eric, 2026-10-30, in two steps). First: "everything else we just
+// count as a review" -- every review counts toward the store tier, which makes
+// the tier EXACT because the lifetime total is the one figure Google reports
+// exactly. That replaced a five-star-only rule this data source could not
+// measure at all. Then: "It should be a deduction. A 1 star should cut a
+// bonus." So a 1-star HALVES the store's tier for the month and a second
+// ZEROES it.
+//
+// ⚠ A DEDUCTION NEEDS EVIDENCE, which is the one thing that makes this rule
+// honest. Places shows us about five reviews of a main page's several hundred,
+// so "no 1-star seen" is not proof there was none. A penalty that fired only
+// when Google happened to sample the review would be arbitrary; a penalty that
+// fired on a page we cannot see at all would be a guess. So the deduction
+// applies to a 1-star we can POINT AT -- captured by the sync, or recorded by a
+// manager from the Business Profile inbox (`record_one_star`) -- and a review
+// nobody has seen does not dock anyone. The gap therefore errs toward the
+// employee, which is the same direction as the forward-only answer-rate rule:
+// never take money back on a number we cannot stand behind.
+//
+// The count is NOT also reduced by the 1-star. One lever, not two -- see
+// PENALTY below for why.
 //
 // REVIEWS GAINED IS ALWAYS A SUBTRACTION between two snapshots of the lifetime
 // total, never a stored figure, so it cannot drift away from what Google says.
@@ -29,6 +42,8 @@
 // GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
 // GET  ?action=review_leaders  who gets named, counts only — safe for the TV
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
+// POST {action:'record_one_star', store, listing_type, posted_at, author?, note?}  (admin/manager)
+// POST {action:'remove_one_star', id}   undo a manual record only (admin/manager)
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
@@ -37,7 +52,7 @@ import { creditReview } from "@/lib/review-credit";
 
 export const dynamic = "force-dynamic";
 
-function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
+function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
 function json(d, s) { return NextResponse.json(d, { status: s || 200, headers: cors() }); }
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
 
@@ -61,6 +76,36 @@ function tierFor(n) {
   var hit = null;
   TIERS.forEach(function(t) { if (n >= t.at) hit = t; });
   return hit;
+}
+
+// ── the 1-star deduction ────────────────────────────────────────────────────
+// One 1-star halves the store's tier for that month; a second zeroes it.
+//
+// THREE DECISIONS INSIDE THIS, each one recommended rather than asked for, so
+// each is written down with the reason it went that way:
+//
+// (a) ONE LEVER, NOT TWO. The 1-star still counts as a review toward the
+//     threshold -- it is NOT subtracted from the month's count as well as
+//     halving the payout. Stacking both would make a single bad review worth
+//     the entire bonus at the margin: a store on 10 reviews would drop to 9,
+//     miss the floor and earn nothing, where halving leaves it $25. With the
+//     measured 45.8% chance that a store genuinely performing at 10 a month
+//     lands at 9 anyway, stacking punishes variance rather than service. It
+//     also keeps the count exactly what Google publishes, which is the
+//     property that made the simple rule possible.
+// (b) 1-STAR ONLY, not 2-star. Eric's earlier draft said "1 or 2". He said
+//     "a 1 star" twice since. The line is cleaner and the data is indifferent:
+//     across 42 captured reviews there is exactly one 1-star and no 2-star.
+//     `PENALTY_AT_OR_BELOW` is the one constant to change if he wants 2 in.
+// (c) NAMED CREDITS SURVIVE. The tier is collective; the $10/$20 for being
+//     named follows the person. Docking Aerick's named credit because someone
+//     else took a 1-star would punish the wrong people -- and a 1-star already
+//     pays its own named employee nothing.
+var PENALTY_AT_OR_BELOW = 1;        // a review at or below this many stars docks the store
+var PENALTY_STEPS = [1, 0.5, 0];    // 0 such reviews -> full, 1 -> half, 2+ -> nothing
+function penaltyFactor(n) {
+  var k = Math.max(0, Math.min(PENALTY_STEPS.length - 1, n || 0));
+  return PENALTY_STEPS[k];
 }
 
 // ── Places lookups ──────────────────────────────────────────────────────────
@@ -152,22 +197,47 @@ function dedupeListings(rows) {
 //     month to shift the first decimal. So the average only ever catches a
 //     catastrophe, never a single bad review.
 //
-// This incompleteness is the reason the rule is a flag rather than a deduction.
-// An automatic halving would pay differently depending on whether Google chose
-// to sample the review, which is not a rule anyone could explain to staff.
-function oneStarWatch(total, items) {
+// This incompleteness is why the deduction runs on EVIDENCE rather than on a
+// clean-page assumption: a 1-star we can point at docks the store, and one
+// nobody has seen does not. `manual_one_star` counts the ones a manager
+// recorded from the Business Profile inbox, which is the complete source --
+// that is the path that stops the rule reading as "you get away with it if
+// Google does not show us".
+// ⚠ THE DEDUCTION IS MONTHLY, so the count that drives it MUST be scoped to the
+// month. Caught before shipping on live data: the only 1-star we hold is dated
+// 2026-06-25 and an unscoped count docked OCTOBER for it. An all-time 1-star
+// count is still returned, because "this page has a 1-star on it" is worth
+// reading -- but it is a separate field and only the monthly one costs money.
+//
+// A 1-star with no `posted_at` cannot be assigned to a month, so it does NOT
+// dock anyone; it is surfaced as `one_star_undated` instead. Same direction as
+// everything else here: the gap errs toward the employee. (Today 42 of 42
+// items carry a date, so this is a guard, not a live case.)
+function oneStarWatch(total, items, monthStartYmd, monthEndYmd) {
   var held = items || [];
-  var ones = held.filter(function(r) { return Number(r.rating) === 1; });
+  var bad = held.filter(function(r) { return Number(r.rating) <= PENALTY_AT_OR_BELOW; });
+  function inMonth(r) {
+    var d = r.posted_at ? String(r.posted_at).slice(0, 10) : null;
+    return d && d >= monthStartYmd && d < monthEndYmd;
+  }
+  var thisMonth = bad.filter(inMonth);
+  var undated = bad.filter(function(r) { return !r.posted_at; });
+  var manual = thisMonth.filter(function(r) { return /^manual:/.test(String(r.review_key || "")); });
   var complete = total !== null && total !== undefined && held.length >= total;
   return {
-    one_star_seen: ones.length,
+    // The one that docks money.
+    one_star_this_month: thisMonth.length,
+    // Context only -- never multiplied by anything.
+    one_star_all_time: bad.length,
+    one_star_undated: undated.length,
+    manual_one_star: manual.length,
     reviews_held: held.length,
     // True only when we hold the page's whole review set, so no screen has to
     // work out whether "0 one-star" means clean or merely unseen.
     flag_certain: complete,
     flag_note: complete
       ? null
-      : "Google samples about five reviews a page; a 1-star outside that sample is not visible here. Matt's Business Profile inbox is the complete list.",
+      : "Google samples about five reviews a page; a 1-star outside that sample is invisible here until a manager records it from the Business Profile inbox.",
   };
 }
 
@@ -197,6 +267,12 @@ export async function GET(request) {
   // ── what moved this month ─────────────────────────────────────────────────
   if (action === "tracking") {
     var today = indyToday(), mStart = monthStart(today);
+    // Exclusive upper bound for "this month", so a 1-star is scored against the
+    // month it was posted in and no other.
+    var mEnd = (function() {
+      var y = Number(mStart.slice(0, 4)), m = Number(mStart.slice(5, 7));
+      return (m === 12 ? (y + 1) + "-01" : y + "-" + String(m + 1).padStart(2, "0")) + "-01";
+    })();
     var { data: LRaw, error: e1 } = await supabase.from("google_listings").select("*").eq("active", true);
     if (e1) return json({ success: false, error: e1.message }, 500);
     var LDe = dedupeListings(LRaw); var L = LDe.listings;
@@ -210,13 +286,16 @@ export async function GET(request) {
     // failed read must never render as "no 1-star reviews".
     //
     // ⚠ `action=tracking` is UNAUTHENTICATED (the TV reads this route without a
-    // session). The select is therefore deliberately `listing_id,rating` and
-    // nothing else -- no author, no review text, no posted_at. Anyone widening
-    // it has to re-check that, or a public endpoint starts handing out
-    // customers' names and words. `?action=credits` is where the full items
-    // live, behind admin/manager.
+    // session), so this select is kept to the four columns the deduction
+    // actually needs and NO author and NO review text. `rating` and
+    // `posted_at` are what scope a 1-star to its month; `review_key` tells a
+    // manager-recorded 1-star from a synced one (the `manual:` prefix) and is
+    // an opaque Google id otherwise. None of the four identifies a customer.
+    // Anyone widening this further has to re-check that, or a public endpoint
+    // starts handing out customers' names and words. `?action=credits` is
+    // where the full items live, behind admin/manager.
     var { data: IT, error: e3 } = await supabase.from("google_review_items")
-      .select("listing_id,rating").limit(20000);
+      .select("listing_id,rating,review_key,posted_at").limit(20000);
     var itemsByListing = {};
     (IT || []).forEach(function(r) { (itemsByListing[r.listing_id] = itemsByListing[r.listing_id] || []).push(r); });
 
@@ -248,7 +327,7 @@ export async function GET(request) {
         }
         if (zeroBasis) gained = newest.total_reviews;
       }
-      var watch = oneStarWatch(newest ? newest.total_reviews : null, itemsByListing[l.id] || []);
+      var watch = oneStarWatch(newest ? newest.total_reviews : null, itemsByListing[l.id] || [], mStart, mEnd);
       return {
         id: l.id, store: l.store, listing_type: l.listing_type, label: l.label, is_ours: l.is_ours,
         has_place_id: !!l.place_id,
@@ -268,7 +347,10 @@ export async function GET(request) {
         // The flag, plus whether it can be trusted to be complete on this
         // page. See oneStarWatch: certain on a page we hold in full, only a
         // sample on a main page.
-        one_star_seen: watch.one_star_seen,
+        one_star_this_month: watch.one_star_this_month,
+        one_star_all_time: watch.one_star_all_time,
+        one_star_undated: watch.one_star_undated,
+        manual_one_star: watch.manual_one_star,
         flag_certain: watch.flag_certain,
         flag_note: watch.flag_note,
         reviews_held: watch.reviews_held,
@@ -292,7 +374,10 @@ export async function GET(request) {
         s.pages_without_baseline = (s.pages_without_baseline || 0) + 1;
         (s.baseline_missing_pages = s.baseline_missing_pages || []).push(r.listing_type);
       }
-      s.one_star_seen = (s.one_star_seen || 0) + r.one_star_seen;
+      s.one_star_this_month = (s.one_star_this_month || 0) + r.one_star_this_month;
+      s.one_star_all_time = (s.one_star_all_time || 0) + r.one_star_all_time;
+      s.one_star_undated = (s.one_star_undated || 0) + r.one_star_undated;
+      s.manual_one_star = (s.manual_one_star || 0) + (r.manual_one_star || 0);
       if (!r.flag_certain) s.flag_pages_sampled = (s.flag_pages_sampled || 0) + 1;
     });
 
@@ -302,12 +387,36 @@ export async function GET(request) {
     Object.keys(stores).forEach(function(k) {
       var st = stores[k];
       st.pages_without_baseline = st.pages_without_baseline || 0;
-      st.one_star_seen = st.one_star_seen || 0;
       st.flag_pages_sampled = st.flag_pages_sampled || 0;
       st.gain_complete = st.pages_without_baseline === 0 && st.gained_this_month !== null;
       var t = tierFor(st.gained_this_month);
       st.tier_at = t ? t.at : null;
-      st.tier_pays = t ? t.pays : 0;
+      // BOTH figures travel, always. A screen that only had the final number
+      // could not tell a store that missed the threshold from one that reached
+      // it and was docked -- which is the difference between "get more
+      // reviews" and "we took a one-star", two completely different
+      // conversations with a store manager.
+      st.tier_pays_before_penalty = t ? t.pays : 0;
+      st.one_star_this_month = st.one_star_this_month || 0;
+      st.one_star_all_time = st.one_star_all_time || 0;
+      st.one_star_undated = st.one_star_undated || 0;
+      st.penalty_factor = penaltyFactor(st.one_star_this_month);
+      st.tier_pays = Math.round((st.tier_pays_before_penalty * st.penalty_factor) * 100) / 100;
+      st.penalty_docked = Math.round((st.tier_pays_before_penalty - st.tier_pays) * 100) / 100;
+      // ⚠ APPLIED means money actually moved. A store with a 1-star that never
+      // reached the threshold has nothing to halve, and a card that said "tier
+      // halved" there would be stating something untrue -- it read exactly
+      // that way on Bloomington before this split (1 one-star, 7 reviews, no
+      // tier). `penalty_pending` is the honest version of that state: the
+      // deduction is on the books and will bite if they reach the floor.
+      st.penalty_applied = st.penalty_factor < 1 && st.tier_pays_before_penalty > 0;
+      st.penalty_pending = st.penalty_factor < 1 && st.tier_pays_before_penalty === 0;
+      st.penalty_reason = st.penalty_applied
+        ? (st.one_star_this_month === 1 ? "one 1-star this month — tier halved"
+           : st.one_star_this_month + " 1-star reviews this month — tier zeroed")
+        : (st.penalty_pending
+            ? st.one_star_this_month + " 1-star this month, but no tier reached — nothing to halve yet"
+            : null);
       // Stated on the payload, not only in the UI: nothing here is approved to pay.
       st.payable = false;
     });
@@ -317,6 +426,15 @@ export async function GET(request) {
       period: mStart.slice(0, 7),
       tiers: TIERS,
       floor: TIERS[0].at,
+      penalty: {
+        at_or_below: PENALTY_AT_OR_BELOW,
+        steps: PENALTY_STEPS,
+        counts_toward_threshold: true,
+        scoped_to_month: true,
+        named_credits_survive: true,
+        evidence_only: true,
+        note: "A 1-star halves the store's tier and a second zeroes it, scored against the month it was POSTED in. It still counts as a review toward the threshold -- one lever, not two. The deduction applies only to a 1-star we can point at: captured by the sync, or recorded by a manager from the Business Profile inbox.",
+      },
       stores: Object.values(stores),
       competitors: out.filter(function(r) { return !r.is_ours; }),
       // Surfaced, never silent: the sync cannot run for these.
@@ -517,7 +635,7 @@ export async function GET(request) {
       // The flag, over the sample we hold. NOT a count of the month's 1-star
       // reviews -- a main page shows us about five of its several hundred, so
       // zero here means "none seen", never "none happened".
-      one_star_seen: mix[1],
+      one_star_in_sample: mix[1],
       one_star_coverage: "Places returns a relevance sample of reviews, not all of them. A 1-star outside that sample does not appear here. Review TOTALS are exact; this list is not complete.",
       text_coverage: "Places returns a relevance sample of reviews, not all of them. This list is incomplete by design; review totals are exact.",
       items: rows.sort(function(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }),
@@ -624,10 +742,102 @@ export async function GET(request) {
   return json({ success: false, error: "Unknown action" }, 400);
 }
 
-// NO POST HANDLER, deliberately. The only write this route ever had was
-// save_five_star, the hand-entered five-star count. The tier is now computed
-// from the review totals Google reports exactly, so there is nothing to type
-// and nothing to keep in sync with what Google says. A stale client that still
-// POSTs here gets a 405 from Next, which is the loud answer -- it used to get a
-// 200 for a number nobody needs. `review_five_star` is left in the database,
-// empty and unread; dropping a table is Eric's call, not a side effect of this.
+// ── recording a 1-star from the Business Profile inbox ─────────────────────
+// The ONLY write on this route, and it exists because the deduction needs
+// evidence. Places shows us about five reviews of a main page's several
+// hundred, so a 1-star can be real and invisible here; without this the rule
+// would read as "you get away with it if Google does not show us", and a store
+// would be paid in full for a month a customer rated 1 star.
+//
+// It writes a `google_review_items` row with a `manual:` review_key. No
+// migration: the table already carries exactly these columns, the unique index
+// on (listing_id, review_key) means recording the same review twice cannot
+// dock a store twice, and the sync only ever upserts, so a manual row is never
+// cleaned away by a later poll. (All three verified against the live table.)
+//
+// `remove_one_star` deletes a manual row only. A Google-sourced review is not
+// removable here by design -- the penalty must not be clearable by deleting
+// the evidence.
+export async function POST(request) {
+  if (!supabase) return json({ success: false, error: "Supabase not configured" }, 500);
+  var gate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
+  if (!gate.authorized) return gate.response;
+
+  var body = null;
+  try { body = await request.json(); } catch (e) { return json({ success: false, error: "Body is not JSON" }, 400); }
+  var action = body && body.action;
+  var who = (function() { var w = gate.result || {}; return w.name || w.email || "unknown"; })();
+
+  if (action === "record_one_star") {
+    var store = String(body.store || "").trim().toLowerCase();
+    var listingType = String(body.listing_type || "main").trim().toLowerCase();
+    var postedAt = String(body.posted_at || "").trim();
+    if (["fishers", "bloomington", "indianapolis"].indexOf(store) < 0) {
+      return json({ success: false, error: "unknown store: " + store }, 400);
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(postedAt)) {
+      return json({ success: false, error: "posted_at must be YYYY-MM-DD (the date the review was left)" }, 400);
+    }
+    var stars = body.rating === undefined || body.rating === null || body.rating === "" ? 1 : Number(body.rating);
+    if (!isFinite(stars) || stars < 1 || stars > 5 || Math.floor(stars) !== stars) {
+      return json({ success: false, error: "rating must be a whole number of stars from 1 to 5" }, 400);
+    }
+
+    var { data: tl, error: tlErr } = await supabase.from("google_listings")
+      .select("id,store,listing_type,label").eq("store", store).eq("listing_type", listingType).eq("active", true);
+    if (tlErr) return json({ success: false, error: tlErr.message }, 500);
+    var target = dedupeListings(tl).listings[0];
+    if (!target) return json({ success: false, error: "no active listing for " + store + " / " + listingType }, 404);
+
+    // The key is derived from what identifies the review to a person, so the
+    // same review recorded twice collides on the unique index instead of
+    // docking the store a second time.
+    var slug = String(body.author || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+    var row = {
+      listing_id: target.id,
+      review_key: "manual:" + postedAt + ":" + (slug || "anon"),
+      rating: stars,
+      author: body.author ? String(body.author).slice(0, 120) : null,
+      text: "Recorded from the Business Profile inbox by " + who +
+        (body.note ? " \u2014 " + String(body.note).slice(0, 400) : ""),
+      posted_at: postedAt + "T12:00:00Z",
+    };
+    var { data, error } = await supabase.from("google_review_items").insert(row).select();
+    if (error) {
+      var dup = String(error.code || "") === "23505";
+      // Loud: a write that cannot land must never answer 200.
+      if (!dup) console.error("[google-tracking] record_one_star failed:", error.message);
+      return json({
+        success: false,
+        already_recorded: dup,
+        error: dup
+          ? "That review is already recorded for " + target.label + " on " + postedAt +
+            ", so it is already counted once. Recording it again would dock the store twice."
+          : error.message,
+      }, dup ? 409 : 500);
+    }
+    return json({ success: true, recorded: (data && data[0]) || row, listing: target.label });
+  }
+
+  if (action === "remove_one_star") {
+    var id = Number(body.id);
+    if (!isFinite(id) || id <= 0) return json({ success: false, error: "id is required" }, 400);
+    var { data: ex, error: exErr } = await supabase.from("google_review_items")
+      .select("id,review_key,rating").eq("id", id);
+    if (exErr) return json({ success: false, error: exErr.message }, 500);
+    if (!ex || !ex.length) return json({ success: false, error: "no such review row" }, 404);
+    if (!/^manual:/.test(String(ex[0].review_key || ""))) {
+      // Refused on purpose: a penalty that can be cleared by deleting Google's
+      // own review is not a penalty.
+      return json({
+        success: false,
+        error: "That review came from Google, not from a manual entry, so it cannot be removed here. Only a record somebody typed can be undone.",
+      }, 403);
+    }
+    var { error: delErr } = await supabase.from("google_review_items").delete().eq("id", id);
+    if (delErr) { console.error("[google-tracking] remove_one_star failed:", delErr.message); return json({ success: false, error: delErr.message }, 500); }
+    return json({ success: true, removed: id, removed_by: who });
+  }
+
+  return json({ success: false, error: "Unknown action: " + String(action) }, 400);
+}

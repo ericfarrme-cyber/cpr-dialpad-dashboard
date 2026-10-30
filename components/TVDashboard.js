@@ -180,7 +180,10 @@ export default function TVDashboard(props) {
             CPR {storeName.toUpperCase()}
           </div>
           <div style={{ background: "#7B2FFF15", color: "#7B2FFF", padding: "5px 12px", borderRadius: 999, fontSize: "clamp(10px, 1.3vh, 13px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
-            {screenIdx === 0 ? "Daily Dash" : "Rankings"}
+            {/* The rotation went 2 screens -> 3 when the reviews screen
+                shipped, but this badge never gained a third branch, so the
+                reviews screen hung on the wall labelled "Rankings". */}
+            {screenIdx === 0 ? "Daily Dash" : screenIdx === 1 ? "Rankings" : "Reviews"}
           </div>
         </div>
         <Clock />

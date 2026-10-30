@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts + a 1★ flag, which made the tier exact and deleted the five-star blocker § 10ao** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -692,6 +692,72 @@ Reviews API ask are all gone. **Net −123 lines of route.** The simpler rule is
   on credits, the 405 on POST) and with a clean `npx next build` grepped for "Attempted import
   error". **The UI is Eric's to confirm** — local dev has no auth bypass.
 
+10ap. **The 1★ is a DEDUCTION — SHIPPED 2026-10-30.** Eric, reversing the flag-only rule the same
+day: *"It should be a deduction. A 1 star should cut a bonus. Ill take your recommendations
+otherwise."* **One 1★ halves the store's tier for the month; a second zeroes it.**
+  • **Three recommendations I made rather than asked for, each with the reason, each reversible:**
+    **(a) ONE LEVER, NOT TWO.** The 1★ still counts as a review toward the threshold and is *not*
+    also subtracted. Stacking both makes one bad review worth the whole bonus at the margin: a store
+    on exactly 10 drops to 9, misses the floor and gets **$0** where halving leaves **$25**. With the
+    measured **45.8%** chance that a store genuinely performing at 10/month lands at 9 anyway, stacking
+    punishes variance rather than service. It also keeps the count exactly what Google publishes,
+    which is the property that made the simple rule possible.
+    **(b) 1★ ONLY, not 2★** (his earlier draft said "1 or 2"). Cleaner line, and the data is
+    indifferent: 42 captured reviews hold **one 1★ and no 2★**. `PENALTY_AT_OR_BELOW` is the one
+    constant to change.
+    **(c) NAMED CREDITS SURVIVE.** The tier is collective, the $10/$20 follows the person; and a 1★
+    already pays its own named employee nothing.
+  • **THE DEDUCTION RUNS ON EVIDENCE, which is the part that makes it defensible.** Places shows ~5
+    reviews of a main page's several hundred, so "no 1★ seen" is not proof. A penalty that fired only
+    when Google happened to sample the review would be arbitrary. So it applies to a 1★ we can point
+    at — synced, or **recorded by a manager from the Business Profile inbox** — and one nobody has
+    seen docks nobody. **The gap errs toward the employee**, same direction as the forward-only
+    answer-rate rule: never take money back on a number we cannot stand behind.
+  • **`record_one_star` needs NO migration.** It writes a `google_review_items` row with a `manual:`
+    review_key. Verified against the live table: insert 201; the **unique index on
+    (listing_id, review_key) rejects a duplicate with 409**, so recording the same review twice
+    cannot dock a store twice; and the sync only ever upserts, so a manual row is never cleaned away
+    by a later poll. `remove_one_star` deletes a `manual:` row **only** — a penalty clearable by
+    deleting Google's own review is not a penalty (403). This re-adds the POST handler removed in
+    `bbdf201`; it is now the route's only write.
+  • ⚠⚠ **TWO BUGS CAUGHT IN MY OWN OUTPUT BEFORE SHIPPING, both payroll-shaped.**
+    **(1) The deduction was not month-scoped.** The only 1★ we hold is dated **2026-06-25** and the
+    first cut **docked OCTOBER for it**. Now scored against the month the review was POSTED; the
+    all-time count is kept as context and never multiplied by anything. A 1★ with no `posted_at`
+    cannot be assigned to a month, so it docks nobody and is surfaced as `one_star_undated` (42 of 42
+    items carry a date today, so this is a guard).
+    **(2) `penalty_applied` was true with no tier to halve** — Bloomington (1 one-star, 7 reviews,
+    no tier) read "tier halved" when nothing was halved. Split into `penalty_applied` (money actually
+    moved) and `penalty_pending` (on the books, bites if they reach the floor).
+  • **Both figures always travel** (`tier_pays_before_penalty` and `tier_pays`). A card showing only
+    the final number cannot tell "missed the threshold" from "reached it and was docked", and those
+    are two different conversations with a store manager. The UI strikes through the original.
+  • **10 unit cases, every branch exercised** (none of this is reachable from live data this month):
+    12 reviews clean $50 · one 1★ **$25** · two **$0** · five still $0 · at the floor with a 1★
+    **$25 not $0** · $75 → $37.50 · $100 → $50 → $0 · below the floor pending not halved · June 1★
+    does not dock October but does dock June · undated surfaced not charged · manual told from synced.
+  • **October is unaffected: 0 1★ posted this month, no store docked**, and no store reached a tier
+    anyway (Bloomington 7 · Indianapolis 7 · Fishers 5, against Carmel's **+11**).
+  • ⚠ **This puts an API back in scope and I told Eric the opposite the day before.** With no
+    penalty, counting every review needed nothing from Google beyond what we have. With a penalty, a
+    1★ we never see is **money paid that should not have been**, so detection now matters — and the
+    **Business Profile Reviews API** (owner OAuth) reaches exactly the three main pages Eric owns,
+    which are the three we only sample. Until then the inbox button is the complete source.
+  • **RECOMMENDATION, not yet contradicted: keep the deduction OFF the TV.** `ScreenReviews` hangs
+    unsigned-in in a public part of the shop and deliberately carries names and counts only. A board
+    reading "Fishers: tier halved" is a disciplinary notice in front of customers, naming a whole
+    team for one review nobody on it may have caused. Recognition on the wall, money on the dashboard.
+  • Also fixed: **the TV badge said "Rankings" on the Reviews screen.** The rotation went 2 screens
+    → 3 when that screen shipped and `TVDashboard`'s label never gained a third branch, so it has
+    been hanging on the wall mislabelled since 2026-10-27.
+  • **The view, from the real rows:** https://claude.ai/artifact/F7tzXcT8NExVsehswycouJ — the tab as
+    it renders today, the three docked/pending states worked from the rule, and the shop TV.
+    (Private; Eric shares it from the page's Share menu.)
+  ⚠ **Verified through the routes against live production data** (month scoping, the applied/pending
+  split, 401 on both POSTs without a session, the DB round-trip of a manual record) and a clean
+  `npx next build` grepped for "Attempted import error". **The UI is Eric's to confirm** — local dev
+  has no auth bypass, so neither the record form nor a real deduction has been clicked.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -754,6 +820,22 @@ Reviews API ask are all gone. **Net −123 lines of route.** The simpler rule is
   the arithmetic pins a *lifetime* count, and the bonus pays *monthly*, so it is 8 of 12 pages exact
   for October, not 9. The manual entry drops from 12 pages to 4, but re-reading the entry box as
   "main page only" is Eric's call, so it is not wired. Nothing pays anybody.
+- **2026-10-30 (later)** — **Eric reversed the flag into a deduction** (§ 10ap): one 1★ halves a
+  store's tier, a second zeroes it. He took my three recommendations on the shape — one lever not two
+  (the 1★ still counts toward the 10, so one bad review can never take the whole bonus at the
+  margin), 1★ only, named credits survive — and the deduction runs on **evidence**, with a
+  `record_one_star` button so a 1★ from Matt's Business Profile inbox docks the store even when
+  Google never sampled it. No migration: it writes a `manual:` row into the table that already
+  exists, and the unique index means recording the same review twice cannot dock twice.
+  **Two payroll-shaped bugs caught in my own output before shipping**: the deduction was not
+  month-scoped, so the single 1★ we hold — **dated 25 June** — docked **October**; and
+  `penalty_applied` was true for a store with no tier to halve, so Bloomington read "tier halved"
+  when nothing was. 10 unit cases now cover every branch, since live data reaches none of them.
+  **It also reversed my advice from the morning**: a penalty makes detection matter, so the Business
+  Profile Reviews API is worth connecting after all — for exactly the three main pages Eric owns.
+  Recommended and not contradicted: the deduction stays **off the TV**, which hangs in public and
+  should carry recognition, not discipline. Fixed there too — the badge had been labelling the
+  Reviews screen "Rankings" since it shipped.
 - **2026-10-30** — **Review bonus simplified on Eric's call, and the simplification removed the
   blocker rather than routing around it** (§ 10ao). Counting every review instead of only five-star
   makes the tier **exact**, because the review total is the one figure Places reports exactly — so

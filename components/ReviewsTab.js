@@ -14,10 +14,23 @@
 // The review TOTAL is the one thing Google gives us exactly, so counting every
 // review makes the tier exact, and the entry boxes are gone.
 //
-// THE 1-STAR FLAG IS NOT A COUNT. On a page we hold in full it is certain; on
-// a main page we hold about five of several hundred reviews, so a zero means
-// "none seen", never "none happened". The route says which per page
-// (`flag_certain`) and this screen repeats it rather than showing a bare zero.
+// A 1-STAR IS A DEDUCTION (Eric, 2026-10-30: "It should be a deduction. A 1
+// star should cut a bonus."). One halves the store's tier for the month, a
+// second zeroes it. The 1-star still counts as a review toward the threshold --
+// one lever, not two, so a single bad review can never take the whole bonus at
+// the margin. Named $10/$20 credits survive it.
+//
+// THE DEDUCTION RUNS ON EVIDENCE, and this screen has to say so, because on a
+// main page we hold about five reviews of several hundred: a zero means "none
+// seen", never "none happened". A 1-star a manager reads in the Business
+// Profile inbox is recorded here (`record_one_star`) and docks the store like
+// any other; one nobody has seen docks nobody. The gap errs toward the
+// employee, same direction as the forward-only answer-rate rule.
+//
+// BOTH FIGURES ARE SHOWN, always -- what the tier pays and what it paid before
+// the deduction. A card showing only the final number cannot tell a store that
+// missed the threshold from one that reached it and was docked, and those are
+// two completely different conversations.
 //
 // NO LOCAL TIER TABLE. The tiers come from the route, which owns them. This
 // file used to keep its own copy, which is how two screens come to disagree
@@ -81,6 +94,10 @@ export default function ReviewsTab() {
   var [acted, setActed] = useState({});
   var [copied, setCopied] = useState(null);
   var [openPanel, setOpenPanel] = useState(null);
+  var [recStore, setRecStore] = useState(null);           // store key the form is open for
+  var [rec, setRec] = useState({});                       // { listing_type, posted_at, author, note }
+  var [recBusy, setRecBusy] = useState(false);
+  var [recMsg, setRecMsg] = useState(null);
 
   useEffect(function() {
     var alive = true;
@@ -131,9 +148,17 @@ export default function ReviewsTab() {
     return !acted[it.id] && (it.proposed_credits || []).some(function(c) { return c.amount > 0; });
   }).length;
 
-  // The flag. Counted off the pages, not off the credit list, so it includes a
-  // 1-star on a page whose text we never captured.
-  var oneStarSeen = allPages.reduce(function(a, p) { return a + (p.one_star_seen || 0); }, 0);
+  // Counted off the pages, not off the credit list, so a 1-star on a page whose
+  // text we never captured is still included.
+  //
+  // ⚠ TWO DIFFERENT NUMBERS, and only one of them costs money. The deduction is
+  // monthly, so it runs on 1-stars POSTED this month; the all-time count is
+  // context ("this page has a 1-star on it") and must never be multiplied by
+  // anything. Caught on live data: the only 1-star we hold is from June, and an
+  // unscoped count docked October for it.
+  var oneStarMonth = allPages.reduce(function(a, p) { return a + (p.one_star_this_month || 0); }, 0);
+  var oneStarEver = allPages.reduce(function(a, p) { return a + (p.one_star_all_time || 0); }, 0);
+  var oneStarUndated = allPages.reduce(function(a, p) { return a + (p.one_star_undated || 0); }, 0);
   var sampledPages = allPages.filter(function(p) { return !p.flag_certain; }).length;
   var flagUnavailable = !!(tracking && tracking.flag_unavailable);
   var period = (tracking && tracking.period) || "";
@@ -146,6 +171,39 @@ export default function ReviewsTab() {
   }
   var storesAtTier = stores.filter(function(s) { return tierFor(s.gained_this_month); }).length;
   var anyIncomplete = stores.some(function(s) { return s.gain_complete === false; });
+  var PEN = (tracking && tracking.penalty) || null;
+  // What the deduction actually costs this month, per eligible person.
+  var dockedTotal = stores.reduce(function(a, s) { return a + (s.penalty_docked || 0); }, 0);
+  var storesDocked = stores.filter(function(s) { return s.penalty_applied; }).length;
+  var storesPending = stores.filter(function(s) { return s.penalty_pending; }).length;
+  var manualOnes = stores.reduce(function(a, s) { return a + (s.manual_one_star || 0); }, 0);
+
+  async function recordOneStar(store) {
+    var f = rec || {};
+    if (!f.posted_at) { setRecMsg({ store: store, ok: false, text: "The date the review was left is required." }); return; }
+    setRecBusy(true); setRecMsg(null);
+    try {
+      var res = await af("/api/dialpad/google-tracking", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "record_one_star", store: store,
+          listing_type: f.listing_type || "main",
+          posted_at: f.posted_at, author: f.author || null, note: f.note || null,
+        }),
+      });
+      var j = await res.json();
+      if (!j.success) { setRecMsg({ store: store, ok: false, text: j.error || "Could not record it." }); setRecBusy(false); return; }
+      // Re-read rather than patching local state, so the card shows the
+      // deduction the database actually produces.
+      var fresh = await af("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); });
+      if (fresh && fresh.success) setTracking(fresh);
+      setRecMsg({ store: store, ok: true, text: "Recorded against " + (j.listing || store) + ". The deduction is applied." });
+      setRec({}); setRecStore(null);
+    } catch (ex) {
+      setRecMsg({ store: store, ok: false, text: String(ex.message || ex) });
+    }
+    setRecBusy(false);
+  }
 
   return (
     <div style={{ display: "grid", gap: 30 }}>
@@ -167,27 +225,46 @@ export default function ReviewsTab() {
         </div>
       ) : null}
 
-      {/* The one caveat left on this screen, and it is about the flag only.
-          Review COUNTS are exact, which is what made the simpler rule possible. */}
-      <div style={card({ background: tint(oneStarSeen ? "var(--red)" : "var(--cyan)", 7),
-        borderColor: tint(oneStarSeen ? "var(--red)" : "var(--cyan)", 26), fontSize: 13, lineHeight: 1.55 })}>
+      {/* The rule, and the one thing that makes it fair: it needs evidence. */}
+      <div style={card({ background: tint(oneStarMonth ? "var(--red)" : "var(--cyan)", 7),
+        borderColor: tint(oneStarMonth ? "var(--red)" : "var(--cyan)", 26), fontSize: 13, lineHeight: 1.55 })}>
         <b style={{ color: "var(--text-primary)" }}>
-          {oneStarSeen === 0
-            ? "No 1\u2605 review seen this month."
-            : oneStarSeen + " 1\u2605 review" + (oneStarSeen === 1 ? "" : "s") + " to look at."}
+          {oneStarMonth === 0
+            ? "No 1\u2605 review posted this month \u2014 no store is docked."
+            : oneStarMonth + " 1\u2605 posted this month \u2014 "
+              + (storesDocked
+                  ? storesDocked + " store" + (storesDocked === 1 ? "" : "s") + " docked $" + dockedTotal + " each"
+                  : "no store has reached a tier, so there is nothing to halve yet")}
         </b>{" "}
-        Every review counts toward a store&rsquo;s tier; a 1&#9733; is flagged for a person to read and pays nobody.
+        Every review counts toward a store&rsquo;s tier. <b style={{ color: "var(--text-primary)" }}>One 1&#9733; halves
+        that tier for the month; a second zeroes it.</b> The 1&#9733; still counts as a review toward the threshold &mdash;
+        one lever, not two &mdash; and the $10/$20 for being named in a review survives it.
         {sampledPages ? (
-          <> On {sampledPages} of our {allPages.length} pages Google shows us only a sample of the reviews, so a zero here
-          means <b style={{ color: "var(--text-primary)" }}>none seen</b>, never none happened &mdash; Matt&rsquo;s Business
-          Profile inbox is the complete list.</>
+          <div style={{ marginTop: 9, color: "var(--text-secondary)", fontSize: 12.5 }}>
+            <b style={{ color: "var(--text-primary)" }}>The deduction runs on evidence.</b> Google shows us only a sample
+            of the reviews on {sampledPages} of our {allPages.length} pages, so a 1&#9733; can be real and invisible here.
+            A 1&#9733; nobody has seen docks nobody &mdash; <b style={{ color: "var(--text-primary)" }}>record one from the
+            Business Profile inbox</b> on the store&rsquo;s card and it counts like any other.
+            {manualOnes ? " " + manualOnes + " recorded that way so far." : ""}
+            {oneStarEver > oneStarMonth ? (
+              <> {oneStarEver - oneStarMonth} older 1&#9733; {oneStarEver - oneStarMonth === 1 ? "review sits" : "reviews sit"} on our
+              pages from previous months and {oneStarEver - oneStarMonth === 1 ? "does" : "do"} not affect this month &mdash; a
+              deduction is scored against the month the review was posted.</>
+            ) : null}
+            {oneStarUndated ? (
+              <> {oneStarUndated} 1&#9733; {oneStarUndated === 1 ? "review has" : "reviews have"} no date, so {oneStarUndated === 1 ? "it cannot" : "they cannot"} be
+              assigned to a month and {oneStarUndated === 1 ? "docks" : "dock"} nobody.</>
+            ) : null}
+            {storesPending ? (
+              <> {storesPending} store{storesPending === 1 ? "" : "s"} {storesPending === 1 ? "has" : "have"} a 1&#9733; on the books but
+              no tier yet &mdash; the deduction bites if {storesPending === 1 ? "it reaches" : "they reach"} {FLOOR}.</>
+            ) : null}
+          </div>
         ) : (
-          <> Every page is held in full this month, so the flag is complete.</>
+          <div style={{ marginTop: 9, color: "var(--text-secondary)", fontSize: 12.5 }}>
+            Every page is held in full this month, so the record is complete.
+          </div>
         )}
-        <div style={{ marginTop: 9, color: "var(--text-secondary)", fontSize: 12.5 }}>
-          A flag rather than a deduction on purpose: an automatic penalty would land or not depending on whether Google
-          happened to sample the review, which is not a rule anyone could explain to staff.
-        </div>
       </div>
 
       {/* ── headline strip ── */}
@@ -202,10 +279,14 @@ export default function ReviewsTab() {
           { k: "Stores at a tier", v: String(storesAtTier),
             suffix: " of " + stores.length, h: "not payable — the bonus is not approved", color: "var(--text-muted)" },
           { k: "Credits to confirm", v: String(pendingCredits), h: "proposed from review text", color: "var(--text-primary)" },
-          // "Seen", not "received": on a sampled page a zero is not proof.
-          { k: "1★ seen", v: flagUnavailable ? "?" : String(oneStarSeen),
-            h: flagUnavailable ? "flag unavailable — not a zero" : (sampledPages ? sampledPages + " page(s) sampled, not complete" : "every page held in full"),
-            color: flagUnavailable ? "var(--yellow)" : (oneStarSeen ? "var(--red)" : "var(--green)") },
+          // "On record", not "received": on a sampled page a zero is not proof,
+          // and the deduction only ever runs on what is on record.
+          { k: "1★ this month", v: flagUnavailable ? "?" : String(oneStarMonth),
+            suffix: dockedTotal ? " → −$" + dockedTotal : "",
+            h: flagUnavailable ? "unavailable — not a zero"
+              : (oneStarMonth ? (storesDocked ? storesDocked + " store(s) docked" : "no tier reached to halve")
+                 : (sampledPages ? sampledPages + " page(s) sampled, not proof" : "every page held in full")),
+            color: flagUnavailable ? "var(--yellow)" : (oneStarMonth ? "var(--red)" : "var(--green)") },
           { k: "Department pages", v: String(deptThin), suffix: " of " + deptPages.length, h: "under " + THIN + " reviews — named pays $20", color: "var(--cyan)" },
         ].map(function(c) {
           return (
@@ -231,7 +312,8 @@ export default function ReviewsTab() {
             var pct = gained == null ? 0 : Math.min(100, 100 * gained / FLOOR);
             var pageCount = (s.listings || []).length;
             var thin = (s.listings || []).filter(function(l) { return l.listing_type !== "main" && (l.total_reviews || 0) < THIN; }).length;
-            var ones = s.one_star_seen || 0;
+            var ones = s.one_star_this_month || 0;
+            var onesEver = s.one_star_all_time || 0;
             return (
               <div key={s.store} style={card({ position: "relative", overflow: "hidden", paddingTop: 19 })}>
                 <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: c }} />
@@ -268,20 +350,92 @@ export default function ReviewsTab() {
                 <div style={{ marginTop: 11, paddingTop: 11, borderTop: "1px solid var(--border-light)", fontSize: 11, color: "var(--text-muted)" }}>
                   {pageCount} pages · {thin} under {THIN} reviews
                 </div>
-                {/* The flag, per store. Colour-coded only when there is
-                    something to read -- and it never claims a clean page on a
-                    store whose pages are only sampled. */}
+                {/* The deduction, per store. Both figures are shown whenever
+                    one is docked -- a card showing only the final number
+                    cannot tell "missed the threshold" from "reached it and was
+                    docked", and those are two different conversations. */}
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid var(--border-light)" }}>
                   <div style={{ fontSize: 11.5, color: ones ? "var(--red)" : "var(--text-muted)" }}>
                     {ones
-                      ? <><b style={{ color: "var(--text-primary)" }}>{ones} 1★ review{ones === 1 ? "" : "s"}</b> on this store's pages — worth reading.</>
-                      : (s.flag_pages_sampled
-                          ? "No 1★ seen — but " + s.flag_pages_sampled + " of this store's pages are sampled, not complete."
-                          : "No 1★ reviews, and every page is held in full.")}
+                      ? <><b style={{ color: "var(--text-primary)" }}>{ones} 1★ posted this month</b>{" "}
+                        {s.penalty_applied
+                          ? <>— {ones === 1 ? "tier halved" : "tier zeroed"}.</>
+                          : <>— no tier reached this month, so there is nothing to halve.</>}</>
+                      : <>
+                          {s.flag_pages_sampled
+                            ? "No 1★ this month — but " + s.flag_pages_sampled + " of this store's pages are sampled, so that is not proof."
+                            : "No 1★ this month, and every page is held in full."}
+                          {onesEver ? <div style={{ color: "var(--text-muted)", marginTop: 3 }}>
+                            {onesEver} from an earlier month, which does not affect this one.
+                          </div> : null}
+                        </>}
                   </div>
+
+                  {/* The money line. Struck-through original whenever a
+                      deduction landed, so the dock is visible rather than
+                      baked into a smaller number. */}
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-light)" }}>
-                    {tier ? "Would pay $" + tier.pays + " each — " : "At " + FLOOR + " reviews, $" + TIERS[0].pays + " each — "}
+                    {tier ? (
+                      s.penalty_applied ? (
+                        <>
+                          <span style={{ textDecoration: "line-through", opacity: .6 }}>${s.tier_pays_before_penalty}</span>{" "}
+                          <b style={{ color: "var(--red)" }}>${s.tier_pays} each</b>{" "}
+                          <span style={{ color: "var(--red)" }}>(−${s.penalty_docked})</span> —{" "}
+                        </>
+                      ) : <>Would pay <b style={{ color: "var(--text-primary)" }}>${s.tier_pays} each</b> — </>
+                    ) : "At " + FLOOR + " reviews, $" + TIERS[0].pays + " each — "}
                     <b style={{ color: "var(--text-primary)" }}>not payable, bonus not approved</b>
+                  </div>
+
+                  {/* Recording a 1-star from the inbox. This is what keeps the
+                      deduction from reading as "you get away with it if Google
+                      does not show us" on a page we only sample. */}
+                  <div style={{ marginTop: 9, paddingTop: 9, borderTop: "1px solid var(--border-light)" }}>
+                    {recStore === s.store ? (
+                      <div style={{ display: "grid", gap: 7 }}>
+                        <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
+                          Record a 1&#9733; from Business Profile
+                        </div>
+                        <select value={(rec.listing_type) || "main"}
+                          onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { listing_type: v }); }); }}
+                          style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
+                            color: "var(--text-primary)", border: "1px solid var(--border)" }}>
+                          {(s.listings || []).map(function(l) {
+                            return <option key={l.listing_type} value={l.listing_type}>{TYPE_LABEL[l.listing_type] || l.listing_type}</option>;
+                          })}
+                        </select>
+                        <input type="date" value={rec.posted_at || ""}
+                          onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { posted_at: v }); }); }}
+                          style={Object.assign({ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
+                            color: "var(--text-primary)", border: "1px solid var(--border)" }, mono)} />
+                        <input type="text" placeholder="Reviewer name (optional)" value={rec.author || ""}
+                          onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { author: v }); }); }}
+                          style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
+                            color: "var(--text-primary)", border: "1px solid var(--border)" }} />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={function() { recordOneStar(s.store); }} disabled={recBusy}
+                            style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: recBusy ? "default" : "pointer",
+                              background: "var(--bg-card-inner)", color: "var(--red)", border: "1px solid " + tint("var(--red)", 45),
+                              fontFamily: "'Space Grotesk', sans-serif" }}>
+                            {recBusy ? "Recording…" : "Record — docks this store"}
+                          </button>
+                          <button onClick={function() { setRecStore(null); setRec({}); setRecMsg(null); }}
+                            style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: "pointer",
+                              background: "transparent", color: "var(--text-secondary)", border: "1px solid var(--border)",
+                              fontFamily: "'Space Grotesk', sans-serif" }}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button onClick={function() { setRecStore(s.store); setRec({ listing_type: "main" }); setRecMsg(null); }}
+                        style={{ fontSize: 11, padding: "4px 9px", borderRadius: 7, cursor: "pointer",
+                          background: "transparent", color: "var(--text-secondary)", border: "1px dashed var(--border-heavy)",
+                          fontFamily: "'Space Grotesk', sans-serif" }}>
+                        + Record a 1&#9733; from the inbox
+                      </button>
+                    )}
+                    {recMsg && recMsg.store === s.store ? (
+                      <div style={{ fontSize: 11, marginTop: 6, color: recMsg.ok ? "var(--green)" : "var(--red)" }}>{recMsg.text}</div>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -291,7 +445,8 @@ export default function ReviewsTab() {
         <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 12 }}>
           These counts are <b style={{ color: "var(--text-primary)" }}>exact</b> — each one is the difference between two
           snapshots of the figure Google publishes{anyIncomplete ? ", except where a page has no pre-month reading and is marked incomplete" : ""}.
-          The bonus is not approved, so no store card shows money owed.
+          {storesDocked ? <> A 1&#9733; has docked <b style={{ color: "var(--text-primary)" }}>{storesDocked}</b> of them.</> : null}
+          {" "}The bonus is not approved, so no store card shows money owed.
         </div>
       </div>
 
@@ -462,8 +617,9 @@ export default function ReviewsTab() {
           ["Named in the review", "The customer writes your name. Paid to the person, outside the tier, after a person confirms it.", "$10"],
           ["Named on a page under 10 reviews", "A separate threshold from the tier floor, even though both read 10 — this one asks whether a page is established. Retires itself as pages fill, so the premium can never cost more than $750 in total.", "$20"],
           ["Unnamed review", "Counts one toward the store tier, nothing individually. With the 0–3 day posting lag there is only one candidate tech 6% of the time, so it cannot be attributed honestly.", "store credit only"],
-          ["A 1★ lands", "Flagged for a person to read, and it pays nobody — it does not dock the store. A flag rather than a deduction because the detection is incomplete by nature: on a main page Google shows us about five reviews of several hundred, so a penalty would land or not depending on what Google chose to sample.", "flag only"],
-          ["2★, 3★ and 4★", "Count as reviews and pay their named employee, same as a 5★. Only the 1★ is treated differently.", "counts"],
+          ["A 1★ lands", "One halves the store's tier for that month; a second zeroes it. The 1★ still counts as a review toward the threshold — one lever, not two, so a single bad review can never take the whole bonus at the margin. Named $10/$20 credits survive it, and the 1★ pays its own named employee nothing.", "½ → $0"],
+          ["The deduction needs evidence", "It applies to a 1★ we can point at: captured by the sync, or recorded by a manager from the Business Profile inbox. On a main page Google shows us about five reviews of several hundred, so one nobody has seen docks nobody — the gap errs toward the employee, the same direction as the forward-only answer-rate rule.", "on record"],
+          ["2★, 3★ and 4★", "Count as reviews and pay their named employee, same as a 5★. Only the 1★ docks anything.", "counts"],
           ["Which store you count for", "The one where you logged the most hours that month, same rule as the answer-rate bonus. Duncan worked all three in October and counts once.", "most hours"],
           ["Tier multiplier", "Does not apply. Gold and Platinum multiply per-repair commission only — this is flat, like the answer-rate and streak bonuses.", "none"],
         ] },
