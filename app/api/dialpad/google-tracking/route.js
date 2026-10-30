@@ -4,10 +4,18 @@
 // stays as it is. This one is the automated half.
 //
 // WHY A SEPARATE SHAPE: `google_reviews` counts reviews RECEIVED in a month,
-// keyed (period, store), with no listing dimension and no star ratings. Eric's
-// bonus needs five-star counts, a one-star penalty, and the console listing
-// separated from the repair listing. None of that is answerable from a monthly
-// total. See sql/migration_google_listings.sql.
+// keyed (period, store), with no listing dimension. Eric's bonus needs the
+// console listing separated from the repair listing, which a monthly total
+// cannot answer. See sql/migration_google_listings.sql.
+//
+// THE RULE IS DELIBERATELY SIMPLE (Eric, 2026-10-30: "it just needs to flag if
+// it notices that there's a 1-star and then everything else we just count as a
+// review"). Every review counts toward the store tier, and a 1-star raises a
+// FLAG for a person to look at -- it does not dock anybody automatically. That
+// replaces the earlier five-star-only rule, which was not computable from this
+// data source at all: Places sends a total and a one-decimal average, never a
+// star histogram. Counting every review makes the tier EXACT, because the
+// total is the one figure Google gives us exactly.
 //
 // REVIEWS GAINED IS ALWAYS A SUBTRACTION between two snapshots of the lifetime
 // total, never a stored figure, so it cannot drift away from what Google says.
@@ -20,8 +28,6 @@
 // GET  ?action=tracking   per store: this month's gain, rating, per listing
 // GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
 // GET  ?action=review_leaders  who gets named, counts only — safe for the TV
-// GET  ?action=five_star  the hand-entered five-star counts for a period
-// POST {action:'save_five_star', period, store, five_star_count, ...}  (admin/manager)
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
@@ -31,7 +37,7 @@ import { creditReview } from "@/lib/review-credit";
 
 export const dynamic = "force-dynamic";
 
-function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
+function cors() { return { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "GET, OPTIONS", "Access-Control-Allow-Headers": "Content-Type, Authorization" }; }
 function json(d, s) { return NextResponse.json(d, { status: s || 200, headers: cors() }); }
 export async function OPTIONS() { return new NextResponse(null, { status: 204, headers: cors() }); }
 
@@ -41,6 +47,21 @@ function indyToday() {
   return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
 }
 function monthStart(ymd) { return ymd.slice(0, 8) + "01"; }
+
+// The store review tier. ONE definition -- ReviewsTab had a second copy of
+// this table, which is how two screens come to disagree about what a store
+// earned. Eric set the floor at 10 (2026-10-19) after rejecting 6.
+//
+// Counts EVERY review in the month, across that store's four pages. Highest
+// tier only, per eligible person. Nothing in this route pays it: the bonus is
+// not approved, and `payable` is false on every row that mentions money.
+var TIERS = [{ at: 10, pays: 50 }, { at: 15, pays: 75 }, { at: 20, pays: 100 }];
+function tierFor(n) {
+  if (n === null || n === undefined) return null;
+  var hit = null;
+  TIERS.forEach(function(t) { if (n >= t.at) hit = t; });
+  return hit;
+}
 
 // ── Places lookups ──────────────────────────────────────────────────────────
 // Places API (New). A listing with no place_id gets one from a text search of
@@ -113,102 +134,41 @@ function dedupeListings(rows) {
   return { listings: out, duplicates_dropped: dropped };
 }
 
-// How many of a page's reviews are five-star -- computed EXACTLY, or refused.
+// The 1-star flag. Not a penalty and not a count -- a prompt to go and look.
 //
-// Eric's rule (2026-10-20) is that only five-star reviews count, and the
-// Places API never sends a star histogram. But the ownership split (Eric,
-// 2026-10-29: the three main listings are ours through GBP, the nine
-// department pages belong to the franchisor) turns out to fall on exactly the
-// right side of what is computable from public data:
+// WHAT IT CAN AND CANNOT SEE, stated here because the flag's honesty depends on
+// it. Places returns a RELEVANCE SAMPLE of about five reviews per page, each
+// with its own star rating, plus the page's exact total and its average to one
+// decimal. So:
 //
-//   * A page whose whole review set is in `google_review_items` is counted by
-//     reading the stars Google already gave us. Every review, no arithmetic.
-//     Places returns ~5 reviews, so this covers any page at or under that.
-//   * A page with a few unsampled reviews left can still be pinned. The
-//     published average fixes the TOTAL star sum when the one-decimal rounding
-//     band contains a single integer; the residual's deficit from a perfect
-//     5r then says how many are not five-star. That is only FORCED when the
-//     deficit is 0 (all five) or 1 (exactly one four) -- at a deficit of 2 the
-//     page could hold two fours or one three, which are different five-star
-//     counts, so we refuse. Deliberately strict: a count that is merely likely
-//     is an estimate, and estimates must not look like counts.
-//   * The main pages (n = 559 / 648 / 892) cannot be pinned at all: the
-//     rounding band is +/-0.05n, which is +/-32 to +/-44 stars. Refused, with
-//     the reason, forever -- no sample size fixes this.
+//   * On a page we hold in full (every department page: 0-8 reviews) the flag
+//     is CERTAIN. We have every review's stars.
+//   * On a main page (559 / 648 / 892 reviews) we hold about five, so a 1-star
+//     is seen only if Google happens to sample it. It does happen -- a 1-star
+//     from June is in the seven we hold for Bloomington -- but it is not a
+//     guarantee, and the payload says so rather than implying the page is clean.
+//   * The published average cannot rescue it. One 1-star moves a 648-review
+//     4.8 to 4.794, which still prints as 4.8; it takes about NINE of them in a
+//     month to shift the first decimal. So the average only ever catches a
+//     catastrophe, never a single bad review.
 //
-// Returns { count, exact, method, reason }. `exact` false means the caller
-// must present it as an estimate or not at all; it never means zero.
-function exactFiveStar(total, avg, items) {
+// This incompleteness is the reason the rule is a flag rather than a deduction.
+// An automatic halving would pay differently depending on whether Google chose
+// to sample the review, which is not a rule anyone could explain to staff.
+function oneStarWatch(total, items) {
   var held = items || [];
-  var heldFive = held.filter(function(r) { return Number(r.rating) === 5; }).length;
-  if (total === 0) return { count: 0, exact: true, method: "no reviews on the page", reason: null };
-  if (total === null || total === undefined) return { count: null, exact: false, method: null, reason: "never captured" };
-  if (held.length >= total) {
-    return { count: heldFive, exact: true, method: "every one of the " + total + " reviews is held with its own star rating", reason: null };
-  }
-  var residual = total - held.length;
-  if (avg === null || avg === undefined) {
-    return { count: null, exact: false, method: null, reason: "no published average, so the " + residual + " unsampled review(s) cannot be pinned" };
-  }
-  // The star sum is pinned only when the rounding band holds one integer.
-  var lo = Math.ceil((avg - 0.05) * total - 1e-9), hi = Math.floor((avg + 0.05) * total + 1e-9);
-  if (lo > hi) {
-    // No integer star sum rounds to this average at this review count, so the
-    // two readings cannot both be current -- usually a snapshot that moved
-    // after the review items were captured. Named rather than folded into the
-    // ambiguous case, because this one means the INPUTS disagree.
-    return { count: null, exact: false, method: null,
-      reason: "no whole number of stars averages to " + avg + " across " + total + " reviews — the average and the count are from different captures" };
-  }
-  if (lo !== hi) {
-    return { count: null, exact: false, method: null,
-      reason: "the one-decimal average leaves the star sum anywhere in [" + lo + ", " + hi + "] across " + total + " reviews, so a four cannot be told from a five" };
-  }
-  var heldSum = held.reduce(function(a, r) { return a + (Number(r.rating) || 0); }, 0);
-  var residSum = lo - heldSum;
-  var deficit = 5 * residual - residSum;
-  if (deficit < 0 || residSum < residual) {
-    // Arithmetically impossible: the sample and the average disagree. Say so
-    // rather than returning a number built on it.
-    return { count: null, exact: false, method: null,
-      reason: "the held reviews and the published average are inconsistent (residual of " + residual + " would need to sum to " + residSum + ")" };
-  }
-  if (deficit > 1) {
-    return { count: null, exact: false, method: null,
-      reason: "the " + residual + " unsampled review(s) are " + deficit + " stars short of perfect, which several different five-star counts satisfy" };
-  }
-  // deficit 0 -> every residual review is a five. deficit 1 -> exactly one four.
+  var ones = held.filter(function(r) { return Number(r.rating) === 1; });
+  var complete = total !== null && total !== undefined && held.length >= total;
   return {
-    count: heldFive + residual - deficit,
-    exact: true,
-    method: held.length + " of " + total + " held, the remaining " + residual +
-      " pinned by the published average (" + (deficit === 0 ? "all five-star" : "exactly one four-star") + ")",
-    reason: null,
+    one_star_seen: ones.length,
+    reviews_held: held.length,
+    // True only when we hold the page's whole review set, so no screen has to
+    // work out whether "0 one-star" means clean or merely unseen.
+    flag_certain: complete,
+    flag_note: complete
+      ? null
+      : "Google samples about five reviews a page; a 1-star outside that sample is not visible here. Matt's Business Profile inbox is the complete list.",
   };
-}
-
-// The five-star counts a person entered. Separate from the snapshots on
-// purpose: those are what Google reported, this is what somebody counted.
-//
-// If the migration has not been run, PostgREST answers PGRST205 and we say so
-// by name. The alternative -- returning {} and letting the screen render zeros
-// -- is exactly how `tier_celebrations` silently no-opped eight call sites for
-// months (see CONTEXT 10af). An absent table is an error, never an empty month.
-async function readFiveStar(period) {
-  var qy = supabase.from("review_five_star").select("period,store,five_star_count,one_two_star_count,total_reviews_seen,entered_by,notes,updated_at");
-  if (period) qy = qy.eq("period", period);
-  var { data, error } = await qy;
-  if (error) {
-    var missing = String(error.code || "") === "PGRST205" || /review_five_star/.test(String(error.message || "")) && /does not exist|not find/i.test(String(error.message || ""));
-    return {
-      rows: null,
-      missing: missing,
-      error: missing
-        ? "Table review_five_star does not exist. Run sql/migration_review_five_star.sql in the Supabase SQL editor; nothing can be entered or read until then."
-        : error.message,
-    };
-  }
-  return { rows: data || [], missing: false, error: null };
 }
 
 export async function GET(request) {
@@ -244,10 +204,10 @@ export async function GET(request) {
       .select("listing_id,captured_on,rating,total_reviews").order("captured_on", { ascending: true }).limit(20000);
     if (e2) return json({ success: false, error: e2.message }, 500);
 
-    // Needed for the exact five-star derivation below: the per-review stars
-    // Google already handed us. A failure here must not blank the whole
-    // screen, so it degrades to "no exact count" rather than a 500 -- but it
-    // is reported, not swallowed.
+    // The per-review stars Google already handed us, for the 1-star flag. A
+    // failure here must not blank the whole screen, so it degrades to "flag
+    // unknown" rather than a 500 -- but it is reported, not swallowed, and a
+    // failed read must never render as "no 1-star reviews".
     //
     // ⚠ `action=tracking` is UNAUTHENTICATED (the TV reads this route without a
     // session). The select is therefore deliberately `listing_id,rating` and
@@ -271,11 +231,24 @@ export async function GET(request) {
       var before = null;
       for (var i = 0; i < rows.length; i++) { if (rows[i].captured_on < mStart) before = rows[i]; }
       var gained = newest && before ? newest.total_reviews - before.total_reviews : null;
-      var fsCalc = exactFiveStar(
-        newest ? newest.total_reviews : null,
-        newest ? newest.rating : null,
-        itemsByListing[l.id] || []
-      );
+      // A review count cannot go below zero, so a reading of 0 taken INSIDE the
+      // month proves the page held 0 on the first of it. That recovers a gain
+      // for a page we only started tracking mid-month, without inventing a
+      // snapshot: the baseline is deduced, not written to the table.
+      //
+      // Narrow on purpose. It fires only on an actual zero reading -- the nine
+      // department pages went untracked until 2026-10-18, and for the seven
+      // that already had a review on that date the month's gain is genuinely
+      // unknowable and stays null. Today this recovers exactly two pages
+      // (Bloomington electronics, Indianapolis computers), both at 0.
+      var zeroBasis = null;
+      if (gained === null && newest) {
+        for (var z = 0; z < rows.length; z++) {
+          if (rows[z].captured_on >= mStart && rows[z].total_reviews === 0) { zeroBasis = rows[z]; break; }
+        }
+        if (zeroBasis) gained = newest.total_reviews;
+      }
+      var watch = oneStarWatch(newest ? newest.total_reviews : null, itemsByListing[l.id] || []);
       return {
         id: l.id, store: l.store, listing_type: l.listing_type, label: l.label, is_ours: l.is_ours,
         has_place_id: !!l.place_id,
@@ -288,16 +261,21 @@ export async function GET(request) {
         total_reviews: newest ? newest.total_reviews : null,
         captured_on: newest ? newest.captured_on : null,
         gained_this_month: gained,
-        baseline_on: before ? before.captured_on : null,
-        // Exact where the arithmetic forces it, refused with a reason where it
-        // does not. The nine department pages all land on the exact side and
-        // the three main pages never can -- see exactFiveStar.
-        five_star: fsCalc.count,
-        five_star_exact: fsCalc.exact,
-        five_star_method: fsCalc.method,
-        five_star_why_not: fsCalc.reason,
+        baseline_on: before ? before.captured_on : (zeroBasis ? zeroBasis.captured_on : null),
+        // Stated so a screen never has to guess whether a figure was measured
+        // against a real prior reading or deduced from an in-month zero.
+        baseline_deduced: !!zeroBasis,
+        // The flag, plus whether it can be trusted to be complete on this
+        // page. See oneStarWatch: certain on a page we hold in full, only a
+        // sample on a main page.
+        one_star_seen: watch.one_star_seen,
+        flag_certain: watch.flag_certain,
+        flag_note: watch.flag_note,
+        reviews_held: watch.reviews_held,
         // Honest about why a number is absent, rather than showing a zero.
-        note: !newest ? "never captured" : (!before ? "no reading from before " + mStart + " yet — gain unknown until next month" : null),
+        note: !newest ? "never captured"
+          : zeroBasis ? "no reading from before " + mStart + ", but this page read 0 on " + zeroBasis.captured_on + " — so it held 0 on the 1st and the gain is exact"
+          : (!before ? "no reading from before " + mStart + " yet — gain unknown until next month" : null),
       };
     });
 
@@ -307,44 +285,38 @@ export async function GET(request) {
       s.listings.push(r);
       if (r.listing_type === "main") { s.main_rating = r.rating; s.main_total = r.total_reviews; }
       if (r.gained_this_month !== null) s.gained_this_month = (s.gained_this_month || 0) + r.gained_this_month;
-      // Five-star accounting per store, split by whether it is counted or
-      // still owed. The tier is a store total across all four pages, so a
-      // partial sum must NEVER be presented as the store's number -- the
-      // screen needs to know how many pages are missing, which is what
-      // five_star_pages_pending carries.
-      if (r.five_star_exact) {
-        s.five_star_exact_sum = (s.five_star_exact_sum || 0) + (r.five_star || 0);
-        s.five_star_pages_counted = (s.five_star_pages_counted || 0) + 1;
-      } else {
-        s.five_star_pages_pending = (s.five_star_pages_pending || 0) + 1;
-        (s.five_star_pending_pages = s.five_star_pending_pages || []).push({
-          listing_type: r.listing_type, total_reviews: r.total_reviews, why_not: r.five_star_why_not,
-        });
+      // A page with no pre-month baseline makes the store's gain INCOMPLETE,
+      // not wrong. A tier must never be read off a partial sum, so the count
+      // of such pages travels with it rather than being inferred downstream.
+      if (r.gained_this_month === null) {
+        s.pages_without_baseline = (s.pages_without_baseline || 0) + 1;
+        (s.baseline_missing_pages = s.baseline_missing_pages || []).push(r.listing_type);
       }
+      s.one_star_seen = (s.one_star_seen || 0) + r.one_star_seen;
+      if (!r.flag_certain) s.flag_pages_sampled = (s.flag_pages_sampled || 0) + 1;
     });
 
-    // A store's tier number is only complete when every one of its pages is
-    // counted. Stated as a flag so no screen has to infer it.
+    // The tier, computed -- which is the whole point of the simpler rule. The
+    // review total is the one figure Places gives us exactly, so a tier read
+    // off it needs no entry box, no estimate label and no second API.
     Object.keys(stores).forEach(function(k) {
       var st = stores[k];
-      st.five_star_exact_sum = st.five_star_exact_sum || 0;
-      st.five_star_pages_counted = st.five_star_pages_counted || 0;
-      st.five_star_pages_pending = st.five_star_pages_pending || 0;
-      st.five_star_complete = st.five_star_pages_pending === 0;
+      st.pages_without_baseline = st.pages_without_baseline || 0;
+      st.one_star_seen = st.one_star_seen || 0;
+      st.flag_pages_sampled = st.flag_pages_sampled || 0;
+      st.gain_complete = st.pages_without_baseline === 0 && st.gained_this_month !== null;
+      var t = tierFor(st.gained_this_month);
+      st.tier_at = t ? t.at : null;
+      st.tier_pays = t ? t.pays : 0;
+      // Stated on the payload, not only in the UI: nothing here is approved to pay.
+      st.payable = false;
     });
-
-    // The five-star counts a person entered for this month, if the table is
-    // there. A missing table is reported, not swallowed — the screen says the
-    // migration has not been run rather than showing everyone zero five-stars.
-    var fsT = await readFiveStar(mStart.slice(0, 7));
 
     return json({
       success: true, month_start: mStart, today: today,
       period: mStart.slice(0, 7),
-      five_star_entered: fsT.rows ? (function() { var o = {}; fsT.rows.forEach(function(r) { o[r.store] = r; }); return o; })() : null,
-      five_star_table_missing: fsT.missing,
-      five_star_error: fsT.error,
-      five_star_migration: fsT.missing ? "sql/migration_review_five_star.sql" : null,
+      tiers: TIERS,
+      floor: TIERS[0].at,
       stores: Object.values(stores),
       competitors: out.filter(function(r) { return !r.is_ours; }),
       // Surfaced, never silent: the sync cannot run for these.
@@ -354,14 +326,15 @@ export async function GET(request) {
       duplicates_dropped: LDe.duplicates_dropped,
       ever_captured: out.filter(function(r) { return r.captured_on; }).length,
       total_listings: out.length,
-      // How much of the five-star count is now computed rather than typed.
-      // The split is the ownership split: the franchisor's nine department
-      // pages are small enough to count exactly from public data, and the
-      // three main pages Eric owns are the ones that need the Business
-      // Profile Reviews API. Reported so the screen states which is which.
-      five_star_exact_pages: out.filter(function(r) { return r.is_ours && r.five_star_exact; }).length,
-      five_star_pending_pages: out.filter(function(r) { return r.is_ours && !r.five_star_exact; }).length,
+      // How complete the 1-star flag is, page by page: certain on the pages we
+      // hold in full, a sample on the three main pages. Reported so a screen
+      // can say which, rather than letting a zero read as "clean".
+      flag_certain_pages: out.filter(function(r) { return r.is_ours && r.flag_certain; }).length,
+      flag_sampled_pages: out.filter(function(r) { return r.is_ours && !r.flag_certain; }).length,
+      // A failed items read means the flag is UNKNOWN, not that there are no
+      // 1-star reviews. Surfaced either way.
       review_items_error: e3 ? e3.message : null,
+      flag_unavailable: !!e3,
     });
   }
 
@@ -395,13 +368,14 @@ export async function GET(request) {
     var rlTotal = {};
     (rlSnap || []).forEach(function(sn) { if (rlTotal[sn.listing_id] === undefined) rlTotal[sn.listing_id] = sn.total_reviews; });
 
-    // Only 5-star reviews count for anything (Eric, 2026-10-20), so the
-    // leaderboard counts them and nothing else. A 4-star naming someone is not
-    // a smaller credit, it is no credit.
+    // Every review counts (Eric, 2026-10-30). The single exception is a 1-star,
+    // which credits nobody -- being named in a complaint is not recognition.
+    // Note this board therefore shows MORE names than it did under the
+    // five-star-only rule, which is the intended effect.
     var company = {}, perStore = { fishers: {}, bloomington: {}, indianapolis: {} };
     var counted = 0, namedTotal = 0;
     (rlItems || []).forEach(function(it) {
-      if (Number(it.rating) !== 5) return;
+      if (Number(it.rating) === 1) return;
       counted += 1;
       var l = rlById[it.listing_id] || {};
       if (!l.is_ours) return;
@@ -446,9 +420,9 @@ export async function GET(request) {
       named_bonus: { main: 10, thin: 20 },
       // Honest about the denominator: this counts the reviews Google handed us,
       // which is a relevance sample and not the full set.
-      five_star_seen: counted,
+      reviews_seen: counted,
       named_seen: namedTotal,
-      coverage_note: "Counts the five-star reviews Google returned, which is a sample rather than every review. Leaderboard order is indicative; the Business Profile inbox is the record.",
+      coverage_note: "Counts the reviews Google returned, which is a sample rather than every review. Leaderboard order is indicative; the Business Profile inbox is the record.",
     });
   }
 
@@ -460,17 +434,14 @@ export async function GET(request) {
   // 1. COVERAGE. Places returns a RELEVANCE SAMPLE of reviews (~5 a page), not
   //    the newest and not all of them. 31 captured while the counts moved by 14
   //    in the same window. Totals are exact; this list is not complete.
-  // 2. STAR COUNTS ARE NOT DERIVABLE. Eric's rule (2026-10-20) is that only 5
-  //    reviews count. Places gives a total and an average rounded to one
-  //    decimal, so the star-sum is uncertain by 0.05 x n -- +/-32 on Fishers
-  //    main, +/-44 on Indianapolis. That cannot resolve one review, let alone
-  //    separate a 4 from a 5. Exact five-star counts need the Business Profile
-  //    Reviews API (owner OAuth), or a person reading the inbox.
+  // 2. A 1-STAR OUTSIDE THE SAMPLE IS INVISIBLE here, so the flag this returns
+  //    is "what we can see", never "the page is clean". See oneStarWatch.
   //
-  // So the five-star figures DERIVED FROM THIS SAMPLE are labelled estimates.
-  // Exact per-page counts, where the arithmetic forces them, come from
-  // ?action=tracking instead -- see exactFiveStar. Nothing here computes a
-  // payable amount either way.
+  // Every review counts toward the store tier (Eric, 2026-10-30), so nothing
+  // here has to derive a star breakdown -- the tier comes from the exact
+  // totals in ?action=tracking. The only star test left is the narrow one: a
+  // 1-star review does not earn its named employee a bonus. Nothing here
+  // computes a payable amount.
   if (action === "credits") {
     var cGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
     if (!cGate.authorized) return cGate.response;
@@ -505,7 +476,11 @@ export async function GET(request) {
       if (r === 5 || r === 4 || r === 3 || r === 2 || r === 1) mix[r] += 1; else mix.unknown += 1;
 
       var credits = creditReview(it.text, cRoster || []);
-      var counts = r === 5;
+      // Every review counts as a review. The one exception is the obvious
+      // one: a 1-star does not pay the person it names, and it raises a flag
+      // instead. A 2, 3 or 4 star counts and pays -- Eric, 2026-10-30, after
+      // the five-star-only rule turned out not to be computable at all.
+      var counts = r !== 1;
       return {
         id: it.id,
         store: l.store || null,
@@ -517,10 +492,9 @@ export async function GET(request) {
         text: it.text || null,
         has_photo: !!it.has_photo,
         posted_at: it.posted_at || null,
-        // Eric 2026-10-20: only 5 counts. A 4 or 3 is not a smaller credit,
-        // it is no credit -- and it does not count toward the tier either.
         counts_for_tier: counts,
-        why_not: counts ? null : (r == null ? "no rating captured" : r + " star — only 5 star counts"),
+        flagged: r === 1,
+        why_not: counts ? null : "1 star — flagged for a person to look at, and it pays nobody",
         proposed_credits: credits.map(function(c) {
           return {
             name: c.name,
@@ -528,7 +502,7 @@ export async function GET(request) {
             payable: c.payable,
             // 0 whenever it cannot pay, so no screen has to re-derive the rule.
             amount: (counts && c.payable) ? (thin ? NAMED_THIN : NAMED_MAIN) : 0,
-            blocked: !c.payable ? "not bonus-eligible" : (!counts ? "not a 5 star review" : null),
+            blocked: !c.payable ? "not bonus-eligible" : (!counts ? "1 star review" : null),
           };
         }),
       };
@@ -537,35 +511,17 @@ export async function GET(request) {
     var scored = mix[5] + mix[4] + mix[3] + mix[2] + mix[1];
     return json({
       success: true,
-      rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, only_five_star: true },
+      rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, every_review_counts: true, one_star_pays_nobody: true },
       rating_mix: mix,
-      // Measured, not assumed -- and the sample it is measured on is small.
-      five_star_share: scored ? mix[5] / scored : null,
-      five_star_share_sample: scored,
-      // Partially countable, and the split is worth stating precisely because
-      // it decides how much of this is manual. Eric owns only the three main
-      // listings through GBP; the nine department pages are the franchisor's.
-      // Those nine are all small enough to count exactly from public data
-      // (?action=tracking derives them), so the pages he CANNOT reach are the
-      // ones he does not need the API for, and the three he CAN reach are the
-      // only ones that need it.
-      five_star_countable: "department_pages_only",
-      five_star_blocker: "Exact per-page five-star counts are derived for the nine department listings (every review is held, or the unsampled remainder is pinned by the published average). The three main listings cannot be derived at any sample size: a one-decimal average leaves the star sum uncertain by 0.05 x review count, which is +/-28 to +/-45 stars at 559-892 reviews. Those three need the Business Profile Reviews API (owner OAuth on the listings Eric owns) or a person reading the Business Profile inbox.",
+      rating_mix_sample: scored,
+      // The flag, over the sample we hold. NOT a count of the month's 1-star
+      // reviews -- a main page shows us about five of its several hundred, so
+      // zero here means "none seen", never "none happened".
+      one_star_seen: mix[1],
+      one_star_coverage: "Places returns a relevance sample of reviews, not all of them. A 1-star outside that sample does not appear here. Review TOTALS are exact; this list is not complete.",
       text_coverage: "Places returns a relevance sample of reviews, not all of them. This list is incomplete by design; review totals are exact.",
       items: rows.sort(function(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }),
     });
-  }
-
-  // ── the hand-entered five-star counts ──────────────────────────
-  if (action === "five_star") {
-    var fGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
-    if (!fGate.authorized) return fGate.response;
-    var fPeriod = searchParams.get("period") || indyToday().slice(0, 7);
-    var fs = await readFiveStar(fPeriod);
-    if (fs.error) return json({ success: false, error: fs.error, table_missing: fs.missing, migration: "sql/migration_review_five_star.sql" }, fs.missing ? 503 : 500);
-    var byStore = {};
-    fs.rows.forEach(function(r) { byStore[r.store] = r; });
-    return json({ success: true, period: fPeriod, by_store: byStore, rows: fs.rows });
   }
 
   // ── capture today's reading ───────────────────────────────────────────────
@@ -668,67 +624,10 @@ export async function GET(request) {
   return json({ success: false, error: "Unknown action" }, 400);
 }
 
-// ── saving the hand-entered counts ──────────────────────────────────────────
-// Upsert on (period, store) so a correction overwrites rather than duplicating.
-// Writes nothing to any bonus ledger: this records what was counted, and the
-// bonus itself is not approved or wired.
-export async function POST(request) {
-  if (!supabase) return json({ success: false, error: "Supabase not configured" }, 500);
-  var gate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
-  if (!gate.authorized) return gate.response;
-
-  var body = null;
-  try { body = await request.json(); } catch (e) { return json({ success: false, error: "Body is not JSON" }, 400); }
-  var action = body && body.action;
-
-  if (action === "save_five_star") {
-    var period = String(body.period || "").trim();
-    var store = String(body.store || "").trim().toLowerCase();
-    if (!/^\d{4}-\d{2}$/.test(period)) return json({ success: false, error: "period must be YYYY-MM" }, 400);
-    if (["fishers", "bloomington", "indianapolis"].indexOf(store) < 0) return json({ success: false, error: "unknown store: " + store }, 400);
-
-    function nonNeg(v, name) {
-      if (v === null || v === undefined || v === "") return null;
-      var n = Number(v);
-      if (!isFinite(n) || n < 0 || Math.floor(n) !== n) throw new Error(name + " must be a whole number of 0 or more");
-      return n;
-    }
-    var five, bad, seen;
-    try {
-      five = nonNeg(body.five_star_count, "five_star_count");
-      bad = nonNeg(body.one_two_star_count, "one_two_star_count");
-      seen = nonNeg(body.total_reviews_seen, "total_reviews_seen");
-    } catch (e) { return json({ success: false, error: String(e.message) }, 400); }
-    if (five === null) return json({ success: false, error: "five_star_count is required" }, 400);
-
-    var row = {
-      period: period, store: store,
-      five_star_count: five,
-      one_two_star_count: bad === null ? 0 : bad,
-      total_reviews_seen: seen,
-      // requireAuth returns { authorized, result, response } — the person is on
-      // `result`, not on the gate itself. Reading gate.user would have stored null.
-      entered_by: (function() { var w = gate.result || {}; return w.name || w.email || null; })(),
-      notes: body.notes ? String(body.notes).slice(0, 500) : null,
-      updated_at: new Date().toISOString(),
-    };
-    var { data, error } = await supabase.from("review_five_star")
-      .upsert(row, { onConflict: "period,store" }).select();
-    if (error) {
-      var missing = String(error.code || "") === "PGRST205";
-      // Loud: a write that cannot land must never answer 200.
-      console.error("[google-tracking] save_five_star failed:", error.message);
-      return json({
-        success: false,
-        error: missing
-          ? "Table review_five_star does not exist. Run sql/migration_review_five_star.sql in the Supabase SQL editor; nothing was saved."
-          : error.message,
-        table_missing: missing,
-        migration: missing ? "sql/migration_review_five_star.sql" : null,
-      }, missing ? 503 : 500);
-    }
-    return json({ success: true, saved: (data && data[0]) || row });
-  }
-
-  return json({ success: false, error: "Unknown action: " + String(action) }, 400);
-}
+// NO POST HANDLER, deliberately. The only write this route ever had was
+// save_five_star, the hand-entered five-star count. The tier is now computed
+// from the review totals Google reports exactly, so there is nothing to type
+// and nothing to keep in sync with what Google says. A stale client that still
+// POSTs here gets a 405 from Next, which is the loud answer -- it used to get a
+// 200 for a number nobody needs. `review_five_star` is left in the database,
+// empty and unread; dropping a table is Eric's call, not a side effect of this.

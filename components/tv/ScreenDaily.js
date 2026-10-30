@@ -55,7 +55,9 @@ export default function ScreenDaily(props) {
     : revTotal === null ? "Never captured — run the sync"
     : revGained === null ? "Counting from next month"
     : null;
-  // 15 five-stars a month is the aim Eric has always set.
+  // 15 reviews a month is the aim Eric has always set. Note this is the AIM,
+  // not the bonus floor -- the tier starts at 10 (see ReviewsTab). Every
+  // review counts toward both; the five-star-only rule is gone.
   var REV_TARGET = 15;
 
   // ── Month answer-rate bonus for THIS store ─────────────────────────

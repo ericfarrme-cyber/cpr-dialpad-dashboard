@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts + a 1★ flag, which made the tier exact and deleted the five-star blocker § 10ao** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -636,6 +636,62 @@ zero-profit, customer-journey and tickets were already on the fallback.
 "Last, First". Its inputs are mostly "First Last" already so the only split is **"Sam Tomey" (4)
 from "Samuel Tomey" (46)** — left alone rather than bundled.
 
+10ao. **Review bonus simplified — every review counts, a 1★ is a flag. SHIPPED 2026-10-30.**
+Eric: *"Maybe we make it simple. I think it just needs to flag if it notices that there's a 1-star
+and then everything else we just count as a review. We really need to simplify this."* One decision
+that **deleted the blocker instead of working around it**, and it is worth recording why: the 5★-only
+rule was not computable from Places at all (§ 10al), so the tab shipped with a red banner, every
+figure labelled an estimate, and two numbers per store for Matt to type each month. **The review
+total is the one figure Google reports exactly.** Counting every review makes the tier exact, so the
+estimate labels, the entry boxes, the `review_five_star` read/write path and the Business Profile
+Reviews API ask are all gone. **Net −123 lines of route.** The simpler rule is also the *lower* bar:
+80.6% of reviews are 5★, so ten reviews is ~20% easier to reach than ten five-star.
+  • **Tier: 10 / 15 / 20 reviews → $50 / $75 / $100**, unchanged, now computed. **`TIERS` lives in
+    the route only** — `ReviewsTab` had its own copy of the table, which is how two screens come to
+    disagree about what a store earned; it now reads `tracking.tiers` / `.floor`.
+  • **The 1★ is a flag, not a deduction** — the earlier rule halved a store's tier and zeroed it on a
+    second. **The data is why a penalty would be wrong, not just a preference:** on a page we hold in
+    full the flag is certain, but on a main page Places shows ~5 reviews of several hundred, so a
+    penalty would land or not depending on **what Google chose to sample**. Measured: a 1★ moves a
+    648-review 4.8 to 4.794, still printing as 4.8 — it takes **~9 in one month** to shift the first
+    decimal, so the average only ever catches a catastrophe. `oneStarWatch` therefore returns
+    `flag_certain` per page and the UI says "none **seen**", never "none happened".
+  • **A 1★ pays nobody; 2★, 3★ and 4★ count and pay.** The only star test left.
+  • **The TV board did not move** — checked before shipping rather than assumed. Under 5★-only vs
+    every-but-1★ the company list is **identical** (Aerick 5, Samuel 3, Andrew 2, Alec/Alyssa/Luke/Slade
+    1): no non-5★ review in the sample names a roster person, and **the single captured 1★ names
+    nobody**, so the blocking rule costs no one anything today. 42 items: 36×5★, 3×4★, 2×3★, 1×1★.
+  • **October, exact: Bloomington 7 · Indianapolis 7 · Fishers 5.** No store reaches 10, which is the
+    third month running that the answer has been the same — **recommendation stands: make November
+    the effective month.** The 1★ flag reads 1, on Bloomington's main page, posted 2026-06-25.
+  • **Provable-zero baselines** (`baseline_deduced`). The nine department pages were untracked until
+    2026-10-18, so their October gain had no baseline. A review count cannot go below zero, so a
+    reading of **0 taken inside the month proves the page held 0 on the 1st** — the baseline is
+    deduced, never written to the snapshot table. Recovers exactly **2 pages** today (Bloomington
+    electronics, Indianapolis computers), both at 0. The other seven already had a review on 10-18
+    and stay `null`, which is the honest answer.
+  • ⚠ **Still unknown and worth one decision: Indianapolis consoles took its first ever review on
+    2026-10-21** (§ 10am) and that review is **not in the +7**. Its 10-18–10-20 snapshots are `null`,
+    and the provable-zero rule will not trust a null. Backfilling those nulls to 0 (offered on
+    2026-10-29, still not done) would pin the baseline and credit it. **I did not backfill** — the
+    nulls predate the `e6174f8` "no reviews is 0, not unknown" fix, and writing an inferred 0 into
+    the snapshot table to make a count go up is exactly the invented-figure trap. Evidence it really
+    was zero: the three null pages all became 0 the day the fix landed, and Indy consoles stopped
+    being null **on the day it got its review**. Eric's call.
+  • **No POST handler on `google-tracking` any more.** `save_five_star` was its only write; a stale
+    client now gets a **405** instead of a 200 for a number nobody needs. `review_five_star` is left
+    in the database, empty and unread — dropping a table is Eric's call, not a side effect of this.
+  • ⚠ **One decision left, and the simplification already answered the version I asked on 10-29.**
+    That question was whether Matt's entry box should mean "main page only"; there is no entry box
+    now, so it is moot. What remains is whether the **1★ halving** is really dead — Eric's earlier
+    rule, now replaced by a flag. Nothing pays, so it does not block.
+  • Also fixed: `ReviewsTab` was using the **tier floor** where it meant the **page-established
+    threshold** in three places. Both read 10, so it was invisible — and wrong the day either moves.
+    Now `tracking.floor` and `credits.rules.thin_under` respectively.
+  ⚠ **Verified against live production data through the routes** (tracking, review_leaders, the 401
+  on credits, the 405 on POST) and with a clean `npx next build` grepped for "Attempted import
+  error". **The UI is Eric's to confirm** — local dev has no auth bypass.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -698,6 +754,20 @@ from "Samuel Tomey" (46)** — left alone rather than bundled.
   the arithmetic pins a *lifetime* count, and the bonus pays *monthly*, so it is 8 of 12 pages exact
   for October, not 9. The manual entry drops from 12 pages to 4, but re-reading the entry box as
   "main page only" is Eric's call, so it is not wired. Nothing pays anybody.
+- **2026-10-30** — **Review bonus simplified on Eric's call, and the simplification removed the
+  blocker rather than routing around it** (§ 10ao). Counting every review instead of only five-star
+  makes the tier **exact**, because the review total is the one figure Places reports exactly — so
+  the red banner, every "estimate" label, Matt's monthly entry boxes, the `review_five_star` write
+  path and the Business Profile Reviews API ask all went away at once, and the bar got ~20% easier
+  rather than harder. A 1★ is now a **flag, not a deduction**, and the data is the argument: on a
+  main page Google shows us about five reviews of several hundred, so a penalty would land or not
+  depending on what Google chose to sample, and the published average cannot help — it takes about
+  nine 1★ in a month to move 4.8 off 4.8. Checked before shipping that **the TV leaderboard does
+  not move** (identical under both rules; the one captured 1★ names nobody). Also deleted
+  `ReviewsTab`'s private copy of the tier table, and the day's one new capability is small and
+  provable: a 0 reading inside the month pins an Oct-1 baseline of 0, recovering two department
+  pages without writing a snapshot. **October is exact and no store reaches 10 — Bloomington 7,
+  Indianapolis 7, Fishers 5** — so the recommendation to start the bonus in November stands.
 - **2026-10-27 (later)** — **GP attribution fixed** (`63f0748`, § 10an) on Eric's go-ahead, isolated
   in its own commit as a payroll-adjacent file. Aug–Oct credited GP goes **$173,978.14 → $194,269.94**;
   the 246 insurance tickets RepairQ opens as "API, Assurant ServiceNetwork" now reach the technician who

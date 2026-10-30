@@ -15,7 +15,7 @@
 //
 // Layout:
 //   ┌───────────────────────────────┬──────────────────────────────────────┐
-//   │  THIS STORE — named in 5★     │  WORTH $20 RIGHT NOW                 │
+//   │  THIS STORE — named in a review │  WORTH $20 RIGHT NOW                 │
 //   │  1. Aerick Long          5    │  Indy · consoles      0 reviews      │
 //   │  2. Alyssa Parent        1    │  Fishers · computers  1 review       │
 //   ├───────────────────────────────┤  …                                   │
@@ -133,7 +133,7 @@ export default function ScreenReviews(props) {
 
         <div style={panel()}>
           <Title color={accent} right={"$" + bonus.main + " each · $" + bonus.thin + " on a new page"}>
-            {(STORE_LABELS[store] || store) + " — named in a 5★ review"}
+            {(STORE_LABELS[store] || store) + " — named in a review"}
           </Title>
           {mine.length === 0 ? (
             <Empty>Nobody here has been named yet.<br />First one on the board owns this screen.</Empty>
@@ -215,7 +215,7 @@ export default function ScreenReviews(props) {
             })}
           </div>
           <div style={{ fontSize: 12.5, color: FAINT, textAlign: "center", marginTop: 6 }}>
-            Ten five-star reviews starts the bonus. Ask every customer.
+            Ten reviews starts the bonus — every review counts. Ask every customer.
           </div>
         </div>
       </div>
