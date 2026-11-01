@@ -117,7 +117,14 @@ export default function ScreenReviews(props) {
 
   var mine = (leaders.by_store && leaders.by_store[store]) || [];
   var company = leaders.company || [];
-  var thin = (leaders.thin_pages || []).slice(0, 7);
+  // Capped at 7 so the panel does not overflow at TV scale. The full count
+  // travels with it and the heading says so when it is cut: a truncated list
+  // under a heading that reads as complete is how "Closed by" came to look
+  // like a claim that Sam does no non-phone work (CONTEXT 10ac). There are
+  // nine department pages and all nine are under ten reviews today, so this
+  // list IS cut.
+  var thinAll = leaders.thin_pages || [];
+  var thin = thinAll.slice(0, 7);
   var bonus = leaders.named_bonus || { main: 10, thin: 20 };
 
   // Reviews gained this month per store, from the tracking payload the TV
@@ -166,7 +173,11 @@ export default function ScreenReviews(props) {
       <div style={{ display: "grid", gridTemplateRows: "1.35fr 1fr", gap: 20, minHeight: 0 }}>
 
         <div style={panel()}>
-          <Title color={GREEN} right={"$" + bonus.thin + " a named review"}>Pages still worth ${bonus.thin}</Title>
+          <Title color={GREEN} right={"$" + bonus.thin + " a named review"}>
+            {thinAll.length > thin.length
+              ? "The emptiest " + thin.length + " of " + thinAll.length + " pages worth $" + bonus.thin
+              : "Pages still worth $" + bonus.thin}
+          </Title>
           {thin.length === 0 ? (
             <Empty>Every page is past ten reviews. That took some doing.</Empty>
           ) : (

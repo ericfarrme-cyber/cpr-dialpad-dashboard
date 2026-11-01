@@ -137,7 +137,7 @@ export default function ScreenDaily(props) {
       <Panel accent="#00D4FF">
         <PanelLabel color="#00D4FF">📞 Calls Today</PanelLabel>
         <BigNumber value={totalCalls} color="#1A2233" />
-        <div style={{ display: "flex", gap: "clamp(20px, 3vw, 36px)", marginTop: "clamp(10px, 2vh, 20px)" }}>
+        <div style={{ display: "flex", gap: "clamp(20px, 3vw, 36px)", marginTop: "clamp(6px, 1.2vh, 13px)" }}>
           <Stat label="Answered" value={answered} color="#10B981" />
           <Stat label="Missed" value={missed} color={missed > 0 ? "#DC2626" : "#9CA3AF"} />
           {afterHoursMissed > 0 ? (
@@ -146,7 +146,7 @@ export default function ScreenDaily(props) {
         </div>
 
         {/* ── Reviews this month ── */}
-        <div style={{ marginTop: "clamp(10px, 2vh, 18px)", paddingTop: "clamp(10px, 1.5vh, 16px)", borderTop: "1px solid #E5E7EB" }}>
+        <div style={{ marginTop: "clamp(6px, 1.2vh, 12px)", paddingTop: "clamp(6px, 1vh, 11px)", borderTop: "1px solid #E5E7EB" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#F59E0B", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
               {"⭐ Reviews This Month"}
@@ -160,7 +160,7 @@ export default function ScreenDaily(props) {
           ) : (
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
-                <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: "tabular-nums",
+                <div style={{ fontSize: "clamp(24px, 4.5vh, 44px)", fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: "tabular-nums",
                               color: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }}>
                   {revGained}
                 </div>
@@ -185,11 +185,11 @@ export default function ScreenDaily(props) {
       <Panel accent={rateColor}>
         <PanelLabel color={rateColor}>🎯 Answer Rate Today</PanelLabel>
         {answerRate === null ? (
-          <div style={{ fontSize: "clamp(48px, 10vh, 96px)", fontWeight: 900, color: "#9CA3AF" }}>—</div>
+          <div style={{ fontSize: "clamp(36px, 7vh, 72px)", fontWeight: 900, color: "#9CA3AF" }}>—</div>
         ) : (
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, lineHeight: 1 }}>
-            <div style={{ fontSize: "clamp(80px, 18vh, 180px)", fontWeight: 900, color: rateColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{answerRate}</div>
-            <div style={{ fontSize: "clamp(32px, 6vh, 64px)", fontWeight: 700, color: rateColor }}>%</div>
+            <div style={{ fontSize: "clamp(52px, 9.6vh, 108px)", fontWeight: 900, color: rateColor, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{answerRate}</div>
+            <div style={{ fontSize: "clamp(22px, 4vh, 44px)", fontWeight: 700, color: rateColor }}>%</div>
           </div>
         )}
         <div style={{ marginTop: "clamp(8px, 1.5vh, 16px)", fontSize: "clamp(14px, 1.8vh, 18px)", color: "#6B7280" }}>
@@ -201,7 +201,7 @@ export default function ScreenDaily(props) {
 
         {/* ── Monthly answer-rate bonus indicator ── */}
         {bonusStore && (
-          <div style={{ marginTop: "clamp(10px, 2vh, 18px)", paddingTop: "clamp(10px, 1.5vh, 16px)", borderTop: "1px solid #E5E7EB" }}>
+          <div style={{ marginTop: "clamp(6px, 1.2vh, 12px)", paddingTop: "clamp(6px, 1vh, 11px)", borderTop: "1px solid #E5E7EB" }}>
             <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div style={{ fontSize: "clamp(11px, 1.4vh, 14px)", color: "#7B2FFF", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
                 {"\uD83D\uDCB5 This Month's Bonus"}
@@ -211,7 +211,7 @@ export default function ScreenDaily(props) {
               </div>
             </div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6, paddingBottom: 4, overflow: "visible" }}>
-              <div style={{ fontSize: "clamp(34px, 7vh, 64px)", fontWeight: 900, color: monthBonus > 0 ? "#10B981" : "#9CA3AF", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
+              <div style={{ fontSize: "clamp(24px, 4.5vh, 44px)", fontWeight: 900, color: monthBonus > 0 ? "#10B981" : "#9CA3AF", lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
                 {"$" + monthBonus}
               </div>
               <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>/ person</div>
@@ -356,7 +356,7 @@ function Panel(props) {
     <div style={{
       background: "#FFFFFF",
       borderRadius: 16,
-      padding: "clamp(16px, 2.5vh, 28px)",
+      padding: "clamp(14px, 2vh, 22px)",
       border: "1px solid #E5E7EB",
       borderTop: "3px solid " + props.accent,
       boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)",
@@ -381,7 +381,7 @@ function PanelLabel(props) {
 function BigNumber(props) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, lineHeight: 1 }}>
-      <div style={{ fontSize: "clamp(60px, 14vh, 140px)", fontWeight: 900, color: props.color || "#1A2233", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
+      <div style={{ fontSize: "clamp(38px, 6.5vh, 70px)", fontWeight: 900, color: props.color || "#1A2233", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{props.value}</div>
       {props.suffix && <div style={{ fontSize: "clamp(16px, 2.6vh, 28px)", fontWeight: 700, color: "#6B7280" }}>{props.suffix}</div>}
     </div>
   );
