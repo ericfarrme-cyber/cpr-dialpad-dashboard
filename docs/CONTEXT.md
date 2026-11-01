@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-01 (TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-01 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -837,6 +837,22 @@ guessed**: at 1920×1080 the two top Daily Dash panels had `scrollHeight` **534 
   ⚠ The lesson repeats: **a panel with `overflow: hidden` and a fixed grid row will swallow whatever
   is added last, silently.** Anything added below a hero on the TV needs a re-measure, not a glance.
 
+10at. **WE DO NOT TEXT CUSTOMERS** (Eric, 2026-11-01: *"Corp guidelines prevent us from texting clients
+by the way"*). **The app was telling staff to.** `MyPerformanceTab`'s "Make It Easy" tip has read
+*"Have a QR code at the counter or text them the direct review link right after the repair"* since it
+was written, and the new review card said a customer cannot find the department page *"unless you send
+them the link"*. Both now name the two channels that are allowed and in the room: **open the page on
+the counter screen while the customer is still there, or keep a QR by the register.** "Copy link"
+stays — it is how you make that QR or counter card — and the card now says plainly what it is not for.
+  ⚠ **Anything added to this repo that nudges a customer must pass this test.** The review push is
+  the obvious place, but so is any future appointment reminder, follow-up or deposit chase. The
+  channel question is a policy question, not a UX one, and the answer here is: **in person, at the
+  counter.** Nobody had told the dashboard, so it had been coaching against policy for weeks.
+  • Also raised the review card's 9px uppercase labels from `--text-muted` to `--text-secondary`
+    (3.4:1 → 5.2:1 on the dark card).
+  • **Mock of the card from the live rows**, two people because its shape changes a lot between them:
+    https://claude.ai/artifact/WrdvscjDkbSzAW8eSd6L9Q (private — Eric shares it from the Share menu).
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -890,6 +906,11 @@ guessed**: at 1920×1080 the two top Daily Dash panels had `scrollHeight` **534 
 ---
 
 ## 8. Recent changes log
+- **2026-11-01 (later still)** — **Eric: corporate guidelines forbid texting clients — and the app
+  had been telling staff to do it** (§ 10at). Not a new feature's mistake: the "Make It Easy" tip has
+  said "text them the direct review link" since it was written. Both that tip and the new review card
+  now point at the counter screen and a QR by the register. Worth keeping in mind for anything that
+  nudges a customer, not just reviews.
 - **2026-11-01 (later)** — **The TV board has been clipping its own cards** (§ 10as). Opening it to
   check the new links showed the Daily Dash cutting ~115px off both top panels at 1080p — the whole
   review progress block on one side and the bonus tier track on the other, both added under heroes
