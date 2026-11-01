@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-01 (TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -758,6 +758,66 @@ otherwise."* **One 1★ halves the store's tier for the month; a second zeroes i
   `npx next build` grepped for "Attempted import error". **The UI is Eric's to confirm** — local dev
   has no auth bypass, so neither the record form nor a real deduction has been clicked.
 
+10aq. **TV dashboard link on every page — SHIPPED 2026-11-01** (`9163f6f`), closing **open item 17**.
+Eric: *"lets make sure there is a TV dash link available to each store on their respective pages in
+case they need it."* `/tv?store=<key>` has been public and unauthenticated since it shipped; the only
+way onto it was remembering the query string.
+  • One shared `components/TVLink.js` so the URL shape lives in one place and a store can never be
+    sent to another store's board. Placed in three headers: the **main dashboard** (follows the store
+    toggle), the **appointments page** (follows the store selected there — which also covers **My
+    Performance**, since it renders under that header), and the **Price Book** (the viewer's own store).
+  • **"All Stores" renders a three-store picker rather than guessing.** `/tv` itself still defaults to
+    Fishers, which is right for a bookmark and wrong for a button somebody clicks while looking at all
+    three. Opens in a new tab — the board is meant to be left up on a second screen.
+
+10ar. **"Where to ask for a review" — SHIPPED 2026-11-01** (`24f5b67`). The free half of the review
+push from § 10al, built **independent of the bonus** because no bonus fixes a link that does not
+exist. The "Make It Easy" tip on My Reviews has said *"text them the direct review link"* since it was
+written, with **no link anywhere in the app to text**.
+  • New **`google-tracking?action=ask_pages&name=`** (any signed-in role) reads the work the person
+    actually closed and maps it to the page for that kind of work. **Explicit allowlist, never a
+    prefix match**: `game_console` → consoles, `laptop`/`computer` → computers,
+    `tablet`/`watch`/`other` → electronics, `phone` → main. An unmapped category is **counted and
+    shown**, never dropped. Card in `components/ReviewAskCard.js`, at the top of My Reviews and
+    **outside** the `reviewBonus` gate — which page to ask on must not depend on the monthly sheet
+    having been filled in, and that sheet is the thing that is sometimes missing.
+  • ⚠⚠ **TWO CORRECTIONS TO MY OWN FIRST CUT, both found by running it against live data.**
+    **(1) It dropped phone work entirely**, on the theory that only the department pages need help.
+    That throws away **about 60% of every tech's tickets** (41–75 of each person's 30-day total), and
+    the store **tier counts every review across all four pages**, so a phone review pays the store
+    exactly like a console one. Main pages now flow through as ordinary rows; they carry **559 / 650 /
+    893** reviews so they are never thin and the existing sort already puts them last — the special
+    case disappeared rather than being patched.
+    **(2) `thin` omitted the main-page exclusion that `credits` has.** Inert today, but a failed
+    snapshot reading low on a main page would have had this screen promise the **$20** premium where
+    `credits` would not — **two screens quietly disagreeing about pay**. Same test now, clause for
+    clause, and `THIN_UNDER`/`NAMED_MAIN`/`NAMED_THIN` hoisted to module scope so there is one
+    definition, not two (the TIERS lesson from § 10ao).
+  • **The card shows NO DOLLAR FIGURES.** The route returns `named_amount`, but the bonus is not
+    approved and a number on a technician's own screen reads as a promise of pay. *"Still under 10
+    reviews"* ranks the same rows without promising anything. **Put the money there only once Eric
+    signs the bonus off** — that is the one edit this card needs then.
+  • **Measured for all 8 technicians over 30 days**, through the real `lib/roster-resolver.js` and
+    the route's own bucket map. **Every person's accounting balances exactly** (`placed +
+    uncategorised = tickets_matched`), "Sam Tomey" resolves to Samuel Tomey, an unknown name returns
+    no rows, and `employee_repaired || employee_added` is used so the insurance tickets of § 10an
+    prompt the technician who did the work.
+  • **What it surfaced: all nine department pages are under ten reviews and four have NEVER been
+    reviewed** (Indy computers 0, Bloomington electronics 0, Indy consoles 1, Bloomington computers 1,
+    Fishers computers 1). Duncan alone closed work against **nine different department pages** in 30
+    days. And **19–33 tickets per person carry no `device_category`** — 625 of 2,456 since August,
+    a quarter of everything. That is **open item 11 showing through**, and the card states it in the
+    person's own words ("that is a gap in how the ticket was graded, not in your work") rather than
+    hiding the shortfall.
+  ⚠ **Verified through the route and against live data**: 401 without a session on the new action
+  (checked **before** the name validation), `?action=tracking` still unauthenticated as designed, the
+  threshold hoist leaving `credits` byte-identical in behaviour, and a clean `npx next build`. **The
+  card itself is Eric's to confirm.**
+  • **Build method worth keeping:** Eric had a dev server on **:3001**, and `npm run build` wipes
+    `.next` under a running dev server and 500s every route. Both builds this session ran in a **copy
+    of the tree in the scratchpad with `node_modules` junctioned in** (3.3 MB copy, full real build),
+    so his server never went down. Use that instead of killing his process.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -765,7 +825,7 @@ otherwise."* **One 1★ halves the store's tier for the month; a second zeroes i
 14. **P&L adjustments.** Move LCD credits to Other Income (with Fieldprint); add shrinkage/damage expense lines; keep misc in non-phone rollup; **grant Matt edit permission on controllable expenses** (he couldn't edit in the meeting).
 15. **Dashboard declutter.** Remove Keyword Analysis (also code-audit #1: fake data); merge Missed Calls into Call Performance; drop Callback Tracking, Problem Calls, Voicemails tab (Slack zap covers voicemails). Keep Call Quality, Compliance, Insights device data, MyPerformance (don't touch). Fix Coaching tab showing Matt & Luke incorrectly. Add "busiest call days" simple stat.
 16. **Morning briefing view** for Matt on login: yesterday's profit per store, answer rates, missed calls, appointments scheduled/converted, shrinkage MTD, coaching flags.
-17. **TV dashboard link** in main nav (top-right).
+17. ~~**TV dashboard link** in main nav (top-right).~~ **SHIPPED 2026-11-01** — and on the appointments, My Performance and Price Book headers too, each pointed at the store in view (§ 10aq).
 
 ### Priority 5 — Local SEO / console reviews (no code)
 18. Invisible on "video game console repair Fishers" map pack; competitor with 800+ reviews owns it. Drive ~10 console-specific Google reviews per store (employees, family, customers); post console-repair photos to GBP. Photo reviews already pay $5/employee.
@@ -811,6 +871,24 @@ otherwise."* **One 1★ halves the store's tier for the month; a second zeroes i
 ---
 
 ## 8. Recent changes log
+- **2026-11-01** — **Two things Eric asked for, both shipped.** A **TV dashboard link on every page**,
+  pointed at the store in view, closing open item 17 (§ 10aq) — one shared component, and "All
+  Stores" gets a picker rather than a guess. And **"Where to ask for a review"** on My Reviews
+  (§ 10ar): the work a tech actually closed, mapped to the Google page for that kind of work, with
+  the link and a copy button. Built independent of the bonus, because no bonus fixes a link that does
+  not exist — and the "text them the direct review link" tip has been sitting there with no link to
+  text since it was written.
+  **I got the review card wrong twice and the data caught both.** It first dropped phone work
+  entirely, which is about **60% of every tech's tickets**, and the store tier counts every review on
+  all four pages — so a phone review pays the store exactly like a console one. And its "thin" test
+  omitted a clause `credits` has, which would have had the tech's screen promise the $20 premium where
+  the payable screen would not. Both fixed before the push; the second is inert today and was the kind
+  of divergence that only shows up on the month it costs somebody money.
+  **What it surfaced: four of the nine department pages have NEVER been reviewed**, all nine are under
+  ten, and **a quarter of all tickets (625 of 2,456) carry no `device_category`** — open item 11
+  showing through, now stated on the card instead of silently shrinking the counts.
+  Also: both builds ran in a **scratchpad copy of the tree with `node_modules` junctioned**, because
+  Eric had a dev server up on :3001 and a real build would have taken it down.
 - **2026-10-29** — **Eric: the franchisor owns the nine department listings.** Measured rather
   than assumed, and the conclusion inverts the worry (§ 10ao): the Business Profile Reviews API can
   only reach the three main pages, and those are precisely the three whose five-star counts cannot
