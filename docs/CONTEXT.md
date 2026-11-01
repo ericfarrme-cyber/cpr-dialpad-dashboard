@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-01 (TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-01 (TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -818,6 +818,25 @@ written, with **no link anywhere in the app to text**.
     of the tree in the scratchpad with `node_modules` junctioned in** (3.3 MB copy, full real build),
     so his server never went down. Use that instead of killing his process.
 
+10as. **The TV board was clipping its own cards at 1080p — FIXED 2026-11-01** (`5efcc20`). Found
+while opening the board to check the new links, and **measured at the real TV size rather than
+guessed**: at 1920×1080 the two top Daily Dash panels had `scrollHeight` **534 and 536 against a
+`clientHeight` of 420**, so ~115px of each was being cut by the panel's own `overflow: hidden`.
+  • **What was cut was not decoration.** Left panel: the entire review progress block — "0 of 15",
+    the bar, and "10 more just to clear the floor". Right panel: the **bonus tier track**. Both were
+    added later (§ 10af and the answer-rate tile) **underneath heroes already sized to fill the card
+    on their own** — a one- or two-digit number at 140px takes a third of a 420px panel.
+  • Heroes shrunk **140 → 70** and **180 → 108**, dividers and panel padding tightened. Verified by
+    re-measuring: **all four panels overflow by 0**, and a sweep of every `overflow: hidden` element
+    across **all three screens** finds **nothing clipped**. The three screens are mounted together and
+    toggled by opacity, so one DOM pass covers the whole rotation — worth knowing for the next check.
+  • **Also: "Pages still worth $20" sat above a list capped at `slice(0, 7)` when there are nine.**
+    A truncated list reading as a complete one is exactly the "Closed by" defect of § 10ac. It now
+    says **"the emptiest 7 of 9 pages worth $20"** when the list is cut and keeps the old wording when
+    it is not; confirmed in the DOM that the longer title still fits on one line beside its label.
+  ⚠ The lesson repeats: **a panel with `overflow: hidden` and a fixed grid row will swallow whatever
+  is added last, silently.** Anything added below a hero on the TV needs a re-measure, not a glance.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -871,6 +890,12 @@ written, with **no link anywhere in the app to text**.
 ---
 
 ## 8. Recent changes log
+- **2026-11-01 (later)** — **The TV board has been clipping its own cards** (§ 10as). Opening it to
+  check the new links showed the Daily Dash cutting ~115px off both top panels at 1080p — the whole
+  review progress block on one side and the bonus tier track on the other, both added under heroes
+  that already filled the card. Measured, shrunk, re-measured to zero, and swept every clipping
+  element across all three screens. Plus the reviews screen was showing 7 of 9 "$20 pages" under a
+  heading that read as a complete list — the "Closed by" defect again.
 - **2026-11-01** — **Two things Eric asked for, both shipped.** A **TV dashboard link on every page**,
   pointed at the store in view, closing open item 17 (§ 10aq) — one shared component, and "All
   Stores" gets a picker rather than a guess. And **"Where to ask for a review"** on My Reviews
