@@ -2881,7 +2881,10 @@ export default function MyPerformanceTab({ auth, store }) {
                   {[
                     { icon: "\u2B50", title: "Ask Every Customer", tip: "After completing a repair, ask: 'Would you mind leaving us a quick Google review? It really helps us out.'" },
                     { icon: "\uD83D\uDCF8", title: "Request Photos", tip: "Photo reviews are worth $5 each regardless of minimum. Ask: 'If you could include a photo, that would be amazing!'" },
-                    { icon: "\uD83D\uDCF1", title: "Make It Easy", tip: "Have a QR code at the counter or text them the direct review link right after the repair." },
+                    // Was "or text them the direct review link" until 2026-11-01.
+                    // Corporate guidelines do not allow us to text customers, so
+                    // the app should not have been telling staff to.
+                    { icon: "\uD83D\uDCF1", title: "Make It Easy", tip: "Open the right page on the counter screen while they're still standing there, or keep a QR code by the register. We don't text customers." },
                     { icon: "\uD83D\uDCAC", title: "Timing Matters", tip: "Ask for the review while the customer is still happy — right when they see their fixed device working perfectly." },
                   ].map(function(item) {
                     return (

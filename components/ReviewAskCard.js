@@ -77,7 +77,8 @@ export default function ReviewAskCard({ data, card, cardInner }) {
       </div>
       <div style={{ color: "var(--text-muted)", fontSize: 11, lineHeight: 1.6, marginBottom: 14 }}>
         We have four Google pages per store, not one. A console review on the console page is worth more
-        than the same review on the main page — and a customer has no way to find it unless you send them the link.
+        than the same review on the main page — and a customer has no way to find it unless you put it in
+        front of them before they leave.
         {thin.length > 0 && (
           <span style={{ color: "var(--yellow)" }}>
             {" "}{thin.length} of these {thin.length === 1 ? "page is" : "pages are"} still under 10 reviews.
@@ -107,14 +108,14 @@ export default function ReviewAskCard({ data, card, cardInner }) {
 
               <div style={{ minWidth: 92 }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: "var(--text-primary)", fontVariantNumeric: "tabular-nums" }}>{p.tickets}</div>
-                <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>you closed</div>
+                <div style={{ fontSize: 9, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.5 }}>you closed</div>
               </div>
 
               <div style={{ minWidth: 112 }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: p.total_reviews === 0 ? "var(--yellow)" : "var(--text-secondary)", fontVariantNumeric: "tabular-nums" }}>
                   {p.total_reviews === null || p.total_reviews === undefined ? "—" : p.total_reviews}
                 </div>
-                <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>
+                <div style={{ fontSize: 9, color: "var(--text-secondary)", textTransform: "uppercase", letterSpacing: 0.5 }}>
                   {p.total_reviews === 0 ? "never reviewed" : "reviews on the page"}
                 </div>
               </div>
@@ -153,12 +154,19 @@ export default function ReviewAskCard({ data, card, cardInner }) {
       </div>
 
       {meta.uncategorised > 0 && (
-        <div style={{ marginTop: 10, fontSize: 10, color: "var(--text-muted)", lineHeight: 1.6 }}>
+        <div style={{ marginTop: 10, fontSize: 10, color: "var(--text-secondary)", lineHeight: 1.6 }}>
           {meta.uncategorised} of your {meta.tickets_matched} tickets have no device type recorded, so they
           cannot point at a page. That is a gap in how the ticket was graded, not in your work.
         </div>
       )}
-      <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-muted)" }}>
+      {/* Both lines are policy, not advice, so they sit under every list.
+          The first exists because corporate guidelines do not allow us to text
+          customers — "Copy link" is for a counter QR or a sign, never a text. */}
+      <div style={{ marginTop: 8, fontSize: 10, color: "var(--text-secondary)", lineHeight: 1.6 }}>
+        Open the page on the counter screen while they are still there, or keep a QR by the register.
+        We don&rsquo;t text customers.
+      </div>
+      <div style={{ marginTop: 4, fontSize: 10, color: "var(--text-secondary)", lineHeight: 1.6 }}>
         Never offer a discount for a review — Google asks the customer whether they were paid for it and
         hides the review if they say yes.
       </div>
