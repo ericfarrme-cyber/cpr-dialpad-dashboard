@@ -7,6 +7,7 @@ import {
   PolarAngleAxis, PolarRadiusAxis
 } from "recharts";
 import { STORES, TABS, APP_NAME, APP_SUBTITLE } from "@/lib/constants";
+import TVLink from "@/components/TVLink";
 import { ThemeToggle } from "@/components/ThemeProvider";
 import PriceDemandTab from "@/components/PriceDemandTab";
 import { useAuth } from "@/components/AuthProvider";
@@ -1172,6 +1173,9 @@ export default function DialpadDashboard() {
         </div>
         <StoreToggle selected={storeFilter} onChange={setStoreFilter} />
         <a href="/appointments" style={{ padding:"8px 18px",borderRadius:8,border:"none",background:"linear-gradient(135deg,var(--green),var(--cyan))",color:"#000",fontSize:12,fontWeight:700,textDecoration:"none",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap" }}><span style={{ fontSize:14 }}>{"\uD83D\uDCC5"}</span>Appointments & Reviews</a>
+        {/* Follows the store toggle, so whoever is looking at one store is one
+            click from that store's board; "All Stores" gets the picker. */}
+        <TVLink store={storeFilter} />
         <ThemeToggle style={{ marginLeft: 4 }} />
         {auth && (
           <div style={{ display:"flex",alignItems:"center",gap:10,marginLeft:12 }}>

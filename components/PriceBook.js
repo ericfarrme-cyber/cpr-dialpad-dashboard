@@ -12,6 +12,7 @@ import { QUOTE_REASONS } from "@/lib/quote-reasons";
 import { resolveModel } from "@/lib/device-model";
 import { tokenize as tok, matchesQuery, aliasesFor } from "@/lib/price-search";
 import { suggestDeposit } from "@/lib/deposit";
+import TVLink from "@/components/TVLink";
 
 // `service` holds the PC work — virus removal, Windows reinstall, drive
 // replacement, data transfer, data recovery. Matt renamed it to what it is
@@ -1508,6 +1509,7 @@ export default function PriceBook() {
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           {isAdmin && <Chip active={editMode} onClick={function() { setEditMode(!editMode); clearSel(); }}>{editMode ? "Done editing" : "Edit prices"}</Chip>}
           {isAdmin && <Chip active={showHistory} onClick={function() { setShowHistory(!showHistory); if (!history) loadHistory(); }}>History</Chip>}
+          <TVLink store={auth && auth.userInfo ? auth.userInfo.store : null} size="sm" />
           <a href="/appointments" style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)", color: "var(--text-secondary)", fontSize: 10, textDecoration: "none" }}>Store Dashboard</a>
           <ThemeToggle />
           {auth && <button onClick={auth.signOut} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border)", background: "transparent", color: "var(--text-secondary)", fontSize: 10, cursor: "pointer" }}>Sign Out</button>}
