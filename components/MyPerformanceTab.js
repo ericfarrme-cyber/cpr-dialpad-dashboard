@@ -59,6 +59,7 @@ function sc(v, g, w) { return v >= g ? "var(--green)" : v >= w ? "var(--yellow)"
 // and "Duncan" both resolve.
 import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
 import { cleaningCommissionApplies } from "@/lib/commission-rules";
+import ReviewAskCard from "@/components/ReviewAskCard";
 
 var NON_PHONE_BONUS_EMPLOYEE = "Duncan Hitti";
 
@@ -249,6 +250,9 @@ export default function MyPerformanceTab({ auth, store }) {
   // visibly moves (2026-09-29).
   var [criteria, setCriteria] = useState(null);
   var [reviewData, setReviewData] = useState(null);
+  // Which of our Google pages this person should be asking on, from the work
+  // they closed. Counts and links; nothing to do with pay.
+  var [askPages, setAskPages] = useState(null);
   var [streakData, setStreakData] = useState(null);
   // Advanced repair commission — from /api/advanced-repairs?action=my_commission
   // Counts in calibration mode initially; ALWAYS visible to employee since paid monthly
@@ -387,6 +391,11 @@ export default function MyPerformanceTab({ auth, store }) {
         // Appended deliberately at the END: inserting mid-array renumbers
         // every results[N] below and silently rewires five other reads.
         fetch("/api/dialpad/audit?action=criteria&name=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
+        // Still at the END. authFetch, not fetch: ask_pages is behind
+        // requireAuth, and a bare fetch would 401 silently.
+        (auth && auth.authFetch
+          ? auth.authFetch("/api/dialpad/google-tracking?action=ask_pages&name=" + encodeURIComponent(empName) + "&days=30").then(function(r) { return r.json(); })
+          : Promise.resolve(null)),
       ]);
 
       // Scorecard — find this employee with fuzzy matching
@@ -477,6 +486,7 @@ export default function MyPerformanceTab({ auth, store }) {
       // on a month whose device_category coverage is too low to trust — paying
       // a bonus off data we know is incomplete is worse than paying it late.
       if (results[12] && results[12].status === "fulfilled" && results[12].value && results[12].value.success) setCriteria(results[12].value);
+      if (results[13] && results[13].status === "fulfilled" && results[13].value && results[13].value.success) setAskPages(results[13].value);
       if (results[11] && results[11].status === "fulfilled" && results[11].value && results[11].value.success) {
         var npbAll = results[11].value.months || [];
         var npbMonth = npbAll.find(function(m) { return m.month === activePeriod; });
@@ -2811,6 +2821,10 @@ export default function MyPerformanceTab({ auth, store }) {
       {/* ═══════════════════════════════════════════════ */}
       {subTab === "reviews" && (
         <div>
+          {/* Outside the reviewBonus gate on purpose: which page to ask on does
+              not depend on the monthly sheet having been filled in, and that
+              sheet is exactly the thing that is sometimes missing. */}
+          <ReviewAskCard data={askPages} card={card} cardInner={cardInner} />
           {reviewBonus ? (
             <div>
               {/* Review bonus summary */}

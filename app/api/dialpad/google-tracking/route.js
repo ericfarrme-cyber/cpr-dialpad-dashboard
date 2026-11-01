@@ -41,6 +41,7 @@
 // GET  ?action=tracking   per store: this month's gain, rating, per listing
 // GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
 // GET  ?action=review_leaders  who gets named, counts only — safe for the TV
+// GET  ?action=ask_pages&name=  which of our pages this tech should ask on
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
 // POST {action:'record_one_star', store, listing_type, posted_at, author?, note?}  (admin/manager)
 // POST {action:'remove_one_star', id}   undo a manual record only (admin/manager)
@@ -49,6 +50,7 @@ import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { placeLooksLikeOurs, searchQueryFor } from "@/lib/place-match";
 import { creditReview } from "@/lib/review-credit";
+import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,13 @@ function tierFor(n) {
 //     named follows the person. Docking Aerick's named credit because someone
 //     else took a 1-star would punish the wrong people -- and a 1-star already
 //     pays its own named employee nothing.
+// THRESHOLD IS TOTAL REVIEWS, NOT FIVE-STAR. The premium asks whether a page
+// is established yet, which is a question about the whole page. Module scope
+// because two actions read it now -- `credits` proposes the money and
+// `ask_pages` tells a tech which page is still worth the larger amount. A
+// second copy is how two screens come to disagree (see TIERS above).
+var THIN_UNDER = 10, NAMED_MAIN = 10, NAMED_THIN = 20;
+
 var PENALTY_AT_OR_BELOW = 1;        // a review at or below this many stars docks the store
 var PENALTY_STEPS = [1, 0.5, 0];    // 0 such reviews -> full, 1 -> half, 2+ -> nothing
 function penaltyFactor(n) {
@@ -239,6 +248,35 @@ function oneStarWatch(total, items, monthStartYmd, monthEndYmd) {
       ? null
       : "Google samples about five reviews a page; a 1-star outside that sample is invisible here until a manager records it from the Business Profile inbox.",
   };
+}
+
+// ── which page should a tech ask for a review on? ───────────────────
+// The free half of the review push, and it deliberately does not wait on the
+// bonus: nine department pages exist that a customer has no way to find from
+// the store listing, and a console job is the one moment somebody is holding a
+// console and pleased about it. Precedent that a dashboard nudge alone moves
+// behaviour: warranty mentions went 12.4% -> 24.2% after the free-closers
+// strip, with no money attached (z=3.77, p<0.001).
+//
+// An EXPLICIT allowlist, never a prefix match, and an unmapped category is
+// counted and shown rather than silently dropped -- the rule open item 11 asks
+// for. Measured over 2,456 tickets since 2026-08-01: phone 1376, (null) 624,
+// game_console 180, laptop 152, tablet 88, other 21, computer 12, watch 3.
+// ⚠ The 624 nulls are a quarter of all tickets and are NOT evidence of
+// anything; they are the category gap in open item 11 showing through here.
+var ASK_BUCKET = {
+  game_console: "consoles", console: "consoles", consoles: "consoles",
+  laptop: "computers", computer: "computers", computers: "computers", desktop: "computers",
+  // A tablet or a watch is not a phone and not a computer; "Electronics at CPR"
+  // is the page that exists for it. Judgement, not measurement -- and the cost
+  // of being wrong is a review on a neighbouring page of ours, not a loss.
+  tablet: "electronics", watch: "electronics", other: "electronics",
+  phone: "main",
+};
+function askBucket(cat) {
+  var k = String(cat || "").trim().toLowerCase();
+  if (!k) return null;
+  return ASK_BUCKET[k] || null;
 }
 
 export async function GET(request) {
@@ -560,6 +598,149 @@ export async function GET(request) {
   // totals in ?action=tracking. The only star test left is the narrow one: a
   // 1-star review does not earn its named employee a bonus. Nothing here
   // computes a payable amount.
+  // ── the pages THIS person should be asking on ───────────────────
+  // Reads: the work they actually closed, and which of our pages is still thin
+  // enough to be worth the larger named amount. Counts and links only -- it
+  // proposes nothing and pays nothing.
+  if (action === "ask_pages") {
+    var apGate = await requireAuth(request, {});
+    if (!apGate.authorized) return apGate.response;
+
+    var apName = (searchParams.get("name") || "").trim();
+    if (!apName) return json({ success: false, error: "name is required" }, 400);
+    var apDays = Math.max(7, Math.min(90, Number(searchParams.get("days") || 30) || 30));
+
+    var apToday = indyToday(), apMonth = monthStart(apToday);
+    var cut = new Date(apToday + "T00:00:00Z");
+    cut.setUTCDate(cut.getUTCDate() - apDays);
+    var apFrom = cut.toISOString().slice(0, 10);
+
+    var { data: apRoster, error: apRE } = await supabase.from("employee_roster").select("name,aliases,store,active");
+    if (apRE) return json({ success: false, error: apRE.message }, 500);
+    var apMap = buildResolver(apRoster || []).map;
+    // Resolve the REQUESTED name the same way as the ticket names, so "Sam
+    // Tomey" asking about his pages gets Samuel Tomey's tickets.
+    var apWho = resolveNamePersonish(apName, apMap) || apName;
+
+    // Paginated and ordered -- an unordered .range() returns overlapping pages
+    // (CONTEXT, the 109/63/93 instability).
+    var apRows = [], apScanned = 0;
+    for (var apOff = 0; ; apOff += 1000) {
+      var apRes = await supabase.from("ticket_grades")
+        .select("ticket_number,store,device_category,date_closed,employee_added,employee_repaired")
+        .gte("date_closed", apFrom).lte("date_closed", apToday)
+        .order("ticket_number", { ascending: true })
+        .range(apOff, apOff + 999);
+      if (apRes.error) return json({ success: false, error: apRes.error.message }, 500);
+      var apBatch = apRes.data || [];
+      apScanned += apBatch.length;
+      apBatch.forEach(function(t) {
+        if (isSystemActor(t.employee_repaired) && isSystemActor(t.employee_added)) return;
+        // employee_repaired first: the insurance tickets RepairQ opens as
+        // "API, Assurant ServiceNetwork" are real work by a real technician
+        // (CONTEXT 10an), and this is a prompt to the person who did it.
+        var raw = t.employee_repaired || t.employee_added;
+        if (resolveNamePersonish(raw, apMap) !== apWho) return;
+        apRows.push(t);
+      });
+      if (apBatch.length < 1000) break;
+    }
+
+    // The main page is counted like any other. It was dropped in the first cut
+    // on the theory that only the department pages need help -- but phone work
+    // is about 60% of every tech's tickets, and the store TIER counts every
+    // review across all four pages, so a phone review pays the store exactly
+    // as much as a console one. Main pages carry 559-892 reviews, so they are
+    // never "thin" and the sort below already puts them last. No special case.
+    var apCounts = {}, apUncat = 0, apPhone = 0;
+    apRows.forEach(function(t) {
+      var b = askBucket(t.device_category);
+      if (!b) { apUncat += 1; return; }
+      var st = String(t.store || "").toLowerCase();
+      if (!st) { apUncat += 1; return; }
+      if (b === "main") apPhone += 1;
+      var k = st + "|" + b;
+      apCounts[k] = (apCounts[k] || 0) + 1;
+    });
+
+    var { data: apLRaw, error: apLE } = await supabase.from("google_listings")
+      .select("id,store,listing_type,label,is_ours,place_id,maps_url").eq("active", true);
+    if (apLE) return json({ success: false, error: apLE.message }, 500);
+    var apLDe = dedupeListings(apLRaw);
+    var apL = (apLDe.listings || []).filter(function(l) { return l.is_ours !== false; });
+
+    var { data: apSnap, error: apSE } = await supabase.from("google_review_snapshots")
+      .select("listing_id,captured_on,total_reviews").order("captured_on", { ascending: false }).limit(5000);
+    if (apSE) return json({ success: false, error: apSE.message }, 500);
+    var apTotal = {}, apBase = {};
+    (apSnap || []).forEach(function(sn) {
+      if (apTotal[sn.listing_id] === undefined) apTotal[sn.listing_id] = sn.total_reviews;
+      if (sn.captured_on < apMonth && apBase[sn.listing_id] === undefined) apBase[sn.listing_id] = sn.total_reviews;
+    });
+
+    var apOut = [];
+    Object.keys(apCounts).forEach(function(k) {
+      var parts = k.split("|"), st = parts[0], b = parts[1];
+      var l = apL.filter(function(x) { return x.store === st && x.listing_type === b; })[0];
+      if (!l) return;   // no such page tracked; reported in meta rather than invented
+      var total = apTotal[l.id];
+      // Same test as `credits`, clause for clause, INCLUDING the main-page
+      // exclusion. The main pages carry 559-893 reviews so it changes nothing
+      // today -- but without it a failed snapshot that read null-then-low on a
+      // main page would make this screen promise the $20 premium where
+      // `credits` would not, and the two would quietly disagree about pay.
+      var thin = l.listing_type !== "main" && total !== undefined && total !== null && total < THIN_UNDER;
+      var base = apBase[l.id];
+      apOut.push({
+        store: st, listing_type: b, label: l.label,
+        tickets: apCounts[k],
+        total_reviews: total === undefined ? null : total,
+        gained_this_month: (total === undefined || total === null || base === undefined) ? null : total - base,
+        // $20 while the page is under 10 reviews, $10 after. Stated as the
+        // rule's own numbers so this screen cannot drift from `credits`.
+        named_amount: thin ? NAMED_THIN : NAMED_MAIN,
+        still_worth_more: !!thin,
+        write_review_url: l.place_id ? "https://search.google.com/local/writereview?placeid=" + encodeURIComponent(l.place_id) : null,
+        maps_url: l.maps_url || null,
+      });
+    });
+    // Highest-value ask first: a page still worth $20, then the most work done.
+    apOut.sort(function(a, b2) {
+      if (a.still_worth_more !== b2.still_worth_more) return a.still_worth_more ? -1 : 1;
+      return b2.tickets - a.tickets;
+    });
+
+    var apMissing = [];
+    Object.keys(apCounts).forEach(function(k) {
+      var parts = k.split("|");
+      if (!apL.filter(function(x) { return x.store === parts[0] && x.listing_type === parts[1]; })[0]) apMissing.push(k);
+    });
+
+    return json({
+      success: true,
+      employee: apWho, requested: apName, resolved: apWho !== apName,
+      window: { from: apFrom, to: apToday, days: apDays },
+      pages: apOut,
+      // Everything matched is accounted for -- placed + uncategorised equals
+      // tickets_matched -- so a figure can never quietly vanish. Work whose
+      // category is null cannot pick a page and is counted, not dropped;
+      // `phone_tickets` is context, already inside `placed`.
+      meta: {
+        tickets_matched: apRows.length,
+        tickets_scanned: apScanned,
+        placed: apOut.reduce(function(n, r) { return n + r.tickets; }, 0),
+        phone_tickets: apPhone,
+        uncategorised: apUncat,
+        pages_not_tracked: apMissing,
+        duplicates_dropped: apLDe.duplicates_dropped,
+      },
+      rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN },
+      // Nothing here is approved pay. Same discipline as every other review
+      // figure in this route.
+      payable: false,
+    });
+  }
+
   if (action === "credits") {
     var cGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
     if (!cGate.authorized) return cGate.response;
@@ -581,9 +762,6 @@ export async function GET(request) {
     var totalById = {};
     (cSnap || []).forEach(function(sn) { if (totalById[sn.listing_id] === undefined) totalById[sn.listing_id] = sn.total_reviews; });
 
-    // THRESHOLD IS TOTAL REVIEWS, NOT FIVE-STAR. The premium asks whether a
-    // page is established yet, which is a question about the whole page.
-    var THIN_UNDER = 10, NAMED_MAIN = 10, NAMED_THIN = 20;
 
     var mix = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 };
     var rows = (cItems || []).map(function(it) {
