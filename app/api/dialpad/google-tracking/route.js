@@ -39,7 +39,7 @@
 //
 // GET  ?action=listings   the tracked listings and their latest reading
 // GET  ?action=tracking   per store: this month's gain, rating, per listing
-// GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
+// GET  ?action=credits&period=YYYY-MM  named credits for ONE month (+ a month index)
 // GET  ?action=review_leaders  who gets named THIS MONTH (+ all time), counts only — safe for the TV
 // GET  ?action=ask_pages&name=  which of our pages this tech should ask on
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
@@ -811,14 +811,34 @@ export async function GET(request) {
     var totalById = {};
     (cSnap || []).forEach(function(sn) { if (totalById[sn.listing_id] === undefined) totalById[sn.listing_id] = sn.total_reviews; });
 
+    // ⚠ SCOPED TO THE MONTH THE REVIEW WAS POSTED (Eric, 2026-11-02).
+    //
+    // This action used to return EVERY review ever captured with a $10/$20
+    // `amount` attached and no window at all, so the "Credits to confirm"
+    // queue ran from 2025-09 to today in one list. Each row printed its own
+    // date, so nothing on screen was false — but it is a payment queue for a
+    // MONTHLY bonus, and working it in November meant confirming $10 against a
+    // review from March. The "$120 proposed" figure in CONTEXT § 10al was a
+    // lifetime total read as a month's.
+    //
+    // The hazard in fixing it is the opposite one: filtering to the current
+    // month on the 2nd would show an empty queue and read as "nothing to
+    // settle" while October sat unsettled. So `months` carries every month
+    // that holds a credit, with its counts and dollars, and the tab offers
+    // them — a month is hidden from the list, never from the index.
+    var cPeriod = searchParams.get("period") || indyToday().slice(0, 7);
 
-    var mix = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 };
+    function emptyMix() { return { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 }; }
+    var mix = emptyMix(), mixAll = emptyMix();
     var rows = (cItems || []).map(function(it) {
       var l = lById[it.listing_id] || {};
       var total = totalById[it.listing_id];
       var thin = l.listing_type !== "main" && total !== undefined && total !== null && total < THIN_UNDER;
       var r = it.rating == null ? null : Number(it.rating);
-      if (r === 5 || r === 4 || r === 3 || r === 2 || r === 1) mix[r] += 1; else mix.unknown += 1;
+      var ym = it.posted_at ? String(it.posted_at).slice(0, 7) : null;
+      var k = (r === 5 || r === 4 || r === 3 || r === 2 || r === 1) ? r : "unknown";
+      mixAll[k] += 1;
+      if (ym === cPeriod) mix[k] += 1;
 
       var credits = creditReview(it.text, cRoster || []);
       // Every review counts as a review. The one exception is the obvious
@@ -828,6 +848,7 @@ export async function GET(request) {
       var counts = r !== 1;
       return {
         id: it.id,
+        period: ym,
         store: l.store || null,
         listing_type: l.listing_type || null,
         page_total_reviews: total === undefined ? null : total,
@@ -853,19 +874,65 @@ export async function GET(request) {
       };
     });
 
+    // Every month that holds a credit, with what it is worth. This is the
+    // index that stops a scoped queue from hiding an unsettled month: the tab
+    // lists these, so October with 3 pending stays visible while viewing
+    // November with 0. The running month is always offered even when empty,
+    // or there would be no way back to it from a past month.
+    var monthIdx = {};
+    function monthBucket(ym) {
+      monthIdx[ym] = monthIdx[ym] || { period: ym, items: 0, credits: 0, payable_credits: 0, amount: 0 };
+      return monthIdx[ym];
+    }
+    monthBucket(cPeriod);
+    rows.forEach(function(r) {
+      if (!r.period) return;
+      var m = monthBucket(r.period);
+      m.items += 1;
+      (r.proposed_credits || []).forEach(function(c) {
+        m.credits += 1;
+        if (c.amount > 0) { m.payable_credits += 1; m.amount += c.amount; }
+      });
+    });
+    var months = Object.keys(monthIdx).sort().reverse().map(function(k) { return monthIdx[k]; });
+
+    function byDateDesc(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }
+    var monthRows = rows.filter(function(r) { return r.period === cPeriod; }).sort(byDateDesc);
+    // A review with no date cannot be assigned to a month, so it is never
+    // folded into the current one. Returned separately, and only when it would
+    // actually pay somebody -- surfaced, never dropped, never charged to a
+    // month it may not belong to. (0 of 44 items today; this is a guard.)
+    var undated = rows.filter(function(r) {
+      return !r.period && (r.proposed_credits || []).some(function(c) { return c.amount > 0; });
+    }).sort(byDateDesc);
+
+    var thisMonth = monthIdx[cPeriod];
     var scored = mix[5] + mix[4] + mix[3] + mix[2] + mix[1];
+    var scoredAll = mixAll[5] + mixAll[4] + mixAll[3] + mixAll[2] + mixAll[1];
     return json({
       success: true,
+      period: cPeriod,
+      months: months,
       rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, every_review_counts: true, one_star_pays_nobody: true },
+      // The mix is THIS MONTH's, because the sentence it sits under is about
+      // the store tier and the tier is monthly. All-time kept beside it.
       rating_mix: mix,
       rating_mix_sample: scored,
+      rating_mix_all_time: mixAll,
+      rating_mix_sample_all_time: scoredAll,
       // The flag, over the sample we hold. NOT a count of the month's 1-star
       // reviews -- a main page shows us about five of its several hundred, so
       // zero here means "none seen", never "none happened".
       one_star_in_sample: mix[1],
+      one_star_in_sample_all_time: mixAll[1],
       one_star_coverage: "Places returns a relevance sample of reviews, not all of them. A 1-star outside that sample does not appear here. Review TOTALS are exact; this list is not complete.",
       text_coverage: "Places returns a relevance sample of reviews, not all of them. This list is incomplete by design; review totals are exact.",
-      items: rows.sort(function(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }),
+      items: monthRows,
+      undated: undated,
+      month_credits: thisMonth.credits,
+      month_payable_credits: thisMonth.payable_credits,
+      month_amount: thisMonth.amount,
+      items_outside_month: rows.length - monthRows.length,
     });
   }
 

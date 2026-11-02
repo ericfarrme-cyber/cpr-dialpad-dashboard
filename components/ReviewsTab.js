@@ -50,6 +50,18 @@ var TYPE_LABEL = { main: "Main store", consoles: "Consoles", computers: "Compute
 var TIERS_FALLBACK = [{ at: 10, pays: 50 }, { at: 15, pays: 75 }, { at: 20, pays: 100 }];
 
 function cap(s) { return String(s || "").charAt(0).toUpperCase() + String(s || "").slice(1); }
+
+// "2026-10" -> "October 2026", and the current year drops its suffix because
+// almost everything on this screen is this year.
+var MONTH_NAMES = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
+function monthLabel(period) {
+  var m = /^(\d{4})-(\d{2})$/.exec(String(period || ""));
+  if (!m) return "";
+  var name = MONTH_NAMES[Number(m[2]) - 1];
+  if (!name) return String(period);
+  return name + (m[1] === String(new Date().getFullYear()) ? "" : " " + m[1]);
+}
 function tint(c, pct) { return "color-mix(in srgb, " + c + " " + pct + "%, transparent)"; }
 
 function card(extra) {
@@ -98,12 +110,16 @@ export default function ReviewsTab() {
   var [rec, setRec] = useState({});                       // { listing_type, posted_at, author, note }
   var [recBusy, setRecBusy] = useState(false);
   var [recMsg, setRecMsg] = useState(null);
+  // Which month's credits the queue is working. null = whatever the route
+  // defaults to (the running month). The queue is monthly because the bonus
+  // is; see the comment on `?action=credits`.
+  var [creditMonth, setCreditMonth] = useState(null);
 
   useEffect(function() {
     var alive = true;
     Promise.allSettled([
       af("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); }),
-      af("/api/dialpad/google-tracking?action=credits").then(function(r) { return r.json(); }),
+      af("/api/dialpad/google-tracking?action=credits" + (creditMonth ? "&period=" + creditMonth : "")).then(function(r) { return r.json(); }),
     ]).then(function(res) {
       if (!alive) return;
       // Loud, not silent: a failed read says so instead of rendering zeroes.
@@ -116,7 +132,7 @@ export default function ReviewsTab() {
       setLoading(false);
     });
     return function() { alive = false; };
-  }, [af]);
+  }, [af, creditMonth]);
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading review tracking…</div>;
@@ -147,6 +163,17 @@ export default function ReviewsTab() {
   var pendingCredits = items.filter(function(it) {
     return !acted[it.id] && (it.proposed_credits || []).some(function(c) { return c.amount > 0; });
   }).length;
+
+  // The credit queue is one month at a time. These drive the month picker and
+  // the line that keeps an unsettled past month visible from inside an empty
+  // current one -- the failure the scoping could otherwise have introduced.
+  var creditPeriod = (credits && credits.period) || "";
+  var creditMonths = (credits && credits.months) || [];
+  var monthAmount = (credits && credits.month_amount) || 0;
+  var undatedCredits = (credits && credits.undated) || [];
+  var otherMonthsOwed = creditMonths.filter(function(m) {
+    return m.period !== creditPeriod && m.payable_credits > 0;
+  });
 
   // Counted off the pages, not off the credit list, so a 1-star on a page whose
   // text we never captured is still included.
@@ -278,7 +305,8 @@ export default function ReviewsTab() {
             color: anyGainUnknown ? "var(--yellow)" : "var(--text-primary)" },
           { k: "Stores at a tier", v: String(storesAtTier),
             suffix: " of " + stores.length, h: "not payable — the bonus is not approved", color: "var(--text-muted)" },
-          { k: "Credits to confirm", v: String(pendingCredits), h: "proposed from review text", color: "var(--text-primary)" },
+          { k: "Credits to confirm", v: String(pendingCredits),
+            h: "proposed from review text \u00b7 " + (monthLabel(creditPeriod) || "this month"), color: "var(--text-primary)" },
           // "On record", not "received": on a sampled page a zero is not proof,
           // and the deduction only ever runs on what is on record.
           { k: "1★ this month", v: flagUnavailable ? "?" : String(oneStarMonth),
@@ -539,9 +567,49 @@ export default function ReviewsTab() {
 
       {/* ── credit queue ── */}
       <div>
-        <H2 note="proposed from review text — confirmed in Business Profile">Credits to confirm</H2>
+        <H2 note={"proposed from review text — confirmed in Business Profile"}>
+          {"Credits to confirm · " + (monthLabel(creditPeriod) || "this month")}
+        </H2>
+
+        {/* ONE MONTH AT A TIME, because the bonus pays by month. Until
+            2026-11-02 this list ran from 2025-09 to today with a dollar
+            amount on every row, so working it meant confirming $10 against a
+            review from March. The picker exists so scoping it cannot hide an
+            unsettled month: every month holding a credit is listed with what
+            it is worth. */}
+        {creditMonths.length > 1 ? (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 11 }}>
+            {creditMonths.map(function(m) {
+              var on = m.period === creditPeriod;
+              return (
+                <button key={m.period} onClick={function() { setCreditMonth(m.period); }}
+                  style={{
+                    fontSize: 11.5, padding: "5px 11px", borderRadius: 8, cursor: "pointer",
+                    fontFamily: "'Space Grotesk', sans-serif", fontWeight: on ? 700 : 500,
+                    background: on ? "var(--bg-card-inner)" : "transparent",
+                    color: on ? "var(--text-primary)" : "var(--text-secondary)",
+                    border: "1px solid " + (on ? "var(--border-heavy)" : "var(--border)"),
+                  }}>
+                  {monthLabel(m.period)}
+                  {m.payable_credits > 0 ? (
+                    <span style={{ marginLeft: 6, color: on ? "var(--cyan)" : "var(--text-muted)" }}>
+                      ${m.amount}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         {items.length === 0 ? (
-          <div style={card({ fontSize: 13, color: "var(--text-secondary)" })}>No review text captured yet.</div>
+          <div style={card({ fontSize: 13, color: "var(--text-secondary)" })}>
+            No review text captured for {monthLabel(creditPeriod) || "this month"}.
+            {otherMonthsOwed.length ? (
+              <> {otherMonthsOwed.length === 1 ? "One earlier month has" : otherMonthsOwed.length + " earlier months have"} credits
+              on the books &mdash; {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " $" + m.amount; }).join(" · ")}.</>
+            ) : null}
+          </div>
         ) : (
           <div style={{ display: "grid", gap: 9 }}>
             {items.map(function(it) {
@@ -600,8 +668,17 @@ export default function ReviewsTab() {
         )}
         <div style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 12 }}>
           {credits && credits.rating_mix ? (
-            <>Captured mix: {[5, 4, 3, 2, 1].map(function(r) { return credits.rating_mix[r] + " × " + r + "★"; }).join(" · ")}.{" "}
-            Every one of them counts toward its store's tier; the 1★ ones pay nobody and are flagged instead.{" "}</>
+            <>Captured mix for {monthLabel(creditPeriod) || "this month"}:{" "}
+            {[5, 4, 3, 2, 1].map(function(r) { return credits.rating_mix[r] + " × " + r + "★"; }).join(" · ")}.{" "}
+            Every one of them counts toward its store's tier; the 1★ ones pay nobody and are flagged instead.{" "}
+            {monthAmount ? <b style={{ color: "var(--text-primary)" }}>${monthAmount} proposed this month.</b> : null}{" "}
+            {undatedCredits.length ? (
+              <b style={{ color: "var(--yellow)" }}>{undatedCredits.length} credit(s) have no date on the
+              review, so they belong to no month and are not counted here.</b>
+            ) : null}{" "}
+            {otherMonthsOwed.length ? (
+              <>Other months with credits: {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " $" + m.amount; }).join(" · ")}.{" "}</>
+            ) : null}</>
           ) : null}
           <b style={{ color: "var(--text-primary)" }}>Confirming here records nothing yet</b> — the bonus is not approved and
           no ledger row is written. {credits ? credits.text_coverage : ""}
