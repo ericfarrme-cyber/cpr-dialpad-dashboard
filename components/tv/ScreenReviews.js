@@ -19,7 +19,7 @@
 //   │  1. Aerick Long          5    │  Indy · consoles      0 reviews      │
 //   │  2. Alyssa Parent        1    │  Fishers · computers  1 review       │
 //   ├───────────────────────────────┤  …                                   │
-//   │  COMPANY-WIDE                 ├──────────────────────────────────────┤
+//   │  ALL THREE STORES — NOVEMBER  ├──────────────────────────────────────┤
 //   │  1. Aerick Long          5    │  REVIEWS THIS MONTH, BY STORE        │
 //   │  2. Samuel Tomey         3    │  Fishers 4 · Bloomington 5 · Indy 5  │
 //   └───────────────────────────────┴──────────────────────────────────────┘
@@ -28,6 +28,9 @@
 var STORE_LABELS = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
 var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#D97706" };
 var TYPE_LABELS = { main: "Main store", consoles: "Consoles", computers: "Computers", electronics: "Electronics" };
+
+var MONTHS = ["January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"];
 
 var GOLD = "#F59E0B";
 var GREEN = "#059669";
@@ -115,8 +118,27 @@ export default function ScreenReviews(props) {
     );
   }
 
-  var mine = (leaders.by_store && leaders.by_store[store]) || [];
-  var company = leaders.company || [];
+  // THE MONTH LEADS, and the heading always says which window it drew.
+  //
+  // Eric, 2026-11-02, looking at this board: "Does this reset and track
+  // monthly?" Half of it did — "Reviews this month" is a real subtraction,
+  // but these two leaderboards were an all-time tally sitting next to it, so
+  // Samuel Tomey ranked second company-wide on work from June. The named
+  // bonus pays per month, so the month is the number on the wall.
+  //
+  // The fall-back is deliberate: a month is a small number and on the 1st it
+  // is empty, so rather than hang a board of zeros the panel shows all-time
+  // and SAYS SO in the heading. A list under a heading that implies the wrong
+  // window is the "Closed by" defect again (CONTEXT 10ac).
+  var monthName = MONTHS[Number(String(leaders.period || "").slice(5, 7)) - 1] || "this month";
+  var mineMonth = (leaders.by_store && leaders.by_store[store]) || [];
+  var companyMonth = leaders.company || [];
+  var mineAll = (leaders.by_store_all_time && leaders.by_store_all_time[store]) || [];
+  var companyAll = leaders.company_all_time || [];
+  var mine = mineMonth.length ? mineMonth : mineAll;
+  var company = companyMonth.length ? companyMonth : companyAll;
+  var mineIsMonth = mineMonth.length > 0;
+  var companyIsMonth = companyMonth.length > 0;
   // Capped at 7 so the panel does not overflow at TV scale. The full count
   // travels with it and the heading says so when it is cut: a truncated list
   // under a heading that reads as complete is how "Closed by" came to look
@@ -140,7 +162,7 @@ export default function ScreenReviews(props) {
 
         <div style={panel()}>
           <Title color={accent} right={"$" + bonus.main + " each · $" + bonus.thin + " on a new page"}>
-            {(STORE_LABELS[store] || store) + " — named in a review"}
+            {(STORE_LABELS[store] || store) + (mineIsMonth ? " — named in " + monthName : " — named, all time")}
           </Title>
           {mine.length === 0 ? (
             <Empty>Nobody here has been named yet.<br />First one on the board owns this screen.</Empty>
@@ -155,7 +177,9 @@ export default function ScreenReviews(props) {
         </div>
 
         <div style={panel()}>
-          <Title>All three stores</Title>
+          <Title right={companyIsMonth ? null : "nobody named yet in " + monthName}>
+            {companyIsMonth ? "All three stores — " + monthName : "All three stores — all time"}
+          </Title>
           {company.length === 0 ? (
             <Empty>No named reviews captured yet.</Empty>
           ) : (
@@ -206,7 +230,7 @@ export default function ScreenReviews(props) {
         </div>
 
         <div style={panel()}>
-          <Title>Reviews this month</Title>
+          <Title right={monthName}>Reviews this month</Title>
           <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "space-around", gap: 10 }}>
             {["fishers", "bloomington", "indianapolis"].map(function(s) {
               var g = gained[s];

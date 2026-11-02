@@ -40,7 +40,7 @@
 // GET  ?action=listings   the tracked listings and their latest reading
 // GET  ?action=tracking   per store: this month's gain, rating, per listing
 // GET  ?action=credits    captured reviews + PROPOSED name credits (admin/manager)
-// GET  ?action=review_leaders  who gets named, counts only — safe for the TV
+// GET  ?action=review_leaders  who gets named THIS MONTH (+ all time), counts only — safe for the TV
 // GET  ?action=ask_pages&name=  which of our pages this tech should ask on
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
 // POST {action:'record_one_star', store, listing_type, posted_at, author?, note?}  (admin/manager)
@@ -528,25 +528,59 @@ export async function GET(request) {
     // which credits nobody -- being named in a complaint is not recognition.
     // Note this board therefore shows MORE names than it did under the
     // five-star-only rule, which is the intended effect.
+    //
+    // ⚠ SCOPED TO THE MONTH THE REVIEW WAS POSTED, and both windows travel.
+    // This action took a `period` parameter, echoed it back and never filtered
+    // on anything, so the board was an ALL-TIME tally sitting directly beside a
+    // month-to-date "Reviews this month" tile on the same screen. Measured on
+    // the 44 captured reviews the day Eric asked (2026-11-02): Samuel Tomey
+    // ranked SECOND company-wide on 3 credits whose most recent is JUNE, and
+    // Aerick's 5 span March to September — while October's actual named
+    // reviews were Andrew x2 and Alec x1, every one of them Bloomington. The
+    // Fishers panel hanging in Fishers named nobody who had earned anything
+    // that month.
+    //
+    // The named bonus pays per month, so the month leads. All-time is kept
+    // because a month is a small number and the first days of one are empty:
+    // the screen falls back to it and SAYS which window it is showing.
     var company = {}, perStore = { fishers: {}, bloomington: {}, indianapolis: {} };
-    var counted = 0, namedTotal = 0;
+    var companyAll = {}, perStoreAll = { fishers: {}, bloomington: {}, indianapolis: {} };
+    var counted = 0, namedTotal = 0, countedMonth = 0, namedMonth = 0, namedUndated = 0;
+
+    // An ineligible person is still shown as named — the screen is about
+    // recognition, and hiding Matt would make the board read as untrue.
+    function bump(bucket, store, c, storeBuckets) {
+      bucket[c.name] = bucket[c.name] || { name: c.name, count: 0, payable: c.payable };
+      bucket[c.name].count += 1;
+      if (store && storeBuckets[store]) {
+        storeBuckets[store][c.name] = storeBuckets[store][c.name] || { name: c.name, count: 0, payable: c.payable };
+        storeBuckets[store][c.name].count += 1;
+      }
+    }
+
     (rlItems || []).forEach(function(it) {
       if (Number(it.rating) === 1) return;
-      counted += 1;
       var l = rlById[it.listing_id] || {};
+      // Count OUR pages only. Carmel is tracked in this table as a competitor,
+      // and the pre-existing `counted` was incremented before this check, so
+      // `reviews_seen` had been quietly including their reviews. Harmless while
+      // nothing read it; not harmless once a per-month version exists for a
+      // screen to show.
       if (!l.is_ours) return;
+      counted += 1;
+      var ym = it.posted_at ? String(it.posted_at).slice(0, 7) : null;
+      var inMonth = ym === rlPeriod;
+      if (inMonth) countedMonth += 1;
       var who = creditReview(it.text, rlRoster || []);
       if (!who.length) return;
       namedTotal += 1;
+      if (inMonth) namedMonth += 1;
+      // A credit with no date cannot be assigned to a month, so it counts
+      // all-time only and is reported rather than quietly folded into now.
+      if (!ym) namedUndated += 1;
       who.forEach(function(c) {
-        // An ineligible person is still shown as named — the screen is about
-        // recognition, and hiding Matt would make the board read as untrue.
-        company[c.name] = company[c.name] || { name: c.name, count: 0, payable: c.payable };
-        company[c.name].count += 1;
-        if (l.store && perStore[l.store]) {
-          perStore[l.store][c.name] = perStore[l.store][c.name] || { name: c.name, count: 0, payable: c.payable };
-          perStore[l.store][c.name].count += 1;
-        }
+        bump(companyAll, l.store, c, perStoreAll);
+        if (inMonth) bump(company, l.store, c, perStore);
       });
     });
 
@@ -566,18 +600,33 @@ export async function GET(request) {
     return json({
       success: true,
       period: rlPeriod,
+      // `company` / `by_store` are THIS MONTH. The all_time pair is the same
+      // shape so a screen can fall back to it without reshaping anything —
+      // and must label which window it drew.
       company: rank(company),
       by_store: {
         fishers: rank(perStore.fishers),
         bloomington: rank(perStore.bloomington),
         indianapolis: rank(perStore.indianapolis),
       },
+      company_all_time: rank(companyAll),
+      by_store_all_time: {
+        fishers: rank(perStoreAll.fishers),
+        bloomington: rank(perStoreAll.bloomington),
+        indianapolis: rank(perStoreAll.indianapolis),
+      },
+      // The page totals ARE lifetime on purpose: the $20 premium asks whether
+      // a page is established yet, which is a question about the whole page.
       thin_pages: thin,
+      thin_pages_window: "all time",
       named_bonus: { main: 10, thin: 20 },
       // Honest about the denominator: this counts the reviews Google handed us,
       // which is a relevance sample and not the full set.
       reviews_seen: counted,
       named_seen: namedTotal,
+      reviews_seen_this_month: countedMonth,
+      named_seen_this_month: namedMonth,
+      named_undated: namedUndated,
       coverage_note: "Counts the reviews Google returned, which is a sample rather than every review. Leaderboard order is indicative; the Business Profile inbox is the record.",
     });
   }
