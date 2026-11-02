@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-02 (TV review leaderboard scoped to the month § 10au — and the payable credits queue flagged with the same gap) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -877,14 +877,29 @@ looking at the Fishers board: *"Does this reset and track monthly?"* **Half of i
   • Also fixed: `counted` was incremented **before** the `is_ours` check, so the sample size had
     been quietly including **Carmel's** reviews (41 → 32 on our pages). Nothing read it, but a
     per-month version now exists for a screen to show.
-  ⚠ **THE PAYABLE PATH HAS THE SAME GAP AND IS NOT FIXED — needs Eric's sign-off.**
-    `?action=credits` returns **every review ever captured** with a $10/$20 `amount` attached and
-    **no month filter**, so the Reviews tab's "Credits to confirm" queue mixes **2025-09 through
-    2026-10 into one list**. Each row prints its own date, so nothing on screen is false — but it
-    is a payment queue for a **monthly** bonus, and working it in November means confirming $10
-    against a review from March. The `$120 proposed` figure in § 10al is therefore a **lifetime**
-    total, not a month's. Left alone because it computes bonus dollars (rule 2); it is the same
-    one-line change.
+  • **THE PAYABLE PATH HAD THE SAME GAP — FIXED the same day on Eric's "go ahead"**, in its own
+    commit as a bonus-dollar file. `?action=credits` returned **every review ever captured** with a
+    $10/$20 `amount` and **no window**, so "Credits to confirm" ran from **2025-09 to 2026-10, eleven
+    months, in one list**. Each row printed its own date, so nothing on screen was false — but it
+    is a payment queue for a **monthly** bonus, and working it in November meant confirming $10
+    against a review from March.
+  • **The flat list is $150 across 13 credits. October — the month anyone would actually settle
+    — is $30.** (The `$120` in § 10al was that same lifetime figure measured on 10-20, when 31
+    items were held rather than 44. A lifetime total read as a month's.) Per month: Oct $30 · Sep
+    $30 · Aug $20 · Jul $10 · Jun $10 · May $20 · Apr $10 · Mar $20; **November $0.**
+  • **The hazard in scoping it is the opposite one** and is the part worth keeping: an empty
+    current month would read as "nothing to settle" while October sat unpaid. So `months` indexes
+    **every** month holding a credit with its counts and dollars, the tab renders them as a picker
+    with the amount on each chip, and the running month is **always offered even when empty**.
+    **A month can be hidden from the list, never from the index.**
+  • **Reconciled before and after, which is the check that matters on a payable path:** sum of
+    every month plus the undated bucket equals the old flat total **exactly — $150 / 13 credits
+    either way, nothing lost**. A credit whose review has no date belongs to no month, so it is
+    returned separately and never folded into the current one (0 of 44 items today; a guard).
+    The queue's own rating-mix footer is month-scoped too, because the sentence under it is about
+    the store tier and the tier is monthly; all-time kept beside it.
+  • **Nothing is written to any ledger and the bonus is still unapproved.** 401 confirmed on
+    `credits` with and without `period`, and on the POST; `review_leaders` still public by design.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
@@ -939,6 +954,14 @@ looking at the Fishers board: *"Does this reset and track monthly?"* **Half of i
 ---
 
 ## 8. Recent changes log
+- **2026-11-02 (later)** — **Eric: "go ahead" on the payable half** (§ 10au). `?action=credits`
+  had the identical all-time gap, so the "Credits to confirm" queue spanned **eleven months in one
+  list with a dollar amount on every row**. Scoped to the posted month, in its own commit. **The
+  flat list was $150 / 13 credits; October is $30** — the queue had been showing five times the
+  month anyone would settle. The guard against the obvious regression is a month index: every month
+  holding a credit is listed with what it is worth, so scoping cannot hide an unsettled October
+  behind an empty November, and the running month is always offered even when empty. Reconciled
+  before and after — months + undated = the old total exactly, nothing lost. Still pays nobody.
 - **2026-11-02** — **Eric asked whether the TV review board resets monthly. Half of it did**
   (§ 10au): "Reviews this month" is a real subtraction, but the two name leaderboards beside it
   were lifetime tallies — the route took a `period` parameter, echoed it back and filtered on
