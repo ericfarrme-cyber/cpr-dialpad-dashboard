@@ -42,6 +42,7 @@
 // GET  ?action=credits&period=YYYY-MM  named credits for ONE month (+ a month index)
 // GET  ?action=review_leaders  who gets named THIS MONTH (+ all time), counts only — safe for the TV
 // GET  ?action=ask_pages&name=  which of our pages this tech should ask on
+// GET  ?action=my_reviews&name=  one person's own review credits (any role)
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
 // POST {action:'record_one_star', store, listing_type, posted_at, author?, note?}  (admin/manager)
 // POST {action:'remove_one_star', id}   undo a manual record only (admin/manager)
@@ -109,6 +110,73 @@ function tierFor(n) {
 // `ask_pages` tells a tech which page is still worth the larger amount. A
 // second copy is how two screens come to disagree (see TIERS above).
 var THIN_UNDER = 10, NAMED_MAIN = 10, NAMED_THIN = 20;
+
+// Whether a review that names two people pays each of them the full amount or
+// splits it. Stated in the 2026-11-02 meeting as a split; left at the route's
+// existing behaviour until Eric says so, because this is bonus dollars and a
+// guess either way is a number on somebody's screen that nobody approved.
+// One line, one place, both screens move together.
+var SPLIT_NAMED_CREDIT = false;
+// Whether a named credit requires the store to have reached the tier floor.
+// Same provenance, same reason, same single switch.
+var NAMED_CREDIT_NEEDS_STORE_FLOOR = false;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ONE DEFINITION of "what a captured review is worth, and to whom".
+//
+// Used by ?action=credits (the manager's payment queue) and ?action=my_reviews
+// (a technician's own screen). They must never disagree about a person's pay,
+// and this file has already had that bug twice — ReviewsTab keeping its own
+// copy of TIERS (§ 10ao) and ask_pages omitting a clause of the `thin` test
+// that credits had (§ 10ar). Both were invisible until the day they cost
+// somebody money, so the rule lives here once.
+// ─────────────────────────────────────────────────────────────────────────────
+function creditRowsFor(items, lById, totalById, roster) {
+  return (items || []).map(function(it) {
+    var l = lById[it.listing_id] || {};
+    var total = totalById[it.listing_id];
+    var thin = l.listing_type !== "main" && total !== undefined && total !== null && total < THIN_UNDER;
+    var r = it.rating == null ? null : Number(it.rating);
+    var ym = it.posted_at ? String(it.posted_at).slice(0, 7) : null;
+    var credits = creditReview(it.text, roster || []);
+    // Every review counts as a review. The one exception is the obvious
+    // one: a 1-star does not pay the person it names, and it raises a flag
+    // instead. A 2, 3 or 4 star counts and pays -- Eric, 2026-10-30, after
+    // the five-star-only rule turned out not to be computable at all.
+    var counts = r !== 1;
+    var full = thin ? NAMED_THIN : NAMED_MAIN;
+    var payableNames = credits.filter(function(c) { return c.payable; }).length;
+    var share = (SPLIT_NAMED_CREDIT && payableNames > 1) ? payableNames : 1;
+    return {
+      id: it.id,
+      period: ym,
+      store: l.store || null,
+      listing_type: l.listing_type || null,
+      listing_label: l.label || null,
+      page_total_reviews: total === undefined ? null : total,
+      page_under_threshold: thin,
+      rating: r,
+      author: it.author || null,
+      text: it.text || null,
+      has_photo: !!it.has_photo,
+      posted_at: it.posted_at || null,
+      counts_for_tier: counts,
+      flagged: r === 1,
+      why_not: counts ? null : "1 star — flagged for a person to look at, and it pays nobody",
+      proposed_credits: credits.map(function(c) {
+        return {
+          name: c.name,
+          matched: c.matched,
+          payable: c.payable,
+          // 0 whenever it cannot pay, so no screen has to re-derive the rule.
+          amount: (counts && c.payable) ? Math.round((full / share) * 100) / 100 : 0,
+          shared_with: share > 1 ? share : null,
+          blocked: !c.payable ? "not bonus-eligible" : (!counts ? "1 star review" : null),
+        };
+      }),
+    };
+  });
+}
 
 var PENALTY_AT_OR_BELOW = 1;        // a review at or below this many stars docks the store
 var PENALTY_STEPS = [1, 0.5, 0];    // 0 such reviews -> full, 1 -> half, 2+ -> nothing
@@ -790,6 +858,138 @@ export async function GET(request) {
     });
   }
 
+  // ───────────────────────────────────────────────────────────────────────────
+  // ?action=my_reviews&name=  — ONE PERSON'S OWN REVIEW CREDITS.
+  //
+  // Any signed-in role, because a technician must be able to see their own
+  // number without being a manager. It deliberately returns the person's
+  // credits and NOTHING ELSE: no other employee's credits, no payment state,
+  // no store totals. The store's tier comes from ?action=tracking, which is
+  // already public and already computes it — so this route never gets a second
+  // copy of the tier arithmetic to drift from (§ 10ao).
+  //
+  // Named credits follow the PERSON, not the store (§ 10al), which is why
+  // there is no store filter here: Duncan works three stores and a review that
+  // names him at Bloomington is his wherever he is assigned for the month.
+  // ───────────────────────────────────────────────────────────────────────────
+  if (action === "my_reviews") {
+    var mrGate = await requireAuth(request, {});
+    if (!mrGate.authorized) return mrGate.response;
+
+    var mrName = (searchParams.get("name") || "").trim();
+    if (!mrName) return json({ success: false, error: "name is required" }, 400);
+    var mrPeriod = searchParams.get("period") || indyToday().slice(0, 7);
+
+    var { data: mrLRaw, error: mrE1 } = await supabase.from("google_listings").select("id,store,listing_type,label,is_ours,place_id");
+    if (mrE1) return json({ success: false, error: mrE1.message }, 500);
+    var mrL = dedupeListings(mrLRaw).listings;
+    var { data: mrSnap, error: mrE2 } = await supabase.from("google_review_snapshots")
+      .select("listing_id,captured_on,total_reviews").order("captured_on", { ascending: false }).limit(5000);
+    if (mrE2) return json({ success: false, error: mrE2.message }, 500);
+    var { data: mrItems, error: mrE3 } = await supabase.from("google_review_items")
+      .select("id,listing_id,rating,author,text,has_photo,posted_at,first_seen_at").limit(5000);
+    if (mrE3) return json({ success: false, error: mrE3.message }, 500);
+    var { data: mrRoster, error: mrE4 } = await supabase.from("employee_roster")
+      .select("name,aliases,store,active,bonus_eligible");
+    if (mrE4) return json({ success: false, error: mrE4.message }, 500);
+
+    var mrActive = (mrRoster || []).filter(function(r) { return r.active; });
+    var mrMap = buildResolver(mrRoster || []).map;
+    // Resolve the asking name the same way every other screen does, so "Sam
+    // Tomey" sees Samuel Tomey's credits rather than none.
+    var mrWho = resolveNamePersonish(mrName, mrMap) || mrName;
+    var mrMe = mrActive.filter(function(r) { return r.name === mrWho; })[0] || null;
+
+    var mrById = {}; mrL.forEach(function(l) { mrById[l.id] = l; });
+    var mrTotal = {};
+    (mrSnap || []).forEach(function(sn) { if (mrTotal[sn.listing_id] === undefined) mrTotal[sn.listing_id] = sn.total_reviews; });
+
+    // Same rule object as the manager's queue, by construction.
+    var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive);
+
+    function mine(r) {
+      return (r.proposed_credits || []).filter(function(c) {
+        return resolveNamePersonish(c.name, mrMap) === mrWho || c.name === mrWho;
+      });
+    }
+    function pack(r, c) {
+      return {
+        id: r.id,
+        period: r.period,
+        store: r.store,
+        listing_type: r.listing_type,
+        listing_label: r.listing_label,
+        rating: r.rating,
+        author: r.author,
+        posted_at: r.posted_at,
+        has_photo: r.has_photo,
+        page_under_threshold: r.page_under_threshold,
+        amount: c.amount,
+        shared_with: c.shared_with,
+        blocked: c.blocked,
+        counts_for_tier: r.counts_for_tier,
+      };
+    }
+
+    var mrMonth = [], mrAll = [], mrUndated = [];
+    mrRows.forEach(function(r) {
+      mine(r).forEach(function(c) {
+        var row = pack(r, c);
+        mrAll.push(row);
+        if (r.period === mrPeriod) mrMonth.push(row);
+        else if (!r.period) mrUndated.push(row);
+      });
+    });
+    function byDateDesc(a, b) { return String(b.posted_at || "").localeCompare(String(a.posted_at || "")); }
+    mrMonth.sort(byDateDesc); mrAll.sort(byDateDesc); mrUndated.sort(byDateDesc);
+    var sum = function(a) { return Math.round(a.reduce(function(x, y) { return x + (y.amount || 0); }, 0) * 100) / 100; };
+
+    // Every month this person has ever been named in, so a scoped view can
+    // never hide a month they are owed for — the same index the manager's
+    // queue carries, for the same reason.
+    var mrIdx = {};
+    mrIdx[mrPeriod] = { period: mrPeriod, credits: 0, amount: 0 };
+    mrAll.forEach(function(r) {
+      if (!r.period) return;
+      var b = mrIdx[r.period] || (mrIdx[r.period] = { period: r.period, credits: 0, amount: 0 });
+      b.credits += 1; b.amount = Math.round((b.amount + (r.amount || 0)) * 100) / 100;
+    });
+
+    return json({
+      success: true,
+      period: mrPeriod,
+      name: mrName,
+      resolved_name: mrWho,
+      on_roster: !!mrMe,
+      bonus_eligible: mrMe ? mrMe.bonus_eligible !== false : null,
+      // Stated, not implied: being off the active roster is why a real person
+      // can see zero credits, and it is not the same as having none.
+      why_none: mrMe ? null : "This name is not on the active roster, so no review can be credited to it.",
+      tiers: TIERS,
+      floor: TIERS[0].at,
+      rules: {
+        thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN,
+        every_review_counts: true, one_star_pays_nobody: true,
+        split_named_credit: SPLIT_NAMED_CREDIT,
+        named_credit_needs_store_floor: NAMED_CREDIT_NEEDS_STORE_FLOOR,
+      },
+      my_credits: mrMonth,
+      my_amount: sum(mrMonth),
+      my_credit_count: mrMonth.length,
+      all_time_credits: mrAll.length,
+      all_time_amount: sum(mrAll),
+      months: Object.keys(mrIdx).sort().reverse().map(function(k) { return mrIdx[k]; }),
+      undated: mrUndated,
+      // Places hands back a relevance SAMPLE of each page's reviews, so a
+      // review naming this person may simply not be in it. "0" here means
+      // "none we hold", never "nobody named you" — and saying so is the
+      // difference between a prompt and an accusation.
+      coverage: "Google shows us a sample of each page's reviews, not all of them. A review that named you may not be in it yet.",
+      // NOT APPROVED TO PAY. Every screen that renders this must say so.
+      payable: false,
+    });
+  }
+
   if (action === "credits") {
     var cGate = await requireAuth(request, { requiredRoles: ["admin", "manager"] });
     if (!cGate.authorized) return cGate.response;
@@ -828,50 +1028,14 @@ export async function GET(request) {
     // them — a month is hidden from the list, never from the index.
     var cPeriod = searchParams.get("period") || indyToday().slice(0, 7);
 
+    var rows = creditRowsFor(cItems, lById, totalById, cRoster);
+
     function emptyMix() { return { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 }; }
     var mix = emptyMix(), mixAll = emptyMix();
-    var rows = (cItems || []).map(function(it) {
-      var l = lById[it.listing_id] || {};
-      var total = totalById[it.listing_id];
-      var thin = l.listing_type !== "main" && total !== undefined && total !== null && total < THIN_UNDER;
-      var r = it.rating == null ? null : Number(it.rating);
-      var ym = it.posted_at ? String(it.posted_at).slice(0, 7) : null;
-      var k = (r === 5 || r === 4 || r === 3 || r === 2 || r === 1) ? r : "unknown";
+    rows.forEach(function(r) {
+      var k = (r.rating === 5 || r.rating === 4 || r.rating === 3 || r.rating === 2 || r.rating === 1) ? r.rating : "unknown";
       mixAll[k] += 1;
-      if (ym === cPeriod) mix[k] += 1;
-
-      var credits = creditReview(it.text, cRoster || []);
-      // Every review counts as a review. The one exception is the obvious
-      // one: a 1-star does not pay the person it names, and it raises a flag
-      // instead. A 2, 3 or 4 star counts and pays -- Eric, 2026-10-30, after
-      // the five-star-only rule turned out not to be computable at all.
-      var counts = r !== 1;
-      return {
-        id: it.id,
-        period: ym,
-        store: l.store || null,
-        listing_type: l.listing_type || null,
-        page_total_reviews: total === undefined ? null : total,
-        page_under_threshold: thin,
-        rating: r,
-        author: it.author || null,
-        text: it.text || null,
-        has_photo: !!it.has_photo,
-        posted_at: it.posted_at || null,
-        counts_for_tier: counts,
-        flagged: r === 1,
-        why_not: counts ? null : "1 star — flagged for a person to look at, and it pays nobody",
-        proposed_credits: credits.map(function(c) {
-          return {
-            name: c.name,
-            matched: c.matched,
-            payable: c.payable,
-            // 0 whenever it cannot pay, so no screen has to re-derive the rule.
-            amount: (counts && c.payable) ? (thin ? NAMED_THIN : NAMED_MAIN) : 0,
-            blocked: !c.payable ? "not bonus-eligible" : (!counts ? "1 star review" : null),
-          };
-        }),
-      };
+      if (r.period === cPeriod) mix[k] += 1;
     });
 
     // Every month that holds a credit, with what it is worth. This is the
@@ -913,7 +1077,8 @@ export async function GET(request) {
       success: true,
       period: cPeriod,
       months: months,
-      rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, every_review_counts: true, one_star_pays_nobody: true },
+      rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, every_review_counts: true, one_star_pays_nobody: true,
+               split_named_credit: SPLIT_NAMED_CREDIT, named_credit_needs_store_floor: NAMED_CREDIT_NEEDS_STORE_FLOOR },
       // The mix is THIS MONTH's, because the sentence it sits under is about
       // the store tier and the tier is monthly. All-time kept beside it.
       rating_mix: mix,
