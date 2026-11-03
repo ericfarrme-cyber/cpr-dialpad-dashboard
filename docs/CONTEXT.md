@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1146,6 +1146,55 @@ the TV board and the "treat these as public" rule; and what is still open — th
 grading prompt waits on **specific ticket numbers from Matt**, Duncan's October **$100**, and the
 no-texting guideline.
 
+10bb. **"Open the dash and verify it works and audit for ui/ux. You should do that every time."**
+(Eric, 2026-11-03.) **Now CLAUDE.md rule 7**, replacing "deploy verification is via Eric" — he is the
+last confirmation, not the first. **Claude in Chrome against production** is the path: his own Chrome
+carries the Google session, and local dev has no auth bypass. Wait for the Vercel deploy or you are
+auditing the previous build.
+  • **The first audit paid for itself on the first screen.** Four defects, none of which a green build
+    or a 200 from a route would ever have shown:
+  • ⚠⚠ **`?action=tracking` COULD ONLY EVER ANSWER FOR THE RUNNING MONTH, and two screens with month
+    pickers read it anyway.** My Performance set to October rendered **"YOUR STORE'S REVIEW BONUS ·
+    2026-10" directly above NOVEMBER's review count** — heading from the picker, number from the
+    route. The Reviews tab splits the same way (store cards from `tracking`, credit queue from its own
+    picker). This is § 10au's defect a third time, on a screen that proposes money. `period` is now
+    optional on tracking and defaults to today, so the TV is untouched; a closed month is read **as it
+    stood at the end of it** (the per-listing "newest" snapshot is the last one inside the window).
+  • ⚠ **The tier card was reading the wrong STORE.** `empStore` is the page header's store, so viewing
+    Andrew McLelland (Bloomington) from the Fishers header showed **Fishers' tier above a banner
+    quoting Bloomington's count** — one card, two stores, numbers visibly disagreeing (4 vs 7).
+    `my_reviews` now returns the person's roster store and the card follows it.
+  • **Two TV screens were sized by their CONTENT, not by the board.** `screenStyle` in `TVDashboard`
+    is `position:absolute; inset:0` and **not a flex container**, so the `flex: 1` on `ScreenPromos`
+    and `ScreenReviews` roots did nothing — Promotions rendered as two ~90px cards at the top of a
+    1080p board with three quarters blank. ScreenDaily and ScreenRankings use `width/height: 100%`,
+    which is why only those two ever filled. **ScreenReviews had the same bug and was hidden by having
+    enough content**; a month with nobody named would have collapsed it. ⚠ My first fix
+    (`gridTemplateRows`) was the wrong lever and the board said so — an explicit row cannot divide a
+    height that is zero.
+  • **The TV review tile named two different targets**: "2 of 15" over a bar scaled to 15, then "8
+    more just to clear the floor". 15 is Eric's aim, 10 is where the money starts; the bar showed 13%
+    when the store was 20% of the way to the thing that pays. The floor is now marked inline ("2 of
+    15 · 10 pays"). ⚠ **Neither target changed — but § 10al's measured recommendation is "10 pays,
+    tell them 13"** and the wall still says 15, which predates that analysis. Eric's call.
+  • **Panels clip at laptop height.** § 10as swept Daily Dash to zero overflow **at 1080**; at a
+    1920×975 window both top panels clipped again (20px and 15px) — and **12px of that was the
+    "10 pays" row I had added an hour earlier**, the § 10as lesson repeating inside one session. Label
+    inlined, padding 2vh → 1.6vh, two margins 1.5vh → 1.1vh. Re-measured: **0 clipped elements across
+    all four screens**, which one DOM pass covers because they are mounted together.
+  • **Promotions invited an impossible action.** Both forms sat fully enabled under a banner saying
+    the tables do not exist, so the obvious next move was to fill seven fields and press a button that
+    cannot work. Inputs and buttons now disable and read "Needs the migration first". A loud error
+    after the fact is not the same as not inviting the action.
+  • Also fixed: the per-credit "why $0" repeated the banner's whole two-line sentence on every row
+    (three copies on one card, figures pushed out of alignment) — short on the row, full in the banner.
+  • **Confirmed working in production:** Promotions renders and degrades honestly; the review card's
+    bar is 40% at 4 of 10; "split evenly" and the store-floor condition are both on screen; Andrew's
+    October shows **$5.00 struck to $0.00 marked "split 2 ways"** and **$10.00 struck to $0.00**, the
+    $15 the measurement predicted, held because Bloomington took 7; the "View as employee" picker is
+    populated; "Where to ask for a review" lists all four page types including phone; the TV shows
+    four dots and the fourth screen's badge reads PROMOTIONS; no console errors anywhere.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -1232,6 +1281,17 @@ no-texting guideline.
   Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
   losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
   this particular sale needs a second look.
+- **2026-11-03 (later still)** — **Eric made UI verification a standing rule, and the first pass
+  found four defects** (§ 10bb). The worst was a month: `?action=tracking` can only answer for the
+  running month, and My Performance put **November's review count under a 2026-10 heading** on the
+  bonus card — the § 10au defect a third time, this time where it proposes money. The same card was
+  also reading the page header's store rather than the viewed person's, so a Bloomington technician
+  showed Fishers' tier above a banner quoting Bloomington's count, with the two numbers visibly
+  disagreeing on screen. On the TV, **two screens were sized by their content** because `screenStyle`
+  is not a flex container and their `flex: 1` did nothing — Promotions was two 90px cards on a 1080p
+  wall, and ScreenReviews has had the same bug all along, hidden by having enough rows to fill. And
+  the Daily Dash clipped again at laptop height, **12px of it the label I had added an hour before**.
+  None of this was reachable from a build log or a route check.
 - **2026-11-03 (later)** — **Eric settled the two named-credit rules, and the answer moved real money
   to zero.** Splits 5/5, and nothing pays if the store misses 10 (§ 10ay) — which, since no store has
   reached 10 in any month we have snapshots for, takes the whole credit queue from **$170 to $0.00**.
