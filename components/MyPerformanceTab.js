@@ -249,10 +249,12 @@ export default function MyPerformanceTab({ auth, store }) {
   // comparison the prompts elsewhere are instructions; with it the number
   // visibly moves (2026-09-29).
   var [criteria, setCriteria] = useState(null);
-  var [reviewData, setReviewData] = useState(null);
   // Which of our Google pages this person should be asking on, from the work
   // they closed. Counts and links; nothing to do with pay.
   var [askPages, setAskPages] = useState(null);
+  var [reviewTrack, setReviewTrack] = useState(null);
+  var [myReviews, setMyReviews] = useState(null);
+  var [saleExcluded, setSaleExcluded] = useState(0);
   var [streakData, setStreakData] = useState(null);
   // Advanced repair commission — from /api/advanced-repairs?action=my_commission
   // Counts in calibration mode initially; ALWAYS visible to employee since paid monthly
@@ -383,6 +385,11 @@ export default function MyPerformanceTab({ auth, store }) {
         // employee's ROSTER store and matched names in the browser, which
         // showed Luke Stirling 0 of his 130 calls.
         fetch("/api/dialpad/audit?action=for_employee&name=" + encodeURIComponent(empName) + "&days=" + auditDays).then(function(r) { return r.json(); }),
+        // DEAD SLOT, kept on purpose. `google_reviews` holds four rows, the
+        // newest from August, and nothing reads it since the review bonus was
+        // rewired on 2026-11-03. Removing the fetch would renumber every
+        // results[N] below and silently rewire five other reads (§ 10ad), so
+        // it stays until someone renumbers them all deliberately.
         fetch("/api/dialpad/google-reviews?store=" + empStore).then(function(r) { return r.json(); }),
         fetch("/api/dialpad/tier-history?action=streaks&employee=" + encodeURIComponent(empName) + "&store=" + encodeURIComponent(empStore)).then(function(r) { return r.json(); }),
         fetch("/api/advanced-repairs?action=my_commission&employee=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); }),
@@ -395,6 +402,14 @@ export default function MyPerformanceTab({ auth, store }) {
         // requireAuth, and a bare fetch would 401 silently.
         (auth && auth.authFetch
           ? auth.authFetch("/api/dialpad/google-tracking?action=ask_pages&name=" + encodeURIComponent(empName) + "&days=30").then(function(r) { return r.json(); })
+          : Promise.resolve(null)),
+        // Still at the END. The store's review tier comes from ?action=tracking
+        // — the one place that computes it — rather than being recomputed here.
+        // That endpoint is public by design (the shop TV reads it unsigned-in).
+        fetch("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); }),
+        // And the person's own named credits, which need a session.
+        (auth && auth.authFetch
+          ? auth.authFetch("/api/dialpad/google-tracking?action=my_reviews&name=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); })
           : Promise.resolve(null)),
       ]);
 
@@ -448,6 +463,8 @@ export default function MyPerformanceTab({ auth, store }) {
           });
         }
         setTickets(allTix);
+        // Said out loud rather than silently shrinking the list (§ 10ac).
+        setSaleExcluded(results[4].value.sale_tickets_excluded || 0);
       } else { errors.tickets = true; }
       if (results[5].status === "fulfilled" && results[5].value.goal) setWeeklyGoal(results[5].value.goal);
       // Canonical name resolver, built from employee_roster aliases. Without it
@@ -479,7 +496,7 @@ export default function MyPerformanceTab({ auth, store }) {
         });
         setAuditData(mine);
       } else { errors.calls = true; }
-      if (results[7].status === "fulfilled") setReviewData(results[7].value); else errors.reviews = true;
+      // results[7] is the dead google-reviews slot — see the fetch above.
       if (results[8] && results[8].status === "fulfilled" && results[8].value.success) setStreakData(results[8].value);
       if (results[9] && results[9].status === "fulfilled" && results[9].value.success) setAdvancedRepair(results[9].value);
       // Non-phone threshold bonus. Deliberately strict: Duncan only, and never
@@ -487,6 +504,13 @@ export default function MyPerformanceTab({ auth, store }) {
       // a bonus off data we know is incomplete is worse than paying it late.
       if (results[12] && results[12].status === "fulfilled" && results[12].value && results[12].value.success) setCriteria(results[12].value);
       if (results[13] && results[13].status === "fulfilled" && results[13].value && results[13].value.success) setAskPages(results[13].value);
+      if (results[14] && results[14].status === "fulfilled" && results[14].value && results[14].value.success) setReviewTrack(results[14].value);
+      // The tab's error dot (line ~1120 reads loadErrors[subTab.id]) now
+      // follows the read that actually feeds it. It used to follow the dead
+      // google-reviews route, which would have flagged this tab red
+      // permanently while the real data loaded fine.
+      else errors.reviews = true;
+      if (results[15] && results[15].status === "fulfilled" && results[15].value && results[15].value.success) setMyReviews(results[15].value);
       if (results[11] && results[11].status === "fulfilled" && results[11].value && results[11].value.success) {
         var npbAll = results[11].value.months || [];
         var npbMonth = npbAll.find(function(m) { return m.month === activePeriod; });
@@ -764,34 +788,63 @@ export default function MyPerformanceTab({ auth, store }) {
     };
   }, [auditData, highlightedCalls]);
 
-  // Review bonus calculation
+  // ───────────────────────────────────────────────────────────────────────────
+  // THE REVIEW BONUS, as it was actually agreed.
+  //
+  // What was here until 2026-11-03 computed the SUPERSEDED rule — $5 per
+  // review above 10 plus $5 per photo review, times the team size — off the
+  // `google_reviews` table, which holds four rows, the newest from August.
+  // So the screen either said "Review Data Not Available" or quoted a rule
+  // that no longer exists. Eric, 2026-11-02: "I don't see on the commission
+  // side the review portion. So that needs to be wired in."
+  //
+  // The rule now (CONTEXT § 10al / 10ao / 10ap): the STORE earns a tier on its
+  // real review count across all four of its Google pages — 10/15/20 reviews
+  // pays $50/$75/$100 to each eligible person, highest tier only — and being
+  // NAMED in a review pays that person $10, or $20 while the page is still
+  // under ten reviews. A 1-star pays nobody and halves the store's tier; a
+  // second zeroes it.
+  //
+  // Nothing is derived here. The tier comes from google-tracking's own
+  // computation and the credits from the same `creditRowsFor` the manager's
+  // queue uses, because this file has already shipped the bug where a screen
+  // kept its own copy of the rule and the two disagreed about pay.
+  // ───────────────────────────────────────────────────────────────────────────
   var reviewBonus = useMemo(function() {
-    if (!reviewData || !reviewData.current) return null;
-    var data = reviewData.current;
-    var totalReviews = data.total_reviews || 0;
-    var photoReviews = data.photo_reviews || 0;
-    var employeeCount = data.employee_count || 1;
-    var minimum = 10;
-
-    // $5/employee per review above 10, $5/employee per photo review
-    var aboveMin = Math.max(0, totalReviews - minimum);
-    var reviewPayout = aboveMin * 5 * employeeCount;
-    var photoPayout = photoReviews * 5 * employeeCount;
-    var perEmployee = employeeCount > 0 ? Math.round((reviewPayout + photoPayout) / employeeCount * 100) / 100 : 0;
-
+    if (!reviewTrack) return null;
+    var st = (reviewTrack.stores || []).filter(function(x) { return x.store === empStore; })[0] || null;
+    if (!st) return null;
+    var tiers = reviewTrack.tiers || [];
+    var floor = reviewTrack.floor;
+    var gained = st.gained_this_month;
+    // The next rung up, and what it is worth. Null once they are at the top.
+    var next = null;
+    tiers.forEach(function(t) { if (!next && gained !== null && gained < t.at) next = t; });
+    var mine = myReviews || null;
     return {
-      totalReviews: totalReviews,
-      photoReviews: photoReviews,
-      aboveMin: aboveMin,
-      minimum: minimum,
-      reviewPayout: reviewPayout,
-      photoPayout: photoPayout,
-      totalPayout: reviewPayout + photoPayout,
-      perEmployee: perEmployee,
-      employeeCount: employeeCount,
-      history: reviewData.history || [],
+      store: st,
+      tiers: tiers,
+      floor: floor,
+      next: next,
+      gained: gained,
+      // An incomplete gain must never be read as a tier. The route already
+      // refuses to call it complete; this just carries the reason through.
+      gainComplete: !!st.gain_complete,
+      pagesWithoutBaseline: st.pages_without_baseline || 0,
+      penalty: reviewTrack.penalty || null,
+      named: mine ? (mine.my_credits || []) : [],
+      namedAmount: mine ? (mine.my_amount || 0) : 0,
+      namedMonths: mine ? (mine.months || []) : [],
+      allTimeCredits: mine ? (mine.all_time_credits || 0) : 0,
+      rules: mine ? mine.rules : null,
+      eligible: mine ? mine.bonus_eligible : null,
+      onRoster: mine ? mine.on_roster : null,
+      whyNone: mine ? mine.why_none : null,
+      coverage: mine ? mine.coverage : null,
+      haveMine: !!mine,
+      period: (mine && mine.period) || reviewTrack.period,
     };
-  }, [reviewData]);
+  }, [reviewTrack, myReviews, empStore]);
 
   // AI Coaching generator
   var generateCoaching = async function() {
@@ -2352,7 +2405,12 @@ export default function MyPerformanceTab({ auth, store }) {
           {/* Ticket list */}
           <div style={card}>
             <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Recent Tickets</div>
-            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 16 }}>Click any ticket to see exactly where you gained or lost points.</div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: saleExcluded ? 6 : 16 }}>Click any ticket to see exactly where you gained or lost points.</div>
+            {saleExcluded > 0 && (
+              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginBottom: 16, padding: "6px 10px", background: "var(--bg-card-inner)", borderRadius: 4, borderLeft: "2px solid var(--cyan)" }}>
+                {saleExcluded} counter sale{saleExcluded === 1 ? "" : "s"} not shown. Sales are graded against repair criteria they don{"’"}t have, so they count toward no score {"—"} and never did.
+              </div>
+            )}
             {filteredTickets.length > 0 ? (
               <div style={{ maxHeight: 600, overflow: "auto" }}>
                 {filteredTickets.slice(0, 50).map(function(t) {
@@ -2825,67 +2883,186 @@ export default function MyPerformanceTab({ auth, store }) {
               not depend on the monthly sheet having been filled in, and that
               sheet is exactly the thing that is sometimes missing. */}
           <ReviewAskCard data={askPages} card={card} cardInner={cardInner} />
+
           {reviewBonus ? (
             <div>
-              {/* Review bonus summary */}
+              {/* NOT APPROVED TO PAY. The route says payable:false and every
+                  screen rendering it has to say so — a dollar figure on a
+                  technician's own page reads as a promise. Delete this banner
+                  the day Eric signs the bonus off, and not before. */}
+              <div style={{ ...card, marginBottom: 20, borderLeft: "3px solid var(--yellow)", padding: "12px 16px" }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--yellow)", marginBottom: 2 }}>Proposed {"—"} not approved to pay yet</div>
+                <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                  These are the numbers the review bonus would pay under the rule as agreed. Nothing here has been added to a paycheck.
+                </div>
+              </div>
+
+              {/* Store tier */}
               <div style={{ ...card, marginBottom: 20, background: "linear-gradient(135deg, var(--bg-card) 0%, #FBBF2408 100%)" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, gap: 16, flexWrap: "wrap" }}>
                   <div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Per Employee Bonus This Month</div>
-                    <div style={{ fontSize: 42, fontWeight: 900, color: "var(--yellow)" }}>{fmt(reviewBonus.perEmployee)}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
+                      Your store{"’"}s review bonus {"·"} {reviewBonus.period}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                      {/* BOTH figures always travel. A card showing only the
+                          final number cannot tell "missed the threshold" from
+                          "reached it and was docked", and those are two
+                          different conversations with a store manager. */}
+                      {reviewBonus.store.penalty_applied && (
+                        <span style={{ fontSize: 22, fontWeight: 700, color: "var(--text-muted)", textDecoration: "line-through" }}>
+                          {fmt(reviewBonus.store.tier_pays_before_penalty)}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 42, fontWeight: 900, color: reviewBonus.store.tier_pays > 0 ? "var(--yellow)" : "var(--text-muted)" }}>
+                        {fmt(reviewBonus.store.tier_pays)}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>to each eligible person at this store</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Store Total Payout</div>
-                    <div style={{ fontSize: 24, fontWeight: 700, color: "var(--green)" }}>{fmt(reviewBonus.totalPayout)}</div>
+                    <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Reviews this month</div>
+                    <div style={{ fontSize: 32, fontWeight: 900, color: "var(--cyan)" }}>
+                      {reviewBonus.gained === null ? "—" : reviewBonus.gained}
+                    </div>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>across all four pages</div>
                   </div>
                 </div>
 
-                {/* Progress to minimum */}
-                <div style={{ marginBottom: 16 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
-                    <span>Reviews: {reviewBonus.totalReviews}</span>
-                    <span>Minimum: {reviewBonus.minimum}</span>
-                  </div>
-                  <div style={{ background: "var(--bg-card-inner)", borderRadius: 4, height: 8, overflow: "hidden" }}>
-                    <div style={{ width: Math.min(100, reviewBonus.totalReviews / reviewBonus.minimum * 100) + "%", height: "100%", borderRadius: 4, background: reviewBonus.totalReviews >= reviewBonus.minimum ? "var(--green)" : "var(--yellow)" }} />
-                  </div>
-                  {reviewBonus.totalReviews < reviewBonus.minimum && (
-                    <div style={{ fontSize: 11, color: "var(--yellow)", marginTop: 4 }}>{reviewBonus.minimum - reviewBonus.totalReviews} more reviews needed to unlock bonuses</div>
-                  )}
+                {/* Progress to the next rung, or to the floor */}
+                {(function() {
+                  var target = reviewBonus.next ? reviewBonus.next.at : reviewBonus.floor;
+                  var g = reviewBonus.gained === null ? 0 : reviewBonus.gained;
+                  var pct = target ? Math.min(100, (g / target) * 100) : 0;
+                  return (
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
+                        <span>{g} review{g === 1 ? "" : "s"}</span>
+                        <span>{reviewBonus.next ? reviewBonus.next.at + " pays " + fmt(reviewBonus.next.pays) : "top tier reached"}</span>
+                      </div>
+                      <div style={{ background: "var(--bg-card-inner)", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                        <div style={{ width: pct + "%", height: "100%", borderRadius: 4, background: g >= reviewBonus.floor ? "var(--green)" : "var(--yellow)" }} />
+                      </div>
+                      {reviewBonus.next && (
+                        <div style={{ fontSize: 11, color: g >= reviewBonus.floor ? "var(--text-secondary)" : "var(--yellow)", marginTop: 4 }}>
+                          {reviewBonus.next.at - g} more to {g >= reviewBonus.floor ? "reach " + fmt(reviewBonus.next.pays) : "clear the floor"}
+                          {g < reviewBonus.floor ? " · aim for " + (reviewBonus.floor + 3) + " to clear it most months" : ""}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+                {/* The tier table, from the route — never a second copy */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.max(1, reviewBonus.tiers.length) + ", 1fr)", gap: 10 }}>
+                  {reviewBonus.tiers.map(function(t) {
+                    var hit = reviewBonus.gained !== null && reviewBonus.gained >= t.at;
+                    var isCurrent = reviewBonus.store.tier_at === t.at;
+                    return (
+                      <div key={t.at} style={{ ...cardInner, borderLeft: "2px solid " + (isCurrent ? "var(--green)" : hit ? "var(--cyan)" : "var(--border)") }}>
+                        <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5 }}>{t.at} reviews</div>
+                        <div style={{ fontSize: 20, fontWeight: 800, color: isCurrent ? "var(--green)" : "var(--text-primary)" }}>{fmt(t.pays)}</div>
+                        {isCurrent && <div style={{ fontSize: 10, color: "var(--green)" }}>you{"’"}re here</div>}
+                      </div>
+                    );
+                  })}
                 </div>
 
-                {/* Breakdown */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
-                  <div style={cardInner}>
-                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Reviews Above Min</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.aboveMin > 0 ? "var(--green)" : "var(--text-muted)" }}>{reviewBonus.aboveMin}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.reviewPayout)}</div>
+                {/* A 1-star. Applied vs pending, never conflated. */}
+                {reviewBonus.store.penalty_reason && (
+                  <div style={{ marginTop: 14, padding: "8px 12px", borderRadius: 4, background: "#FF2D9512", borderLeft: "2px solid var(--pink)", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    <strong style={{ color: "var(--pink)" }}>{reviewBonus.store.penalty_reason}</strong>
+                    {reviewBonus.store.penalty_pending ? " It bites if the store reaches the floor." : ""}
+                    <div style={{ marginTop: 2 }}>Being named in a review still pays you {"—"} the deduction is on the store{"’"}s tier, not on anyone{"’"}s name.</div>
                   </div>
-                  <div style={cardInner}>
-                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Photo Reviews</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: reviewBonus.photoReviews > 0 ? "var(--pink)" : "var(--text-muted)" }}>{reviewBonus.photoReviews}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>x $5/employee = {fmt(reviewBonus.photoPayout)}</div>
+                )}
+
+                {/* An incomplete count is NOT a tier. Say which page is missing. */}
+                {!reviewBonus.gainComplete && (
+                  <div style={{ marginTop: 14, padding: "8px 12px", borderRadius: 4, background: "var(--bg-card-inner)", fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    This month{"’"}s count is incomplete {"—"} {reviewBonus.pagesWithoutBaseline} of your pages {reviewBonus.pagesWithoutBaseline === 1 ? "has" : "have"} no reading from before the 1st, so {reviewBonus.pagesWithoutBaseline === 1 ? "its" : "their"} reviews can{"’"}t be counted yet. The real number is this one or higher.
                   </div>
-                  <div style={cardInner}>
-                    <div style={{ fontSize: 9, color: "var(--text-muted)", textTransform: "uppercase", marginBottom: 4 }}>Team Size</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: "var(--text-primary)" }}>{reviewBonus.employeeCount}</div>
-                    <div style={{ fontSize: 10, color: "var(--text-muted)" }}>employees sharing bonus</div>
-                  </div>
+                )}
+              </div>
+
+              {/* Your own named credits */}
+              <div style={{ ...card, marginBottom: 20 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4, gap: 12, flexWrap: "wrap" }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)" }}>Reviews that named you</div>
+                  <div style={{ fontSize: 24, fontWeight: 900, color: reviewBonus.namedAmount > 0 ? "var(--green)" : "var(--text-muted)" }}>{fmt(reviewBonus.namedAmount)}</div>
                 </div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.5 }}>
+                  {reviewBonus.rules
+                    ? fmt(reviewBonus.rules.named_main) + " when a customer names you, " + fmt(reviewBonus.rules.named_thin) + " while that page still has under " + reviewBonus.rules.thin_under + " reviews. This follows you, not your store."
+                    : "Sign in to see your own credits."}
+                </div>
+
+                {reviewBonus.eligible === false && (
+                  <div style={{ padding: "8px 12px", borderRadius: 4, background: "var(--bg-card-inner)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
+                    Salaried {"·"} not on the per-employee bonuses. Your reviews still count toward the store{"’"}s total.
+                  </div>
+                )}
+                {reviewBonus.whyNone && (
+                  <div style={{ padding: "8px 12px", borderRadius: 4, background: "var(--bg-card-inner)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
+                    {reviewBonus.whyNone}
+                  </div>
+                )}
+
+                {reviewBonus.named.length > 0 ? (
+                  <div>
+                    {reviewBonus.named.map(function(c) {
+                      return (
+                        <div key={c.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "9px 0", borderBottom: "1px solid var(--border)" }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>
+                              {c.rating ? "★".repeat(Math.max(0, Math.min(5, c.rating))) : "—"}
+                              <span style={{ color: "var(--text-muted)", fontWeight: 400 }}>{"  "}{c.author || "a customer"}</span>
+                            </div>
+                            <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
+                              {c.listing_label || c.listing_type}{c.posted_at ? " · " + String(c.posted_at).slice(0, 10) : ""}
+                              {c.page_under_threshold ? " · page still under " + (reviewBonus.rules ? reviewBonus.rules.thin_under : 10) : ""}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: "right", flexShrink: 0 }}>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: c.amount > 0 ? "var(--green)" : "var(--text-muted)" }}>{fmt(c.amount)}</div>
+                            {c.blocked && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>{c.blocked}</div>}
+                            {c.shared_with > 1 && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>split {c.shared_with} ways</div>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: 12, color: "var(--text-muted)", padding: "12px 0" }}>
+                    {reviewBonus.haveMine
+                      ? "No review has named you this month yet. Asking by name is what makes that happen."
+                      : "Your own credits need a signed-in session."}
+                  </div>
+                )}
+
+                {/* Google hands back a sample, not every review. "0" must never
+                    read as "nobody named you". */}
+                {reviewBonus.coverage && (
+                  <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.5 }}>{reviewBonus.coverage}</div>
+                )}
               </div>
 
               {/* How to earn more */}
               <div style={{ ...card, marginBottom: 20 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>How to Earn More Review Bonuses</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>How to earn more review bonuses</div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                   {[
-                    { icon: "\u2B50", title: "Ask Every Customer", tip: "After completing a repair, ask: 'Would you mind leaving us a quick Google review? It really helps us out.'" },
-                    { icon: "\uD83D\uDCF8", title: "Request Photos", tip: "Photo reviews are worth $5 each regardless of minimum. Ask: 'If you could include a photo, that would be amazing!'" },
+                    { icon: "⭐", title: "Ask every customer", tip: "After completing a repair, ask: would you mind leaving us a quick Google review? It really helps us out." },
+                    // Was "Photo reviews are worth $5 each" until 2026-11-03 —
+                    // that was the OLD rule's separate photo payment, which the
+                    // agreed rule does not have. Being NAMED is the per-person
+                    // money now, so that is what the tip asks for.
+                    { icon: "👤", title: "Ask them to name you", tip: "A review that mentions you by name is the only part of this that pays you personally. Mentioning your name helps you directly." },
                     // Was "or text them the direct review link" until 2026-11-01.
                     // Corporate guidelines do not allow us to text customers, so
                     // the app should not have been telling staff to.
-                    { icon: "\uD83D\uDCF1", title: "Make It Easy", tip: "Open the right page on the counter screen while they're still standing there, or keep a QR code by the register. We don't text customers." },
-                    { icon: "\uD83D\uDCAC", title: "Timing Matters", tip: "Ask for the review while the customer is still happy — right when they see their fixed device working perfectly." },
+                    { icon: "📱", title: "Make it easy", tip: "Open the right page on the counter screen while they are still standing there, or keep a QR code by the register. We don't text customers." },
+                    { icon: "💬", title: "Timing matters", tip: "Ask while the customer is still happy — right when they see their fixed device working perfectly." },
                   ].map(function(item) {
                     return (
                       <div key={item.title} style={cardInner}>
@@ -2896,26 +3073,23 @@ export default function MyPerformanceTab({ auth, store }) {
                     );
                   })}
                 </div>
+                <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 12, lineHeight: 1.5 }}>
+                  Never offer anything in exchange for a review. Google asks reviewers whether they were incentivised and hides the review if they say yes.
+                </div>
               </div>
 
-              {/* Review history trend */}
-              {reviewBonus.history && reviewBonus.history.length > 1 && (
+              {/* Your named credits by month */}
+              {reviewBonus.namedMonths.filter(function(m) { return m.credits > 0; }).length > 0 && (
                 <div style={card}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 12 }}>Monthly Review History</div>
-                  {reviewBonus.history.slice(0, 6).map(function(h) {
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-primary)", marginBottom: 4 }}>Your named credits by month</div>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12 }}>{reviewBonus.allTimeCredits} in total since we started tracking.</div>
+                  {reviewBonus.namedMonths.filter(function(m) { return m.credits > 0; }).slice(0, 8).map(function(m) {
                     return (
-                      <div key={h.period} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
-                        <span style={{ color: "var(--text-primary)", fontSize: 13 }}>{h.period}</span>
+                      <div key={m.period} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+                        <span style={{ color: "var(--text-primary)", fontSize: 13 }}>{m.period}</span>
                         <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-                          <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{h.total_reviews || 0} reviews</span>
-                          <span style={{ color: "var(--pink)", fontSize: 12 }}>{h.photo_reviews || 0} photos</span>
-                          <span style={{ color: "var(--yellow)", fontSize: 13, fontWeight: 700, minWidth: 60, textAlign: "right" }}>
-                            {(function() {
-                              var above = Math.max(0, (h.total_reviews || 0) - 10);
-                              var bonus = above * 5 + (h.photo_reviews || 0) * 5;
-                              return fmt(bonus / Math.max(h.employee_count || 1, 1));
-                            })()}
-                          </span>
+                          <span style={{ color: "var(--text-secondary)", fontSize: 12 }}>{m.credits} review{m.credits === 1 ? "" : "s"}</span>
+                          <span style={{ color: "var(--yellow)", fontSize: 13, fontWeight: 700, minWidth: 60, textAlign: "right" }}>{fmt(m.amount)}</span>
                         </div>
                       </div>
                     );
@@ -2925,9 +3099,12 @@ export default function MyPerformanceTab({ auth, store }) {
             </div>
           ) : (
             <div style={{ ...card, padding: 40, textAlign: "center" }}>
-              <div style={{ fontSize: 40, marginBottom: 12 }}>{"\u2B50"}</div>
-              <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Review Data Not Available</div>
-              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>Google review tracking hasn't been set up for your store yet.</div>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>{"⭐"}</div>
+              <div style={{ color: "var(--text-primary)", fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Review tracking isn{"’"}t reporting</div>
+              {/* Loud, not a zero: a store with no tracked pages and a store
+                  whose sync failed are different problems, and neither one is
+                  "you earned nothing". */}
+              <div style={{ color: "var(--text-muted)", fontSize: 13 }}>We couldn{"’"}t read your store{"’"}s Google pages just now, so this is blank rather than wrong. Tell your manager if it stays this way.</div>
             </div>
           )}
         </div>
