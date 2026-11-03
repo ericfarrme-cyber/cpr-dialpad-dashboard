@@ -170,7 +170,10 @@ export default function ScreenDaily(props) {
                               color: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }}>
                   {revGained}
                 </div>
-                <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>of {REV_TARGET}</div>
+                <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>
+                  of {REV_TARGET}
+                  <span style={{ color: "#9CA3AF", fontWeight: 700 }}>{"  ·  " + REV_FLOOR + " pays"}</span>
+                </div>
               </div>
               <div style={{ position: "relative", height: 8, borderRadius: 5, background: "#F1F3F6", overflow: "hidden", marginTop: 7 }}>
                 <div style={{ height: "100%", borderRadius: 5, transition: "width .8s cubic-bezier(.22,.9,.3,1)",
@@ -180,12 +183,6 @@ export default function ScreenDaily(props) {
                     it are talking about the same thing */}
                 <div style={{ position: "absolute", top: 0, bottom: 0, left: (REV_FLOOR / REV_TARGET) * 100 + "%",
                               width: 2, background: "#FFFFFF", opacity: .95 }} />
-              </div>
-              <div style={{ position: "relative", height: 11, marginTop: 1 }}>
-                <div style={{ position: "absolute", left: (REV_FLOOR / REV_TARGET) * 100 + "%", transform: "translateX(-50%)",
-                              fontSize: "clamp(9px, 1.1vh, 11px)", color: "#9CA3AF", fontWeight: 700, whiteSpace: "nowrap" }}>
-                  {REV_FLOOR} pays
-                </div>
               </div>
               <div style={{ marginTop: 6, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280" }}>
                 {revGained >= REV_TARGET ? "Target hit — nice work ⭐"
@@ -208,7 +205,7 @@ export default function ScreenDaily(props) {
             <div style={{ fontSize: "clamp(22px, 4vh, 44px)", fontWeight: 700, color: rateColor }}>%</div>
           </div>
         )}
-        <div style={{ marginTop: "clamp(8px, 1.5vh, 16px)", fontSize: "clamp(14px, 1.8vh, 18px)", color: "#6B7280" }}>
+        <div style={{ marginTop: "clamp(6px, 1.1vh, 14px)", fontSize: "clamp(14px, 1.8vh, 18px)", color: "#6B7280" }}>
           {answerRate === null ? "Waiting for today's call data..." :
             answerRate >= 85 ? "Crushing it 🔥" :
             answerRate >= 70 ? "Solid — keep pushing" :
@@ -346,7 +343,7 @@ function BonusTrack(props) {
   var marks = (props.tiers || []).slice().sort(function(a, b) { return a.min - b.min; });
   var fillColor = rate >= 90 ? "#10B981" : rate >= 85 ? "#059669" : rate >= 80 ? "#7B2FFF" : "#9CA3AF";
   return (
-    <div style={{ marginTop: "clamp(8px, 1.5vh, 14px)" }}>
+    <div style={{ marginTop: "clamp(6px, 1.1vh, 13px)" }}>
       <div style={{ position: "relative", background: "#F0F1F3", borderRadius: 6, height: "clamp(8px, 1.4vh, 12px)", overflow: "hidden" }}>
         <div style={{ width: pct + "%", height: "100%", borderRadius: 6, background: fillColor, transition: "width 0.4s ease" }} />
       </div>
@@ -372,7 +369,7 @@ function Panel(props) {
     <div style={{
       background: "#FFFFFF",
       borderRadius: 16,
-      padding: "clamp(14px, 2vh, 22px)",
+      padding: "clamp(10px, 1.6vh, 20px)",
       border: "1px solid #E5E7EB",
       borderTop: "3px solid " + props.accent,
       boxShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.03)",
