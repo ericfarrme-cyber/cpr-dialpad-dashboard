@@ -59,6 +59,12 @@ export default function ScreenDaily(props) {
   // not the bonus floor -- the tier starts at 10 (see ReviewsTab). Every
   // review counts toward both; the five-star-only rule is gone.
   var REV_TARGET = 15;
+  // ⚠ The floor is where the MONEY starts, and the tile used to name it only
+  // in a sentence underneath. Read on the wall at Indianapolis it said
+  // "2 of 15" over a bar scaled to 15, then "8 more just to clear the floor" --
+  // two different targets on one tile, and the bar showed 13% when they were
+  // 20% of the way to the thing that pays. The floor is now marked ON the bar.
+  var REV_FLOOR = 10;
 
   // ── Month answer-rate bonus for THIS store ─────────────────────────
   // bonusData is calendar-month scoped (separate from today's rate above).
@@ -166,15 +172,25 @@ export default function ScreenDaily(props) {
                 </div>
                 <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>of {REV_TARGET}</div>
               </div>
-              <div style={{ height: 8, borderRadius: 5, background: "#F1F3F6", overflow: "hidden", marginTop: 7 }}>
+              <div style={{ position: "relative", height: 8, borderRadius: 5, background: "#F1F3F6", overflow: "hidden", marginTop: 7 }}>
                 <div style={{ height: "100%", borderRadius: 5, transition: "width .8s cubic-bezier(.22,.9,.3,1)",
                               width: Math.min(100, (revGained / REV_TARGET) * 100) + "%",
-                              background: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }} />
+                              background: revGained >= REV_TARGET ? "#10B981" : revGained >= REV_FLOOR ? "#F59E0B" : "#DC2626" }} />
+                {/* where the bonus starts, so the bar and the sentence under
+                    it are talking about the same thing */}
+                <div style={{ position: "absolute", top: 0, bottom: 0, left: (REV_FLOOR / REV_TARGET) * 100 + "%",
+                              width: 2, background: "#FFFFFF", opacity: .95 }} />
+              </div>
+              <div style={{ position: "relative", height: 11, marginTop: 1 }}>
+                <div style={{ position: "absolute", left: (REV_FLOOR / REV_TARGET) * 100 + "%", transform: "translateX(-50%)",
+                              fontSize: "clamp(9px, 1.1vh, 11px)", color: "#9CA3AF", fontWeight: 700, whiteSpace: "nowrap" }}>
+                  {REV_FLOOR} pays
+                </div>
               </div>
               <div style={{ marginTop: 6, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280" }}>
                 {revGained >= REV_TARGET ? "Target hit — nice work ⭐"
-                  : revGained >= 10 ? (REV_TARGET - revGained) + " more to hit the target"
-                  : (10 - revGained) + " more just to clear the floor"}
+                  : revGained >= REV_FLOOR ? (REV_TARGET - revGained) + " more to hit the target"
+                  : (REV_FLOOR - revGained) + " more just to clear the floor"}
               </div>
             </>
           )}

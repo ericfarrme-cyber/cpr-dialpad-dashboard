@@ -112,7 +112,14 @@ export default function ScreenPromos(props) {
   var hidden = messages.length - shown.length;
 
   return (
-    <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.25fr 1fr", gap: 20, minHeight: 0 }}>
+    // gridTemplateRows is NOT optional here. Found on the wall at 1080p: with
+    // both panels empty the single implicit row sized to its CONTENT, so the
+    // board rendered two ~90px cards at the top of a 1080px screen and three
+    // quarters of it was blank -- which reads as broken, not as "nothing on
+    // sale". The sibling screens only escape this because their content is
+    // tall enough to fill. An explicit row makes the panels fill whatever
+    // they hold, including nothing.
+    <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.25fr 1fr", gridTemplateRows: "minmax(0, 1fr)", gap: 20, minHeight: 0 }}>
 
       {/* ── left: the sale ── */}
       <div style={panel({ borderLeft: "6px solid " + (lead ? GOLD : LINE) })}>
