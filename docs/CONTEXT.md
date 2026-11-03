@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1087,8 +1087,10 @@ no idea what its store took that month.
   • Still pays nobody; no ledger row is written.
 
 10az. **Flash sales, store messages, and a fourth TV screen — SHIPPED 2026-11-03** (`cb50e9e`).
-Items 3 and 4 off the 11-02 meeting. **Needs `sql/migration_promotions.sql` pasted** (two tables:
-`repair_price_sales`, `store_messages`).
+Items 3 and 4 off the 11-02 meeting. **`sql/migration_promotions.sql` RUN by Eric 2026-11-03**
+(`repair_price_sales`, `store_messages`); verified live the same hour — `?action=board` returns
+`success` with empty arrays instead of `not_configured`, and the price-book GET reports
+`sales_unavailable` unset with `live_sales: 0`. The whole path is wired and waiting on a first sale.
   • **A SALE CANNOT LIVE ON THE PRICE ROW.** `repair_prices` has **no store dimension** — one sheet
     serves all three stores, which is the point of it — and a sale is per store and per date window. So
     it is its own table, and **a company-wide sale is three rows**: every read stays a plain store filter
@@ -1173,10 +1175,19 @@ auditing the previous build.
     (`gridTemplateRows`) was the wrong lever and the board said so — an explicit row cannot divide a
     height that is zero.
   • **The TV review tile named two different targets**: "2 of 15" over a bar scaled to 15, then "8
-    more just to clear the floor". 15 is Eric's aim, 10 is where the money starts; the bar showed 13%
-    when the store was 20% of the way to the thing that pays. The floor is now marked inline ("2 of
-    15 · 10 pays"). ⚠ **Neither target changed — but § 10al's measured recommendation is "10 pays,
-    tell them 13"** and the wall still says 15, which predates that analysis. Eric's call.
+    more just to clear the floor". 15 was Eric's aim, 10 is where the money starts; the bar showed 13%
+    when the store was 20% of the way to the thing that pays. First cut marked the floor inline
+    ("2 of 15 · 10 pays") and flagged the aim as his call. **ANSWERED the same day: "its 10
+    reviews"** — so there is now **ONE target on the board and it is the one that pays**. 15, the
+    floor tick, the "· 10 pays" suffix and the two-branch sentence under the bar are all gone;
+    `REV_TARGET = 10` matches `google-tracking`'s own `TIERS` floor, so the wall cannot disagree with
+    what a store is paid. Amber is now `ceil(REV_TARGET * 0.7)` rather than a hardcoded 10, so moving
+    the target moves the colour with it. Side effect worth having: dropping the label row returns the
+    12px that had re-broken § 10as clipping.
+    ⚠ **§ 10al's measured "10 pays, tell them 13" is therefore NOT what the board does** — Eric chose
+    the simpler thing, which is defensible: 13 on the wall and 10 in the payout is the same
+    two-numbers-one-tile problem that was just removed. The 45.8% month-to-month wobble at exactly 10
+    is unchanged and still worth saying out loud to the stores in words.
   • **Panels clip at laptop height.** § 10as swept Daily Dash to zero overflow **at 1080**; at a
     1920×975 window both top panels clipped again (20px and 15px) — and **12px of that was the
     "10 pays" row I had added an hour earlier**, the § 10as lesson repeating inside one session. Label
@@ -1281,6 +1292,14 @@ auditing the previous build.
   Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
   losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
   this particular sale needs a second look.
+- **2026-11-03 (last)** — **Migration run, and the board got one target instead of two.** Eric pasted
+  `migration_promotions.sql`, so flash sales and the store-messages board stopped degrading and went
+  live (verified through both routes). And on the open question the audit had flagged — 15 on the wall
+  against 10 in the payout — his answer was **"its 10 reviews"**, which deletes the second number
+  rather than reconciling it: no floor tick, no "· 10 pays" suffix, no two-branch sentence, and
+  `REV_TARGET` now equals the route's own tier floor so the two cannot drift. § 10al's "tell them 13"
+  loses to that, and reasonably — it would have reintroduced exactly the two-numbers-one-tile defect
+  that was just fixed.
 - **2026-11-03 (later still)** — **Eric made UI verification a standing rule, and the first pass
   found four defects** (§ 10bb). The worst was a month: `?action=tracking` can only answer for the
   running month, and My Performance put **November's review count under a 2026-10 heading** on the

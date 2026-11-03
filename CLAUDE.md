@@ -125,7 +125,7 @@ extension/      Chrome extension "Focused Technologies — Ticket Grader" (if mo
 ## Supabase tables
 `audit_results` (call audits; has `tone_score`, `clarity_score`, `empathy_score`, `qualitative_notes` — calibration only, must NOT affect scorecards), `ticket_grades` (keyed on `ticket_number` text; has `discount_amount`, `total_cost`, `total_collected`, `payment_method`, `turnaround_hours`, `item_details` JSONB, `device_category`, `device_brand`), `employee_roster` (with alias arrays for transcription mismatches, e.g. Aerick Long → `{eric,erik,derek,arick}`), `dashboard_users`, `appointments`, `weekly_goals`, `google_reviews`, `gbp_reports`, `profitability` (with `corporate_overhead`, `area_manager_expenses`, `area_manager_breakdown` JSONB), `phone_repairs`, `cleaning_sales`, `employee_shifts`, `commission_config`, `store_performance` (aggregate).
 
-Migrations already run: `audit_integrity`, `sales_tables`, `commission_toggle`, `scorecard_weights`, `ticket_grades`, `ticket_notes_subcriteria`, `ticket_phone`, `compliance_weights`, `cx_insights`. Pending: `migration_cleaning_sales.sql`, `migration_promotions.sql` (`repair_price_sales` + `store_messages` — flash sales and the TV messages board are inert until it runs).
+Migrations already run: `audit_integrity`, `sales_tables`, `commission_toggle`, `scorecard_weights`, `ticket_grades`, `ticket_notes_subcriteria`, `ticket_phone`, `compliance_weights`, `cx_insights`, `promotions` (`repair_price_sales` + `store_messages`, run by Eric 2026-11-03). Pending: `migration_cleaning_sales.sql`.
 
 ---
 

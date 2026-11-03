@@ -55,16 +55,16 @@ export default function ScreenDaily(props) {
     : revTotal === null ? "Never captured — run the sync"
     : revGained === null ? "Counting from next month"
     : null;
-  // 15 reviews a month is the aim Eric has always set. Note this is the AIM,
-  // not the bonus floor -- the tier starts at 10 (see ReviewsTab). Every
-  // review counts toward both; the five-star-only rule is gone.
-  var REV_TARGET = 15;
-  // ⚠ The floor is where the MONEY starts, and the tile used to name it only
-  // in a sentence underneath. Read on the wall at Indianapolis it said
-  // "2 of 15" over a bar scaled to 15, then "8 more just to clear the floor" --
-  // two different targets on one tile, and the bar showed 13% when they were
-  // 20% of the way to the thing that pays. The floor is now marked ON the bar.
-  var REV_FLOOR = 10;
+  // ONE target, and it is the one that pays. The board used to carry two --
+  // "of 15" over a bar scaled to 15, then "8 more just to clear the floor" --
+  // so it showed 13% when the store was 20% of the way to the money. Eric
+  // settled it 2026-11-03: "its 10 reviews". 10 is both the aim on the wall
+  // and the bonus floor in `google-tracking`'s TIERS, so nothing on this tile
+  // can disagree with what a store is paid.
+  var REV_TARGET = 10;
+  // Amber once they are within striking distance, as a share of the target
+  // rather than a hardcoded count, so moving REV_TARGET moves this with it.
+  var REV_CLOSE = Math.ceil(REV_TARGET * 0.7);
 
   // ── Month answer-rate bonus for THIS store ─────────────────────────
   // bonusData is calendar-month scoped (separate from today's rate above).
@@ -167,27 +167,23 @@ export default function ScreenDaily(props) {
             <>
               <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginTop: 6 }}>
                 <div style={{ fontSize: "clamp(24px, 4.5vh, 44px)", fontWeight: 900, lineHeight: 1.1, fontVariantNumeric: "tabular-nums",
-                              color: revGained >= REV_TARGET ? "#10B981" : revGained >= 10 ? "#F59E0B" : "#DC2626" }}>
+                              color: revGained >= REV_TARGET ? "#10B981" : revGained >= REV_CLOSE ? "#F59E0B" : "#DC2626" }}>
                   {revGained}
                 </div>
                 <div style={{ fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280", fontWeight: 600 }}>
                   of {REV_TARGET}
-                  <span style={{ color: "#9CA3AF", fontWeight: 700 }}>{"  ·  " + REV_FLOOR + " pays"}</span>
                 </div>
               </div>
               <div style={{ position: "relative", height: 8, borderRadius: 5, background: "#F1F3F6", overflow: "hidden", marginTop: 7 }}>
                 <div style={{ height: "100%", borderRadius: 5, transition: "width .8s cubic-bezier(.22,.9,.3,1)",
                               width: Math.min(100, (revGained / REV_TARGET) * 100) + "%",
-                              background: revGained >= REV_TARGET ? "#10B981" : revGained >= REV_FLOOR ? "#F59E0B" : "#DC2626" }} />
-                {/* where the bonus starts, so the bar and the sentence under
-                    it are talking about the same thing */}
-                <div style={{ position: "absolute", top: 0, bottom: 0, left: (REV_FLOOR / REV_TARGET) * 100 + "%",
-                              width: 2, background: "#FFFFFF", opacity: .95 }} />
+                              background: revGained >= REV_TARGET ? "#10B981" : revGained >= REV_CLOSE ? "#F59E0B" : "#DC2626" }} />
+                {/* No floor marker any more -- the end of the bar IS the floor. */}
               </div>
               <div style={{ marginTop: 6, fontSize: "clamp(12px, 1.6vh, 16px)", color: "#6B7280" }}>
-                {revGained >= REV_TARGET ? "Target hit — nice work ⭐"
-                  : revGained >= REV_FLOOR ? (REV_TARGET - revGained) + " more to hit the target"
-                  : (REV_FLOOR - revGained) + " more just to clear the floor"}
+                {revGained >= REV_TARGET
+                  ? "Target hit — the bonus is on ⭐"
+                  : (REV_TARGET - revGained) + " more and the bonus is on"}
               </div>
             </>
           )}
