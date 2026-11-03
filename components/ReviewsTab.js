@@ -160,8 +160,15 @@ export default function ReviewsTab() {
   var gainedAll = stores.reduce(function(a, s) { return a + (s.gained_this_month || 0); }, 0);
   var anyGainUnknown = allPages.some(function(p) { return p.gained_this_month === null; });
 
+  // A credit is worth working whether or not the store has cleared the floor
+  // yet -- the month is not over, and Matt confirming the name is what makes
+  // it payable the moment they do. Counting only `amount > 0` would show an
+  // empty queue in every month no store has reached 10, which is every month
+  // so far: the "truncated list under a complete-sounding heading" failure
+  // this file has already had twice.
+  function worthWorking(c) { return c.amount > 0 || c.amount_if_floor_met > 0; }
   var pendingCredits = items.filter(function(it) {
-    return !acted[it.id] && (it.proposed_credits || []).some(function(c) { return c.amount > 0; });
+    return !acted[it.id] && (it.proposed_credits || []).some(worthWorking);
   }).length;
 
   // The credit queue is one month at a time. These drive the month picker and
@@ -171,9 +178,13 @@ export default function ReviewsTab() {
   var creditMonths = (credits && credits.months) || [];
   var monthAmount = (credits && credits.month_amount) || 0;
   var undatedCredits = (credits && credits.undated) || [];
+  var monthHeldAmount = (credits && credits.month_amount_if_floor_met) || 0;
+  var monthHeldCredits = (credits && credits.month_held_credits) || 0;
+  var floorByStore = (credits && credits.store_floor_this_month) || {};
   var otherMonthsOwed = creditMonths.filter(function(m) {
-    return m.period !== creditPeriod && m.payable_credits > 0;
+    return m.period !== creditPeriod && (m.payable_credits > 0 || m.held_credits > 0);
   });
+  function monthWorth(m) { return m.payable_credits > 0 ? "$" + m.amount : "$" + m.amount_if_floor_met + " held"; }
 
   // Counted off the pages, not off the credit list, so a 1-star on a page whose
   // text we never captured is still included.
@@ -591,9 +602,9 @@ export default function ReviewsTab() {
                     border: "1px solid " + (on ? "var(--border-heavy)" : "var(--border)"),
                   }}>
                   {monthLabel(m.period)}
-                  {m.payable_credits > 0 ? (
-                    <span style={{ marginLeft: 6, color: on ? "var(--cyan)" : "var(--text-muted)" }}>
-                      ${m.amount}
+                  {(m.payable_credits > 0 || m.held_credits > 0) ? (
+                    <span style={{ marginLeft: 6, color: m.payable_credits > 0 ? (on ? "var(--cyan)" : "var(--text-muted)") : "var(--text-muted)" }}>
+                      {monthWorth(m)}
                     </span>
                   ) : null}
                 </button>
@@ -607,13 +618,14 @@ export default function ReviewsTab() {
             No review text captured for {monthLabel(creditPeriod) || "this month"}.
             {otherMonthsOwed.length ? (
               <> {otherMonthsOwed.length === 1 ? "One earlier month has" : otherMonthsOwed.length + " earlier months have"} credits
-              on the books &mdash; {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " $" + m.amount; }).join(" · ")}.</>
+              on the books &mdash; {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " " + monthWorth(m); }).join(" · ")}.</>
             ) : null}
           </div>
         ) : (
           <div style={{ display: "grid", gap: 9 }}>
             {items.map(function(it) {
               var pays = (it.proposed_credits || []).filter(function(c) { return c.amount > 0; });
+              var held = (it.proposed_credits || []).filter(function(c) { return c.amount === 0 && c.amount_if_floor_met > 0; });
               var named = (it.proposed_credits || []);
               var done = !!acted[it.id];
               var edge = it.rating === 1 || it.rating === 2 ? "var(--red)"
@@ -639,15 +651,21 @@ export default function ReviewsTab() {
                     </p>
                   ) : null}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11.5, color: pays.length ? "var(--cyan)" : "var(--text-muted)" }}>
+                    <span style={{ fontSize: 11.5, color: pays.length ? "var(--cyan)" : (held.length ? "var(--yellow)" : "var(--text-muted)") }}>
                       {named.length === 0
                         ? "→ names nobody on the roster — counts toward the store total only"
                         : named.map(function(c) {
-                            return c.name + (c.amount > 0 ? " · $" + c.amount : " · no credit (" + c.blocked + ")");
+                            if (c.amount > 0) return c.name + " · $" + c.amount + (c.shared_with > 1 ? " (split " + c.shared_with + ")" : "");
+                            // HELD is not REFUSED. A credit the store's own
+                            // review count is holding back reads as the dollar
+                            // figure it is worth, struck through in words, with
+                            // the store named -- not as "no credit".
+                            if (c.amount_if_floor_met > 0) return c.name + " · $" + c.amount_if_floor_met + " held (" + c.blocked + ")";
+                            return c.name + " · no credit (" + c.blocked + ")";
                           }).join(" · ")}
                     </span>
                     <span style={{ display: "flex", gap: 6 }}>
-                      {pays.length && !done ? (
+                      {(pays.length || held.length) && !done ? (
                         <button onClick={function() { setActed(function(a) { var n = Object.assign({}, a); n[it.id] = "ok"; return n; }); }}
                           style={{ fontSize: 11, padding: "4px 10px", borderRadius: 7, cursor: "pointer",
                             background: "var(--bg-card-inner)", color: "var(--green)", border: "1px solid " + tint("var(--green)", 42),
@@ -657,7 +675,7 @@ export default function ReviewsTab() {
                         <button onClick={function() { setActed(function(a) { var n = Object.assign({}, a); n[it.id] = "no"; return n; }); }}
                           style={{ fontSize: 11, padding: "4px 10px", borderRadius: 7, cursor: "pointer",
                             background: "var(--bg-card-inner)", color: "var(--text-secondary)", border: "1px solid var(--border)",
-                            fontFamily: "'Space Grotesk', sans-serif" }}>{pays.length ? "Not them" : "Acknowledge"}</button>
+                            fontFamily: "'Space Grotesk', sans-serif" }}>{(pays.length || held.length) ? "Not them" : "Acknowledge"}</button>
                       ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{acted[it.id] === "ok" ? "confirmed" : "acknowledged"}</span>}
                     </span>
                   </div>
@@ -672,12 +690,18 @@ export default function ReviewsTab() {
             {[5, 4, 3, 2, 1].map(function(r) { return credits.rating_mix[r] + " × " + r + "★"; }).join(" · ")}.{" "}
             Every one of them counts toward its store's tier; the 1★ ones pay nobody and are flagged instead.{" "}
             {monthAmount ? <b style={{ color: "var(--text-primary)" }}>${monthAmount} proposed this month.</b> : null}{" "}
+            {!monthAmount && monthHeldAmount ? (
+              <b style={{ color: "var(--yellow)" }}>${monthHeldAmount} across {monthHeldCredits} credit(s) is held
+              because no store has reached {FLOOR} reviews this month{Object.keys(floorByStore).length ? " (" + Object.keys(floorByStore).map(function(k) {
+                return cap(k) + " " + (floorByStore[k].gained === null ? "—" : floorByStore[k].gained);
+              }).join(" · ") + ")" : ""}. It pays if they do.</b>
+            ) : null}{" "}
             {undatedCredits.length ? (
               <b style={{ color: "var(--yellow)" }}>{undatedCredits.length} credit(s) have no date on the
               review, so they belong to no month and are not counted here.</b>
             ) : null}{" "}
             {otherMonthsOwed.length ? (
-              <>Other months with credits: {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " $" + m.amount; }).join(" · ")}.{" "}</>
+              <>Other months with credits: {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " " + monthWorth(m); }).join(" · ")}.{" "}</>
             ) : null}</>
           ) : null}
           <b style={{ color: "var(--text-primary)" }}>Confirming here records nothing yet</b> — the bonus is not approved and
@@ -691,8 +715,10 @@ export default function ReviewsTab() {
           ["Every review counts", "A review is a review. No star threshold, nothing to type in, nothing estimated — the count is the figure Google publishes, which is the one thing it reports exactly. This replaced a five-star-only rule that this data source could not measure at all.", "simple"],
           ["Store tier", "10 / 15 / 20 reviews in the month across that store's four pages. Highest tier only, paid to each eligible person — not split.", "$50 / $75 / $100"],
           ["10 pays, tell them 13", "Ten is a small number, so luck matters. A store genuinely at ten a month still lands at nine or fewer 46% of the time; at thirteen it misses twice a year. The count is exact — this is month-to-month variation, not measurement error. Counting every review rather than only five-star lowers the real bar by about a fifth, which makes ten more reachable than it was.", "by design"],
-          ["Named in the review", "The customer writes your name. Paid to the person, outside the tier, after a person confirms it.", "$10"],
+          ["Named in the review", "The customer writes your name. Paid to the person after a manager confirms it — but only in a month the store reaches the floor (Eric, 2026-11-03). Missing the floor holds it; a 1★ deduction does not.", "$10"],
+          ["Two people named", "The credit splits evenly between them rather than paying each in full — Eric, 2026-11-03. One review in everything captured so far names two eligible people.", "$5 / $5"],
           ["Named on a page under 10 reviews", "A separate threshold from the tier floor, even though both read 10 — this one asks whether a page is established. Retires itself as pages fill, so the premium can never cost more than $750 in total.", "$20"],
+          ["Store misses the floor", "Nobody is paid that month — not the tier, and not the named credits either. So the floor is the whole programme's switch: at 9 reviews the month costs nothing at all. Held credits stay on the queue and pay the moment the store clears it.", "nothing pays"],
           ["Unnamed review", "Counts one toward the store tier, nothing individually. With the 0–3 day posting lag there is only one candidate tech 6% of the time, so it cannot be attributed honestly.", "store credit only"],
           ["A 1★ lands", "One halves the store's tier for that month; a second zeroes it. The 1★ still counts as a review toward the threshold — one lever, not two, so a single bad review can never take the whole bonus at the margin. Named $10/$20 credits survive it, and the 1★ pays its own named employee nothing.", "½ → $0"],
           ["The deduction needs evidence", "It applies to a 1★ we can point at: captured by the sync, or recorded by a manager from the Business Profile inbox. On a main page Google shows us about five reviews of several hundred, so one nobody has seen docks nobody — the gap errs toward the employee, the same direction as the forward-only answer-rate rule.", "on record"],

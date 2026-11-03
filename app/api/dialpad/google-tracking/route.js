@@ -111,15 +111,99 @@ function tierFor(n) {
 // second copy is how two screens come to disagree (see TIERS above).
 var THIN_UNDER = 10, NAMED_MAIN = 10, NAMED_THIN = 20;
 
-// Whether a review that names two people pays each of them the full amount or
-// splits it. Stated in the 2026-11-02 meeting as a split; left at the route's
-// existing behaviour until Eric says so, because this is bonus dollars and a
-// guess either way is a number on somebody's screen that nobody approved.
-// One line, one place, both screens move together.
-var SPLIT_NAMED_CREDIT = false;
-// Whether a named credit requires the store to have reached the tier floor.
-// Same provenance, same reason, same single switch.
-var NAMED_CREDIT_NEEDS_STORE_FLOOR = false;
+// A review that names two people SPLITS the credit between them -- Eric,
+// 2026-11-03: "Yes it splits 5/5". So a $10 main-page credit naming two
+// technicians pays $5 each, and a $20 thin-page credit pays $10 each. One
+// line, one place, both screens move together.
+var SPLIT_NAMED_CREDIT = true;
+// A named credit pays ONLY if the store reached the tier floor that month --
+// Eric, same message: "no it doesnt pay if you miss 10". This reverses the
+// earlier recommendation that named credits survive a missed floor, so note
+// what it does NOT touch: the 1-star DEDUCTION still leaves named credits
+// alone (CONTEXT 10ap (c)). Missing the floor and being docked for a 1-star
+// are different things, and only the first one now blocks a named credit.
+//
+// The floor is checked against the month the review was POSTED in, measured
+// the same way the tier is -- a subtraction between snapshots. Where that
+// count is not knowable (no snapshot before the month began, which is every
+// month before 2026-10) the credit does NOT pay and says why: inventing a
+// count to justify a payment is the trap this file keeps away from. Nothing
+// before November was ever going to be settled, so this costs nobody.
+var NAMED_CREDIT_NEEDS_STORE_FLOOR = true;
+
+// ── reviews a store took in a given month ───────────────────────────────────
+// The same subtraction `?action=tracking` does for the running month,
+// generalised to ANY month, because the store-floor gate has to be applied to
+// the month each review was posted in and not to today. Keeping it here means
+// the gate and the tier can never disagree about what a store took.
+function storeGainsByMonth(snaps, listings) {
+  var byListing = {};
+  (snaps || []).forEach(function(sn) { (byListing[sn.listing_id] = byListing[sn.listing_id] || []).push(sn); });
+  Object.keys(byListing).forEach(function(k) {
+    byListing[k].sort(function(a, b) { return String(a.captured_on).localeCompare(String(b.captured_on)); });
+  });
+  var months = {};
+  (snaps || []).forEach(function(sn) { months[String(sn.captured_on).slice(0, 7)] = true; });
+  var out = {};
+  Object.keys(months).forEach(function(ym) {
+    var mStart = ym + "-01";
+    var y = Number(ym.slice(0, 4)), mo = Number(ym.slice(5, 7));
+    var mEnd = (mo === 12 ? (y + 1) + "-01" : y + "-" + String(mo + 1).padStart(2, "0")) + "-01";
+    (listings || []).forEach(function(l) {
+      if (!l.is_ours || !l.store) return;
+      var rows = byListing[l.id] || [];
+      var before = null, last = null;
+      rows.forEach(function(r) {
+        if (r.captured_on < mStart) before = r;
+        if (r.captured_on < mEnd) last = r;
+      });
+      var gain = (before && last) ? last.total_reviews - before.total_reviews : null;
+      // Provable-zero, same as `tracking`: a reading of 0 taken inside the
+      // month proves the page held 0 on the 1st, so the baseline is deduced
+      // rather than written.
+      if (gain === null && last) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].captured_on >= mStart && rows[i].captured_on < mEnd && rows[i].total_reviews === 0) { gain = last.total_reviews; break; }
+        }
+      }
+      var key = l.store + "|" + ym;
+      var b = out[key] || (out[key] = { store: l.store, period: ym, gained: null, pages_without_baseline: 0 });
+      if (gain === null) b.pages_without_baseline += 1;
+      else b.gained = (b.gained || 0) + gain;
+    });
+  });
+  Object.keys(out).forEach(function(k) {
+    var b = out[k];
+    b.complete = b.pages_without_baseline === 0 && b.gained !== null;
+    // An INCOMPLETE count that already clears the floor still clears it --
+    // missing pages can only make the figure larger, never smaller.
+    b.reached = b.gained !== null && b.gained >= TIERS[0].at;
+  });
+  return out;
+}
+
+// Whether the store cleared the floor in the month a review was posted, or a
+// sentence saying why that cannot be answered. Never a bare false: a $0 on
+// somebody's screen with no reason attached is the thing that generates the
+// phone call.
+function storeFloorState(gains, store, ym) {
+  if (!NAMED_CREDIT_NEEDS_STORE_FLOOR) return { ok: true, required: false };
+  var floor = TIERS[0].at;
+  if (!store) return { ok: false, required: true, why: "this review is not attached to one of our stores" };
+  if (!ym) return { ok: false, required: true, why: "this review has no posting date, so it belongs to no month" };
+  var g = gains && gains[store + "|" + ym];
+  if (!g || g.gained === null) {
+    return { ok: false, required: true, gained: null, floor: floor,
+      why: "we were not tracking review counts in " + ym + ", so there is no way to tell whether " + store + " cleared " + floor };
+  }
+  if (g.reached) return { ok: true, required: true, gained: g.gained, floor: floor, complete: g.complete };
+  if (!g.complete) {
+    return { ok: false, required: true, gained: g.gained, floor: floor, complete: false,
+      why: store + " reads " + g.gained + " reviews in " + ym + ", under " + floor + " -- but " + g.pages_without_baseline + " page(s) have no baseline that month, so the count is incomplete" };
+  }
+  return { ok: false, required: true, gained: g.gained, floor: floor, complete: true,
+    why: store + " took " + g.gained + " reviews in " + ym + ", under the " + floor + " floor" };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ONE DEFINITION of "what a captured review is worth, and to whom".
@@ -131,7 +215,7 @@ var NAMED_CREDIT_NEEDS_STORE_FLOOR = false;
 // that credits had (§ 10ar). Both were invisible until the day they cost
 // somebody money, so the rule lives here once.
 // ─────────────────────────────────────────────────────────────────────────────
-function creditRowsFor(items, lById, totalById, roster) {
+function creditRowsFor(items, lById, totalById, roster, gains) {
   return (items || []).map(function(it) {
     var l = lById[it.listing_id] || {};
     var total = totalById[it.listing_id];
@@ -147,6 +231,8 @@ function creditRowsFor(items, lById, totalById, roster) {
     var full = thin ? NAMED_THIN : NAMED_MAIN;
     var payableNames = credits.filter(function(c) { return c.payable; }).length;
     var share = (SPLIT_NAMED_CREDIT && payableNames > 1) ? payableNames : 1;
+    // The store floor, scored against the month this review was posted in.
+    var floor = storeFloorState(gains, l.store || null, ym);
     return {
       id: it.id,
       period: ym,
@@ -163,15 +249,25 @@ function creditRowsFor(items, lById, totalById, roster) {
       counts_for_tier: counts,
       flagged: r === 1,
       why_not: counts ? null : "1 star — flagged for a person to look at, and it pays nobody",
+      store_floor_met: floor.ok,
+      store_reviews_in_month: floor.gained === undefined ? null : floor.gained,
+      store_floor: floor,
       proposed_credits: credits.map(function(c) {
         return {
           name: c.name,
           matched: c.matched,
           payable: c.payable,
           // 0 whenever it cannot pay, so no screen has to re-derive the rule.
-          amount: (counts && c.payable) ? Math.round((full / share) * 100) / 100 : 0,
+          amount: (counts && c.payable && floor.ok) ? Math.round((full / share) * 100) / 100 : 0,
+          // What it WOULD have paid if the store had cleared the floor. Both
+          // figures travel for the same reason the tier's two do: "$0 because
+          // the store missed 10" and "$0 because you are not eligible" are
+          // different conversations.
+          amount_if_floor_met: (counts && c.payable) ? Math.round((full / share) * 100) / 100 : 0,
           shared_with: share > 1 ? share : null,
-          blocked: !c.payable ? "not bonus-eligible" : (!counts ? "1 star review" : null),
+          blocked: !c.payable ? "not bonus-eligible"
+            : (!counts ? "1 star review"
+            : (!floor.ok ? (floor.why || "store did not reach the review floor") : null)),
         };
       }),
     };
@@ -905,7 +1001,8 @@ export async function GET(request) {
     (mrSnap || []).forEach(function(sn) { if (mrTotal[sn.listing_id] === undefined) mrTotal[sn.listing_id] = sn.total_reviews; });
 
     // Same rule object as the manager's queue, by construction.
-    var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive);
+    var mrGains = storeGainsByMonth(mrSnap, mrL);
+    var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive, mrGains);
 
     function mine(r) {
       return (r.proposed_credits || []).filter(function(c) {
@@ -925,9 +1022,13 @@ export async function GET(request) {
         has_photo: r.has_photo,
         page_under_threshold: r.page_under_threshold,
         amount: c.amount,
+        // Travels with the amount, always: the card has to be able to say
+        // "$10, held because the store missed 10" rather than a bare $0.
+        amount_if_floor_met: c.amount_if_floor_met,
         shared_with: c.shared_with,
         blocked: c.blocked,
         counts_for_tier: r.counts_for_tier,
+        store_floor_met: r.store_floor_met,
       };
     }
 
@@ -980,6 +1081,15 @@ export async function GET(request) {
       all_time_amount: sum(mrAll),
       months: Object.keys(mrIdx).sort().reverse().map(function(k) { return mrIdx[k]; }),
       undated: mrUndated,
+      // The floor state for this person's own store and month, so the card can
+      // say "your store is 3 short this month" instead of showing a bare $0.
+      // Read off the roster store; a review on another store's page carries
+      // its own `store_floor` on the row.
+      store_floor: mrMe && mrMe.store ? storeFloorState(mrGains, mrMe.store, mrPeriod) : null,
+      store_reviews_this_month: (function() {
+        var g = mrMe && mrMe.store ? mrGains[mrMe.store + "|" + mrPeriod] : null;
+        return g ? g.gained : null;
+      })(),
       // Places hands back a relevance SAMPLE of each page's reviews, so a
       // review naming this person may simply not be in it. "0" here means
       // "none we hold", never "nobody named you" — and saying so is the
@@ -1028,7 +1138,8 @@ export async function GET(request) {
     // them — a month is hidden from the list, never from the index.
     var cPeriod = searchParams.get("period") || indyToday().slice(0, 7);
 
-    var rows = creditRowsFor(cItems, lById, totalById, cRoster);
+    var cGains = storeGainsByMonth(cSnap, cL);
+    var rows = creditRowsFor(cItems, lById, totalById, cRoster, cGains);
 
     function emptyMix() { return { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 }; }
     var mix = emptyMix(), mixAll = emptyMix();
@@ -1045,7 +1156,12 @@ export async function GET(request) {
     // or there would be no way back to it from a past month.
     var monthIdx = {};
     function monthBucket(ym) {
-      monthIdx[ym] = monthIdx[ym] || { period: ym, items: 0, credits: 0, payable_credits: 0, amount: 0 };
+      monthIdx[ym] = monthIdx[ym] || { period: ym, items: 0, credits: 0, payable_credits: 0, amount: 0,
+        // Held = the person is named and eligible, but the store missed the
+        // floor that month. Under the floor gate this is the NORMAL state, so
+        // a month index that only counted payable credits would report every
+        // month as empty and the queue would read "nothing to settle".
+        held_credits: 0, amount_if_floor_met: 0 };
       return monthIdx[ym];
     }
     monthBucket(cPeriod);
@@ -1056,6 +1172,10 @@ export async function GET(request) {
       (r.proposed_credits || []).forEach(function(c) {
         m.credits += 1;
         if (c.amount > 0) { m.payable_credits += 1; m.amount += c.amount; }
+        if (c.amount_if_floor_met > 0) {
+          m.amount_if_floor_met = Math.round((m.amount_if_floor_met + c.amount_if_floor_met) * 100) / 100;
+          if (c.amount === 0) m.held_credits += 1;
+        }
       });
     });
     var months = Object.keys(monthIdx).sort().reverse().map(function(k) { return monthIdx[k]; });
@@ -1067,7 +1187,7 @@ export async function GET(request) {
     // actually pay somebody -- surfaced, never dropped, never charged to a
     // month it may not belong to. (0 of 44 items today; this is a guard.)
     var undated = rows.filter(function(r) {
-      return !r.period && (r.proposed_credits || []).some(function(c) { return c.amount > 0; });
+      return !r.period && (r.proposed_credits || []).some(function(c) { return c.amount > 0 || c.amount_if_floor_met > 0; });
     }).sort(byDateDesc);
 
     var thisMonth = monthIdx[cPeriod];
@@ -1097,6 +1217,21 @@ export async function GET(request) {
       month_credits: thisMonth.credits,
       month_payable_credits: thisMonth.payable_credits,
       month_amount: thisMonth.amount,
+      // What the month would pay if its stores clear the floor. Both figures
+      // travel for the same reason the tier's two do.
+      month_held_credits: thisMonth.held_credits,
+      month_amount_if_floor_met: thisMonth.amount_if_floor_met,
+      // Per store, the count the gate is reading and whether it cleared --
+      // so the queue can explain a held credit without recomputing anything.
+      store_floor_this_month: (function() {
+        var o = {};
+        Object.keys(cGains).forEach(function(k) {
+          if (k.slice(-7) !== cPeriod) return;
+          var g = cGains[k];
+          o[g.store] = { gained: g.gained, complete: g.complete, reached: g.reached, floor: TIERS[0].at };
+        });
+        return o;
+      })(),
       items_outside_month: rows.length - monthRows.length,
     });
   }

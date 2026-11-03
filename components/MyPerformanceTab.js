@@ -834,6 +834,12 @@ export default function MyPerformanceTab({ auth, store }) {
       penalty: reviewTrack.penalty || null,
       named: mine ? (mine.my_credits || []) : [],
       namedAmount: mine ? (mine.my_amount || 0) : 0,
+      // Eric, 2026-11-03: a named credit does not pay if the store misses 10.
+      // So the card has to show BOTH what it pays and what it would have paid,
+      // or a technician sees $0 beside a review that names them and has no way
+      // to tell "not eligible" from "the store was three reviews short".
+      storeFloor: mine ? (mine.store_floor || null) : null,
+      namedWouldBe: mine ? Math.round((mine.my_credits || []).reduce(function(a, c) { return a + (c.amount_if_floor_met || 0); }, 0) * 100) / 100 : 0,
       namedMonths: mine ? (mine.months || []) : [],
       allTimeCredits: mine ? (mine.all_time_credits || 0) : 0,
       rules: mine ? mine.rules : null,
@@ -2993,9 +2999,30 @@ export default function MyPerformanceTab({ auth, store }) {
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 14, lineHeight: 1.5 }}>
                   {reviewBonus.rules
-                    ? fmt(reviewBonus.rules.named_main) + " when a customer names you, " + fmt(reviewBonus.rules.named_thin) + " while that page still has under " + reviewBonus.rules.thin_under + " reviews. This follows you, not your store."
+                    ? fmt(reviewBonus.rules.named_main) + " when a customer names you, " + fmt(reviewBonus.rules.named_thin) + " while that page still has under " + reviewBonus.rules.thin_under + " reviews"
+                      + (reviewBonus.rules.split_named_credit ? ", split evenly if the review names more than one of you" : "")
+                      + (reviewBonus.rules.named_credit_needs_store_floor
+                          ? ". It pays only in a month your store reaches " + reviewBonus.floor + " reviews."
+                          : ". This follows you, not your store.")
                     : "Sign in to see your own credits."}
                 </div>
+
+                {/* The store floor, stated. A $0 with no reason attached is
+                    what generates the phone call -- and under this rule the
+                    reason is usually "the store, not you". */}
+                {reviewBonus.storeFloor && reviewBonus.storeFloor.required && !reviewBonus.storeFloor.ok && (
+                  <div style={{ padding: "9px 12px", borderRadius: 4, background: "var(--bg-card-inner)", borderLeft: "2px solid var(--yellow)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.5 }}>
+                    <strong style={{ color: "var(--yellow)" }}>
+                      {reviewBonus.storeFloor.gained === null || reviewBonus.storeFloor.gained === undefined
+                        ? "Not payable this month"
+                        : "Your store is " + Math.max(0, reviewBonus.floor - reviewBonus.storeFloor.gained) + " short of " + reviewBonus.floor}
+                    </strong>
+                    <div style={{ marginTop: 2 }}>
+                      {reviewBonus.storeFloor.why}. Named credits only pay in a month the store reaches {reviewBonus.floor}
+                      {reviewBonus.namedWouldBe > 0 ? " — yours would be worth " + fmt(reviewBonus.namedWouldBe) + " if it does" : ""}.
+                    </div>
+                  </div>
+                )}
 
                 {reviewBonus.eligible === false && (
                   <div style={{ padding: "8px 12px", borderRadius: 4, background: "var(--bg-card-inner)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
@@ -3024,7 +3051,12 @@ export default function MyPerformanceTab({ auth, store }) {
                             </div>
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
-                            <div style={{ fontSize: 14, fontWeight: 800, color: c.amount > 0 ? "var(--green)" : "var(--text-muted)" }}>{fmt(c.amount)}</div>
+                            <div style={{ fontSize: 14, fontWeight: 800, color: c.amount > 0 ? "var(--green)" : "var(--text-muted)" }}>
+                              {c.amount === 0 && c.amount_if_floor_met > 0 && (
+                                <span style={{ fontWeight: 600, color: "var(--text-muted)", textDecoration: "line-through", marginRight: 6 }}>{fmt(c.amount_if_floor_met)}</span>
+                              )}
+                              {fmt(c.amount)}
+                            </div>
                             {c.blocked && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>{c.blocked}</div>}
                             {c.shared_with > 1 && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>split {c.shared_with} ways</div>}
                           </div>
