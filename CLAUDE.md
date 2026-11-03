@@ -51,6 +51,11 @@ Full business context, personnel, comp structures, open items, and the current p
 ## Architecture gotchas (learned the hard way)
 
 - **Vercel serverless functions cannot reliably HTTP-call themselves.** Use direct Supabase queries, never `fetch('/api/...')` from a route.
+- **A missing table must never take a working screen down.** Every migration here is applied by hand, so
+  there is always a window where the code is deployed and the table is not. Reading a NEW table from an
+  EXISTING screen goes through `isMissingTable()` in `lib/constants.js`: a missing table degrades (and is
+  reported on the payload), every other error stays loud. The first cut of the flash-sale read threw, which
+  would have 500'd `/prices` for every agent until Eric pasted the migration.
 - **Never call `createClient()` at module top level** in API routes — it runs at build time without env vars. Use a lazy initializer (see `lib/supabase.js`).
 - **PostgREST "Max rows" cap** is set to 100,000 in the Supabase dashboard. If any total looks clipped (~546 or ~1000 exactly), suspect the cap or a client-side `limit=`. Paginate reads that can exceed it (`.range()`, pageSize 1000, ordered).
 - **`.range()` without `.order()` returns overlapping pages.** Postgres gives no stable order without one, so page 2 repeats rows from page 1 and drops others — totals then drift between refreshes (Price & Demand read 109, 63, 93 for the same query). Every paginated read must order on a unique column; `fetchAll` in the price-demand and price-book routes makes `orderBy` a required argument for this reason.
@@ -106,7 +111,7 @@ extension/      Chrome extension "Focused Technologies — Ticket Grader" (if mo
 ## Supabase tables
 `audit_results` (call audits; has `tone_score`, `clarity_score`, `empathy_score`, `qualitative_notes` — calibration only, must NOT affect scorecards), `ticket_grades` (keyed on `ticket_number` text; has `discount_amount`, `total_cost`, `total_collected`, `payment_method`, `turnaround_hours`, `item_details` JSONB, `device_category`, `device_brand`), `employee_roster` (with alias arrays for transcription mismatches, e.g. Aerick Long → `{eric,erik,derek,arick}`), `dashboard_users`, `appointments`, `weekly_goals`, `google_reviews`, `gbp_reports`, `profitability` (with `corporate_overhead`, `area_manager_expenses`, `area_manager_breakdown` JSONB), `phone_repairs`, `cleaning_sales`, `employee_shifts`, `commission_config`, `store_performance` (aggregate).
 
-Migrations already run: `audit_integrity`, `sales_tables`, `commission_toggle`, `scorecard_weights`, `ticket_grades`, `ticket_notes_subcriteria`, `ticket_phone`, `compliance_weights`, `cx_insights`. Pending: `migration_cleaning_sales.sql`.
+Migrations already run: `audit_integrity`, `sales_tables`, `commission_toggle`, `scorecard_weights`, `ticket_grades`, `ticket_notes_subcriteria`, `ticket_phone`, `compliance_weights`, `cx_insights`. Pending: `migration_cleaning_sales.sql`, `migration_promotions.sql` (`repair_price_sales` + `store_messages` — flash sales and the TV messages board are inert until it runs).
 
 ---
 

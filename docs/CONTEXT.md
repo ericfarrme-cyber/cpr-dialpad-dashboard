@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1055,6 +1055,97 @@ designing the mechanism for it.
     TOTAL — which is what the tier counts — is exact and updates next morning; the per-person
     naming is best-effort, which is why the card says "none we hold", never "nobody named you".
 
+10ay. **Review credits: splits 5/5, and NOTHING pays if the store misses 10 — SHIPPED 2026-11-03**
+(`5773410`, payroll, isolated commit). Eric: *"Yes it splits 5/5 and no it doesnt pay if you miss 10."*
+Both were already one-line constants (§ 10aw), but the floor gate needed real work: the credit rule had
+no idea what its store took that month.
+  • **`storeGainsByMonth()`** generalises the subtraction `?action=tracking` already does for the running
+    month to ANY month, so the gate scores against the month the review was **POSTED** in. The gate and
+    the tier therefore read the same count **by construction** — a second way to count a store's reviews
+    is how two screens come to disagree about pay, which this file has had twice (§ 10ao, § 10ar).
+  • ⚠⚠ **THE WHOLE QUEUE WENT $170 → $0.00.** No store has reached 10 in any month there are snapshots
+    for — October **7 / 7 / 7**, November so far **Fishers 4 · Indianapolis 2 · Bloomington 1**. That is
+    the rule working, and it means **the floor is now the entire programme's switch**: at nine reviews a
+    month costs nothing at all, tier or named. Worth saying out loud before anyone reads a $0 as a bug.
+  • **The 5/5 split bites exactly once today**: the Bloomington main review of **2026-10-04 names Andrew
+    McLelland AND Alec Wilcher**, so $10 becomes $5 each. Andrew's October therefore reads **$15, not the
+    $20** in the 11-02 mock — correct that figure if anyone quotes it.
+  • **11 of the 15 credits are blocked as "we were not tracking review counts in `<month>`"** — every
+    month before 2026-10 has no snapshot to subtract from. **Unknown does NOT pay, and says why**:
+    inventing a count to justify a payment is the trap this file keeps away from. Nothing pre-November was
+    ever going to be settled, so it costs nobody.
+  • **HELD IS NOT REFUSED**, and that distinction was most of the work. The credits queue filtered on
+    `amount > 0`, so under the gate it would have shown an **empty list in every month** — the
+    truncated-list-under-a-complete-heading defect (§ 10ac) a third time. Both figures travel everywhere
+    now: `amount` / `amount_if_floor_met`, `payable_credits` / `held_credits`. The month picker reads
+    "$15 held", the queue keeps its Confirm button (the month is not over, and confirming the name is what
+    makes it payable the moment they clear 10), and My Performance says **"your store is 3 short of 10"**
+    instead of a bare $0.
+  • **Deliberately untouched: the 1-star DEDUCTION still leaves named credits alone** (§ 10ap (c)).
+    Missing the floor and being docked for a bad review are different things and only the first holds a
+    credit. Anyone re-reading § 10ap should not conclude the deduction now blocks credits too.
+  • Still pays nobody; no ledger row is written.
+
+10az. **Flash sales, store messages, and a fourth TV screen — SHIPPED 2026-11-03** (`cb50e9e`).
+Items 3 and 4 off the 11-02 meeting. **Needs `sql/migration_promotions.sql` pasted** (two tables:
+`repair_price_sales`, `store_messages`).
+  • **A SALE CANNOT LIVE ON THE PRICE ROW.** `repair_prices` has **no store dimension** — one sheet
+    serves all three stores, which is the point of it — and a sale is per store and per date window. So
+    it is its own table, and **a company-wide sale is three rows**: every read stays a plain store filter
+    and ending it early at one store needs no special case.
+  • **What the agent sees.** The sale price leads on the row with the listed price struck through beside
+    it (they are asked "is that your normal price" constantly). In the booking panel the sale price
+    becomes the **REFERENCE** price, not a discount off one — so a quote at it is **not** recorded as the
+    agent's discount, or the discount strip (§ 10am) and Price & Demand would both blame them for quoting
+    what management told them to quote. Read **per store** from `sales_by_store`, since the panel can book
+    any store: using the viewer's own sale would price a Fishers booking off an Indianapolis one. The
+    average-based book floor is also suppressed under a sale price, for the same reason.
+  • ⚠ **THE LEDGER LINE IS `field: "sale_price"`, NOT `"set_price"`**, and that is load-bearing in two
+    places that already read `repair_price_changes`: price-book's **30-day rule** silences the "register
+    rings a different number" message after someone SETS a price, and a temporary sale must not silence a
+    comparison about the standing one; **quote-metrics** draws before/after with 60 days either side of a
+    `set_price` event, and a sale has an END, so 60 days after is mostly the period after it finished.
+    The right comparison is the window against the same number of days immediately before, computed in
+    `?action=list`.
+  • **Measured as DEMAND and says so**: appointments booked against that row at that store, during vs the
+    same length of window before, "too early to read" under four decided bookings. It states revenue given
+    up and **claims nothing about margin** — the sheet's part costs are the stale ones (§ 10x) and no
+    console row carries one at all, so a profit figure would be fabricated.
+  • **The TV**: fourth screen, **light theme to match the three it rotates with** (the mock was drawn
+    dark; matching its neighbours beats matching the mock). The rotation's length had lived in **three**
+    places — a ternary chain for the badge, a literal `% 3`, three hand-written dots — which is exactly
+    why the reviews screen hung mislabelled "Rankings" when it went 2 → 3 (§ 10ap). One `SCREENS` array
+    now drives the label, the modulus and the dots. Messages are capped at the three that fit at 1080p and
+    the count that did not travels (§ 10as).
+  • ⚠ **`store_messages` IS EFFECTIVELY PUBLIC** — the board reads it unsigned-in, like rankings and
+    reviews. The compose form says so in as many words. **The 1-star deduction stays OFF the TV** for the
+    same reason (§ 10ap).
+  • **NEW SHARED RULE: `isMissingTable()` in `lib/constants.js`** — a missing table **degrades**,
+    everything else is **loud**. Verified against the live server: PostgREST answers **PGRST205**, "Could
+    not find the table 'public.x' in the schema cache"; Postgres answers 42P01. This mattered immediately:
+    the first cut **threw** on the sales read, which would have **500'd `/prices` for every agent** in the
+    gap between the deploy and Eric pasting the migration. Migrations here are applied by hand, so that
+    gap is a permanent fact of this repo and **any new table read from an existing screen needs this
+    treatment.** Confirmed through the route: price-book returns 200 with **765 rows** and
+    `sales_unavailable` naming the file; the TV board returns "nothing running", which is **exactly true**
+    when the table that would hold a sale does not exist.
+  • Verified: **401** on `list`/`rows` and both POSTs without a session, **400** on an unknown store,
+    "CPR Bloomington 2" → bloomington, **25 unit checks** on the window arithmetic and `decorate` (month
+    and year ends, DST, first and last day, a one-day sale, an orphaned row whose sheet line was deleted,
+    and a "sale" priced ABOVE the sheet — allowed through so the form can say it is not a sale).
+    **The UI is Eric's to confirm**: local dev has no auth bypass and neither form can be clicked until
+    the migration runs.
+
+10ba. **Instruction document for Matt** (2026-11-03), covering items 1–4 as Eric asked:
+https://claude.ai/artifact/UN1Ve9TNLRMVefdXVjJjDV — a Claude Docs doc, **private until Eric shares it
+from the page's Share menu**. Sections: the migration that has to be pasted first and what is live
+without it; counter sales out of the ticket lists with the per-tech before/after and the effect on his
+proposed 60/100 floor; the review bonus as it now stands including the two new rules and why the queue
+reads $0; flash sales with the **$129-is-already-the-sheet-price** finding and the same-day alternative;
+the TV board and the "treat these as public" rule; and what is still open — the bonus is unapproved, the
+grading prompt waits on **specific ticket numbers from Matt**, Duncan's October **$100**, and the
+no-texting guideline.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -1141,6 +1232,25 @@ designing the mechanism for it.
   Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
   losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
   this particular sale needs a second look.
+- **2026-11-03 (later)** — **Eric settled the two named-credit rules, and the answer moved real money
+  to zero.** Splits 5/5, and nothing pays if the store misses 10 (§ 10ay) — which, since no store has
+  reached 10 in any month we have snapshots for, takes the whole credit queue from **$170 to $0.00**.
+  That is the rule working, and it makes the floor the entire programme's switch: at nine reviews a month
+  costs nothing, tier or named. Most of the work was making **held read as held rather than refused** —
+  the queue filtered on "pays something", so under the gate it would have shown an empty list every
+  month, the truncated-list defect for a third time. Also: the 5/5 split bites exactly once today, on the
+  October Bloomington review naming Andrew **and** Alec, so Andrew's October is $15, not the $20 in
+  yesterday's mock.
+  Then **flash sales, store messages and a fourth TV screen** (§ 10az), both of which wait on one pasted
+  migration. The sale price becomes the booking panel's **reference** price rather than a discount off
+  one, so an agent quoting what management told them to quote is not recorded as discounting; its ledger
+  line is filed as `sale_price`, not `set_price`, because two existing readers treat a set_price event as
+  a permanent change. **A defect caught before pushing, and the most generally useful thing here:** the
+  first cut threw on the new sales read, which would have 500'd `/prices` for every agent in the gap
+  between the deploy and Eric's paste. `isMissingTable()` now makes a missing table degrade while every
+  other error stays loud — and since every migration in this repo is applied by hand, that gap is
+  permanent and any new table read from a working screen needs the same treatment.
+  Finally, the instruction document for Matt covering all four (§ 10ba).
 - **2026-11-02 (later)** — **Eric: "go ahead" on the payable half** (§ 10au). `?action=credits`
   had the identical all-time gap, so the "Credits to confirm" queue spanned **eleven months in one
   list with a dollar amount on every row**. Scoped to the posted month, in its own commit. **The
