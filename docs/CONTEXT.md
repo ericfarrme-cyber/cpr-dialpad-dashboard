@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -901,6 +901,119 @@ looking at the Fishers board: *"Does this reset and track monthly?"* **Half of i
   • **Nothing is written to any ledger and the bonus is still unapproved.** 401 confirmed on
     `credits` with and without `period`, and on the POST; `review_leaders` still public by design.
 
+10av. **Counter sales were the only thing scoring zero — SHIPPED 2026-11-03** (`8f343f7`).
+Eric asked the question that mattered before approving it: *"Is it certain that all sales tickets
+are zero right now? If so how does that impact everybody's scores? Will everybody be a platinum?"*
+Measured both halves before touching anything.
+  • **No, they are not all zero** — October: 35 of 211 exactly 0 (16.6%), 75 in the 1–19 band,
+    **208 of 211 under 60**, three at 60+. Mostly very low, not uniformly nil. But every single
+    ticket scoring **0 overall in October was a Sale**: zero Repair and zero Claim tickets score 0
+    (Repair averages 74.1, Claim 72.7).
+  • **No score moves and nobody changes tier**, which is the whole point. `scorecard/route.js` reads
+    `ticket_grades` **exactly once** and that one query carries
+    `.or("ticket_type.is.null,ticket_type.neq.Sale")`, so a Sale row has never reached the tier
+    math — a row that never arrives cannot move an average. `action=stats` and `flags/route.js`
+    exclude them too. **The exclusion is not a change to scoring; it stops the list lying about a
+    score that was already right.**
+  • **What people were actually being shown**, last 60 days — the left column is the list on their
+    own page, the right is what the scorecard already used: **Luke 67.2 → 79.1 · Alyssa 69.5 → 79.0
+    · Aerick 68.8 → 77.5 · Samuel 63.2 → 74.1 · Alec 63.7 → 72.8 · Duncan 68.5 → 75.1 · Slade
+    59.8 → 66.4 · Andrew 49.4 → 54.5.** 8–12 points of harshness that existed only on that screen.
+  • **Two read paths, not one.** `tickets?action=employee_tickets` (the technician's own list) and
+    `tickets?action=list` (the Compliance table, sitting directly beneath stats that already
+    excluded them). Verified live after the change: Alec's list returns **159 tickets averaging
+    73.3 with zero zeros**, from 41 sales excluded. `include_sales=1` restores them on `list`.
+  • **Why this blocked two things from the 11-02 meeting.** Eric's *"the most gains we can have is
+    for everybody to go through and find the ones where they have zeros"* would have sent all eight
+    technicians to anonymous accessory sales, and Matt's proposed *"anything below a 60 out of 100
+    is unacceptable"* floor fires on 70% of Andrew's tickets with sales in and **58%** without —
+    Alec **35% → 16%**. Andrew is last either way, so Matt's read on him holds.
+  • The count travels on both responses and is printed on both screens. A list that quietly drops
+    rows is the "Closed by" defect of § 10ac, and the fix must not become it.
+
+10aw. **My Reviews was quoting a bonus rule that no longer exists — REBUILT 2026-11-03**
+(`ccd2825` route, `efa07fe` screen). Eric, 2026-11-02: *"I don't see on the commission side the
+review portion. So that needs to be wired in"* and *"the review data is not available down there."*
+Then: *"Let's get it out. Make it new and correct."*
+  • **The cause was not missing data.** `reviewBonus` computed the **superseded** rule — $5 per
+    review above 10, plus **$5 per photo review**, times the team size — from `google_reviews`,
+    which holds **four rows, the newest from August 2026** and three from April. So the panel either
+    read "Review Data Not Available" or quoted a rule nobody agreed to, and its "Request Photos"
+    tip promised *"$5 each regardless of minimum"* — money the agreed rule does not pay at all.
+    **A dead table was the visible symptom; a dead rule was the actual defect.**
+  • **ONE DEFINITION.** The $10/$20 named-credit rule moved out of `?action=credits` into
+    module-scope `creditRowsFor()`, because the technician's screen now needs the same answer as
+    the manager's queue — and this file has already shipped that exact bug twice (`ReviewsTab`'s
+    private copy of `TIERS` § 10ao; `ask_pages` missing a clause of the `thin` test § 10ar), both
+    invisible until the month they would cost somebody money. **Proven before pushing: the old
+    inline mapper and the shared one produce 44 identical rows, 0 field-level differences, $150
+    attributed either way.**
+  • **New `?action=my_reviews&name=`** — any signed-in role, so a technician reads their own number
+    without being a manager. Returns that person's credits and **nothing else**: no other
+    employee's, no payment state, no store totals. **The tier is NOT recomputed** — it comes from
+    `?action=tracking`, which already computes it and is already public, so there is no second copy
+    to drift. No store filter, because named credits follow the **person** (§ 10al): Duncan works
+    three stores. Verified live: **401 without a session, and 401 before the name check rather than
+    400**; per-person credits reconcile exactly against the queue — **$150 over 14 credits both
+    ways** — and Matthew Slade appears at **$0 "not bonus-eligible"** rather than being dropped.
+  • **Four things the card refuses to do**, each because the alternative states something untrue:
+    it opens with **"proposed — not approved to pay yet"** (a dollar figure on a technician's own
+    page reads as a promise, and the route still says `payable:false`); **both tier figures always
+    travel**, the pre-penalty one struck through, because a single number cannot tell "missed the
+    threshold" from "reached it and was docked"; an **incomplete month is never shown as a tier**,
+    it names how many pages lack a pre-month reading and says the real number is this one or
+    higher; and **"0 named" is reported as "none we hold"**, never "nobody named you", because
+    Places returns a sample.
+  • ⚠ **TWO RULES FROM THE 11-02 MEETING ARE NOT IMPLEMENTED AND NEED ERIC'S WORD.** Both are now
+    named constants at the top of the route, left at the route's existing behaviour:
+    **`SPLIT_NAMED_CREDIT`** (a review naming two people — $5/$5 as stated in the room, or $10 to
+    each as the code does) and **`NAMED_CREDIT_NEEDS_STORE_FLOOR`** (does a named credit pay when
+    the store misses 10?). Guessing either way puts an unapproved number on a technician's screen,
+    which is the one thing this card is built not to do. One line each, one place, both screens
+    move together. Nothing pays, so it does not block.
+  • **November reads $0 for everyone** and no store has a tier — Fishers 0, Bloomington 1,
+    Indianapolis 1 review as of 11-03, all three counts complete, no 1★ posted. The card renders
+    "10 more to clear the floor."
+  • Also fixed here: the Reviews tab's **error dot followed the dead `google-reviews` route**, so a
+    failure there would have flagged the tab red permanently while the real data loaded fine. It
+    now follows the read that feeds the tab. **The dead fetch stays in the `Promise.allSettled`
+    array as a labelled dead slot** — removing it renumbers every `results[N]` below and silently
+    rewires five other reads (§ 10ad).
+  ⚠ **Verified through the routes against live production data and a clean `npx next build` grepped
+  for "Attempted import error". The card itself is Eric's to confirm** — local dev has no auth
+  bypass. Both builds ran in a **scratchpad copy of the tree with `node_modules` junctioned**,
+  because Eric had a dev server on **:3001** (§ 10ar).
+
+10ax. **Per-store flash sales — ASKED FOR, NOT BUILT, and the first one is worth a second look.**
+Eric, 2026-11-03: *"I like this direction. Should it be its own tab? I can't think of a different
+place to put it. Also how will it tie into the price and demand?"* Measured the proposed sale before
+designing the mechanism for it.
+  • **The premise of the Indy HDMI sale does not survive the data.** Over six months,
+    **Indianapolis rings the MOST HDMI work and collects the LEAST per job: 80 lines at $123.63
+    average, against Fishers' 66 lines at $144.74** — on an effectively identical list price
+    ($177.37 vs $182.57). Volume is steady (11–16 jobs/month, no decline), and **October's Indy
+    average was already $135.45**, so a $129 promo is close to the price Indy is effectively
+    charging today. The store said to be losing console work to an ex-employee's shop is the store
+    winning the most of it, most cheaply. ⚠ This is across all HDMI models pooled; a single-model
+    figure could differ, and that is exactly what the mechanism below would settle.
+  • **Recommendation on where it lives: the PRICE goes on the Price Book row, not in a new tab.**
+    A promo screen holding a price is a second price list, and an agent with a customer on the phone
+    reads one place. A per-store, date-windowed override on `repair_prices` keeps one source of
+    truth, and the booking floor and the 50% deposit follow automatically because both are computed
+    off the **quoted** price (§ 10q, § 10x).
+  • **A tab is right for the MESSAGE, wrong for the number.** Store messages are not all about
+    price ("closed Thursday"), so a small Matt-editable Messages & Promotions surface earns its
+    place — and it is what feeds the **fourth TV screen** Eric approved. Rotation is already 3
+    (§ 10ap); `TVDashboard`'s badge label needs a fourth branch, which has been wrong once already.
+  • **How it ties to Price & Demand, and why a flash sale is a BETTER experiment than a permanent
+    change:** every override writes `repair_price_changes` exactly as a price edit does, so the
+    existing dashed markers and 60-day before/after light up for free (§ 10q Phase 2). But a window
+    has an **end**, which gives a during-window and an after-window — a natural A/B instead of a
+    bare before/after. The question it must answer is not "did jobs go up" but **"did total profit
+    go up"**: at Indy's current numbers a $129 price needs roughly a fifth more jobs to break even,
+    and the measurement has to be jobs/week **and** profit in the window against the eight weeks
+    before.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -954,6 +1067,27 @@ looking at the Fishers board: *"Does this reset and track monthly?"* **Half of i
 ---
 
 ## 8. Recent changes log
+- **2026-11-03** — **Three things off the 11-02 meeting, and Eric's own question was the useful
+  part of it.** He approved excluding counter sales but asked first whether they are all zero and
+  whether removing them would push everybody to Platinum (§ 10av). **No to both, and the second
+  "no" is structural**: the scorecard reads `ticket_grades` once and that query has always excluded
+  Sale, so no tier has ever counted one. What the exclusion fixes is a technician's own ticket list
+  showing them a set **8–12 points harsher than the score they are graded on** — Luke 67.2 vs 79.1,
+  Alec 63.7 vs 72.8 — and it was the only thing producing zeros, so it would have swallowed the
+  "find your zeros" exercise and misfired Matt's 60/100 floor.
+  **My Reviews was rebuilt** (§ 10aw) after the real cause turned out not to be the missing data
+  Eric saw but a **dead rule**: it was computing $5-per-review-above-10 plus **$5 per photo**, which
+  the agreed bonus does not pay at all. The named-credit rule now lives in one function shared with
+  the manager's queue — proven identical against live data, 44 rows, 0 differences, $150 either way
+  — and a technician can read their own credits through a new name-scoped action without being a
+  manager. It still pays nobody and says so on the card. **Two rules stated in the meeting are
+  deliberately NOT implemented** and sit as one-line constants: the $5/$5 split on a two-name
+  review, and whether a named credit survives the store missing 10.
+  **And the flash sale got measured before it got built** (§ 10ax): **Indianapolis already rings
+  the most HDMI work in the company at the lowest price collected** — 80 lines at $123.63 against
+  Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
+  losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
+  this particular sale needs a second look.
 - **2026-11-02 (later)** — **Eric: "go ahead" on the payable half** (§ 10au). `?action=credits`
   had the identical all-time gap, so the "Credits to confirm" queue spanned **eleven months in one
   list with a dollar amount on every row**. Scoped to the posted month, in its own commit. **The
