@@ -301,6 +301,11 @@ export default function PromotionsTab() {
     );
   }
 
+  // ⚠ Found by opening the page: the banner said "not set up yet" while both
+  // forms sat fully enabled, so the obvious next move was to fill in seven
+  // fields and press a button that cannot possibly work. A loud error after
+  // the fact is not the same as not inviting the action.
+  var ready = !(data && data.not_configured);
   var live = (data && data.live) || [];
   var upcoming = (data && data.upcoming) || [];
   var past = (data && data.past) || [];
@@ -355,8 +360,10 @@ export default function PromotionsTab() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
           <div>
             <span style={label}>Device</span>
-            <input list="promo-devices" value={sf.device} placeholder="Play Station 5 (all models)"
-              onChange={function(e) { sset("device", e.target.value); sset("key", ""); sset("price", ""); }} style={input} />
+            <input list="promo-devices" value={sf.device} disabled={!ready}
+              placeholder={ready ? "Play Station 5 (all models)" : "—"}
+              onChange={function(e) { sset("device", e.target.value); sset("key", ""); sset("price", ""); }}
+              style={Object.assign({}, input, { opacity: ready ? 1 : .55 })} />
             <datalist id="promo-devices">
               {devices.map(function(d) { return <option key={d} value={d} />; })}
             </datalist>
@@ -428,12 +435,13 @@ export default function PromotionsTab() {
         </div>
 
         <div>
-          <button onClick={startSale} disabled={busy} style={Object.assign(btn("var(--yellow)", true), { opacity: busy ? .5 : 1, padding: "9px 16px", fontSize: 13 })}>
-            {busy ? "Working…" : "Start the sale"}
+          <button onClick={startSale} disabled={busy || !ready} style={Object.assign(btn("var(--yellow)", true), { opacity: (busy || !ready) ? .45 : 1, cursor: ready ? "pointer" : "not-allowed", padding: "9px 16px", fontSize: 13 })}>
+            {busy ? "Working…" : ready ? "Start the sale" : "Needs the migration first"}
           </button>
           <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 10 }}>
-            Agents see the sale price on the row with the listed price struck through, and a quote at it is
-            not recorded as their discount.
+            {ready
+              ? "Agents see the sale price on the row with the listed price struck through, and a quote at it is not recorded as their discount."
+              : "Nothing can be saved until sql/migration_promotions.sql has been run."}
           </span>
         </div>
       </div>
@@ -452,8 +460,9 @@ export default function PromotionsTab() {
         <div>
           <span style={label}>Message</span>
           <textarea value={mf.body} onChange={function(e) { mset("body", e.target.value); }} rows={2}
-            maxLength={400} placeholder="Say it in one sentence — it has to read from across the shop."
-            style={Object.assign({}, input, { resize: "vertical", lineHeight: 1.45 })} />
+            maxLength={400} disabled={!ready}
+            placeholder={ready ? "Say it in one sentence — it has to read from across the shop." : "Not available until the migration has been run."}
+            style={Object.assign({}, input, { resize: "vertical", lineHeight: 1.45, opacity: ready ? 1 : .55 })} />
           <div style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 3 }}>{mf.body.length} / 400</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
@@ -484,11 +493,13 @@ export default function PromotionsTab() {
           <button onClick={function() { mset("pinned", !mf.pinned); }} style={btn("var(--yellow)", mf.pinned)}>
             {mf.pinned ? "Pinned" : "Pin it"}
           </button>
-          <button onClick={postMessage} disabled={busy} style={Object.assign(btn("var(--cyan)", true), { opacity: busy ? .5 : 1, padding: "9px 16px", fontSize: 13 })}>
-            {busy ? "Working…" : "Post it"}
+          <button onClick={postMessage} disabled={busy || !ready} style={Object.assign(btn("var(--cyan)", true), { opacity: (busy || !ready) ? .45 : 1, cursor: ready ? "pointer" : "not-allowed", padding: "9px 16px", fontSize: 13 })}>
+            {busy ? "Working…" : ready ? "Post it" : "Needs the migration first"}
           </button>
           <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-            The newest three fit on the wall; the rest are counted, not hidden.
+            {ready
+              ? "The newest three fit on the wall; the rest are counted, not hidden."
+              : "Nothing can be posted until sql/migration_promotions.sql has been run."}
           </span>
         </div>
       </div>

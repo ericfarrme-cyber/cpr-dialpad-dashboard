@@ -468,13 +468,29 @@ export async function GET(request) {
 
   // ── what moved this month ─────────────────────────────────────────────────
   if (action === "tracking") {
-    var today = indyToday(), mStart = monthStart(today);
-    // Exclusive upper bound for "this month", so a 1-star is scored against the
+    var today = indyToday();
+    // ⚠ THIS USED TO BE THE RUNNING MONTH AND NOTHING ELSE, which made every
+    // screen that has a month picker lie. Found by opening the page (2026-11-03):
+    // My Performance set to October showed "YOUR STORE'S REVIEW BONUS · 2026-10"
+    // above **November's** review count, because the card took its heading from
+    // the selected period and its numbers from here. The Reviews tab had the
+    // same split -- store cards from this action, credit queue scoped by its own
+    // picker. A tier figure under the wrong month's heading is the § 10au
+    // defect on a screen that proposes money.
+    //
+    // `period` is OPTIONAL and defaults to today's month, so the TV board and
+    // every existing caller are unchanged.
+    var pReq = (searchParams.get("period") || "").trim();
+    var mStart = /^\d{4}-\d{2}$/.test(pReq) ? pReq + "-01" : monthStart(today);
+    // Exclusive upper bound for the month, so a 1-star is scored against the
     // month it was posted in and no other.
     var mEnd = (function() {
       var y = Number(mStart.slice(0, 4)), m = Number(mStart.slice(5, 7));
       return (m === 12 ? (y + 1) + "-01" : y + "-" + String(m + 1).padStart(2, "0")) + "-01";
     })();
+    // A closed month is read AS IT STOOD at the end of it. Today's totals under
+    // a past month's heading would be the same lie in a smaller place.
+    var isPast = mEnd <= today;
     var { data: LRaw, error: e1 } = await supabase.from("google_listings").select("*").eq("active", true);
     if (e1) return json({ success: false, error: e1.message }, 500);
     var LDe = dedupeListings(LRaw); var L = LDe.listings;
@@ -506,7 +522,10 @@ export async function GET(request) {
 
     var out = (L || []).map(function(l) {
       var rows = byListing[l.id] || [];
-      var newest = rows[rows.length - 1] || null;
+      // The last reading inside the window, not the last reading full stop.
+      // For the running month those are the same row.
+      var newest = null;
+      for (var n = 0; n < rows.length; n++) { if (rows[n].captured_on < mEnd) newest = rows[n]; }
       // The baseline is the last reading BEFORE this month began; without one
       // the gain is unknown rather than zero, and says so.
       var before = null;
@@ -626,6 +645,10 @@ export async function GET(request) {
     return json({
       success: true, month_start: mStart, today: today,
       period: mStart.slice(0, 7),
+      // Stated, so a screen can never put this payload under another month's
+      // heading without noticing.
+      is_past_month: isPast,
+      requested_period: pReq || null,
       tiers: TIERS,
       floor: TIERS[0].at,
       penalty: {
@@ -1062,6 +1085,11 @@ export async function GET(request) {
       name: mrName,
       resolved_name: mrWho,
       on_roster: !!mrMe,
+      // THE VIEWER'S OWN STORE, because the card must not read the tier off
+      // whatever store the page header happens to be set to. Caught in the
+      // browser: viewing Andrew (Bloomington) from the Fishers header showed
+      // Fishers' tier above a banner naming Bloomington's review count.
+      store: mrMe ? (mrMe.store || null) : null,
       bonus_eligible: mrMe ? mrMe.bonus_eligible !== false : null,
       // Stated, not implied: being off the active roster is why a real person
       // can see zero credits, and it is not the same as having none.

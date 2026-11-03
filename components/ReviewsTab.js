@@ -118,7 +118,10 @@ export default function ReviewsTab() {
   useEffect(function() {
     var alive = true;
     Promise.allSettled([
-      af("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); }),
+      // Scoped to the month the credit queue is showing, or the store cards
+      // above it report the running month while the queue below reports
+      // October -- the same split that mislabelled My Performance.
+      af("/api/dialpad/google-tracking?action=tracking" + (creditMonth ? "&period=" + creditMonth : "")).then(function(r) { return r.json(); }),
       af("/api/dialpad/google-tracking?action=credits" + (creditMonth ? "&period=" + creditMonth : "")).then(function(r) { return r.json(); }),
     ]).then(function(res) {
       if (!alive) return;

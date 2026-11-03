@@ -16,7 +16,21 @@ Full business context, personnel, comp structures, open items, and the current p
 4. **Anchored edits only.** No blind rewrites of existing files. Read the file, edit the specific block.
 5. **Validate before pushing.** Run `npm run build` (real Next.js build). Never rely on `node --check` — it once passed a stray-brace error that broke production.
 6. **Never activate a payroll-touching feature on data that is known to be inaccurate.** Fix accuracy first, then activate.
-7. **Deploy verification is via Eric.** Push → Vercel deploys → Eric confirms with a screenshot. Say exactly which files changed and what he should see.
+7. **Open the dashboard and look at it. Every time.** (Eric, 2026-11-03: *"I want you to get access to
+   the dash and verify it works and audit for ui/ux. You should do that every time."*) A green build and
+   a 200 from a route are **not** evidence a screen works — the review card imported `authFetch` from the
+   wrong module and the build only *warned*; the TV board clipped 115px off two panels for a fortnight;
+   the by-month bars rendered at 500% of their track and Eric found that in production, not me. Route
+   checks are a floor, not a substitute.
+   **How:** Claude in Chrome against `https://cpr-dialpad-dashboard.vercel.app` — Eric's own Chrome
+   carries the Google session, so admin screens are reachable there and nowhere else (local dev has no
+   auth bypass). Wait for the Vercel deploy to land first, or you are auditing the previous build.
+   **What to check, not just "does it render":** the numbers on screen against the numbers the route
+   returned; console errors; **every list that can be truncated says so**; both themes if colours
+   changed; **1920×1080 for anything on the TV** and phone width for anything an agent reads on a call;
+   contrast on small grey labels; and whether an empty state says "nothing here" or "could not load".
+   Report what you actually saw, name what you could not reach, and still tell Eric exactly which
+   screen to glance at — he is the final confirmation, not the first.
 8. **No secrets in committed files.** Env vars only. Never write keys, tokens, or the cron secret into `CLAUDE.md`, docs, or code.
 
 ### Payroll-sensitive files (sign-off required)

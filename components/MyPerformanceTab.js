@@ -406,7 +406,7 @@ export default function MyPerformanceTab({ auth, store }) {
         // Still at the END. The store's review tier comes from ?action=tracking
         // — the one place that computes it — rather than being recomputed here.
         // That endpoint is public by design (the shop TV reads it unsigned-in).
-        fetch("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); }),
+        fetch("/api/dialpad/google-tracking?action=tracking&period=" + encodeURIComponent(activePeriod)).then(function(r) { return r.json(); }),
         // And the person's own named credits, which need a session.
         (auth && auth.authFetch
           ? auth.authFetch("/api/dialpad/google-tracking?action=my_reviews&name=" + encodeURIComponent(empName) + "&period=" + activePeriod).then(function(r) { return r.json(); })
@@ -812,7 +812,11 @@ export default function MyPerformanceTab({ auth, store }) {
   // ───────────────────────────────────────────────────────────────────────────
   var reviewBonus = useMemo(function() {
     if (!reviewTrack) return null;
-    var st = (reviewTrack.stores || []).filter(function(x) { return x.store === empStore; })[0] || null;
+    // THE VIEWED PERSON'S STORE, not the page header's. An admin reading a
+    // Bloomington technician from the Fishers header was shown Fishers' tier
+    // above a banner quoting Bloomington's count -- one card, two stores.
+    var whoseStore = (myReviews && myReviews.store) || empStore;
+    var st = (reviewTrack.stores || []).filter(function(x) { return x.store === whoseStore; })[0] || null;
     if (!st) return null;
     var tiers = reviewTrack.tiers || [];
     var floor = reviewTrack.floor;
@@ -848,7 +852,13 @@ export default function MyPerformanceTab({ auth, store }) {
       whyNone: mine ? mine.why_none : null,
       coverage: mine ? mine.coverage : null,
       haveMine: !!mine,
-      period: (mine && mine.period) || reviewTrack.period,
+      storeName: whoseStore,
+      // The month the TIER was actually computed for. It now follows the
+      // picker, but if the two ever drift apart again the card must show the
+      // payload's own month rather than the one that was asked for.
+      period: reviewTrack.period,
+      periodAsked: (mine && mine.period) || reviewTrack.period,
+      periodMismatch: !!(mine && mine.period && reviewTrack.period && mine.period !== reviewTrack.period),
     };
   }, [reviewTrack, myReviews, empStore]);
 
@@ -3010,6 +3020,11 @@ export default function MyPerformanceTab({ auth, store }) {
                 {/* The store floor, stated. A $0 with no reason attached is
                     what generates the phone call -- and under this rule the
                     reason is usually "the store, not you". */}
+                {reviewBonus.periodMismatch && (
+                  <div style={{ padding: "8px 12px", borderRadius: 4, background: "var(--bg-card-inner)", borderLeft: "2px solid var(--orange)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12 }}>
+                    The store tier above is for {reviewBonus.period}, not {reviewBonus.periodAsked}. These credits are {reviewBonus.periodAsked}{"’"}s.
+                  </div>
+                )}
                 {reviewBonus.storeFloor && reviewBonus.storeFloor.required && !reviewBonus.storeFloor.ok && (
                   <div style={{ padding: "9px 12px", borderRadius: 4, background: "var(--bg-card-inner)", borderLeft: "2px solid var(--yellow)", fontSize: 11, color: "var(--text-secondary)", marginBottom: 12, lineHeight: 1.5 }}>
                     <strong style={{ color: "var(--yellow)" }}>
@@ -3057,7 +3072,15 @@ export default function MyPerformanceTab({ auth, store }) {
                               )}
                               {fmt(c.amount)}
                             </div>
-                            {c.blocked && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>{c.blocked}</div>}
+                            {/* SHORT here. The long sentence is in the banner
+                                above; repeating it verbatim on every row put
+                                three copies of a two-line explanation on one
+                                card and pushed the figures out of alignment. */}
+                            {c.blocked && (
+                              <div style={{ fontSize: 9, color: "var(--text-muted)" }}>
+                                {c.amount === 0 && c.amount_if_floor_met > 0 ? "held — store under " + reviewBonus.floor : c.blocked}
+                              </div>
+                            )}
                             {c.shared_with > 1 && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>split {c.shared_with} ways</div>}
                           </div>
                         </div>
