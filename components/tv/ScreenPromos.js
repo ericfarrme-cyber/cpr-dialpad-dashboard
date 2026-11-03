@@ -112,14 +112,18 @@ export default function ScreenPromos(props) {
   var hidden = messages.length - shown.length;
 
   return (
-    // gridTemplateRows is NOT optional here. Found on the wall at 1080p: with
+    // width/height 100% AND an explicit row. Found on the wall: with
     // both panels empty the single implicit row sized to its CONTENT, so the
     // board rendered two ~90px cards at the top of a 1080px screen and three
     // quarters of it was blank -- which reads as broken, not as "nothing on
     // sale". The sibling screens only escape this because their content is
-    // tall enough to fill. An explicit row makes the panels fill whatever
-    // they hold, including nothing.
-    <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.25fr 1fr", gridTemplateRows: "minmax(0, 1fr)", gap: 20, minHeight: 0 }}>
+    // tall enough to fill. The actual cause is that `screenStyle` in
+    // TVDashboard is `position:absolute; inset:0` and NOT a flex container, so
+    // the `flex: 1` copied from ScreenReviews sized to nothing at all --
+    // ScreenDaily and ScreenRankings use width/height 100%, which is what
+    // works. The explicit row then makes the panels fill whatever they hold,
+    // including nothing.
+    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "1.25fr 1fr", gridTemplateRows: "minmax(0, 1fr)", gap: 20, minHeight: 0 }}>
 
       {/* ── left: the sale ── */}
       <div style={panel({ borderLeft: "6px solid " + (lead ? GOLD : LINE) })}>

@@ -155,7 +155,11 @@ export default function ScreenReviews(props) {
   ((tracking && tracking.stores) || []).forEach(function(s) { gained[s.store] = s.gained_this_month; });
 
   return (
-    <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1.05fr 1fr", gap: 20, minHeight: 0 }}>
+    // width/height 100%, not flex:1 -- `screenStyle` is absolutely positioned
+    // and not a flex container, so flex:1 sized this screen to its CONTENT.
+    // It has looked right only because its leaderboards happen to be tall
+    // enough; a month with nobody named would have shrunk the whole board.
+    <div style={{ width: "100%", height: "100%", display: "grid", gridTemplateColumns: "1.05fr 1fr", gridTemplateRows: "minmax(0, 1fr)", gap: 20, minHeight: 0 }}>
 
       {/* ── left: the two leaderboards ── */}
       <div style={{ display: "grid", gridTemplateRows: "1fr 1fr", gap: 20, minHeight: 0 }}>
