@@ -40,6 +40,7 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
   var [loading, setLoading] = useState(true);
   var [expandedTicket, setExpandedTicket] = useState(null);
   var [searchQuery, setSearchQuery] = useState("");
+  var [saleExcluded, setSaleExcluded] = useState(0);
 
   var loadData = async function() {
     setLoading(true);
@@ -60,6 +61,11 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
           });
         }
         setTickets(t);
+        // Counter sales are excluded by the route for the same reason
+        // action=stats excludes them, so the list and the stats above it
+        // finally describe the same set of tickets. Count shown, never
+        // silently dropped.
+        setSaleExcluded(ticketsRes.sale_tickets_excluded || 0);
       }
     } catch(e) { console.error(e); }
     setLoading(false);
@@ -161,7 +167,14 @@ export default function ComplianceTab({ storeFilter, viewAs, viewEmployee }) {
       {view === "tickets" && (
         <div>
           <div style={{ display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12 }}>
-            <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Graded Tickets ({tickets.length})</div>
+            <div>
+              <div style={{ color:"var(--text-primary)",fontSize:14,fontWeight:700 }}>Graded Tickets ({tickets.length})</div>
+              {saleExcluded > 0 && (
+                <div style={{ color:"var(--text-muted)",fontSize:10,marginTop:2 }}>
+                  {saleExcluded} counter sale{saleExcluded === 1 ? "" : "s"} excluded {"\u2014"} same rule as the scores above
+                </div>
+              )}
+            </div>
           </div>
           <input type="text" value={searchQuery} onChange={function(e){setSearchQuery(e.target.value);}}
             placeholder={"\uD83D\uDD0D Search by ticket #, customer name, phone, employee, device..."}

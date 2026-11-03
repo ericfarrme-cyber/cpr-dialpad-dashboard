@@ -220,12 +220,30 @@ export async function GET(request) {
   var limit = parseInt(searchParams.get("limit") || "100");
 
   if (action === "list") {
+    // Sale tickets are excluded here for the same reason action=stats excludes
+    // them (Eric, 2026-11-03). They are graded against criteria a counter sale
+    // does not have -- diagnostics, repair notes, a customer-contact call --
+    // so they score 20.4 on average with 208 of 211 under 60, and sitting them
+    // in the same list as repair work makes the list disagree with the stats
+    // printed directly above it. include_sales=1 brings them back; the count
+    // always travels, because a list that quietly drops rows is the "Closed
+    // by" defect of CONTEXT § 10ac.
+    var includeSales = searchParams.get("include_sales") === "1";
     var query = supabase.from("ticket_grades").select("*").order("date_closed", { ascending: false }).limit(limit);
     if (store) query = query.eq("store", store);
     if (employee) query = query.or("employee_added.eq." + employee + ",employee_repaired.eq." + employee);
     var { data, error } = await query;
     if (error) return jsonResponse({ success: false, error: error.message });
-    return jsonResponse({ success: true, tickets: data || [] });
+    var listRows = data || [];
+    var listSale = listRows.filter(function(t) { return t.ticket_type === "Sale"; }).length;
+    if (!includeSales) listRows = listRows.filter(function(t) { return t.ticket_type !== "Sale"; });
+    return jsonResponse({
+      success: true,
+      tickets: listRows,
+      sale_tickets_excluded: includeSales ? 0 : listSale,
+      sale_tickets_in_window: listSale,
+      includes_sales: includeSales,
+    });
   }
 
   if (action === "employee_tickets") {
@@ -245,6 +263,25 @@ export async function GET(request) {
       .limit(200);
 
     if (error) return jsonResponse({ success: false, error: error.message });
+
+    // ⚠ THIS WAS THE ONE READ PATH THAT STILL SHOWED SALE TICKETS (fixed
+    // 2026-11-03, Eric: "Exclude sales tickets").
+    //
+    // scorecard/route.js:64, tickets action=stats, and flags/route.js all
+    // exclude `ticket_type = Sale`, so no tier, score or bonus has ever
+    // counted one. This list did not -- which meant a technician's own page
+    // showed them a set of tickets 8-12 points HARSHER than the score they
+    // are actually graded on, and every single ticket scoring 0 in October was
+    // a Sale. Measured on the last 60 days: Luke 67.2 -> 79.1, Samuel
+    // 63.2 -> 74.1, Alec 63.7 -> 72.8, Andrew 49.4 -> 54.5. Those right-hand
+    // numbers are what the scorecard already uses; the left-hand ones were
+    // only ever on this screen.
+    //
+    // Excluding them moves NO score and NO tier. The count is returned so the
+    // page can say what is missing rather than silently shrinking (§ 10ac).
+    var allRows = data || [];
+    var saleRows = allRows.filter(function(t) { return t.ticket_type === "Sale"; });
+    data = allRows.filter(function(t) { return t.ticket_type !== "Sale"; });
 
     // Enrich each ticket with role-split scores and the requesting employee's role on this ticket
     var enriched = (data || []).map(function(t) {
@@ -270,7 +307,15 @@ export async function GET(request) {
       });
     });
 
-    return jsonResponse({ success: true, tickets: enriched, role_split_cutoff: ROLE_SPLIT_CUTOFF() });
+    return jsonResponse({
+      success: true,
+      tickets: enriched,
+      role_split_cutoff: ROLE_SPLIT_CUTOFF(),
+      sale_tickets_excluded: saleRows.length,
+      sale_tickets_note: saleRows.length
+        ? "Counter sales are not graded on repair criteria and are excluded from every score, so they are not listed here."
+        : null,
+    });
   }
 
   if (action === "stats") {
