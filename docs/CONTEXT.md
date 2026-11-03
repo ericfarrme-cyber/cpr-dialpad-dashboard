@@ -930,6 +930,18 @@ Measured both halves before touching anything.
     Alec **35% → 16%**. Andrew is last either way, so Matt's read on him holds.
   • The count travels on both responses and is printed on both screens. A list that quietly drops
     rows is the "Closed by" defect of § 10ac, and the fix must not become it.
+  • **"So this isn't going to cost me money?"** (Eric, 2026-11-03) — **no, and it is checkable
+    rather than a judgement.** The two changed actions have **exactly two consumers**:
+    `employee_tickets` → `MyPerformanceTab` only, `action=list` → `ComplianceTab` only. Grepped
+    every use of that ticket state: it produces a **ticket count, an average score, an average
+    turnaround, an average GPM%, a device breakdown, a role split and the list itself** — **no
+    dollar total is computed from it anywhere.** Gross profit appears only **per row** inside the
+    list (`MyPerformanceTab.js:2465`, `:2534`), never summed. The GP figure a person sees as *theirs*
+    comes from `sales/route.js` `gpByEmployee` (§ 10w, § 10an), a different read. Commission base
+    is the sales-import rows; the tier multiplier comes from `tier-history`; answer-rate is calls;
+    the non-phone bonus is `advanced-repair-traffic`, which already drops Sale via `isRepairish`.
+    **Three display numbers do move, upward, on the technician's own page** — Tickets Graded falls,
+    Avg Score rises, Avg GPM% shifts. That is the fix, not a cost.
 
 10aw. **My Reviews was quoting a bonus rule that no longer exists — REBUILT 2026-11-03**
 (`ccd2825` route, `efa07fe` screen). Eric, 2026-11-02: *"I don't see on the commission side the
@@ -1005,14 +1017,43 @@ designing the mechanism for it.
     price ("closed Thursday"), so a small Matt-editable Messages & Promotions surface earns its
     place — and it is what feeds the **fourth TV screen** Eric approved. Rotation is already 3
     (§ 10ap); `TVDashboard`'s badge label needs a fourth branch, which has been wrong once already.
+  • ⚠⚠ **$129 IS NOT A DISCOUNT — IT IS ALREADY ON THE SHEET.** On a console row the "tier" is
+    **turnaround, not part grade**. `Play Station 5 (all models)` · HDMI port carries four live
+    rows: **Same day $199.99 · 2–3 business days $159.99 · 3–5 business days $129.99 · 5–10
+    business days $99.99** — and $129.99 is the 3–5 day price, which is the turnaround § 7 says
+    consoles are pitched at. Xbox Series S runs $149.99 / $129.99 / $109.99 / $99.99 the same way.
+    Indy's October HDMI average of **$135.45** sits between the $129.99 and $159.99 tiers, i.e. Indy
+    is already selling mostly the 3–5 day tier. **The sale with something to prove is on SAME DAY**:
+    $199.99 → $169.99 gives up $30 a job; at 11 jobs a month that is $330 of revenue, and two extra
+    same-day jobs at $169.99 is $340. ⚠ Whether that is *profit*-neutral is **not computable** —
+    **no console row on the sheet carries a part cost** (`floor_price` null on all 40 HDMI rows), so
+    only revenue can be stated.
+  • ⚠ **A false gap I nearly reported:** `device ilike '%playstation%'` returns **0 rows**, because
+    the sheet spells it **"Play Station 5 (all models)"** with a space. PS5 is the company's
+    single biggest HDMI job (84 of 176 lines in six months) and it **is** on the sheet. Match console
+    devices through `lib/device-model.js`, never a hand-rolled LIKE — the same lesson as
+    `catalog_item` vs `name` in § 10x.
   • **How it ties to Price & Demand, and why a flash sale is a BETTER experiment than a permanent
     change:** every override writes `repair_price_changes` exactly as a price edit does, so the
     existing dashed markers and 60-day before/after light up for free (§ 10q Phase 2). But a window
     has an **end**, which gives a during-window and an after-window — a natural A/B instead of a
     bare before/after. The question it must answer is not "did jobs go up" but **"did total profit
-    go up"**: at Indy's current numbers a $129 price needs roughly a fifth more jobs to break even,
-    and the measurement has to be jobs/week **and** profit in the window against the eight weeks
-    before.
+    go up"**, measured as jobs/week **and** money in the window against the eight weeks before.
+  • **Mock-up of all three, from the live rows** (Eric asked for each separately, 2026-11-03):
+    https://claude.ai/artifact/QxUHEQjd4CWRFo19gzt95y — a Design canvas with three artboards: the
+    shipped My Reviews card in **three real states** (Aerick/Fishers/November empty, Andrew's two
+    real October credits at Bloomington, and a docked tier worked from the rule since no store has
+    reached one), the **flash-sale row + Matt's editor + the during/after panel**, and the
+    **fourth TV screen**. Private — Eric shares it from the page's Share menu. Message copy on the
+    TV board is a **placeholder**, not invented text; the "booked at it" tile reads — because
+    nothing is booked yet.
+  • **Review sync cadence, asked the same day:** `vercel.json` runs
+    `google-tracking?action=sync` at **`50 11 * * *`** — once daily, 11:50 UTC = **6:50am ET**. So a
+    new review shows up the next morning, not live. ⚠ And the real lag is **Google's**, not ours:
+    Places returns a relevance *sample* of each page's reviews, so a named review on a main page
+    (559–893 reviews) may take days to enter the sample **or never appear at all**. The review
+    TOTAL — which is what the tier counts — is exact and updates next morning; the per-person
+    naming is best-effort, which is why the card says "none we hold", never "nobody named you".
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
@@ -1067,6 +1108,18 @@ designing the mechanism for it.
 ---
 
 ## 8. Recent changes log
+- **2026-11-03 (later)** — **Eric asked whether the sale exclusion costs him money; it does not,
+  and the check is mechanical** (§ 10av): the two changed actions have exactly two consumers, both
+  display components, and **no dollar total is computed from either list** — GP appears only per
+  row, never summed, and the GP people see as theirs comes from `sales/route.js`. Mocked up all
+  three screens he asked for (§ 10ax). **Laying out the flash sale killed its own premise: $129
+  is already the sheet price for a 3–5 day PS5 HDMI** — on a console row the tier is turnaround,
+  not part grade, and Indy's $135.45 October average already sits between that and the $159.99
+  2–3 day tier. The sale with something to prove is on **same day**, $199.99 → $169.99. Also
+  nearly reported a false gap: PS5 looked absent from the sheet because it is spelled "Play
+  Station 5 (all models)". And the answer to "how often does it update": **once a night at 6:50am
+  ET** for the exact review total, best-effort and possibly never for who was named, because
+  Google only hands back a sample.
 - **2026-11-03** — **Three things off the 11-02 meeting, and Eric's own question was the useful
   part of it.** He approved excluding counter sales but asked first whether they are all zero and
   whether removing them would push everybody to Platinum (§ 10av). **No to both, and the second
