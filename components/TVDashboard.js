@@ -10,8 +10,22 @@ import { useState, useEffect, useRef } from "react";
 import ScreenDaily from "@/components/tv/ScreenDaily";
 import ScreenRankings from "@/components/tv/ScreenRankings";
 import ScreenReviews from "@/components/tv/ScreenReviews";
+import ScreenPromos from "@/components/tv/ScreenPromos";
 
 var STORE_NAMES = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
+// ONE list, driving the badge label, the rotation modulus and the page dots.
+// Three separate places used to encode "how many screens there are": a ternary
+// chain for the label, a literal `% 3`, and three hand-written dots. When the
+// rotation went 2 -> 3 the label never gained its third branch and the reviews
+// screen hung on the wall mislabelled "Rankings" for days. A fourth screen is
+// exactly the moment that happens again, so it cannot be three places any more.
+var SCREENS = [
+  { label: "Daily Dash", dot: "#00D4FF" },
+  { label: "Rankings", dot: "#FF2D95" },
+  { label: "Reviews", dot: "#F59E0B" },
+  { label: "Promotions", dot: "#059669" },
+];
+var SCREEN_LABELS = SCREENS.map(function(s) { return s.label; });
 var ROTATION_MS = 30000;        // 30 sec per screen
 var REFRESH_MS = 60000;         // 60 sec data refresh
 
@@ -26,7 +40,7 @@ export default function TVDashboard(props) {
   var storeName = STORE_NAMES[store] || store;
 
   // ── State ────────────────────────────────────────────────────────────
-  var [screenIdx, setScreenIdx] = useState(0); // 0 = Daily, 1 = Rankings, 2 = Reviews
+  var [screenIdx, setScreenIdx] = useState(0); // 0 = Daily, 1 = Rankings, 2 = Reviews, 3 = Promotions
   var [dailyCalls, setDailyCalls] = useState(null);
   var [appointments, setAppointments] = useState(null);
   var [scorecard, setScorecard] = useState(null);
@@ -37,6 +51,9 @@ export default function TVDashboard(props) {
   // Reviews month-to-date — Eric, 2026-09-28: "it should have a running total
   // of our reviews for the month. Keep that front and center."
   var [reviews, setReviews] = useState(null);
+  // What this store is running and what Matt has posted. Store-scoped, unlike
+  // every other read on this board, because a sale is per store.
+  var [promos, setPromos] = useState(null);
   // Who gets named, for the leaderboard. Counts only — the route keeps
   // review text and dollar figures behind auth, because the TV is not
   // signed in and hangs in a public part of the shop.
@@ -83,6 +100,8 @@ export default function TVDashboard(props) {
         // Appended at the END on purpose: inserting mid-array renumbers
         // every results[N] below it and silently rewires the other reads.
         fetchWithTimeout("/api/dialpad/google-tracking?action=review_leaders", 8000),
+        // Appended at the END, same reason as the one above it.
+        fetchWithTimeout("/api/dialpad/promotions?action=board&store=" + store, 8000),
       ]);
       var nowTs = Date.now();
       var newAge = Object.assign({}, dataAge);
@@ -117,6 +136,9 @@ export default function TVDashboard(props) {
       if (results[8].status === "fulfilled" && results[8].value.success) {
         setReviewLeaders(results[8].value);
       }
+      if (results[9].status === "fulfilled" && results[9].value.success) {
+        setPromos(results[9].value);
+      }
       setDataAge(newAge);
       // Count successes — if at least one fetch worked, we can show real data
       var successCount = results.filter(function(r) {
@@ -142,7 +164,7 @@ export default function TVDashboard(props) {
   // ── Rotation timer ───────────────────────────────────────────────────
   useEffect(function() {
     var t = setInterval(function() {
-      setScreenIdx(function(i) { return (i + 1) % 3; });
+      setScreenIdx(function(i) { return (i + 1) % SCREENS.length; });
     }, ROTATION_MS);
     return function() { clearInterval(t); };
   }, []);
@@ -180,10 +202,10 @@ export default function TVDashboard(props) {
             CPR {storeName.toUpperCase()}
           </div>
           <div style={{ background: "#7B2FFF15", color: "#7B2FFF", padding: "5px 12px", borderRadius: 999, fontSize: "clamp(10px, 1.3vh, 13px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 }}>
-            {/* The rotation went 2 screens -> 3 when the reviews screen
+            {/* A LOOKUP, not a ternary chain. The rotation went 2 screens -> 3
                 shipped, but this badge never gained a third branch, so the
                 reviews screen hung on the wall labelled "Rankings". */}
-            {screenIdx === 0 ? "Daily Dash" : screenIdx === 1 ? "Rankings" : "Reviews"}
+            {SCREEN_LABELS[screenIdx] || "Daily Dash"}
           </div>
         </div>
         <Clock />
@@ -212,6 +234,13 @@ export default function TVDashboard(props) {
         })}>
           <ScreenReviews store={store} storeName={storeName} reviewLeaders={reviewLeaders} reviews={reviews} />
         </div>
+        {/* Promotions screen */}
+        <div style={Object.assign({}, screenStyle, {
+          opacity: screenIdx === 3 ? 1 : 0,
+          pointerEvents: screenIdx === 3 ? "auto" : "none",
+        })}>
+          <ScreenPromos store={store} storeName={storeName} promos={promos} />
+        </div>
       </div>
 
       {/* ── Bottom bar: page dots + freshness ─────────────────────────── */}
@@ -223,9 +252,10 @@ export default function TVDashboard(props) {
         flexShrink: 0,
       }}>
         <div style={{ display: "flex", gap: 10 }}>
-          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 0 ? "#00D4FF" : "#E5E7EB", transition: "background 0.3s" }} />
-          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 1 ? "#FF2D95" : "#E5E7EB", transition: "background 0.3s" }} />
-          <div style={{ width: 56, height: 6, borderRadius: 3, background: screenIdx === 2 ? "#F59E0B" : "#E5E7EB", transition: "background 0.3s" }} />
+          {SCREENS.map(function(sc, i) {
+            return <div key={sc.label} style={{ width: 56, height: 6, borderRadius: 3,
+              background: screenIdx === i ? sc.dot : "#E5E7EB", transition: "background 0.3s" }} />;
+          })}
         </div>
         <FreshnessIndicator dataAge={dataAge} error={error} />
       </div>

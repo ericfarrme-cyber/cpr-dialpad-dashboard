@@ -28,6 +28,7 @@ import AdvancedRepairsTab from "@/components/AdvancedRepairsTab";
 import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
 import BonusesTab from "@/components/BonusesTab";
 import ReviewsTab from "@/components/ReviewsTab";
+import PromotionsTab from "@/components/PromotionsTab";
 import MorningBrief from "@/components/MorningBrief";
 import DailyProfitTab from "@/components/DailyProfitTab";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -1074,7 +1075,7 @@ export default function DialpadDashboard() {
     // "reviews" and "bonuses" are standalone buttons, not TABS entries, so they
     // are not in visibleTabIds — without the exemption the role effect would
     // bounce a manager straight back out of them.
-    var STANDALONE = ["profitability", "admin", "bonuses", "reviews"];
+    var STANDALONE = ["profitability", "admin", "bonuses", "reviews", "promotions"];
     if (activeTab === "coaching" || (visibleTabIds.indexOf(activeTab) < 0 && STANDALONE.indexOf(activeTab) < 0)) {
       if (visibleTabs.length > 0) setActiveTab(visibleTabs[0].id);
     }
@@ -1253,6 +1254,9 @@ export default function DialpadDashboard() {
           <button onClick={function(){setActiveTab("reviews");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="reviews"?"var(--cyan)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="reviews"?"2px solid var(--cyan)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"⭐"}</span>Reviews</button>
         )}
         {(isAdmin || (auth && auth.role === "manager")) && !isPreviewing && (
+          <button onClick={function(){setActiveTab("promotions");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="promotions"?"var(--green)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="promotions"?"2px solid var(--green)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"🏷"}</span>Promotions</button>
+        )}
+        {(isAdmin || (auth && auth.role === "manager")) && !isPreviewing && (
           <button onClick={function(){setActiveTab("bonuses");}} style={{ padding:"14px 20px",border:"none",cursor:"pointer",background:"transparent",color:activeTab==="bonuses"?"var(--yellow)":"var(--text-muted)",fontSize:13,fontWeight:600,borderBottom:activeTab==="bonuses"?"2px solid var(--yellow)":"2px solid transparent",display:"flex",alignItems:"center",gap:6,whiteSpace:"nowrap",fontFamily:"'Space Grotesk',sans-serif" }}><span style={{ fontSize:14 }}>{"🏅"}</span>Bonus Ledger</button>
         )}
         {isAdmin && !isPreviewing && (<>
@@ -1285,6 +1289,7 @@ export default function DialpadDashboard() {
         {activeTab==="advanced_repair_traffic" && <AdvancedRepairTrafficSummary />}
         {activeTab==="bonuses" && <BonusesTab />}
         {activeTab==="reviews" && <ReviewsTab />}
+        {activeTab==="promotions" && <PromotionsTab />}
         {activeTab==="admin" && <AdminTab onPreview={function(role, name, store){
           setPreviewRole(role === "admin" ? null : role);
           setPreviewEmployee(role === "employee" ? name : "");

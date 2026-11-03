@@ -212,7 +212,25 @@ function PriceCell({ r, isAdmin, editMode, selected, onToggle, onInline, emphasi
         <div onDoubleClick={isAdmin ? function(e) { e.stopPropagation(); setVal(r.set_price === null ? "" : String(r.set_price)); setEditing(true); } : undefined}
           title={isAdmin ? "Double-click to edit" : undefined}
           style={{ marginTop: 3, fontSize: 24, fontWeight: 800, color: r.set_price === null ? "var(--text-muted)" : "var(--text-primary)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.01em" }}>
-          {r.set_price === null ? "quote on inspection" : money(r.set_price)}
+          {/* ON SALE: the number the agent says out loud leads, and the listed
+              price is struck through beside it rather than removed -- they are
+              asked "is that your normal price" constantly, and the answer has
+              to be on the same line. The sale is the VIEWER'S store only; the
+              booking panel re-reads it for whichever store is being booked. */}
+          {r.sale ? (
+            <span>
+              {r.set_price !== null && r.sale.off > 0 ? (
+                <span style={{ fontSize: 15, fontWeight: 700, color: "var(--text-muted)", textDecoration: "line-through", marginRight: 7 }}>{money(r.set_price)}</span>
+              ) : null}
+              <span style={{ color: "var(--yellow)" }}>{money(r.sale.sale_price)}</span>
+            </span>
+          ) : r.set_price === null ? "quote on inspection" : money(r.set_price)}
+        </div>
+      )}
+      {r.sale && (
+        <div style={{ fontSize: 11, color: "var(--yellow)", marginTop: 2, fontWeight: 700 }}>
+          on sale{r.sale.off > 0 ? " · " + money(r.sale.off) + " off" : ""} until {r.sale.ends_on}
+          {r.sale.label ? <span style={{ color: "var(--text-muted)", fontWeight: 500 }}> · {r.sale.label}</span> : null}
         </div>
       )}
       {r.floor_price !== null && (
@@ -702,8 +720,18 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
 
   // The reference price the quote is judged against: the sheet for a sheet
   // row, the register's usual price for a service, nothing for "something else".
-  var sheet = sel.kind === "row" ? selRow.set_price : sel.kind === "service" ? sel.price : null;
-  var sheetLabel = sel.kind === "row" ? "Set price" : sel.kind === "service" ? "Register usually" : "No reference";
+  // A LIVE SALE AT THE STORE BEING BOOKED IS THE REFERENCE PRICE, not a
+  // discount off one. Read per store rather than off `selRow.sale`, because
+  // the panel can book any store and `sale` is only the viewer's own -- using
+  // the viewer's would price a Fishers booking off an Indianapolis sale.
+  //
+  // Making it the reference, rather than leaving the sheet price and calling
+  // the gap a discount, is the whole point: an agent quoting exactly what
+  // management told them to quote must not be recorded as discounting, or the
+  // discount strip and Price & Demand both blame them for it.
+  var saleHere = sel.kind === "row" && selRow && selRow.sales_by_store ? (selRow.sales_by_store[f.store] || null) : null;
+  var sheet = sel.kind === "row" ? (saleHere ? saleHere.sale_price : selRow.set_price) : sel.kind === "service" ? sel.price : null;
+  var sheetLabel = sel.kind === "row" ? (saleHere ? "Sale price" : "Set price") : sel.kind === "service" ? "Register usually" : "No reference";
   // Eric's rule: the booking floor is 20% under what this actually sells for.
   // With too few jobs to average, the sheet's own floor stands in.
   var floor = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? selRow.actuals.book_floor
@@ -713,6 +741,10 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
   // quoting the full set price show "below the floor" in red (8 rows as of
   // 2026-09-15, e.g. 17 Pro Max back glass $239.99 with a $259.99 floor).
   if (floor !== null && sheet !== null && sheet !== undefined && floor > sheet) floor = null;
+  // Same reasoning one step further: a SALE priced under the average-based
+  // floor is a decision from above. Flagging it red on the agent's screen
+  // would be telling them off for following instructions.
+  if (saleHere && floor !== null && floor > saleHere.sale_price) floor = null;
   var floorSrc = selRow && selRow.actuals && selRow.actuals.book_floor !== null && selRow.actuals.book_floor !== undefined ? "20% under the average sold"
     : selRow && floor !== null ? "sheet floor" : sel.kind === "service" && floor !== null ? "20% under what it usually rings" : null;
   // Switching what they are coming in for resets the quote to that option's price.
@@ -721,8 +753,10 @@ function BookPanel({ row, viewer, af, onClose, onBooked, deviceRows, services, e
     if (firstSel.current) { firstSel.current = false; return; }
     set("quoted", sheet === null || sheet === undefined ? "" : String(sheet));
     set("reason", ""); set("reason_text", "");
+    // Also on f.store: a sale is per store, so switching store has to re-read
+    // the reference price or the box keeps the other store's number.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selKey]);
+  }, [selKey, f.store]);
   var quotedNum = parseFloat(f.quoted);
   var quotedOk = isFinite(quotedNum) && quotedNum >= 0;
   var disc = quotedOk && sheet !== null ? Math.round((sheet - quotedNum) * 100) / 100 : 0;

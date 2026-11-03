@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
+import { isMissingTable } from "@/lib/constants";
 import { resolveModel } from "@/lib/device-model";
 import { classifyCatalogItem, cleanCatalogName, tierOfCatalogLine, isInsuranceLine } from "@/lib/repair-type";
 import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
@@ -61,6 +62,11 @@ function num(v) {
   return isFinite(n) ? n : null;
 }
 function round2(n) { return Math.round(n * 100) / 100; }
+// Indiana calendar day. A sale window is a human date range and must not flip
+// at 7pm local because the server thinks in UTC.
+function indyToday() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Indiana/Indianapolis" });
+}
 function monthsAgo(n) {
   var d = new Date();
   d.setUTCMonth(d.getUTCMonth() - n);
@@ -156,6 +162,55 @@ export async function GET(request) {
     // a template), then order the sheet in memory.
     var rows = await fetchAll("repair_prices", "*", "id");
     rows.sort(function(a, b) { return (a.sort_order - b.sort_order) || (a.id - b.id); });
+
+    // ── flash sales ─────────────────────────────────────────────────────────
+    // A sale is PER STORE and the sheet is not, so it cannot live on the row.
+    // Two shapes come back, for two different readers:
+    //   r.sale            the viewer's own store, which is what the price cell
+    //                     shows -- an agent reads one number out loud.
+    //   r.sales_by_store  every store with a live sale on that row, because
+    //                     the booking panel can book for any store and the
+    //                     reference price has to follow the store being booked.
+    // Anything else about the sale (how it is measured, who started it) belongs
+    // to /api/dialpad/promotions; this read only answers "what do I say today".
+    var saleToday = indyToday();
+    var salesByRow = {};
+    var { data: saleRows, error: saleErr } = await supabase.from("repair_price_sales")
+      .select("id,repair_price_id,store,sale_price,starts_on,ends_on,label")
+      .eq("active", true).lte("starts_on", saleToday).gte("ends_on", saleToday).limit(2000);
+    // Loud, not silent: a failed sales read must not quietly render the standing
+    // price as if no sale existed -- that is an agent quoting the wrong number.
+    //
+    // The ONE exception is the table not existing yet, because migrations here
+    // are pasted by hand and there is always a gap between the deploy and the
+    // paste. No table means no sale can exist, so the sheet price is correct;
+    // every other error still takes the read down loudly rather than quietly
+    // showing the wrong number.
+    var salesUnavailable = null;
+    if (saleErr) {
+      if (isMissingTable(saleErr)) salesUnavailable = "repair_price_sales does not exist yet — run sql/migration_promotions.sql";
+      else throw new Error("repair_price_sales: " + saleErr.message);
+    }
+    (saleRows || []).forEach(function(sr) {
+      var byStore = salesByRow[sr.repair_price_id] || (salesByRow[sr.repair_price_id] = {});
+      byStore[sr.store] = {
+        id: sr.id, sale_price: num(sr.sale_price), starts_on: sr.starts_on, ends_on: sr.ends_on,
+        label: sr.label || null, store: sr.store,
+      };
+    });
+    var viewerStore = who.authorized && who.result ? (who.result.store || null) : null;
+    rows.forEach(function(r) {
+      var byStore = salesByRow[r.id];
+      if (!byStore) return;
+      r.sales_by_store = byStore;
+      var mine = viewerStore ? byStore[viewerStore] : null;
+      if (mine) {
+        r.sale = Object.assign({}, mine, {
+          listed_price: num(r.set_price),
+          off: num(r.set_price) !== null ? round2(num(r.set_price) - mine.sale_price) : null,
+        });
+      }
+    });
 
     // A price a person set in the last 30 days is a decision, not drift.
     //
@@ -551,6 +606,13 @@ export async function GET(request) {
       company_quotes: company,
       recent_edit_days: RECENT_EDIT_DAYS,
       sheet_health: isAdmin ? sheetHealth : null,
+      // Stated so a screen never has to infer which store's price it is
+      // showing. Null for a session with no store on it, in which case no
+      // row carries `sale` and the sheet price stands -- the safe direction.
+      viewer_store: viewerStore,
+      sales_today: saleToday,
+      live_sales: (saleRows || []).length,
+      sales_unavailable: salesUnavailable,
     });
   } catch (e) {
     console.error("[price-book] GET failed:", e.message);
