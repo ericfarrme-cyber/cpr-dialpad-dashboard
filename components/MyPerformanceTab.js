@@ -51,6 +51,24 @@ function getNextLevel(score) {
 }
 
 function fmt(n) { return "$" + (n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+
+// Render a review's own words with the name(s) that earned the credit picked
+// out. `matched` is the alias lib/review-credit.js actually fired on, not a
+// guess -- so the highlight is the evidence for the money, not decoration.
+// Whole-word and case-insensitive, the same test the credit used.
+function quoteNaming(text, matched) {
+  var t = String(text || "");
+  if (t.length > 400) t = t.slice(0, 400) + "\u2026";
+  var words = (matched || []).filter(Boolean);
+  if (!words.length) return t;
+  var esc = words.map(function(w) { return String(w).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); });
+  var parts = t.split(new RegExp("(\\b(?:" + esc.join("|") + ")\\b)", "ig"));
+  return parts.map(function(piece, i) {
+    return i % 2 === 1
+      ? <strong key={i} style={{ color: "var(--text-primary)" }}>{piece}</strong>
+      : <span key={i}>{piece}</span>;
+  });
+}
 function sc(v, g, w) { return v >= g ? "var(--green)" : v >= w ? "var(--yellow)" : "var(--red)"; }
 
 // Fuzzy name matching — handles "Alyssa Parent" vs "Parent, Alyssa" vs "Alyssa"
@@ -3063,7 +3081,22 @@ export default function MyPerformanceTab({ auth, store }) {
                             <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 2 }}>
                               {c.listing_label || c.listing_type}{c.posted_at ? " · " + String(c.posted_at).slice(0, 10) : ""}
                               {c.page_under_threshold ? " · page still under " + (reviewBonus.rules ? reviewBonus.rules.thin_under : 10) : ""}
+                              {c.recorded_by_hand ? " · recorded by a manager" : ""}
                             </div>
+                            {/* THE REVIEW ITSELF. The manager's queue has shown
+                                this since it shipped and this card did not, so
+                                a technician was told "you were named, $10" with
+                                no way to see which review or check it was them.
+                                Alec asked for exactly this on 2026-11-05. */}
+                            {c.text ? (
+                              <div style={{ fontSize: 11, color: "var(--text-secondary)", marginTop: 5, lineHeight: 1.5 }}>
+                                {"“"}{quoteNaming(c.text, c.matched)}{"”"}
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: 10, color: "var(--text-muted)", marginTop: 5, fontStyle: "italic" }}>
+                                Google did not send us the text of this one.
+                              </div>
+                            )}
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
                             <div style={{ fontSize: 14, fontWeight: 800, color: c.amount > 0 ? "var(--green)" : "var(--text-muted)" }}>

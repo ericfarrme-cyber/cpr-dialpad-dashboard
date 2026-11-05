@@ -44,8 +44,8 @@
 // GET  ?action=ask_pages&name=  which of our pages this tech should ask on
 // GET  ?action=my_reviews&name=  one person's own review credits (any role)
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
-// POST {action:'record_one_star', store, listing_type, posted_at, author?, note?}  (admin/manager)
-// POST {action:'remove_one_star', id}   undo a manual record only (admin/manager)
+// POST {action:'record_review'|'record_one_star', store, listing_type, posted_at, rating?, author?, review_text?, note?}  (admin/manager)
+// POST {action:'remove_review'|'remove_one_star', id}   undo a manual record only (admin/manager)
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
@@ -704,7 +704,7 @@ export async function GET(request) {
       .select("listing_id,captured_on,total_reviews").order("captured_on", { ascending: false }).limit(5000);
     if (mrE2) return json({ success: false, error: mrE2.message }, 500);
     var { data: mrItems, error: mrE3 } = await supabase.from("google_review_items")
-      .select("id,listing_id,rating,author,text,has_photo,posted_at,first_seen_at").limit(5000);
+      .select("id,listing_id,review_key,rating,author,text,has_photo,posted_at,first_seen_at").limit(5000);
     if (mrE3) return json({ success: false, error: mrE3.message }, 500);
     var { data: mrRoster, error: mrE4 } = await supabase.from("employee_roster")
       .select("name,aliases,store,active,bonus_eligible");
@@ -724,6 +724,9 @@ export async function GET(request) {
     // Same rule object as the manager's queue, by construction.
     var mrGains = storeGainsByMonth(mrSnap, mrL);
     var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive, mrGains);
+    var mrManual = {};
+    (mrItems || []).forEach(function(it) { mrManual[it.id] = /^manual:/.test(String(it.review_key || "")); });
+    mrRows.forEach(function(r) { r.recorded_by_hand = !!mrManual[r.id]; });
 
     function mine(r) {
       return (r.proposed_credits || []).filter(function(c) {
@@ -741,6 +744,17 @@ export async function GET(request) {
         author: r.author,
         posted_at: r.posted_at,
         has_photo: r.has_photo,
+        // The review's own words. The manager's queue has shown these since it
+        // shipped; the technician's card did not, so a person could be told
+        // "you were named, $10" and have no way to see WHICH review, or to
+        // check it was really them. Alec hit exactly that on 2026-11-05.
+        // `matched` is the alias that fired, so the card can point at the word.
+        text: r.text,
+        matched: c.matched,
+        // A row somebody typed from the Business Profile inbox rather than one
+        // Google handed us. Worth saying on screen: it is the only kind of row
+        // that exists because a person went looking.
+        recorded_by_hand: r.recorded_by_hand,
         page_under_threshold: r.page_under_threshold,
         amount: c.amount,
         // Travels with the amount, always: the card has to be able to say
@@ -776,6 +790,37 @@ export async function GET(request) {
       var b = mrIdx[r.period] || (mrIdx[r.period] = { period: r.period, credits: 0, amount: 0 });
       b.credits += 1; b.amount = Math.round((b.amount + (r.amount || 0)) * 100) / 100;
     });
+
+    // How much of this person's own store can we actually see? Held items
+    // against the page's own published total, per page. The gap is the whole
+    // reason a credit can be missing, so it is reported as a number rather
+    // than as "a sample".
+    var mrCoverage = (function() {
+      var store = mrMe && mrMe.store ? mrMe.store : null;
+      var held = {}, pages = [];
+      (mrItems || []).forEach(function(it) { held[it.listing_id] = (held[it.listing_id] || 0) + 1; });
+      Object.keys(mrById).forEach(function(k) {
+        var l = mrById[k];
+        if (!l || (store && l.store !== store)) return;
+        if (l.is_ours === false) return;
+        var total = mrTotal[l.id];
+        pages.push({
+          listing_type: l.listing_type, label: l.label,
+          held: held[l.id] || 0,
+          page_total: total === undefined ? null : total,
+          pct: (total ? Math.round(1000 * (held[l.id] || 0) / total) / 10 : null),
+        });
+      });
+      var main = pages.filter(function(x) { return x.listing_type === "main"; })[0] || null;
+      var note = "Google hands back a sample of each page's reviews, not all of them, so this list can be short.";
+      if (main && main.page_total) {
+        note = "We can see " + main.held + " of your store's " + main.page_total.toLocaleString() +
+          " main-page reviews (" + main.pct + "%), because Google only hands back a sample of a big page. " +
+          "The smaller department pages we see in full. So if a customer named you on the main page and it is not here, " +
+          "that is us not seeing it \u2014 ask Matt to record it from the Business Profile inbox and it will count.";
+      }
+      return { store: store, pages: pages, main: main, note: note };
+    })();
 
     return json({
       success: true,
@@ -820,8 +865,17 @@ export async function GET(request) {
       // review naming this person may simply not be in it. "0" here means
       // "none we hold", never "nobody named you" — and saying so is the
       // difference between a prompt and an accusation.
-      coverage: "Google shows us a sample of each page's reviews, not all of them. A review that named you may not be in it yet.",
-      // NOT APPROVED TO PAY. Every screen that renders this must say so.
+      // COMPUTED, not a stock sentence. Measured 2026-11-05: we hold 9 of
+      // Bloomington main's 564 reviews (1.6%), 9 of 652 at Fishers, 6 of 893
+      // at Indianapolis -- while the nine department pages sit at or near
+      // 100% because they are small enough for Google's sample to cover them
+      // whole. So "no review named you" is near-meaningless on a main page
+      // and near-certain on a console page, and a single disclaimer covering
+      // both told the technician nothing. Alec had two main-page reviews
+      // naming him that we do not hold, and the card said only "may not be
+      // in it yet".
+      coverage: mrCoverage.note,
+      coverage_detail: mrCoverage,
       payable: true,   // Eric approved the review bonus on 2026-11-05, effective November.
     });
   }
@@ -1088,7 +1142,7 @@ export async function POST(request) {
   var action = body && body.action;
   var who = (function() { var w = gate.result || {}; return w.name || w.email || "unknown"; })();
 
-  if (action === "record_one_star") {
+  if (action === "record_one_star" || action === "record_review") {
     var store = String(body.store || "").trim().toLowerCase();
     var listingType = String(body.listing_type || "main").trim().toLowerCase();
     var postedAt = String(body.posted_at || "").trim();
@@ -1118,8 +1172,17 @@ export async function POST(request) {
       review_key: "manual:" + postedAt + ":" + (slug || "anon"),
       rating: stars,
       author: body.author ? String(body.author).slice(0, 120) : null,
-      text: "Recorded from the Business Profile inbox by " + who +
-        (body.note ? " \u2014 " + String(body.note).slice(0, 400) : ""),
+      // ⚠ `text` IS THE CREDIT FIELD. lib/review-credit.js scans it for
+      // roster aliases, so whatever goes in here can pay somebody. This line
+      // used to read "Recorded from the Business Profile inbox by " + who,
+      // and "eric" is a deliberate alias for Aerick Long (customers write it
+      // constantly) — so every review Eric recorded by hand would have
+      // credited Aerick $10 for a review he was never named in. Confirmed
+      // against lib/review-credit.js on 2026-11-05; nothing had been recorded
+      // yet, so no money moved.
+      // Only the CUSTOMER'S OWN WORDS belong in this column. A manual row is
+      // identified by its `manual:` review_key, not by a sentence in the text.
+      text: body.review_text ? String(body.review_text).slice(0, 2000) : null,
       posted_at: postedAt + "T12:00:00Z",
     };
     var { data, error } = await supabase.from("google_review_items").insert(row).select();
@@ -1136,10 +1199,27 @@ export async function POST(request) {
           : error.message,
       }, dup ? 409 : 500);
     }
-    return json({ success: true, recorded: (data && data[0]) || row, listing: target.label });
+    // Say straight away who this will credit. Recording a review is the one
+    // path where a person types the words the money is computed from, so the
+    // answer has to come back on the same screen rather than next morning.
+    var { data: recRoster } = await supabase.from("employee_roster")
+      .select("name,bonus_eligible").eq("active", true);
+    var recCredits = row.text ? creditReview(row.text, recRoster || []) : [];
+    return json({
+      success: true,
+      recorded: (data && data[0]) || row,
+      listing: target.label,
+      proposed_credits: recCredits,
+      credit_note: !row.text
+        ? "No review text was given, so this review credits nobody by name. Paste the customer's words to credit the person they named."
+        : (recCredits.length
+            ? "Names found: " + recCredits.map(function(c) { return c.name; }).join(", ") +
+              (stars === 1 ? " — but a 1-star pays nobody." : "")
+            : "No roster name appears in that review, so it counts toward the store only."),
+    });
   }
 
-  if (action === "remove_one_star") {
+  if (action === "remove_one_star" || action === "remove_review") {
     var id = Number(body.id);
     if (!isFinite(id) || id <= 0) return json({ success: false, error: "id is required" }, 400);
     var { data: ex, error: exErr } = await supabase.from("google_review_items")

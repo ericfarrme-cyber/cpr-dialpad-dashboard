@@ -228,9 +228,16 @@ export default function ReviewsTab() {
       var res = await af("/api/dialpad/google-tracking", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "record_one_star", store: store,
+          action: "record_review", store: store,
           listing_type: f.listing_type || "main",
-          posted_at: f.posted_at, author: f.author || null, note: f.note || null,
+          posted_at: f.posted_at, author: f.author || null,
+          rating: Number(f.rating || 1),
+          // THE WORDS ARE THE CREDIT. lib/review-credit.js reads roster names
+          // out of this text, so a review recorded without it counts toward
+          // the store and names nobody. `note` is gone on purpose: it used to
+          // be concatenated into the same column, and anything in there can
+          // pay somebody.
+          review_text: f.review_text || null,
         }),
       });
       var j = await res.json();
@@ -239,7 +246,12 @@ export default function ReviewsTab() {
       // deduction the database actually produces.
       var fresh = await af("/api/dialpad/google-tracking?action=tracking").then(function(r) { return r.json(); });
       if (fresh && fresh.success) setTracking(fresh);
-      setRecMsg({ store: store, ok: true, text: "Recorded against " + (j.listing || store) + ". The deduction is applied." });
+      setRecMsg({
+        store: store, ok: true,
+        text: "Recorded against " + (j.listing || store) + ". " +
+          (Number(f.rating || 1) === 1 ? "The deduction is applied. " : "") +
+          (j.credit_note || ""),
+      });
       setRec({}); setRecStore(null);
     } catch (ex) {
       setRecMsg({ store: store, ok: false, text: String(ex.message || ex) });
@@ -437,8 +449,25 @@ export default function ReviewsTab() {
                     {recStore === s.store ? (
                       <div style={{ display: "grid", gap: 7 }}>
                         <div style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: ".08em", textTransform: "uppercase", color: "var(--text-muted)" }}>
-                          Record a 1&#9733; from Business Profile
+                          Record a review from Business Profile
                         </div>
+                        {/* Any rating, not just 1. A 5-star that names a tech
+                            and never entered Google's sample is money that
+                            person earned and cannot be paid: we hold 1-2% of
+                            each main page (9 of 564 at Bloomington, measured
+                            2026-11-05), against ~100% of the small department
+                            pages. This form is the only way to close that gap
+                            today -- the same reasoning that put the 1-star
+                            here, applied to the side that pays rather than
+                            the side that docks. */}
+                        <select value={rec.rating || 1}
+                          onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { rating: v }); }); }}
+                          style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
+                            color: "var(--text-primary)", border: "1px solid var(--border)" }}>
+                          {[5, 4, 3, 2, 1].map(function(n) {
+                            return <option key={n} value={n}>{"\u2605".repeat(n) + " " + n + " star" + (n === 1 ? " \u2014 docks the store" : "")}</option>;
+                          })}
+                        </select>
                         <select value={(rec.listing_type) || "main"}
                           onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { listing_type: v }); }); }}
                           style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
@@ -455,12 +484,23 @@ export default function ReviewsTab() {
                           onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { author: v }); }); }}
                           style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
                             color: "var(--text-primary)", border: "1px solid var(--border)" }} />
+                        <textarea placeholder="Paste the review text — this is what credits the employee by name" rows={3}
+                          value={rec.review_text || ""}
+                          onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { review_text: v }); }); }}
+                          style={{ fontSize: 12, padding: "6px 7px", borderRadius: 7, background: "var(--bg-input)",
+                            color: "var(--text-primary)", border: "1px solid var(--border)", resize: "vertical",
+                            fontFamily: "'Space Grotesk', sans-serif", lineHeight: 1.45 }} />
+                        <div style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.45 }}>
+                          Without the text this counts toward the store total and names nobody.
+                        </div>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={function() { recordOneStar(s.store); }} disabled={recBusy}
                             style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: recBusy ? "default" : "pointer",
-                              background: "var(--bg-card-inner)", color: "var(--red)", border: "1px solid " + tint("var(--red)", 45),
+                              background: "var(--bg-card-inner)",
+                              color: Number(rec.rating || 1) === 1 ? "var(--red)" : "var(--green)",
+                              border: "1px solid " + tint(Number(rec.rating || 1) === 1 ? "var(--red)" : "var(--green)", 45),
                               fontFamily: "'Space Grotesk', sans-serif" }}>
-                            {recBusy ? "Recording…" : "Record — docks this store"}
+                            {recBusy ? "Recording…" : (Number(rec.rating || 1) === 1 ? "Record — docks this store" : "Record — counts for this store")}
                           </button>
                           <button onClick={function() { setRecStore(null); setRec({}); setRecMsg(null); }}
                             style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: "pointer",
@@ -473,7 +513,7 @@ export default function ReviewsTab() {
                         style={{ fontSize: 11, padding: "4px 9px", borderRadius: 7, cursor: "pointer",
                           background: "transparent", color: "var(--text-secondary)", border: "1px dashed var(--border-heavy)",
                           fontFamily: "'Space Grotesk', sans-serif" }}>
-                        + Record a 1&#9733; from the inbox
+                        + Record a review from the inbox
                       </button>
                     )}
                     {recMsg && recMsg.store === s.store ? (
