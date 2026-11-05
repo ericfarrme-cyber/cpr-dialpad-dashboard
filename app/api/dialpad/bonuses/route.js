@@ -947,8 +947,13 @@ function programStatuses(period, arForMonth, review, roster, ctx, sales, adv) {
     {
       key: "review_bonus",
       label: "Google reviews",
-      status: reviewStores.length === 0 ? "no_data" : reviewStores.length < STORE_KEYS.length ? "partial" : "ok",
-      detail: reviewStores.length === 0
+      status: !reviewBonusApplies(period) ? "none_earned"
+        : reviewStores.length === 0 ? "no_data" : reviewStores.length < STORE_KEYS.length ? "partial" : "ok",
+      detail: !reviewBonusApplies(period)
+        ? "Not in effect: the review bonus starts " + REVIEW_BONUS_FIRST_PERIOD + ", so nothing posted in " + monthLabel(period)
+          + " pays, tier or named (Eric, 2026-11-05)."
+          + (reviewStores.length ? " For reference: " + reviewStores.map(function(k) { return k + " " + reviewByStore[k].reviews_this_month; }).join(", ") + "." : "")
+        : reviewStores.length === 0
         ? "No snapshot before " + monthLabel(period) + " began, so no store's count is knowable that month. This is 'not measurable', not 'nothing earned'."
         : reviewStores.length + " of 3 stores counted: " + reviewStores.map(function(k) {
             return k + " " + reviewByStore[k].reviews_this_month;
