@@ -62,14 +62,24 @@ var YEAR_EVENT_TYPES = ["diamond_plaque"];
 // uncategorised bucket and $22,287 including it. A formula over numbers that
 // far apart would be a guess wearing a decimal point, so Eric sets the figure
 // per month until the category diagnostic (open item 11) settles the base.
+import {
+  TIERS, tierFor, storeGainsByMonth, creditRowsFor,
+  penaltyFactor, dedupeListings,
+} from "@/lib/review-bonus";
+
 var OWNED_EVENT_TYPES = ["answer_rate", "review_bonus", "diamond_pto", "non_phone", "manual"];
 
-// Google review bonus (§2 of docs/CONTEXT.md, Eric's rule):
-//   10 reviews/month is the floor — nothing pays at or below it
-//   $5 per employee for every review ABOVE 10
-//   $5 per employee for every photo review, regardless of the count
-var REVIEW_FLOOR = 10;
-var REVIEW_RATE = 5;
+// ⚠ THE OLD RULE LIVED HERE AND IT WAS WRONG.
+// This file computed $5 per review above 10 plus $5 per photo review, read
+// out of `google_reviews` — a hand-entered table holding four rows whose
+// newest is August 2026. That rule was superseded on 2026-10-30 and removed
+// from My Reviews on 2026-11-03 (CONTEXT § 10aw), but THIS is the screen the
+// money is actually paid from, so it was the copy that mattered most and the
+// last one found. It paid nothing only because nobody had typed a row into
+// that dead table; one entry would have paid the wrong rule.
+// The rule now comes from lib/review-bonus.js, which the Reviews tab and a
+// technician's own page already use. One definition, three consumers.
+var REVIEW_FLOOR = TIERS[0].at;
 
 var STORE_KEYS = ["fishers", "bloomington", "indianapolis"];
 
@@ -160,24 +170,74 @@ function awardProgress(months) {
 // Returns per-store per-employee dollars, or a no_data reason. `google_reviews`
 // is hand-entered and sparse — 4 rows in the whole table as of 2026-10-01 — so
 // "nothing entered" is the common case and must not read as "nothing earned".
-function reviewBonusForPeriod(reviewRows, period) {
-  var rows = (reviewRows || []).filter(function(r) { return String(r.period) === String(period); });
+function reviewBonusForPeriod(ctx, period) {
+  var listings = ctx.listings || [];
+  var lById = {}; listings.forEach(function(l) { lById[l.id] = l; });
+
+  // Latest snapshot per listing = the page's review total today. Used only to
+  // decide whether a page is still "thin" (worth the $20 named credit), which
+  // is a question about the whole page, not about this month.
+  // Snapshots arrive NEWEST FIRST, so the first one seen per listing is the
+  // current total -- same as ?action=credits.
+  var totalById = {};
+  (ctx.snapshots || []).forEach(function(sn) {
+    if (totalById[sn.listing_id] === undefined) totalById[sn.listing_id] = sn.total_reviews;
+  });
+
+  var gains = storeGainsByMonth(ctx.snapshots || [], listings);
+  var items = ctx.reviewItems || [];
+  var rows = creditRowsFor(items, lById, totalById, ctx.roster || [], gains);
+
+  // ── the store tier, after the 1-star deduction ──
   var byStore = {};
-  rows.forEach(function(r) {
-    var total = Number(r.total_reviews) || 0;
-    var photos = Number(r.photo_reviews) || 0;
-    var above = Math.max(0, total - REVIEW_FLOOR);
-    byStore[String(r.store).toLowerCase()] = {
-      store: String(r.store).toLowerCase(),
-      total_reviews: total,
-      photo_reviews: photos,
-      above_floor: above,
-      per_employee: money(REVIEW_RATE * above + REVIEW_RATE * photos),
-      entered_employee_count: r.employee_count == null ? null : Number(r.employee_count),
-      basis: total + " reviews (" + above + " over the " + REVIEW_FLOOR + "-review floor), " + photos + " with a photo",
+  STORE_KEYS.forEach(function(st) {
+    var g = gains[st + "|" + period] || null;
+    var gained = g ? g.gained : null;
+    var tier = gained === null ? null : tierFor(gained);
+    var before = tier ? tier.pays : 0;
+    // A 1-star docks the month it was POSTED in and no other.
+    var bad = rows.filter(function(r) {
+      return r.store === st && r.period === period && r.rating === 1;
+    }).length;
+    var factor = penaltyFactor(bad);
+    byStore[st] = {
+      store: st,
+      reviews_this_month: gained,
+      complete: g ? g.complete !== false : false,
+      pages_without_baseline: g ? (g.pages_without_baseline || 0) : null,
+      floor: REVIEW_FLOOR,
+      one_star: bad,
+      tier_pays_before_penalty: money(before),
+      // BOTH figures travel. A single number cannot tell "missed the
+      // threshold" from "reached it and was docked", and those are two
+      // different conversations with a store manager.
+      per_employee: money(before * factor),
+      penalty_applied: bad > 0 && before > 0,
+      penalty_pending: bad > 0 && before === 0,
+      basis: gained === null
+        ? "no pre-month reading, so " + st + "'s " + period + " count is not knowable"
+        : gained + " reviews in " + period + (tier ? " \u2014 tier $" + before : " \u2014 under the " + REVIEW_FLOOR + " floor")
+          + (bad > 0 ? " \u2014 " + bad + " one-star, tier \u00d7" + factor : ""),
     };
   });
-  return byStore;
+
+  // ── named credits, per person ──
+  // These follow the PERSON, not the store (Duncan works three), so they are
+  // summed by name across every page and added to that person's row.
+  var namedByPerson = {};
+  rows.forEach(function(r) {
+    if (r.period !== period) return;
+    (r.proposed_credits || []).forEach(function(c) {
+      if (!c.amount) return;
+      var k = c.name;
+      namedByPerson[k] = namedByPerson[k] || { name: k, amount: 0, count: 0, pages: {} };
+      namedByPerson[k].amount = money(namedByPerson[k].amount + c.amount);
+      namedByPerson[k].count += 1;
+      namedByPerson[k].pages[r.listing_label || r.listing_type || "?"] = true;
+    });
+  });
+
+  return { byStore: byStore, namedByPerson: namedByPerson, rows: rows };
 }
 
 // ── Shared loader: everything one period needs ──────────────────────────────
@@ -225,12 +285,30 @@ async function loadPeriod(period) {
     out.config[c.config_key] = { value: parseFloat(c.config_value), label: c.label || null };
   });
 
-  // Google review sheet (hand-entered).
-  var grRes = await supabase
-    .from("google_reviews")
-    .select("period, store, total_reviews, photo_reviews, employee_count, notes");
-  if (grRes.error) throw new Error("Google reviews load failed: " + grRes.error.message);
-  out.reviews = grRes.data || [];
+  // Google reviews — the three tables the tracking screens read, NOT the dead
+  // `google_reviews` sheet. Counts are a subtraction between snapshots, which
+  // is the one figure Google reports exactly, so nothing here is hand-entered
+  // and the ledger cannot drift from what the Reviews tab shows.
+  // Mirrors ?action=credits exactly, field for field, so the ledger and the
+  // manager's queue cannot read different rows.
+  var lRes = await supabase.from("google_listings").select("id,store,listing_type,label,is_ours,place_id");
+  if (lRes.error) throw new Error("Google listings load failed: " + lRes.error.message);
+  var ded = dedupeListings(lRes.data || []);
+  out.listings = ded.listings || [];
+  out.listings_dropped = ded.dropped || 0;
+
+  var snRes = await supabase
+    .from("google_review_snapshots")
+    .select("listing_id,captured_on,total_reviews")
+    .order("captured_on", { ascending: false }).limit(5000);
+  if (snRes.error) throw new Error("Review snapshots load failed: " + snRes.error.message);
+  out.snapshots = snRes.data || [];
+
+  var itRes = await supabase
+    .from("google_review_items")
+    .select("id,listing_id,rating,author,text,has_photo,posted_at,first_seen_at").limit(5000);
+  if (itRes.error) throw new Error("Review items load failed: " + itRes.error.message);
+  out.reviewItems = itRes.data || [];
 
   return out;
 }
@@ -517,7 +595,7 @@ function ledgerFind(ledger, name, period, eventType) {
 // labelled in_progress, kept out of every owed total, and cannot be marked
 // paid. Paying one of those out would be paying on a number that is still
 // moving.
-function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress, sales, adv) {
+function buildPerson(ctx, person, period, arForMonth, review, inProgress, sales, adv) {
   var name = person.name;
   var eligible = person.bonus_eligible !== false;
   var mine = ctx.history.filter(function(h) { return h.employee_name === name; });
@@ -660,18 +738,35 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
   }
 
   // ── 3. Google review bonus ──
+  // Two rules in one payable: the store's tier (collective, per eligible
+  // person) plus anything this person was NAMED for (follows the person, so
+  // it is summed across every store they worked). They go on ONE ledger row
+  // because `tier_celebrations` is unique on
+  // (employee_name, store, event_period, event_type) — two rows of the same
+  // type would collide — so the breakdown lives in `basis` instead.
+  var reviewByStore = (review && review.byStore) || {};
+  var namedByPerson = (review && review.namedByPerson) || {};
   var rb = store ? reviewByStore[store] : null;
-  if (rb && rb.per_employee > 0 && thisMonth) {
+  var named = namedByPerson[name] || null;
+  var tierPart = (rb && eligible) ? rb.per_employee : 0;
+  var namedPart = named ? named.amount : 0;
+  if ((tierPart > 0 || namedPart > 0) && thisMonth) {
     var rrow = ledgerFind(ctx.ledger, name, period, "review_bonus");
     items.push({
       program: "review_bonus",
       event_type: "review_bonus",
       label: "Google review bonus",
-      basis: rb.store + ": " + rb.basis,
+      basis: [
+        rb ? rb.store + ": " + rb.basis : null,
+        tierPart > 0 ? "store tier $" + tierPart : null,
+        namedPart > 0 ? "named in " + named.count + " review(s) — $" + namedPart : null,
+      ].filter(Boolean).join(" · "),
       // Credited because this person has a scored month here; the roster as it
       // stands today is not evidence of who worked a past month.
       eligibility_basis: "scored in " + period,
-      amount: money(rb.per_employee),
+      amount: money(tierPart + namedPart),
+      tier_amount: money(tierPart),
+      named_amount: money(namedPart),
       pto_days: 0,
       unit: "cash",
       ledger_id: rrow ? rrow.id : null,
@@ -798,8 +893,14 @@ function buildPerson(ctx, person, period, arForMonth, reviewByStore, inProgress,
   };
 }
 
-function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales, adv) {
-  var reviewStores = Object.keys(reviewByStore);
+function programStatuses(period, arForMonth, review, roster, ctx, sales, adv) {
+  var reviewByStore = (review && review.byStore) || {};
+  // A store with a knowable count is "reporting". Before 2026-10 there are no
+  // snapshots to subtract, so those months honestly read as no data rather
+  // than as three stores that earned nothing.
+  var reviewStores = Object.keys(reviewByStore).filter(function(k) {
+    return reviewByStore[k].reviews_this_month !== null;
+  });
   var cfg = (ctx && ctx.config) || {};
   var dis = (ctx && ctx.configDisabled) || {};
   var r = function(k, d) { return cfg[k] ? cfg[k].value : d; };
@@ -845,9 +946,12 @@ function programStatuses(period, arForMonth, reviewByStore, roster, ctx, sales, 
       label: "Google reviews",
       status: reviewStores.length === 0 ? "no_data" : reviewStores.length < STORE_KEYS.length ? "partial" : "ok",
       detail: reviewStores.length === 0
-        ? "No " + monthLabel(period) + " row in google_reviews — the sheet is entered by hand. This is 'not entered', not 'nothing earned'."
-        : reviewStores.length + " of 3 stores entered: " + reviewStores.join(", ") + ". $" + REVIEW_RATE + "/employee per review over " + REVIEW_FLOOR + ", plus $" + REVIEW_RATE + "/employee per photo review.",
-      source: "google_reviews (hand-entered)",
+        ? "No snapshot before " + monthLabel(period) + " began, so no store's count is knowable that month. This is 'not measurable', not 'nothing earned'."
+        : reviewStores.length + " of 3 stores counted: " + reviewStores.map(function(k) {
+            return k + " " + reviewByStore[k].reviews_this_month;
+          }).join(", ") + ". Tier " + TIERS.map(function(t) { return t.at + "→$" + t.pays; }).join(" / ")
+          + " per eligible person, plus $10/$20 for being named. One 1-star halves the tier, a second zeroes it.",
+      source: "google_review_snapshots + google_review_items (synced)",
     },
     {
       key: "per_repair",
@@ -965,11 +1069,11 @@ export async function GET(request) {
       var ar = await answerRateForMonth(period);
       var sales = await salesForMonth(period);
       var adv = await advancedForMonth(period, ctx.roster);
-      var reviewByStore = reviewBonusForPeriod(ctx.reviews, period);
+      var review = reviewBonusForPeriod(ctx, period);
 
       var inProgress = period === currentPeriod();
       var people = ctx.roster.map(function(p) {
-        return buildPerson(ctx, p, period, ar, reviewByStore, inProgress, sales, adv);
+        return buildPerson(ctx, p, period, ar, review, inProgress, sales, adv);
       });
 
       // Anyone with a tier row this month who is not on the active roster still
@@ -978,7 +1082,7 @@ export async function GET(request) {
       ctx.roster.forEach(function(p) { rosterNames[p.name] = true; });
       ctx.history.filter(function(h) { return h.period === period && !rosterNames[h.employee_name]; })
         .forEach(function(h) {
-          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, reviewByStore, inProgress, sales, adv);
+          var ghost = buildPerson(ctx, { name: h.employee_name, store: h.store, bonus_eligible: true, role: "off roster" }, period, ar, review, inProgress, sales, adv);
           ghost.off_roster = true;
           people.push(ghost);
         });
@@ -1031,9 +1135,10 @@ export async function GET(request) {
           if (d) return d;
           return (b.score || 0) - (a.score || 0);
         }),
-        programs: programStatuses(period, ar, reviewByStore, ctx.roster, ctx, sales, adv),
+        programs: programStatuses(period, ar, review, ctx.roster, ctx, sales, adv),
         answer_rate_stores: ar.stores || [],
-        review_stores: Object.keys(reviewByStore).map(function(k) { return reviewByStore[k]; }),
+        review_stores: Object.keys(review.byStore).map(function(k) { return review.byStore[k]; }),
+        review_named: review.namedByPerson,
         totals: totals,
       };
 
@@ -1057,7 +1162,7 @@ export async function GET(request) {
       periods = periods.filter(function(p) { return known[p]; });
 
       var reviewByPeriod = {};
-      periods.forEach(function(p) { reviewByPeriod[p] = reviewBonusForPeriod(ctx2.reviews, p); });
+      periods.forEach(function(p) { reviewByPeriod[p] = reviewBonusForPeriod(ctx2, p); });
 
       // One answer-rate pass per period. Sequential on purpose: each pass is
       // several large reads and firing them all at once has timed out the
@@ -1329,7 +1434,7 @@ export async function POST(request) {
         // settled when it never was.
         return json({ success: false, error: "Answer rate could not be computed for " + body.period + " (" + ar.reason + "), so this month cannot be settled in bulk. Mark items individually." }, 503);
       }
-      var rbs = reviewBonusForPeriod(ctx.reviews, body.period);
+      var rbs = reviewBonusForPeriod(ctx, body.period).byStore;
       var salesM = await salesForMonth(body.period);
       var advM = await advancedForMonth(body.period, ctx.roster);
       var inProg = false; // guarded above
@@ -1386,7 +1491,7 @@ export async function POST(request) {
         var per = plist[pi];
         var arS = await answerRateForMonth(per);
         if (arS.status !== "ok") { failures.push({ period: per, error: arS.reason }); continue; }
-        var rbS = reviewBonusForPeriod(ctxS.reviews, per);
+        var rbS = reviewBonusForPeriod(ctxS, per).byStore;
         var salesS = await salesForMonth(per);
         var advS = await advancedForMonth(per, ctxS.roster);
         for (var ri = 0; ri < ctxS.roster.length; ri++) {

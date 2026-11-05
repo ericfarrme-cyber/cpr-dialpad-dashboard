@@ -2907,7 +2907,7 @@ export default function MyPerformanceTab({ auth, store }) {
                   technician's own page reads as a promise. Delete this banner
                   the day Eric signs the bonus off, and not before. */}
               <div style={{ ...card, marginBottom: 20, borderLeft: "3px solid var(--yellow)", padding: "12px 16px" }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--yellow)", marginBottom: 2 }}>Proposed {"—"} not approved to pay yet</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "var(--green)", marginBottom: 2 }}>Approved {"—"} your store has to reach 10 for any of it to pay</div>
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
                   These are the numbers the review bonus would pay under the rule as agreed. Nothing here has been added to a paycheck.
                 </div>

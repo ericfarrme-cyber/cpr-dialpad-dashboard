@@ -2,7 +2,8 @@
 //
 // WHAT THIS DOES NOT DO: it does not pay anybody, and it does not write a
 // ledger row. The review bonus is designed but NOT approved, so every store
-// card prints "not payable" beside the amount it would pay.
+// Approved 2026-11-05, effective November. Amounts are real; a store still
+// has to clear 10 before anything pays, so most months read $0 and say why.
 // See docs/CONTEXT.md § 10al.
 //
 // EVERY REVIEW COUNTS (Eric, 2026-10-30: "it just needs to flag if it notices
@@ -318,7 +319,7 @@ export default function ReviewsTab() {
             h: anyGainUnknown ? "company · pages with a baseline only" : "company · every page counted",
             color: anyGainUnknown ? "var(--yellow)" : "var(--text-primary)" },
           { k: "Stores at a tier", v: String(storesAtTier),
-            suffix: " of " + stores.length, h: "not payable — the bonus is not approved", color: "var(--text-muted)" },
+            suffix: " of " + stores.length, h: "stores at or over the " + (tracking && tracking.floor || 10) + "-review floor", color: "var(--text-secondary)" },
           { k: "Credits to confirm", v: String(pendingCredits),
             h: "proposed from review text \u00b7 " + (monthLabel(creditPeriod) || "this month"), color: "var(--text-primary)" },
           // "On record", not "received": on a sampled page a zero is not proof,
@@ -426,7 +427,7 @@ export default function ReviewsTab() {
                         </>
                       ) : <>Would pay <b style={{ color: "var(--text-primary)" }}>${s.tier_pays} each</b> — </>
                     ) : "At " + FLOOR + " reviews, $" + TIERS[0].pays + " each — "}
-                    <b style={{ color: "var(--text-primary)" }}>not payable, bonus not approved</b>
+                    <b style={{ color: "var(--text-primary)" }}>approved — pays when the store clears the floor</b>
                   </div>
 
                   {/* Recording a 1-star from the inbox. This is what keeps the
@@ -488,7 +489,7 @@ export default function ReviewsTab() {
           These counts are <b style={{ color: "var(--text-primary)" }}>exact</b> — each one is the difference between two
           snapshots of the figure Google publishes{anyIncomplete ? ", except where a page has no pre-month reading and is marked incomplete" : ""}.
           {storesDocked ? <> A 1&#9733; has docked <b style={{ color: "var(--text-primary)" }}>{storesDocked}</b> of them.</> : null}
-          {" "}The bonus is not approved, so no store card shows money owed.
+          {" "}Approved 2026-11-05. A store under the floor still shows $0, and says so.
         </div>
       </div>
 
@@ -707,14 +708,14 @@ export default function ReviewsTab() {
               <>Other months with credits: {otherMonthsOwed.map(function(m) { return monthLabel(m.period) + " " + monthWorth(m); }).join(" · ")}.{" "}</>
             ) : null}</>
           ) : null}
-          <b style={{ color: "var(--text-primary)" }}>Confirming here records nothing yet</b> — the bonus is not approved and
+          <b style={{ color: "var(--text-primary)" }}>Confirming here records the name, not the payment</b> — the Bonus Ledger is where it is marked paid, and
           no ledger row is written. {credits ? credits.text_coverage : ""}
         </div>
       </div>
 
       {/* ── the rules, collapsed ── */}
       {[
-        { id: "rules", title: "How the bonus would work — computable now, still not approved", rows: [
+        { id: "rules", title: "How the bonus works — approved 2026-11-05, effective November", rows: [
           ["Every review counts", "A review is a review. No star threshold, nothing to type in, nothing estimated — the count is the figure Google publishes, which is the one thing it reports exactly. This replaced a five-star-only rule that this data source could not measure at all.", "simple"],
           ["Store tier", "10 / 15 / 20 reviews in the month across that store's four pages. Highest tier only, paid to each eligible person — not split.", "$50 / $75 / $100"],
           ["10 pays, tell them 13", "Ten is a small number, so luck matters. A store genuinely at ten a month still lands at nine or fewer 46% of the time; at thirteen it misses twice a year. The count is exact — this is month-to-month variation, not measurement error. Counting every review rather than only five-star lowers the real bar by about a fifth, which makes ten more reachable than it was.", "by design"],
