@@ -1546,7 +1546,40 @@ export default function MyPerformanceTab({ auth, store }) {
         // Only pays on a month we can stand behind — see the fetch guard above.
         var npbPayable = !!(nonPhoneBonus && nonPhoneBonus.complete && nonPhoneBonus.bonus && nonPhoneBonus.bonus.amount > 0);
         var npbExtra = npbPayable ? nonPhoneBonus.bonus.amount : 0;
-        var bonusExtras = advExtra + arbExtra + npbExtra;
+
+        // ── Google review bonus ──
+        // PAYROLL. Eric approved 2026-11-05 ("Yes make the payroll edit") after
+        // asking whether it showed here: it did not. The Grand Total was
+        // base + advanced repairs + answer-rate + non-phone, so the first month
+        // a store clears 10 reviews this screen would have understated the
+        // paycheck by $50-$100 plus the named credits.
+        //
+        // NOTHING IS COMPUTED HERE. Both halves come off `reviewBonus`, which
+        // is `google-tracking`'s own answer -- the same object the My Reviews
+        // card renders -- so the two cannot disagree about what a person is
+        // paid. That is the bug this file has shipped three times (CONTEXT
+        // § 10ao, § 10ar, § 10aw) and the reason the rule lives in
+        // lib/review-bonus.js rather than in a screen.
+        //
+        // `tier_pays` is already the per-person figure AFTER the 1-star
+        // deduction, and `my_amount` is already zero when the store missed the
+        // floor or the person is not eligible (§ 10ay). The explicit
+        // eligibility gate below is belt and braces for the tier, which is a
+        // STORE number and therefore not self-zeroing for a salaried person.
+        //
+        // An incomplete month pays what it can: `gained` is a subtraction over
+        // the pages we have a baseline for, so it is a FLOOR -- a missing page
+        // can only raise the count, never lower it. Paying the tier it already
+        // reaches can understate and cannot overstate.
+        var rbEligible = !!reviewBonus && reviewBonus.eligible !== false;
+        var rbTier = (rbEligible && reviewBonus.store) ? (reviewBonus.store.tier_pays || 0) : 0;
+        var rbNamed = rbEligible ? (reviewBonus.namedAmount || 0) : 0;
+        var rbExtra = Math.round((rbTier + rbNamed) * 100) / 100;
+        // What the floor is holding back, so a $0 can say which $0 it is.
+        var rbHeld = (rbEligible && rbExtra === 0) ? (reviewBonus.namedWouldBe || 0) : 0;
+        var rbDocked = !!(reviewBonus && reviewBonus.store && reviewBonus.store.penalty_applied);
+
+        var bonusExtras = advExtra + arbExtra + npbExtra + rbExtra;
         var allInTotal = (commission ? commission.total : 0) + bonusExtras;
         return (
         <div>
@@ -1557,7 +1590,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ fontSize: 42, fontWeight: 900, color: "var(--yellow)" }}>{commission ? fmt(allInTotal) : "$0.00"}</div>
                 {commission && bonusExtras > 0 && (
                   <div style={{ fontSize: 11, color: "var(--text-muted)", fontWeight: 600, marginTop: 4 }}>
-                    {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}{npbExtra > 0 ? " + " + fmt(npbExtra) + " non-phone bonus" : ""}
+                    {fmt(commission.total)} base{advExtra > 0 ? " + " + fmt(advExtra) + " adv. repairs" : ""}{arbExtra > 0 ? " + " + fmt(arbExtra) + " answer-rate bonus" : ""}{npbExtra > 0 ? " + " + fmt(npbExtra) + " non-phone bonus" : ""}{rbExtra > 0 ? " + " + fmt(rbExtra) + " review bonus" : ""}
                   </div>
                 )}
                 {commission && commission.hasData && commission.tierMultiplier > 1 && (
@@ -1732,6 +1765,40 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-muted)", fontSize: 13 }}>&mdash;</td>
                       </tr>
                     )}
+                    {/* Google review bonus — store tier + being named, no multiplier */}
+                    {rbExtra > 0 && (
+                      <tr style={{ borderTop: "1px solid var(--border)", background: "#FBBF2408" }}>
+                        <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
+                          {"\u2B50"} Google Review Bonus <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500 }}>(no multiplier)</span>
+                          <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
+                            {rbTier > 0 ? "Store took " + reviewBonus.gained + " reviews this month — " + fmt(rbTier) + " each" : "Store did not reach " + reviewBonus.floor}
+                            {rbNamed > 0 ? " · " + fmt(rbNamed) + " for being named in " + reviewBonus.named.length + (reviewBonus.named.length === 1 ? " review" : " reviews") : ""}
+                            {rbDocked ? " · tier halved by a 1-star" : ""}
+                            {!reviewBonus.gainComplete ? " · count still incomplete, so this is a floor" : ""}
+                          </div>
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{reviewBonus.gained === null ? "—" : reviewBonus.gained}</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>flat / store tier + named</td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--yellow)", fontSize: 14, fontWeight: 700 }}>+{fmt(rbExtra)}</td>
+                      </tr>
+                    )}
+                    {/* Pays nothing this month — say WHICH nothing. The non-phone
+                        row above does the same, and under the floor gate a review
+                        that named you is HELD, not refused (CONTEXT § 10ay). */}
+                    {reviewBonus && rbExtra === 0 && (
+                      <tr style={{ borderTop: "1px solid var(--border)" }}>
+                        <td colSpan={4} style={{ padding: "10px 12px", color: "var(--text-muted)", fontSize: 12 }}>
+                          {"\u2B50"} Google Review Bonus &mdash; {reviewBonus.eligible === false
+                            ? "salaried, not on the per-employee bonuses"
+                            : (reviewBonus.gained === null
+                              ? "this month's review count isn't knowable yet"
+                              : "store took " + reviewBonus.gained + " of " + reviewBonus.floor
+                                + (rbHeld > 0 ? ", so " + fmt(rbHeld) + " of named credit is held" : ""))}
+                        </td>
+                        <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-muted)", fontSize: 13 }}>&mdash;</td>
+                      </tr>
+                    )}
                     {/* Grand Total — uses the SAME shared bonusExtras/allInTotal as the headline */}
                     {(() => {
                       if (bonusExtras <= 0) return null;
@@ -1739,6 +1806,7 @@ export default function MyPerformanceTab({ auth, store }) {
                       if (advExtra > 0) bits.push("advanced repair");
                       if (arbExtra > 0) bits.push("answer-rate bonus");
                       if (npbExtra > 0) bits.push("non-phone bonus");
+                      if (rbExtra > 0) bits.push("review bonus");
                       return (
                         <tr style={{ background: "linear-gradient(90deg, #FBBF2420, #FF2D9520)" }}>
                           <td colSpan={4} style={{ padding: "12px", color: "var(--text-primary)", fontSize: 14, fontWeight: 800 }}>
