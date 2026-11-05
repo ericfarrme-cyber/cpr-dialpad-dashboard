@@ -691,16 +691,21 @@ export default function BonusesTab() {
         <>
           {/* Month selector */}
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-            {(data.periods_available || []).slice(0, 10).map(function(p) {
+            {(data.periods_available || []).slice(0, 12).map(function(p) {
               var on = p === period;
+              // A closed month whose tier snapshot never ran. It used to be left
+              // off this row entirely, which is how October 2026 went missing.
+              var noSnap = (data.periods_missing_snapshot || []).indexOf(p) >= 0;
               return (
-                <button key={p} className="br-chip" onClick={function() { load(p); }} style={{
+                <button key={p} className="br-chip" onClick={function() { load(p); }}
+                  title={noSnap ? "Tier snapshot not run for this month — tier multiplier and streak awards are missing" : undefined}
+                  style={{
                   padding: "6px 11px", borderRadius: 999, fontSize: 11.5, fontWeight: 800, cursor: "pointer",
                   fontFamily: "'Space Grotesk',sans-serif", fontVariantNumeric: "tabular-nums",
                   background: on ? tint("var(--cyan)", 12) : "transparent",
                   color: on ? "var(--cyan)" : "var(--text-muted)",
-                  border: "1px solid " + (on ? tint("var(--cyan)", 40) : "var(--border)"),
-                }}>{shortMonth(p)} {p.slice(2, 4)}</button>
+                  border: "1px solid " + (on ? tint("var(--cyan)", 40) : noSnap ? tint("var(--orange)", 55) : "var(--border)"),
+                }}>{shortMonth(p)} {p.slice(2, 4)}{noSnap && <span style={{ color: "var(--orange)", marginLeft: 4 }}>{"●"}</span>}</button>
               );
             })}
             {data.is_current_month && (
@@ -709,6 +714,16 @@ export default function BonusesTab() {
               </span>
             )}
           </div>
+
+          {data.tier_snapshot_missing && (
+            <div style={{ padding: "12px 14px", borderRadius: 11, background: tint("var(--orange)", 8), border: "1px solid " + tint("var(--orange)", 40), fontSize: 12.5, color: "var(--text-body)", lineHeight: 1.5 }}>
+              <b style={{ color: "var(--orange)" }}>{data.period_label}{"’"}s tier snapshot has not been run.</b>{" "}
+              Answer-rate and per-repair commission below are real, but nobody has a tier for this month yet {"—"} so
+              the Gold/Platinum multiplier is counted as {"×"}1, no streak award can fire, and the review bonus is not
+              credited. <b>Every total on this page understates until it runs.</b> Nothing runs it automatically; it is
+              one action on the tier-history route.
+            </div>
+          )}
 
           {/* Hero */}
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
@@ -868,6 +883,13 @@ export default function BonusesTab() {
                         }).catch(function(e) { setSettling(false); setToast({ bad: true, text: e.message }); });
                     }} style={btn("record", settling)}>{settling ? "Settling…" : "Settle"}</button>
                   </div>
+                </div>
+              )}
+
+              {(out.periods_missing_snapshot || []).length > 0 && (
+                <div style={{ padding: "12px 14px", borderRadius: 11, background: tint("var(--orange)", 8), border: "1px solid " + tint("var(--orange)", 40), color: "var(--text-body)", fontSize: 12 }}>
+                  <b style={{ color: "var(--orange)" }}>Tier snapshot not run for {out.periods_missing_snapshot.join(", ")}.</b>{" "}
+                  Those months are listed, but any streak award or tier multiplier they would earn is not in this list yet.
                 </div>
               )}
 

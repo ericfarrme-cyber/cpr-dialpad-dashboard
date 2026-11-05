@@ -1119,16 +1119,34 @@ export async function GET(request) {
       totals.unrecorded_cash = money(totals.unrecorded_cash);
       totals.paid_cash = money(totals.paid_cash);
 
+      // EVERY month from the first one with a tier row through today, not only
+      // the months that have one. The list used to be built from
+      // employee_tier_history alone, so a month whose snapshot had not been run
+      // simply vanished from the picker — October 2026 went missing that way
+      // (Eric, 2026-11-05: "I dont see october as an option on here"). Nothing
+      // runs the snapshot on a schedule, so a forgotten month is the normal
+      // failure, and it has to show up as a month with a warning, not as no month.
+      var snapshotted = {};
+      ctx.history.forEach(function(h) { snapshotted[h.period] = true; });
+      var firstSeen = Object.keys(snapshotted).sort()[0] || currentPeriod();
       var periodsAvailable = [];
-      ctx.history.forEach(function(h) { if (periodsAvailable.indexOf(h.period) < 0) periodsAvailable.push(h.period); });
-      if (periodsAvailable.indexOf(currentPeriod()) < 0) periodsAvailable.push(currentPeriod());
-      periodsAvailable.sort().reverse();
+      for (var pp = currentPeriod(); pp >= firstSeen; pp = priorPeriod(pp, 1)) {
+        periodsAvailable.push(pp);
+        if (periodsAvailable.length > 60) break;
+      }
+      // Closed months with no tier rows: their multiplier, streak awards and
+      // review bonus cannot be computed, so every total for them understates.
+      var missingSnapshot = periodsAvailable.filter(function(m) {
+        return m !== currentPeriod() && !snapshotted[m];
+      });
 
       var payload = {
         success: true,
         period: period,
         period_label: monthLabel(period),
         periods_available: periodsAvailable,
+        periods_missing_snapshot: missingSnapshot,
+        tier_snapshot_missing: period !== currentPeriod() && !snapshotted[period],
         is_current_month: period === currentPeriod(),
         people: people.sort(function(a, b) {
           var d = (b.totals.owed_cash + b.totals.unrecorded_cash) - (a.totals.owed_cash + a.totals.unrecorded_cash);
@@ -1155,11 +1173,16 @@ export async function GET(request) {
       var ctx2 = await loadPeriod(currentPeriod());
       var periods = [];
       for (var i = 0; i < months; i++) periods.push(priorPeriod(currentPeriod(), i));
-      // Only months that actually have tier rows — scanning further back asks
-      // the answer-rate route for months with no data and returns noise.
+      // Nothing before the first month with tier rows — scanning further back
+      // asks the answer-rate route for months with no data and returns noise.
+      // But every month AFTER it stays, snapshot or not: filtering on "has tier
+      // rows" dropped October 2026 entirely, so its answer-rate bonuses never
+      // appeared as outstanding just because nobody had run the tier snapshot.
       var known = {};
       ctx2.history.forEach(function(h) { known[h.period] = true; });
-      periods = periods.filter(function(p) { return known[p]; });
+      var firstKnown = Object.keys(known).sort()[0] || currentPeriod();
+      periods = periods.filter(function(p) { return p >= firstKnown; });
+      var missingSnap2 = periods.filter(function(p) { return p !== currentPeriod() && !known[p]; });
 
       var reviewByPeriod = {};
       periods.forEach(function(p) { reviewByPeriod[p] = reviewBonusForPeriod(ctx2, p); });
@@ -1234,6 +1257,7 @@ export async function GET(request) {
       return json({
         success: true,
         periods_scanned: periods,
+        periods_missing_snapshot: missingSnap2,
         rows: rows.sort(function(a, b) { return b.period.localeCompare(a.period) || a.employee.localeCompare(b.employee); }),
         by_person: Object.values(byPerson).sort(function(a, b) { return (b.owed_cash + b.unrecorded_cash) - (a.owed_cash + a.unrecorded_cash); }),
         totals: {
