@@ -231,7 +231,7 @@ export default function ReviewsTab() {
           action: "record_review", store: store,
           listing_type: f.listing_type || "main",
           posted_at: f.posted_at, author: f.author || null,
-          rating: Number(f.rating || 1),
+          rating: Number(f.rating || 5),
           // THE WORDS ARE THE CREDIT. lib/review-credit.js reads roster names
           // out of this text, so a review recorded without it counts toward
           // the store and names nobody. `note` is gone on purpose: it used to
@@ -249,7 +249,7 @@ export default function ReviewsTab() {
       setRecMsg({
         store: store, ok: true,
         text: "Recorded against " + (j.listing || store) + ". " +
-          (Number(f.rating || 1) === 1 ? "The deduction is applied. " : "") +
+          (Number(f.rating || 5) === 1 ? "The deduction is applied. " : "") +
           (j.credit_note || ""),
       });
       setRec({}); setRecStore(null);
@@ -460,7 +460,7 @@ export default function ReviewsTab() {
                             today -- the same reasoning that put the 1-star
                             here, applied to the side that pays rather than
                             the side that docks. */}
-                        <select value={rec.rating || 1}
+                        <select value={rec.rating || 5}
                           onChange={function(ev) { var v = ev.target.value; setRec(function(x) { return Object.assign({}, x, { rating: v }); }); }}
                           style={{ fontSize: 12, padding: "5px 7px", borderRadius: 7, background: "var(--bg-input)",
                             color: "var(--text-primary)", border: "1px solid var(--border)" }}>
@@ -497,10 +497,10 @@ export default function ReviewsTab() {
                           <button onClick={function() { recordOneStar(s.store); }} disabled={recBusy}
                             style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: recBusy ? "default" : "pointer",
                               background: "var(--bg-card-inner)",
-                              color: Number(rec.rating || 1) === 1 ? "var(--red)" : "var(--green)",
-                              border: "1px solid " + tint(Number(rec.rating || 1) === 1 ? "var(--red)" : "var(--green)", 45),
+                              color: Number(rec.rating || 5) === 1 ? "var(--red)" : "var(--green)",
+                              border: "1px solid " + tint(Number(rec.rating || 5) === 1 ? "var(--red)" : "var(--green)", 45),
                               fontFamily: "'Space Grotesk', sans-serif" }}>
-                            {recBusy ? "Recording…" : (Number(rec.rating || 1) === 1 ? "Record — docks this store" : "Record — counts for this store")}
+                            {recBusy ? "Recording…" : (Number(rec.rating || 5) === 1 ? "Record — docks this store" : "Record — counts for this store")}
                           </button>
                           <button onClick={function() { setRecStore(null); setRec({}); setRecMsg(null); }}
                             style={{ fontSize: 11, padding: "5px 11px", borderRadius: 7, cursor: "pointer",
@@ -509,7 +509,7 @@ export default function ReviewsTab() {
                         </div>
                       </div>
                     ) : (
-                      <button onClick={function() { setRecStore(s.store); setRec({ listing_type: "main" }); setRecMsg(null); }}
+                      <button onClick={function() { setRecStore(s.store); setRec({ listing_type: "main", rating: 5 }); setRecMsg(null); }}
                         style={{ fontSize: 11, padding: "4px 9px", borderRadius: 7, cursor: "pointer",
                           background: "transparent", color: "var(--text-secondary)", border: "1px dashed var(--border-heavy)",
                           fontFamily: "'Space Grotesk', sans-serif" }}>
