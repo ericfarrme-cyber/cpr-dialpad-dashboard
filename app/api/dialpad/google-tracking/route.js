@@ -59,7 +59,7 @@ import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster
 export const dynamic = "force-dynamic";
 
 import {
-  indyToday, monthStart, TIERS, tierFor,
+  indyToday, monthStart, TIERS, tierFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies,
   THIN_UNDER, NAMED_MAIN, NAMED_THIN,
   SPLIT_NAMED_CREDIT, NAMED_CREDIT_NEEDS_STORE_FLOOR,
   storeGainsByMonth, storeFloorState, creditRowsFor,
@@ -413,7 +413,11 @@ export async function GET(request) {
       // it and was docked -- which is the difference between "get more
       // reviews" and "we took a one-star", two completely different
       // conversations with a store manager.
-      st.tier_pays_before_penalty = t ? t.pays : 0;
+      // Nothing before the bonus began (Eric, 2026-11-05: October is not
+      // eligible). tier_at still shows what the count reached.
+      st.bonus_in_effect = reviewBonusApplies(mStart);
+      st.bonus_starts = REVIEW_BONUS_FIRST_PERIOD;
+      st.tier_pays_before_penalty = (t && st.bonus_in_effect) ? t.pays : 0;
       st.one_star_this_month = st.one_star_this_month || 0;
       st.one_star_all_time = st.one_star_all_time || 0;
       st.one_star_undated = st.one_star_undated || 0;

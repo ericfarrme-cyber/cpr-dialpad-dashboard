@@ -63,7 +63,7 @@ var YEAR_EVENT_TYPES = ["diamond_plaque"];
 // far apart would be a guess wearing a decimal point, so Eric sets the figure
 // per month until the category diagnostic (open item 11) settles the base.
 import {
-  TIERS, tierFor, storeGainsByMonth, creditRowsFor,
+  TIERS, tierFor, storeGainsByMonth, creditRowsFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies,
   penaltyFactor, dedupeListings,
 } from "@/lib/review-bonus";
 
@@ -194,7 +194,8 @@ function reviewBonusForPeriod(ctx, period) {
     var g = gains[st + "|" + period] || null;
     var gained = g ? g.gained : null;
     var tier = gained === null ? null : tierFor(gained);
-    var before = tier ? tier.pays : 0;
+    var inEffect = reviewBonusApplies(period);
+    var before = (tier && inEffect) ? tier.pays : 0;
     // A 1-star docks the month it was POSTED in and no other.
     var bad = rows.filter(function(r) {
       return r.store === st && r.period === period && r.rating === 1;
@@ -214,7 +215,9 @@ function reviewBonusForPeriod(ctx, period) {
       per_employee: money(before * factor),
       penalty_applied: bad > 0 && before > 0,
       penalty_pending: bad > 0 && before === 0,
-      basis: gained === null
+      basis: !inEffect
+        ? "the review bonus starts " + REVIEW_BONUS_FIRST_PERIOD + "; " + period + " is not eligible"
+        : gained === null
         ? "no pre-month reading, so " + st + "'s " + period + " count is not knowable"
         : gained + " reviews in " + period + (tier ? " \u2014 tier $" + before : " \u2014 under the " + REVIEW_FLOOR + " floor")
           + (bad > 0 ? " \u2014 " + bad + " one-star, tier \u00d7" + factor : ""),
