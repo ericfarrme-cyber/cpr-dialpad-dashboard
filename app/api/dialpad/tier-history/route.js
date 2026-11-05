@@ -450,6 +450,22 @@ export async function GET(request) {
     return searchParams.get("secret") === expected;
   }
 
+  // ── Monthly cron: snapshot the month that just closed ──
+  // vercel.json runs this on the 2nd. Nothing ran the snapshot on a schedule
+  // before, so October 2026's was simply never taken and the Bonus Ledger
+  // dropped the month (CONTEXT 10bg). Eric, 2026-11-05: "do it monthly".
+  // Vercel Cron sends Authorization: Bearer $CRON_SECRET. Unlike checkSecret()
+  // this REFUSES when no secret is configured -- it writes tier rows and
+  // award events, so "open when unset" is not acceptable here.
+  if (action === "snapshot_prior_month") {
+    var cronSecret = process.env.CRON_SECRET;
+    var authz = request.headers.get("authorization") || "";
+    if (!cronSecret || (authz !== "Bearer " + cronSecret && searchParams.get("secret") !== cronSecret)) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+    return await snapshotResponse(priorPeriod(currentPeriod(), 1));
+  }
+
   if (action === "snapshot_current_month") {
     if (!checkSecret()) return NextResponse.json({ success: false, error: "Invalid or missing secret" });
     return await snapshotResponse(currentPeriod());

@@ -31,6 +31,10 @@
     {
       "path": "/api/dialpad/google-tracking?action=sync",
       "schedule": "50 11 * * *"
+    },
+    {
+      "path": "/api/dialpad/tier-history?action=snapshot_prior_month",
+      "schedule": "15 12 2 * *"
     }
   ],
   "functions": {
@@ -38,6 +42,9 @@
       "maxDuration": 300
     },
     "app/api/advanced-repairs/route.js": {
+      "maxDuration": 300
+    },
+    "app/api/dialpad/tier-history/route.js": {
       "maxDuration": 300
     }
   }
