@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-05 (a 1:52 AM call was counted against Fishers — `date_started` holds TWO clocks and a blank `availability` was being read as "open" § 10bc) — was 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-05 (we hold 1.95% of our own reviews — named credits are near-blind on the three main pages, and the fix is the Business Profile API, built but not yet runnable § 10bd; review bonus now on the Paycheck § 10be) — was 2026-11-05 (a 1:52 AM call was counted against Fishers — `date_started` holds TWO clocks and a blank `availability` was being read as "open" § 10bc) — was 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1272,6 +1272,90 @@ call when the store does not open until 9.
     store/weekday boundary open-inclusive and close-exclusive, unknown store and missing date never
     guessed closed, the 3-argument `isOutsideHours` callers unchanged).
 
+10bd. **We hold 1.95% of our own reviews, and that is why a named credit goes missing — DIAGNOSED
+AND BUILT 2026-11-05, NOT RUNNABLE.** Eric forwarded Alec's My Reviews card: *"It doesnt show the named
+review explicitly. Also it appears its missing 1 named review. Are we sure its thoroughly checking every
+page?"* Then, after the measurement: *"There's no reason for us to manually find reviews for employees.
+They need to be automatically synced. That's the whole premise."*
+  • **Every page IS checked — all 12, nightly. The gap is reviews per page**, and it is not close:
+
+    | page | held | page total | coverage |
+    |---|---|---|---|
+    | Bloomington main | 9 | 564 | **1.6%** |
+    | Fishers main | 9 | 652 | 1.4% |
+    | Indianapolis main | 6 | 893 | **0.7%** |
+    | the nine department pages | — | — | **at or near 100%** |
+
+    **53 items against 2,720 reviews, 1.95%.** The department pages look perfect only because a
+    sample of five covers a page of three; it is the same API doing the same thing everywhere.
+  • **The sample skews OLD, which is the part that matters for a monthly bonus.** The newest
+    Bloomington main item we hold is dated **2026-10-04**, while the snapshot shows that page going
+    560 → 563 → 564 over 3–5 Nov. Places sorts by relevance, and relevance means old
+    high-engagement reviews — precisely not the population the tier and the credits are computed over.
+  • **Alec was missing TWO, not one, both on the main page**: Anusha Jahin (*"Andrew and Alec were
+    super helpful… water damaged ipad"*) and AB Kollman (*"Alec & Andrew made it very easy for me"*).
+    Ellie Carter, Aviva Orenstein, Matthew Odle and dillon owens are not held either — six reviews
+    visible on Eric's screen, zero in our data. Each names two people, so each is worth $5 + $5
+    (main page = $10, split 2 ways § 10ay).
+  • **THE FIX, BUILT: `?action=sync_owned`** (admin, `&dry_run=1`) + `lib/gbp-reviews.js`. Business
+    Profile v4 `accounts.locations.reviews.list` returns **every** review with star, text, author and
+    createTime, 50 a page, for locations the account owns — which is **the three main pages**, i.e.
+    exactly the three Places cannot cover (§ 10ao's split cuts the right way again). Locations are
+    matched to our rows **on `metadata.placeId`**, so no new column and no migration.
+  • ⚠⚠ **THE DUPLICATE-ROW TRAP, and the reason the logic is a separate pure module.** Places keys a
+    review `places/<place>/reviews/<id>`; v4 keys it `reviewId`. **Different encodings of the same
+    review**, so a naive second source inserts a second row — and a second row is a second $10
+    named credit. `reconcile()` matches on **author + exact timestamp**, and on **author + date** for
+    hand-recorded rows whose time is a `T12:00:00Z` placeholder, then **adopts** the existing row
+    (rewrites its key in place) instead of inserting. Without the manual clause, Matt typing in a
+    review and the sync finding it a week later pays the same credit twice. **40 unit cases**,
+    including a second run being a complete no-op and a refusal to fuzzily merge "Anusha Jahin" with
+    "A. Jahin".
+  • ⚠ **BLOCKED ON GOOGLE, NOT ON CODE, AND IT IS NOT A FIVE-MINUTE STEP.** Business Profile API
+    access is an **application Google reviews by hand** (days to weeks); an unapproved project sits at
+    **0 QPM** and the legacy API does not even appear in the Cloud console library until it is
+    approved. It also needs **OAuth as the owner** — `GBP_CLIENT_ID` / `GBP_CLIENT_SECRET` /
+    `GBP_REFRESH_TOKEN`, not the Places key. Missing any of the three → **503 naming them**.
+  • ⚠ **NEVER RUN AGAINST THE REAL API.** The response shapes are written from Google's reference, so
+    `dry_run=1` exists and **it is deliberately NOT in `vercel.json`**. Read the dry-run report before
+    letting it write, and before scheduling it. A short sweep is reported against the location's own
+    `totalReviewCount` because Google documents its own paging as inconsistent after page 1.
+  • **Shipped alongside, and live:** the technician's card now **shows the review text** with the
+    matched name bolded (the manager's queue has had it since it shipped; `my_reviews` fetched the
+    text and dropped it before sending), and the coverage line is **computed per page** — "We can
+    see 9 of your store's 564 main-page reviews (1.6%)…" — instead of one disclaimer that was
+    near-meaningless on a main page and near-certain on a console page.
+  • ⚠⚠ **A LIVE BUG ON THE PAYROLL PATH, found while reading the recorder.** `record_one_star` wrote
+    *"Recorded from the Business Profile inbox by &lt;who&gt;"* into `text` — and `text` is the column
+    `lib/review-credit.js` scans for roster aliases. **"eric" is a deliberate alias for Aerick Long**
+    (customers write it constantly), so **every review Eric recorded by hand would have credited
+    Aerick $10** for a review he was never named in. Confirmed against the resolver; **zero manual
+    rows existed, so no money moved.** `text` now holds the customer's words only, and a manual row is
+    identified by its `manual:` key, not by a sentence in the column the money is computed from.
+  • **The recorder is generalised to any rating** (`record_review`, default 5★) with a box for the
+    review text, because the gap it now closes is a missed 5★, not a 1★. It is an interim
+    crutch, **not the answer** — Eric is explicit that the sync is the premise. Recording a review
+    does **not** touch the store count (that is a snapshot subtraction), so it adds a credit without
+    inflating the tier.
+
+10be. **Review bonus on the Paycheck — SHIPPED 2026-11-05** (`b7e0da9`, payroll, Eric: *"Yes make
+the payroll edit"*). The Grand Total was `base + advanced repairs + answer-rate + non-phone`; the review
+bonus existed only in the My Reviews section further down the page. **It costs nothing today** — no
+store has reached 10 — but the first month one does, the paycheck would have understated by $50–$100
+plus named credits.
+  • Both halves come off the **same `reviewBonus` object the card renders**, which is
+    `google-tracking`'s own answer out of `lib/review-bonus.js`. No second computation, so the two
+    places cannot disagree about pay — the bug this file has shipped three times (§ 10ao,
+    § 10ar, § 10aw).
+  • `tier_pays` is already post-1★-deduction and `my_amount` is already zero under the floor gate;
+    the explicit eligibility check covers only the **tier**, which is a store number and so does not
+    self-zero for a salaried person.
+  • **An incomplete month pays what it can**: `gained` is a subtraction over the pages that have a
+    baseline, so it is a **floor** — a missing page can only raise the count. The tier it already
+    reaches can understate and cannot overstate.
+  • **A $0 now says which $0** — salaried, or the count is not knowable, or "store took 7 of 10, so
+    $15 of named credit is held". Held is not refused (§ 10ay).
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -1358,6 +1442,24 @@ call when the store does not open until 9.
   Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
   losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
   this particular sale needs a second look.
+- **2026-11-05 (later)** — **Alec could see "$10, held" and no way to tell which review, so the card
+  now shows the review** — and chasing his "missing one" found it is **two**, both on the main page,
+  and that **we hold 1.95% of our own reviews** (§ 10bd). Every page is synced nightly; Places just
+  returns ~5 reviews per page however large it is, and it sorts by relevance, so the sample skews old
+  — the newest Bloomington main review we hold is 4 October while the page has taken four since.
+  Eric's answer was the right one: *"There's no reason for us to manually find reviews for employees.
+  They need to be automatically synced."* So the Business Profile sync is **built** — every review,
+  50 a page, for the three pages he owns, which are exactly the three Places cannot cover — and
+  **blocked on Google**, whose API access is an application reviewed by hand over days to weeks. It has
+  never run against the real API, so it has a dry run and is deliberately off the cron.
+  The part worth keeping is the reconciliation: the two APIs key the same review differently, so a
+  second source would insert a duplicate, and **a duplicate row is a second $10 credit**. 40 unit cases.
+  **And reading the recorder turned up a live payroll bug**: it wrote "Recorded… by Eric Farr" into
+  the `text` column, which is the column the credit resolver scans — and **"eric" is an alias for
+  Aerick Long**, so every hand-recorded review would have paid Aerick $10. No manual rows existed, so
+  nothing moved. Also shipped: the **review bonus is now in the Paycheck Grand Total** (§ 10be),
+  which changes no number today and would have understated by $50–$100 the first month a store
+  clears 10.
 - **2026-11-05** — **Eric opened the shop TV at 5:28 AM and asked why Fishers already had a missed
   call when they open at 9** (§ 10bc). It was real, and it came in at **01:52**. Two findings under it:
   `call_records.date_started` holds **two different clocks** — tagged rows store the store's local time,
