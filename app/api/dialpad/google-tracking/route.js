@@ -44,6 +44,8 @@
 // GET  ?action=ask_pages&name=  which of our pages this tech should ask on
 // GET  ?action=my_reviews&name=  one person's own review credits (any role)
 // GET  ?action=sync       capture today's reading for every listing (cron/admin)
+// GET  ?action=sync_owned EVERY review on the pages we own, via Business Profile OAuth (admin)
+//                         &dry_run=1 reports what it would write without writing
 // POST {action:'record_review'|'record_one_star', store, listing_type, posted_at, rating?, author?, review_text?, note?}  (admin/manager)
 // POST {action:'remove_review'|'remove_one_star', id}   undo a manual record only (admin/manager)
 import { NextResponse } from "next/server";
@@ -51,6 +53,7 @@ import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { placeLooksLikeOurs, searchQueryFor } from "@/lib/place-match";
 import { creditReview } from "@/lib/review-credit";
+import { normalizeReview, reconcile, sweepStatus } from "@/lib/gbp-reviews";
 import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
 
 export const dynamic = "force-dynamic";
@@ -109,6 +112,101 @@ async function fetchPlace(placeId, key) {
   });
   if (!res.ok) throw new Error("Places details " + res.status + ": " + (await res.text()).slice(0, 200));
   return res.json();
+}
+
+
+// ── Business Profile (owned pages): every review, not a sample ───────
+// Places gives ~5 reviews of a page however large it is, which is 1.6% of
+// Bloomington main and 0.7% of Indianapolis (measured 2026-11-05). The
+// Business Profile API returns all of them, 50 to a page, for locations the
+// signed-in account owns or manages — the three main pages (§ 10ao), which
+// are exactly the ones Places cannot cover.
+//
+// It authenticates as the OWNER over OAuth, not with an API key, so it needs
+// a one-time consent and a stored refresh token. All three variables must be
+// present or the action refuses loudly and writes nothing.
+//
+// ⚠ Reviews were never migrated off the legacy v4 host; accounts and
+// locations live on the newer v1 hosts. That split is Google's, not a typo.
+var GBP_TOKEN_URL = "https://oauth2.googleapis.com/token";
+var GBP_ACCOUNTS_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts";
+var GBP_INFO_HOST = "https://mybusinessbusinessinformation.googleapis.com/v1";
+var GBP_V4_HOST = "https://mybusiness.googleapis.com/v4";
+
+function gbpCreds() {
+  return {
+    client_id: process.env.GBP_CLIENT_ID,
+    client_secret: process.env.GBP_CLIENT_SECRET,
+    refresh_token: process.env.GBP_REFRESH_TOKEN,
+  };
+}
+
+async function gbpAccessToken(c) {
+  var body = new URLSearchParams({
+    client_id: c.client_id, client_secret: c.client_secret,
+    refresh_token: c.refresh_token, grant_type: "refresh_token",
+  });
+  var res = await fetch(GBP_TOKEN_URL, {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: body,
+  });
+  var txt = await res.text();
+  if (!res.ok) throw new Error("GBP token exchange " + res.status + ": " + txt.slice(0, 300));
+  var j = JSON.parse(txt);
+  if (!j.access_token) throw new Error("GBP token exchange returned no access_token");
+  return j.access_token;
+}
+
+async function gbpGet(url, token) {
+  var res = await fetch(url, { headers: { Authorization: "Bearer " + token } });
+  var txt = await res.text();
+  // Loud on every non-200. A 403 here usually means the project has not been
+  // granted Business Profile API access yet, which is a thing a person has to
+  // apply for — so the message has to survive into the response.
+  if (!res.ok) throw new Error(res.status + " " + url.replace(/\?.*$/, "") + ": " + txt.slice(0, 300));
+  try { return JSON.parse(txt); } catch (e) { throw new Error("Non-JSON from " + url + ": " + txt.slice(0, 200)); }
+}
+
+// Every location the account can see, keyed by its Google placeId, so our
+// listings join on the id they already carry and nothing new is stored.
+async function gbpLocationsByPlaceId(token) {
+  var out = {}, accounts = [], pageToken = "";
+  do {
+    var aj = await gbpGet(GBP_ACCOUNTS_URL + "?pageSize=20" + (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : ""), token);
+    (aj.accounts || []).forEach(function(a) { accounts.push(a.name); });
+    pageToken = aj.nextPageToken || "";
+  } while (pageToken);
+
+  for (var i = 0; i < accounts.length; i++) {
+    var lt = "";
+    do {
+      var url = GBP_INFO_HOST + "/" + accounts[i] + "/locations?readMask=name,title,metadata&pageSize=100" +
+        (lt ? "&pageToken=" + encodeURIComponent(lt) : "");
+      var lj = await gbpGet(url, token);
+      (lj.locations || []).forEach(function(loc) {
+        var pid = loc.metadata && loc.metadata.placeId;
+        if (pid) out[pid] = { account: accounts[i], location: loc.name, title: loc.title };
+      });
+      lt = lj.nextPageToken || "";
+    } while (lt);
+  }
+  return { byPlaceId: out, accounts: accounts };
+}
+
+// Walk every page of one location's reviews.
+async function gbpAllReviews(account, location, token) {
+  var all = [], pageToken = "", pages = 0, total = null;
+  do {
+    var url = GBP_V4_HOST + "/" + account + "/" + location + "/reviews?pageSize=50" +
+      (pageToken ? "&pageToken=" + encodeURIComponent(pageToken) : "");
+    var j = await gbpGet(url, token);
+    pages++;
+    if (j.totalReviewCount !== undefined) total = j.totalReviewCount;
+    (j.reviews || []).forEach(function(r) { all.push(r); });
+    pageToken = j.nextPageToken || "";
+    // A page cap that cannot loop forever on a malformed token.
+    if (pages > 200) break;
+  } while (pageToken);
+  return { reviews: all, pages: pages, total: total };
 }
 
 
@@ -1017,6 +1115,128 @@ export async function GET(request) {
   }
 
   // ── capture today's reading ───────────────────────────────────────────────
+  // ?action=sync_owned — EVERY review on the pages we own.
+  //
+  // Separate from `sync` on purpose: that one is the nightly Places poll and
+  // must keep working whether or not this is configured. This one is admin /
+  // cron, and it is NOT on the cron schedule yet because it has never run
+  // against the real API — Google gates Business Profile access behind a
+  // manual approval, so the shapes below are written from the reference and
+  // are unexercised. Run it once with &dry_run=1 and read the report before
+  // letting it write, and before putting it in vercel.json.
+  if (action === "sync_owned") {
+    var ownCron = process.env.CRON_SECRET;
+    var ownAuthz = request.headers.get("authorization") || "";
+    if (!(ownCron && ownAuthz === "Bearer " + ownCron)) {
+      var ownGate = await requireAuth(request, { requiredRoles: ["admin"] });
+      if (!ownGate.authorized) return ownGate.response;
+    }
+    var dryRun = searchParams.get("dry_run") === "1";
+    var creds = gbpCreds();
+    var missing = ["GBP_CLIENT_ID", "GBP_CLIENT_SECRET", "GBP_REFRESH_TOKEN"]
+      .filter(function(k) { return !process.env[k]; });
+    if (missing.length) {
+      console.error("[google-tracking] sync_owned missing env:", missing.join(", "));
+      return json({
+        success: false,
+        error: "Business Profile sync is not configured. Missing: " + missing.join(", ") +
+          ". These are an OAuth client and a refresh token for the Google account that OWNS the listings — not the Places API key. Nothing was written.",
+        missing: missing,
+      }, 503);
+    }
+
+    var token;
+    try { token = await gbpAccessToken(creds); }
+    catch (e) {
+      console.error("[google-tracking] sync_owned token:", e.message);
+      return json({ success: false, error: String(e.message || e), stage: "token" }, 502);
+    }
+
+    var locs;
+    try { locs = await gbpLocationsByPlaceId(token); }
+    catch (e) {
+      console.error("[google-tracking] sync_owned locations:", e.message);
+      return json({
+        success: false, stage: "locations", error: String(e.message || e),
+        hint: "A 403 here usually means this Google Cloud project has not been granted Business Profile API access yet. That is an application Google reviews by hand, not a setting.",
+      }, 502);
+    }
+
+    var { data: ownRaw, error: ownLE } = await supabase.from("google_listings")
+      .select("id,store,listing_type,label,place_id,is_ours").eq("active", true);
+    if (ownLE) return json({ success: false, error: ownLE.message }, 500);
+    var ownListings = dedupeListings(ownRaw).listings.filter(function(l) { return l.is_ours !== false; });
+
+    var report = [], totalInsert = 0, totalAdopt = 0, unreachable = [];
+    for (var oi = 0; oi < ownListings.length; oi++) {
+      var ol = ownListings[oi];
+      var match = ol.place_id ? locs.byPlaceId[ol.place_id] : null;
+      if (!match) {
+        // Expected for the nine franchisor-owned department pages. Places
+        // already covers those in full, so this is information, not a failure.
+        unreachable.push({ listing: ol.label, store: ol.store, listing_type: ol.listing_type,
+          why: ol.place_id ? "not in this account's locations (franchisor-owned, or not managed by us)" : "no place_id yet" });
+        continue;
+      }
+      try {
+        var got = await gbpAllReviews(match.account, match.location, token);
+        var fresh = got.reviews.map(function(rv) { return normalizeReview(rv, ol.id); }).filter(Boolean);
+
+        var { data: have, error: hE } = await supabase.from("google_review_items")
+          .select("id,review_key,author,posted_at,text,rating").eq("listing_id", ol.id).limit(20000);
+        if (hE) throw new Error("existing items: " + hE.message);
+
+        var plan = reconcile(fresh, have || []);
+        var sweep = sweepStatus(fresh.length, got.total, got.pages);
+
+        if (!dryRun) {
+          if (plan.inserts.length) {
+            var { error: iE } = await supabase.from("google_review_items")
+              .upsert(plan.inserts, { onConflict: "listing_id,review_key", ignoreDuplicates: true });
+            if (iE) throw new Error("insert: " + iE.message);
+          }
+          // Adoptions are one-by-one on purpose: each rewrites a specific row
+          // we already hold, and a bulk upsert keyed on review_key would
+          // create the duplicate this whole path exists to avoid.
+          for (var ai = 0; ai < plan.adopts.length; ai++) {
+            var { error: aE } = await supabase.from("google_review_items")
+              .update(plan.adopts[ai].row).eq("id", plan.adopts[ai].id);
+            if (aE) throw new Error("adopt " + plan.adopts[ai].id + ": " + aE.message);
+          }
+        }
+        totalInsert += plan.inserts.length;
+        totalAdopt += plan.adopts.length;
+        report.push({
+          listing: ol.label, store: ol.store, listing_type: ol.listing_type,
+          google_title: match.title,
+          fetched: fresh.length, held_before: (have || []).length,
+          new_reviews: plan.inserts.length,
+          adopted_from_places_or_manual: plan.adopts.map(function(a) { return a.was; }),
+          already_had: plan.unchanged,
+          sweep: sweep,
+        });
+      } catch (e) {
+        console.error("[google-tracking] sync_owned", ol.label, e.message);
+        report.push({ listing: ol.label, store: ol.store, error: String(e.message || e) });
+      }
+    }
+
+    var failed = report.filter(function(r) { return r.error; });
+    return json({
+      success: failed.length === 0,
+      dry_run: dryRun,
+      wrote: dryRun ? 0 : totalInsert,
+      would_insert: totalInsert,
+      would_adopt: totalAdopt,
+      listings: report,
+      not_reachable_by_this_account: unreachable,
+      failures: failed,
+      note: dryRun
+        ? "DRY RUN — nothing was written. `would_adopt` are reviews we already hold under a Places or hand-entered key; adopting rewrites that row rather than adding a second one, which would be a second named credit."
+        : "Reviews we already held under a Places or manual key were re-keyed in place, not duplicated.",
+    }, failed.length ? 207 : 200);
+  }
+
   if (action === "sync") {
     var cronSecret = process.env.CRON_SECRET;
     var authz = request.headers.get("authorization") || "";
