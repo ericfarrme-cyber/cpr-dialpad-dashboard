@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { indexClosures, isOutsideHours } from "@/lib/store-closures";
+import { indexClosures, isOutsideHours, isOutsideRegularHours } from "@/lib/store-closures";
 import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -195,7 +195,8 @@ export async function GET(request) {
     if (closuresRes.error) return NextResponse.json({ success: false, error: closuresRes.error.message }, { status: 500 });
     var closureIdx = indexClosures(closuresRes.data || []);
     var earlyCloseMissedByStore = {};
-    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; });
+    var untaggedAfterHoursByStore = {};
+    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; untaggedAfterHoursByStore[s] = 0; });
 
     (missedRes.data || []).forEach(function(row) {
       if (!row.store || openMissedByStore[row.store] === undefined) return;
@@ -204,7 +205,15 @@ export async function GET(request) {
       if (cats.indexOf("dismissed") >= 0) return;  // declined transfer, handled
       if (String(row.availability || "").toLowerCase() === "closed") {
         closedMissedByStore[row.store] += 1;
-      } else if (isOutsideHours(closureIdx, row.store, row.date_started)) {
+      } else if (isOutsideRegularHours(row.store, row.date_started, row.availability)) {
+        // Dialpad never judged this one — it arrived with a blank availability
+        // tag, and a blank tag used to fall through to "open". That is how a
+        // Fishers call at 01:52 on 2026-11-05 counted against the store's
+        // answer rate. Only untagged rows reach this branch, so no tagged row
+        // changes and no past month is restated (Eric signed off 2026-11-05).
+        closedMissedByStore[row.store] += 1;
+        untaggedAfterHoursByStore[row.store] += 1;
+      } else if (isOutsideHours(closureIdx, row.store, row.date_started, row.availability)) {
         // Dialpad said open, the store was shut. Counted like any other
         // after-hours miss: out of the rate, still visible.
         closedMissedByStore[row.store] += 1;
@@ -237,6 +246,10 @@ export async function GET(request) {
         after_hours_missed: closedMissedByStore[s],
         // Of those, the ones excluded because the store closed early that day.
         early_close_missed: earlyCloseMissedByStore[s],
+        // And the ones Dialpad left untagged that fell outside regular hours.
+        // Travels so a jump here is visible rather than quietly shrinking the
+        // denominator — the second writer went from 4 rows a month to 1,052.
+        untagged_after_hours_missed: untaggedAfterHoursByStore[s],
         total_open: total,
         answer_rate: total > 0 ? Math.round(rate * 10) / 10 : null,
         tier: t.tier,

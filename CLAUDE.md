@@ -87,6 +87,23 @@ Full business context, personnel, comp structures, open items, and the current p
   **every call ever recorded** and silently zeroes the answer rate. Under one minute is `< 1.0`.
   `lib/dialpad-stats.js:221` divides Dialpad's ms `duration` by 1000 (→ seconds), which does not
   match what is stored — verify the unit before trusting either path.
+- **⚠ `call_records.date_started` holds TWO DIFFERENT CLOCKS, and `availability` tells you which.**
+  39,132 rows carry a tag (`"open"`/`"closed"`) and store the **store's local clock** wearing a `+00`
+  offset. 1,194 rows carry a **blank** tag and store a **true UTC instant**. The split is exact across
+  all 40,369 rows — no tagged row is blank, no blank row is tagged — so the tag alone identifies the
+  clock and nothing needs to sniff timestamp precision. **Never read `date_started` raw**: go through
+  `callLocalTime()` / `callLocalDay()` in `lib/store-closures.js`. Reading a blank-tagged row as local
+  puts it five hours in the future and can file an evening call under tomorrow; `new Date(x).getHours()`
+  is worse still, since it reads the **server's** zone and only ever worked because Vercel runs in UTC.
+- **A blank `availability` is not "open" — it means the row came from the LIVE TODAY-LEG**
+  (`mapLiveCall` in `lib/dialpad-stats.js`, added when Dialpad's same-day exports broke 2026-06-09).
+  It hardcodes `availability: ""`, writes UTC, and writes durations in **seconds** where the export
+  writes minutes. Next morning's historical export re-upserts the same `call_id` with the real tag,
+  local clock and minutes — so **anything wrong about an intraday row fixes itself by morning and is
+  wrong all day until then**, which is precisely when the shop TV is being watched. Treating blank as
+  open is what put a 01:52 missed call on the Fishers TV as a performance failure (§ 10bc).
+  `isOutsideRegularHours()` judges untagged rows against `STORE_HOURS`; tagged rows keep Dialpad's tag,
+  which is what stops any past month being restated.
 - **`ticket_grades` is written verbatim from the Chrome extension.** `tickets/route.js` does
   `parseFloat(ticket.gross_profit)` etc. with no computation, so a wrong number there is a scraping
   bug in the extension, not a server bug. Check the extension before editing any route.

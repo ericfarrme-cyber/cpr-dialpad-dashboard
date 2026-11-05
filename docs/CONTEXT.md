@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-05 (a 1:52 AM call was counted against Fishers — `date_started` holds TWO clocks and a blank `availability` was being read as "open" § 10bc) — was 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1206,6 +1206,72 @@ auditing the previous build.
     populated; "Where to ask for a review" lists all four page types including phone; the TV shows
     four dots and the fourth screen's badge reads PROMOTIONS; no console errors anywhere.
 
+10bc. **A missed call at 1:52 AM was counted against Fishers — FIXED 2026-11-05** (payroll, Eric
+signed off: *"Yes fix it"*). He opened the shop TV at 5:28 AM and asked why it already showed a missed
+call when the store does not open until 9.
+  • **The call is real** (`call_id 4938950927097856`, +1 317-753-9903) and it is the only Fishers call
+    of the day, so the tile read 1 call / 0 answered / **0%** and told an empty store to pick up the
+    phones.
+  • ⚠⚠ **`call_records.date_started` HOLDS TWO DIFFERENT CLOCKS.** 39,132 rows carry an
+    `availability` tag and store the **store's local clock** with a `+00` offset (the long-standing note
+    in `lib/store-closures.js`). 1,194 rows carry a **blank** tag and store a **true UTC instant**.
+    **Proved by causality, not by eye**: this row reads `06:52:40Z` with `created_at` `07:02:21Z` — read
+    as local it would have been written five hours *before* the call happened. So it is UTC, and the call
+    was at **01:52 ET**. Corroborated two more ways: 291 pairs of rows for the same store+number sit
+    exactly 300 minutes apart, one of each shape; and shape A's `open` tags fall entirely in local hours
+    9–18 while its `closed` tags fall at 0–8 and 19–23.
+  • **The classification bug is separate from the clock and is the one that bit.** `isClosed()` excluded
+    a missed call only when Dialpad tagged it `"closed"` or a `store_closures` row covered the day.
+    **There was no business-hours rule anywhere in the repo**, so a *blank* tag — Dialpad never judged
+    the call — fell through to "open".
+  • **The blank tag identifies the clock EXACTLY** (0 tagged rows blank, 0 blank rows tagged, across all
+    40,369), so the fix needs no fragile timestamp-precision heuristic: tagged → trust the tag and read
+    the digits as local; blank → convert from UTC and judge against the store's hours.
+  • **`STORE_HOURS` is read off Dialpad's own `open` tags**, not typed from memory — three months,
+    14,000+ calls: **Fishers Mon–Fri 9–7, Sat 10–7, Sun 10–6; Bloomington and Indianapolis Mon–Sat
+    10–7, Sun 11–5.** Matches Eric's "we don't open until 9".
+  • **DELIBERATELY A FALLBACK ONLY, and that is what makes it safe on a payroll path.** Where Dialpad
+    tagged the call its tag still wins, so not one of the 39,132 tagged rows changes classification and
+    **no past month can be restated** — the same direction as the forward-only short-call rule.
+    Verified by replaying every month of real data through old logic and new: **27 store-months examined,
+    exactly 1 changed (2026-11 Fishers, 9 → 8 open-missed, 83.0% → 84.6%), and 0 bonus tiers move, so no
+    dollars move.** Both figures sit under the 85% line.
+  • **One definition, two consumers.** `answer-rate-bonus/route.js` and `stored/route.js` duplicated the
+    `isClosed` logic, so fixing only the board would have put the wall and the bonus on different numbers
+    — the failure this file keeps hitting (§ 10ao, § 10ar, § 10aw). Both now call
+    `isOutsideRegularHours()`. `untagged_after_hours_missed` travels on the bonus response so a jump is
+    visible rather than quietly shrinking a denominator.
+  • **Also fixed, same root cause:** day buckets used the raw UTC date, which would file an untagged 7pm
+    call under tomorrow (not yet observed — untagged department rows top out at 18:05 UTC); and the
+    hourly / day-of-week charts used `new Date(x).getHours()`, which reads the **server's** zone and only
+    ever worked because Vercel runs in UTC.
+  • ⚠⚠ **THE UNTAGGED ROWS ARE THE LIVE TODAY-LEG, AND THAT IS WHY THIS MATTERS DAILY.** I first
+    recorded these as a mysterious "second writer trending up" — wrong, and the code says so plainly.
+    `mapLiveCall` in `lib/dialpad-stats.js` hardcodes `availability: ""` and writes
+    `new Date(epochMs).toISOString()`, i.e. **true UTC**; its own comment says *"availability is left ""
+    intraday — next morning's historical export re-upserts the same call_ids with Dialpad's
+    authoritative categories + availability."* It exists because Dialpad's `is_today` exports stopped
+    completing on 2026-06-09. So a blank tag does not mean a rogue writer, it means **"this is today's
+    provisional row."**
+    **The consequence is the whole point: every out-of-hours call was mis-counted ON THE DAY and only
+    corrected the next morning** — which is exactly the window the shop TV is being watched in. That is
+    why only 2 blank department rows exist in all of history (2026-06-28 and this one): the rest were
+    overwritten before anyone looked. The fix and the overnight re-upsert agree (both land the call as
+    after-hours), so nothing oscillates.
+  • ⚠ **Related, NOT fixed, and it self-heals: the live leg writes durations in SECONDS**
+    (`ringingMs / 1000`, `duration / 1000`) while the export path writes **MINUTES** — the suspicion
+    already recorded in CLAUDE.md about `lib/dialpad-stats.js:221`, now confirmed against real rows
+    (untagged ring values 3.9–22.2 vs tagged 0.1–0.6). So the sub-15-second short-call exclusion
+    (`SHORT_CALL_MIN_MINUTES = 0.25`) **cannot fire on an intraday row**. It does not corrupt a payout,
+    because the bonus is computed after the month closes and by then every row has been re-upserted in
+    minutes — but any *intraday* display of the short-call count is wrong until morning.
+  • **Considered and rejected as a stopgap:** a `store_closures` row for Fishers that day would have
+    dropped the call, but it records "the store opened late", which is false. Papering a classification
+    bug with a false fact is how data stops being trustworthy.
+  • 50 unit cases (clock conversion both DST ways, the fallback refusing to touch tagged rows, every
+    store/weekday boundary open-inclusive and close-exclusive, unknown store and missing date never
+    guessed closed, the 3-argument `isOutsideHours` callers unchanged).
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
@@ -1292,6 +1358,19 @@ auditing the previous build.
   Fishers' 66 at $144.74, volume flat, October already averaging $135.45. The store said to be
   losing console work is the one winning most of it, cheapest. The mechanism is still worth having;
   this particular sale needs a second look.
+- **2026-11-05** — **Eric opened the shop TV at 5:28 AM and asked why Fishers already had a missed
+  call when they open at 9** (§ 10bc). It was real, and it came in at **01:52**. Two findings under it:
+  `call_records.date_started` holds **two different clocks** — tagged rows store the store's local time,
+  blank-tagged rows store true UTC, proved by a row whose `created_at` precedes its own `date_started`
+  when read as local — and, separately, **there was no business-hours rule in the repo at all**, so a
+  blank `availability` ("Dialpad never judged this call") fell through to "open". Fixed as a
+  **fallback only**: Dialpad's tag still wins wherever it exists, so no tagged row changes and no past
+  month is restated. Replayed every month old-vs-new: **27 store-months, 1 changed, 0 tiers, no dollars.**
+  The blank tag turns out to identify the clock exactly across all 40,369 rows, so the fix needed no
+  precision-sniffing heuristic. And the "second writer" turned out to be the **live today-leg** added
+  when Dialpad's same-day exports broke in June: a blank tag means "today's provisional row", which is
+  why out-of-hours calls were wrong **on the day** and quietly corrected themselves by morning — the one
+  window the shop TV is actually watched in.
 - **2026-11-03 (last)** — **Migration run, and the board got one target instead of two.** Eric pasted
   `migration_promotions.sql`, so flash sales and the store-messages board stopped degrading and went
   live (verified through both routes). And on the open question the audit had flagged — 15 on the wall

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDailyCallVolume, getHourlyMissed, getDOWMissed, getCallbackData, getCallRecords, getCallSyncState, getStoreClosures } from "@/lib/supabase";
-import { indexClosures, isOutsideHours } from "@/lib/store-closures";
+import { indexClosures, isOutsideHours, isOutsideRegularHours, callLocalDay, callLocalTime } from "@/lib/store-closures";
 
 // GET /api/dialpad/stored — returns all dashboard data from Supabase
 export async function GET(request) {
@@ -35,7 +35,12 @@ export async function GET(request) {
     // rate). Open-hours missed calls behave exactly as before.
     function isClosed(row) {
       if (String(row.availability || "").toLowerCase() === "closed") return true;
-      return isOutsideHours(closureIdx, row.store, row.date_started);
+      // A BLANK availability tag is not "open" — it means Dialpad never judged
+      // the call, and those rows also carry a UTC clock rather than the store's
+      // local one. Untagged rows are judged against the store's regular hours
+      // instead; tagged rows are untouched. See lib/store-closures.js.
+      if (isOutsideRegularHours(row.store, row.date_started, row.availability)) return true;
+      return isOutsideHours(closureIdx, row.store, row.date_started, row.availability);
     }
 
     // Count missed calls per day per store from missedRaw, split open vs closed
@@ -43,7 +48,10 @@ export async function GET(request) {
     const dailyAfterHours = {};
     for (const row of missedRaw) {
       if (!row.date_started || !row.store) continue;
-      const dateStr = new Date(row.date_started).toISOString().split("T")[0];
+      // The store's calendar day, not the UTC one: an untagged row stores a UTC
+      // instant, so bucketing it raw files a 7pm call under tomorrow.
+      const dateStr = callLocalDay(row.date_started, row.availability);
+      if (!dateStr) continue;
       const key = dateStr + "|" + row.store;
       if (isClosed(row)) {
         dailyAfterHours[key] = (dailyAfterHours[key] || 0) + 1;
@@ -79,7 +87,8 @@ export async function GET(request) {
     // Also add days that only appear in missedRaw (in case dailyRaw missed them)
     for (const row of missedRaw) {
       if (!row.date_started || !row.store) continue;
-      const dateStr = new Date(row.date_started).toISOString().split("T")[0];
+      const dateStr = callLocalDay(row.date_started, row.availability);
+      if (!dateStr) continue;
       if (!dailyMap[dateStr]) {
         dailyMap[dateStr] = { date: dateStr };
         ["fishers","bloomington","indianapolis"].forEach(s => {
@@ -118,7 +127,10 @@ export async function GET(request) {
       hourlyMap[h] = { hour: label, fishers: 0, bloomington: 0, indianapolis: 0 };
     }
     for (const row of missedRaw) {
-      const h = new Date(row.date_started).getHours();
+      // Same clock rule as the counts above. `new Date(x).getHours()` also read
+      // the SERVER's zone, which only ever worked because Vercel runs in UTC.
+      const lt = callLocalTime(row.date_started, row.availability);
+      const h = lt ? parseInt(lt.hhmm.slice(0, 2), 10) : -1;
       if (hourlyMap[h] && row.store) {
         hourlyMap[h][row.store] = (hourlyMap[h][row.store] || 0) + 1;
       }
@@ -130,9 +142,12 @@ export async function GET(request) {
     const dowMap = {};
     dowNames.forEach(d => { dowMap[d] = { day: d, fishers: 0, bloomington: 0, indianapolis: 0 }; });
     for (const row of dowRaw) {
-      const d = new Date(row.date_started);
-      const dayName = dowNames[d.getDay()];
-      if (dowMap[dayName] && row.store) {
+      // getDOWMissed does not select availability, so these read as tagged —
+      // correct for the 39,132 tagged rows and off by one day only for an
+      // untagged call after 7pm. Pass availability here if that ever matters.
+      const lt = callLocalTime(row.date_started, "open");
+      const dayName = lt ? dowNames[lt.dow] : null;
+      if (dayName && dowMap[dayName] && row.store) {
         dowMap[dayName][row.store] = (dowMap[dayName][row.store] || 0) + 1;
       }
     }
