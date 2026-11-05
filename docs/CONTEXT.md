@@ -1,6 +1,6 @@
 # CPR Dashboard — Business Context & Current State
 
-**Last updated:** 2026-11-05 (we hold 1.95% of our own reviews — named credits are near-blind on the three main pages, and the fix is the Business Profile API, built but not yet runnable § 10bd; review bonus now on the Paycheck § 10be) — was 2026-11-05 (a 1:52 AM call was counted against Fishers — `date_started` holds TWO clocks and a blank `availability` was being read as "open" § 10bc) — was 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
+**Last updated:** 2026-11-05 (October's tier snapshot was never run, so the Bonus Ledger dropped the month entirely § 10bg; the review sync is probably one API-key checkbox away, not weeks, and the Google Cloud free trial ends 25 Nov § 10bf) — was 2026-11-05 (we hold 1.95% of our own reviews — named credits are near-blind on the three main pages, and the fix is the Business Profile API, built but not yet runnable § 10bd; review bonus now on the Paycheck § 10be) — was 2026-11-05 (a 1:52 AM call was counted against Fishers — `date_started` holds TWO clocks and a blank `availability` was being read as "open" § 10bc) — was 2026-11-03 (promotions migration run — flash sales and the messages board are live; TV review target settled at 10, one number, the one that pays § 10bb) — was 2026-11-03 (NEW RULE 7 — open the dashboard and look at it, every time; the first audit found two screens reporting the wrong month and two TV screens sized by their content § 10bb) — was 2026-11-03 (Eric settled the two named-credit rules and the floor gate took the whole queue to zero § 10ay; flash sales + store messages + a fourth TV screen, and a missing table must never take a working screen down § 10az; Matt's instruction doc § 10ba) — was 2026-11-03 (counter sales were the only thing scoring zero, and excluding them moves no tier — Eric asked, and that was the right question § 10av; My Reviews was quoting a DEAD RULE, $5/photo, not just missing data § 10aw; Indy already rings the most HDMI at the lowest price § 10ax) — was 2026-11-02 (the review board AND the payable credits queue were all-time tallies for a monthly bonus — both scoped § 10au) — was 2026-10-27 (we do NOT text customers — the app had been telling staff to § 10at; TV board was clipping its own cards at 1080p § 10as; TV dash link on every page § 10aq; "Where to ask for a review" per tech — and two corrections to my own first cut, one of which would have had two screens disagree about pay § 10ar) — was 2026-10-27 (Matt's 10-23 call built out § 10am — TV reviews screen + the duplicate-listings corruption, the agent's own discount record, two reasons the register message stays quiet, damaged & defective parts, charges waived; GP now credited to the repairer, $20,291.80 recovered § 10an; by-month bars overflow fixed) — **2026-10-30: review bonus simplified to every-review-counts, which made the tier exact and deleted the five-star blocker § 10ao; then the 1★ became a DEDUCTION — halve, then zero, on evidence only § 10ap** — 2026-10-29: franchisor owns the nine department listings, which costs the review bonus almost nothing § 10ao — was 2026-10-08 (Matt's Amex filed § 10ak, non-phone bonus settled at $50 § 10aj; September tier snapshot, Bonus Ledger § 10ag–10ai; Indy opening dead zone § 10ae, Google tracking § 10af; the free closers § 10ad; 09-28 meeting Tier 1+2 § 10ac; Matt's 09-23 email § 10ab; shrinkage import, sheet-health + P&L nudges on the Morning Brief; booking engine — one way in, shorthand search, discount evidence, part + deposit, follow-up expiry — § 10x)
 **Maintainer:** update Open items + Recent changes at the end of every session.
 
 ---
@@ -1355,6 +1355,48 @@ plus named credits.
     reaches can understate and cannot overstate.
   • **A $0 now says which $0** — salaried, or the count is not knowable, or "store took 7 of 10, so
     $15 of named credit is held". Held is not refused (§ 10ay).
+
+10bf. **The review sync is probably NOT weeks away — PROBED 2026-11-05, waiting on one check by Eric.**
+Eric: *"you're telling me right now, as the platform stands, you can't sync up to read reviews for all
+locations or quantities for all locations?"* Fair challenge; I had said "blocked on a Google approval" without
+checking the cheap route first.
+  • **Quantities were never blocked.** Every page's total is synced nightly, all 12, and the tier is a
+    subtraction between those totals — exact and automatic today.
+  • **Only review CONTENT (who is named) is sampled**, and the number five is not the problem — RELEVANCE
+    sorting is. A main page takes ~20 reviews a month; five NEWEST per nightly poll would cover that several
+    times over. Fishers' newest held review is 2026-09-12 on a 652-review page, which is the stable-relevance
+    sample re-reading the same five forever.
+  • **`reviews_sort=newest` exists on Places API (Legacy)**, and the Cloud console shows Places API (Legacy)
+    as **"API Enabled"** on "My First Project". `?action=probe_reviews` (admin, read-only, never echoes the
+    key) still got **`REQUEST_DENIED`** — most likely the **key's own restriction list** (the "Maps Platform
+    API Key" is restricted to 35 APIs, § 10af). **Eric to check: APIs & Services → Credentials → Maps
+    Platform API Key → API restrictions → is "Places API" (legacy, not "(New)") ticked?** If that fixes it,
+    the nightly sync switches to newest-first and `reconcile()` in `lib/gbp-reviews.js` already handles the
+    Places-key vs GBP-key dedupe. The Business Profile route (`sync_owned`) stays as the 100% answer.
+  • ⚠⚠ **"Your free trial is over… upgrade by November 25, 2026"** on the Cloud console. Without a billing
+    upgrade the Places key stops and **all review tracking stops** — tier counts included. Independent of
+    everything above, and a date.
+  • Not changed by me: no Cloud setting was touched; that is an account change and Eric's call.
+
+10bg. **October was missing from the Bonus Ledger because its tier snapshot was never run — FIXED the
+listing 2026-11-05; the snapshot itself still needs Eric.** Eric: *"the bonus ledger is really hard to use. I dont
+see october as an option on here."* The month chips were built from `employee_tier_history` alone, and that
+table holds **March–September and no October rows** (verified). **Nothing runs the snapshot on a schedule** —
+September's was run by hand on 2026-10-01 — so a forgotten month is the normal failure, and the ledger turned
+it into an invisible one. "Everything outstanding" had the same filter, so **October's answer-rate bonuses were
+missing from the owed list too**.
+  • Now: every month from the first snapshot through today is listed; a closed month with no snapshot has an
+    orange dot, a banner saying every total understates (multiplier counted ×1, no streak award, review bonus
+    not credited), and `periods_missing_snapshot` / `tier_snapshot_missing` travel on the payload. **No dollar
+    math changed** — only which months are listed and the warning.
+  • ⚠ **Run the October snapshot** (`tier-history` `snapshot`, period 2026-10). It writes tier rows and
+    celebration events, i.e. it can create payables — **Aerick Long is one Gold month from a $100 run**, so
+    October may owe him. Not run without Eric's go-ahead, same as September.
+  • **Recommend a cron for it** (e.g. the 2nd of each month, snapshot the prior month) so this cannot recur.
+    That activates a payroll-touching job, so it is Eric's call.
+  • Also on that screen and stale: the **"Store review bonus — Not built"** card describes the old
+    "$25 to the store with the most reviews" idea, which the 10/15/20 tier replaced (§ 10al). It sits beside the
+    real "Google reviews" card and reads as if the review bonus does not exist. Left for Eric to confirm it is dead.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
