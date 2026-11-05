@@ -1124,6 +1124,93 @@ export async function GET(request) {
   // manual approval, so the shapes below are written from the reference and
   // are unexercised. Run it once with &dry_run=1 and read the report before
   // letting it write, and before putting it in vercel.json.
+  // ?action=probe_reviews — CAN WE GET NEWER REVIEWS WITH THE KEY WE ALREADY HAVE?
+  //
+  // Measured 2026-11-05: Places API (New) gives us ~5 reviews per page sorted
+  // by RELEVANCE, and relevance is stable, so polling daily re-reads the same
+  // old five forever — 1.6% of Bloomington main, newest held review 4 October
+  // while the page took four more since.
+  //
+  // But the bonus only cares about reviews posted THIS MONTH, and a main page
+  // takes ~20 a month. Five NEWEST per daily poll would cover that several
+  // times over. `reviews_sort=newest` exists on Places (Legacy), which this
+  // project may still have enabled — legacy can no longer be switched on for
+  // NEW projects as of October 2026, but an older project keeps it.
+  //
+  // So: ask, do not assume. This reads only; it writes nothing, and it never
+  // returns the key.
+  if (action === "probe_reviews") {
+    var prGate = await requireAuth(request, { requiredRoles: ["admin"] });
+    if (!prGate.authorized) return prGate.response;
+    var prKey = process.env.GOOGLE_PLACES_API_KEY;
+    if (!prKey) return json({ success: false, error: "GOOGLE_PLACES_API_KEY is not set." }, 503);
+
+    var { data: prL, error: prE } = await supabase.from("google_listings")
+      .select("id,store,listing_type,label,place_id,is_ours").eq("active", true);
+    if (prE) return json({ success: false, error: prE.message }, 500);
+    var prList = dedupeListings(prL).listings
+      .filter(function(l) { return l.is_ours !== false && l.place_id && l.listing_type === "main"; });
+
+    var out = [];
+    for (var pi = 0; pi < prList.length; pi++) {
+      var pl = prList[pi];
+      var row = { listing: pl.label, store: pl.store };
+
+      // What we already hold, so the probe can say whether this is NEW.
+      var { data: held } = await supabase.from("google_review_items")
+        .select("posted_at,author").eq("listing_id", pl.id).order("posted_at", { ascending: false }).limit(1);
+      row.newest_held = (held && held[0] && held[0].posted_at) || null;
+
+      for (var mi = 0; mi < 2; mi++) {
+        var sort = mi === 0 ? "newest" : "most_relevant";
+        var url = "https://maps.googleapis.com/maps/api/place/details/json?place_id=" +
+          encodeURIComponent(pl.place_id) + "&fields=reviews,user_ratings_total&reviews_sort=" + sort +
+          "&key=" + encodeURIComponent(prKey);
+        try {
+          var r = await fetch(url);
+          var j = await r.json();
+          var revs = (j.result && j.result.reviews) || [];
+          row["legacy_" + sort] = {
+            http: r.status,
+            api_status: j.status || null,
+            // The legacy API's own words when it refuses, minus anything
+            // that could echo the key back.
+            error: j.error_message ? String(j.error_message).slice(0, 200) : null,
+            total_on_page: (j.result && j.result.user_ratings_total) || null,
+            returned: revs.length,
+            reviews: revs.map(function(rv) {
+              return {
+                author: rv.author_name || null,
+                rating: rv.rating || null,
+                when: rv.time ? new Date(rv.time * 1000).toISOString() : null,
+                snippet: String(rv.text || "").slice(0, 80),
+              };
+            }),
+          };
+        } catch (e) {
+          row["legacy_" + sort] = { error: String(e.message || e) };
+        }
+      }
+
+      // Does sorting by newest actually hand back anything we do not hold?
+      var nw = row.legacy_newest || {};
+      if (nw.reviews && row.newest_held) {
+        row.newer_than_anything_we_hold = nw.reviews.filter(function(x) {
+          return x.when && x.when > row.newest_held;
+        }).length;
+      }
+      out.push(row);
+    }
+
+    return json({
+      success: true,
+      question: "Does reviews_sort=newest on Places (Legacy) return reviews the New API's relevance sample does not?",
+      reads_only: true,
+      listings: out,
+      how_to_read: "api_status REQUEST_DENIED means Places API (Legacy) is not enabled on this project, and that is the end of this route. OK with reviews newer than newest_held means a daily poll on 'newest' would capture this month's reviews without any new Google approval.",
+    });
+  }
+
   if (action === "sync_owned") {
     var ownCron = process.env.CRON_SECRET;
     var ownAuthz = request.headers.get("authorization") || "";
