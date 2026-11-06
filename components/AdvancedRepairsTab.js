@@ -389,7 +389,7 @@ function RepairsTable(props) {
                       <div style={{ color: CYAN, fontSize: 10 }}>→ {storeLabel(r.current_location)}</div>
                     )}
                   </td>
-                  <td style={{ padding: "9px 10px", color: r.repaired_by === "Duncan" ? PURPLE : "var(--text-primary)", fontWeight: r.repaired_by ? 600 : 400 }}>
+                  <td style={{ padding: "9px 10px", color: /^\s*duncan\b/i.test(r.repaired_by || "") ? PURPLE : "var(--text-primary)", fontWeight: r.repaired_by ? 600 : 400 }}>
                     {r.repaired_by || <span style={{ color: "var(--text-muted)", fontStyle: "italic" }}>unassigned</span>}
                   </td>
                   <td style={{ padding: "9px 10px" }}>{statusBadge(r.status)}</td>
@@ -563,7 +563,7 @@ function RepairFormModal(props) {
 
 function CommissionPreview(props) {
   var profit = props.profit;
-  var isDuncan = (props.repairedBy || "").trim().toLowerCase() === "duncan";
+  var isDuncan = /^\s*duncan\b/i.test(props.repairedBy || "");
   var primaryRate = isDuncan ? 0.10 : 0.07;
   var primary = Math.round(profit * primaryRate * 100) / 100;
   var overhead = isDuncan ? 0 : Math.round(profit * 0.03 * 100) / 100;
