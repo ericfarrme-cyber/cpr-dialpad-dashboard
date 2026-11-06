@@ -1429,8 +1429,14 @@ Paycheck was right.
   • ⚠ **Samuel Tomey, May 2026: his Paycheck was $10.37 short.** Ticket **15887130**, PS5 HDMI port, closed
     2026-05-06 at Indianapolis, $148.16 profit × 7%. Logged as "Sam Tomey", which the Paycheck's name match did
     not connect to "Samuel Tomey". Now credited. If May was paid from his screen, he is owed $10.37.
-  • The log's "Repaired By" is still a free-text box, so new short spellings will keep arriving. The ledger now
-    sums them, so they no longer cost money; a roster dropdown on that field would stop them at the source.
+  • ~~"Repaired By" is still free text~~ **Roster dropdown SHIPPED 2026-11-06** (`4043dfd`, Eric: "Yes"). Both
+    forms — the appointments page's Advanced Repairs panel and the main dashboard's Advanced Repair Log — now pick
+    "Repaired By" from the active roster, and the log's form does the same for "Intake Employee"
+    (`components/RosterSelect.js`). An off-roster value already on a row ("General Access", "Luke") shows as
+    "<name> (as saved)" and stays selected, so editing an old repair never changes who it pays; if the roster fails
+    to load the field falls back to free text and says so. Verified live: the new-repair form lists the 8 roster
+    names; editing #16673836 shows "General Access (as saved)" for intake and Samuel Tomey selected; no console errors.
+    Still free text upstream: the sync's auto-fill from `ticket_grades.employee_repaired`, which today writes full names.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
