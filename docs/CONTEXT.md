@@ -1408,6 +1408,30 @@ missing from the owed list too**.
     "$25 to the store with the most reviews" idea, which the 10/15/20 tier replaced (§ 10al). It sits beside the
     real "Google reviews" card and reads as if the review bonus does not exist. Left for Eric to confirm it is dead.
 
+10bh. **The Bonus Ledger disagreed with the Paycheck — FIXED 2026-11-05** (`7c760c0`, payroll, Eric: *"Yes go
+ahead"*). Eric put Duncan's two October screens side by side: **Paycheck $616.09, ledger $265.99.** The
+Paycheck was right.
+  • **Advanced repairs: the ledger kept the LAST spelling of a name instead of summing.** `advanced_repairs.repaired_by`
+    is free text, and every 3% override line is written as the literal `"Duncan"` by `commissionFor`. October:
+    Duncan **$7.45 of $257.55**, Alec **$7.00 of $34.61**, Luke **$5.60 of $36.84**. `advancedForMonth` now sums.
+  • **The $100 non-phone bonus was hand-entered, and October's never was.** The ledger now reads it from
+    `advanced-repair-traffic` — the same month entry the Paycheck reads — via `nonPhoneForMonth()`. A hand-recorded
+    row still wins (it carries the payment state) and is flagged if it disagrees with the computed figure.
+    September's recorded $200 matches. `NON_PHONE_BONUS_EMPLOYEE` now lives in `lib/commission-rules.js`; both
+    screens import it.
+  • After: **Duncan $616.09 on both screens.** October "to pay" reads **$2,484.19** = $2,475.24 − $400 marked paid
+    since (Aerick's $100 streak, four $75 answer-rate bonuses) + $408.95 the ledger had been missing.
+  • **212 `advanced_repairs.repaired_by` rows renamed to full roster names** ("Duncan" → Duncan Hitti ×114,
+    "Alyssa" ×52, "Luke" ×27, "Samuel"/"Sam"/"Sam Tomey" ×17, "Alec", "Aerick"). Rollback:
+    `rollback-advanced-repairs-names.json` in the session scratchpad. One blank `repaired_by` on a closed repair
+    left alone — it pays nobody and needs a person to say who did it. Proved against the live route: **53 of 54
+    person-months identical before and after**; the one that moved is real money —
+  • ⚠ **Samuel Tomey, May 2026: his Paycheck was $10.37 short.** Ticket **15887130**, PS5 HDMI port, closed
+    2026-05-06 at Indianapolis, $148.16 profit × 7%. Logged as "Sam Tomey", which the Paycheck's name match did
+    not connect to "Samuel Tomey". Now credited. If May was paid from his screen, he is owed $10.37.
+  • The log's "Repaired By" is still a free-text box, so new short spellings will keep arriving. The ledger now
+    sums them, so they no longer cost money; a roster dropdown on that field would stop them at the source.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
