@@ -76,10 +76,9 @@ function sc(v, g, w) { return v >= g ? "var(--green)" : v >= w ? "var(--yellow)"
 // Matched with the same fuzzy matcher used everywhere else so "Hitti, Duncan"
 // and "Duncan" both resolve.
 import AdvancedRepairTrafficSummary from "@/components/AdvancedRepairTrafficSummary";
-import { cleaningCommissionApplies } from "@/lib/commission-rules";
+import { cleaningCommissionApplies, NON_PHONE_BONUS_EMPLOYEE } from "@/lib/commission-rules";
 import ReviewAskCard from "@/components/ReviewAskCard";
 
-var NON_PHONE_BONUS_EMPLOYEE = "Duncan Hitti";
 
 function matchName(empName, candidateName) {
   if (!empName || !candidateName) return false;

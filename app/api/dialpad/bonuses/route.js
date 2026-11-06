@@ -43,7 +43,8 @@ import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { GET as answerRateGET } from "../answer-rate-bonus/route";
 import { GET as salesGET } from "../sales/route";
-import { cleaningCommissionApplies } from "@/lib/commission-rules";
+import { cleaningCommissionApplies, NON_PHONE_BONUS_EMPLOYEE } from "@/lib/commission-rules";
+import { GET as trafficGET } from "../advanced-repair-traffic/route";
 import { GET as advancedGET } from "../../advanced-repairs/route";
 import { buildResolver, resolveName } from "@/lib/roster-resolver";
 
@@ -368,7 +369,22 @@ async function advancedForMonth(period, roster) {
       unresolved.push({ raw: e.employee, amount: e.total_amount });
       return;
     }
-    byPerson[canonical] = e;
+    // SUM, never overwrite. The log is typed freehand, so one person arrives
+    // under several spellings -- and every 3% override line is written as the
+    // literal "Duncan" while his own repairs may say "Duncan Hitti". Assigning
+    // here kept whichever spelling came LAST: October 2026 showed Duncan
+    // $7.45 of a real $257.55, Alec $7.00 of $34.61, Luke $5.60 of $36.84,
+    // while the Paycheck tab (which sums) had them right. Eric found it by
+    // putting the two screens side by side, 2026-11-05.
+    var cur = byPerson[canonical];
+    if (!cur) {
+      byPerson[canonical] = Object.assign({}, e, { employee: canonical, spellings: [e.employee] });
+      return;
+    }
+    ["primary_count", "overhead_count", "primary_amount", "overhead_amount", "total_amount"].forEach(function(f) {
+      cur[f] = money((cur[f] || 0) + (e[f] || 0));
+    });
+    cur.spellings.push(e.employee);
   });
 
   // Whether the month has been locked. lock_period sets commission_locked on
@@ -394,14 +410,50 @@ async function advancedForMonth(period, roster) {
     locked = rows.length > 0 && rows.every(function(r) { return r.commission_locked === true; });
   }
 
+  // The non-phone repair bonus rides along here because every caller of this
+  // function builds people with it, so nothing else has to be threaded through.
+  // It is read from the SAME route and the same month entry the Paycheck tab
+  // reads, so the two screens compute it once and identically. It used to be
+  // typed in by hand each month, and October 2026's never was.
+  var nonPhone = await nonPhoneForMonth(period);
+
   return {
     status: "ok",
     byPerson: byPerson,
     unresolved: unresolved,
     locked: locked,
+    nonPhone: nonPhone,
     total_repairs: d.total_repairs || 0,
     total_profit: d.total_profit || 0,
     total_commission: d.total_commission || 0,
+  };
+}
+
+async function nonPhoneForMonth(period) {
+  var now = currentPeriod();
+  var py = parseInt(String(period).slice(0, 4), 10), pm = parseInt(String(period).slice(5, 7), 10);
+  var cy = parseInt(now.slice(0, 4), 10), cm = parseInt(now.slice(5, 7), 10);
+  var back = (cy - py) * 12 + (cm - pm);
+  if (!(back >= 0)) return { status: "error", reason: period + " is in the future" };
+  if (back > 23) return { status: "error", reason: period + " is older than the 24 months the traffic route covers" };
+  var d;
+  try {
+    d = await callRouteHandler(trafficGET, "/api/dialpad/advanced-repair-traffic?months=" + (back + 1));
+  } catch (e) {
+    return { status: "error", reason: "Non-phone traffic route threw: " + e.message };
+  }
+  if (!d || !d.success) return { status: "error", reason: "Non-phone traffic route failed: " + ((d && d.error) || "unknown") };
+  var m = (d.months || []).find(function(x) { return x.month === period; });
+  if (!m) return { status: "error", reason: "no non-phone figures for " + period };
+  return {
+    status: "ok",
+    complete: !!m.complete,
+    coverage_pct: m.coverage_pct,
+    profit: money(m.profit),
+    tickets: m.tickets,
+    threshold: m.bonus ? m.bonus.threshold : null,
+    over: m.bonus ? money(m.bonus.over) : null,
+    amount: m.bonus ? money(m.bonus.amount) : 0,
   };
 }
 
@@ -779,6 +831,39 @@ function buildPerson(ctx, person, period, arForMonth, review, inProgress, sales,
     });
   }
 
+  // ── 3b. Non-phone repair bonus (one person) ──
+  // Computed exactly as the Paycheck tab computes it. A hand-recorded row for
+  // the month still wins, because it carries the payment state -- but if it
+  // disagrees with the computed figure, the basis says so out loud.
+  var np = adv && adv.nonPhone;
+  if (name === NON_PHONE_BONUS_EMPLOYEE && np) {
+    var nrow = ledgerFind(ctx.ledger, name, period, "non_phone");
+    var npComputed = (np.status === "ok" && np.complete) ? np.amount : null;
+    var npBasis = np.status !== "ok" ? np.reason
+      : !np.complete ? "not calculated \u2014 only " + np.coverage_pct + "% of this month\u2019s tickets are categorised"
+      : "$" + np.profit.toFixed(2) + " of non-phone repair profit across all stores, "
+        + (np.over >= 0 ? "$" + np.over.toFixed(2) + " over" : "$" + Math.abs(np.over).toFixed(2) + " short of")
+        + " the $" + Number(np.threshold).toLocaleString() + " target \u00b7 $100 + $50 per full $1,000 above";
+    if (nrow && !nrow.dismissed_at && (Number(nrow.bonus_amount) || 0) > 0) {
+      var npRec = money(nrow.bonus_amount);
+      items.push({
+        program: "non_phone", event_type: "non_phone", label: "Non-phone repair bonus",
+        basis: (nrow.notes || "recorded") + (npComputed !== null && npComputed !== npRec
+          ? " \u00b7 \u26a0 recorded $" + npRec.toFixed(2) + " but the computed figure is $" + npComputed.toFixed(2) : ""),
+        amount: npRec, pto_days: 0, unit: "cash",
+        ledger_id: nrow.id, paid_at: nrow.bonus_paid_at || null,
+        state: nrow.bonus_paid_at ? "paid" : "unpaid", owner: "bonuses", store: nrow.store || store,
+      });
+    } else if (npComputed !== null && npComputed > 0) {
+      items.push({
+        program: "non_phone", event_type: "non_phone", label: "Non-phone repair bonus",
+        basis: npBasis, amount: money(npComputed), pto_days: 0, unit: "cash",
+        ledger_id: null, paid_at: null,
+        state: inProgress ? "in_progress" : "unrecorded", owner: "bonuses", store: store,
+      });
+    }
+  }
+
   // ── 4. Anything else this route owns that is already in the ledger ──
   //    Without this, a row written by hand — a recorded non-phone bonus, a
   //    one-off — would sit in the table and never reach the screen. A payable
@@ -1036,18 +1121,17 @@ function programStatuses(period, arForMonth, review, roster, ctx, sales, adv) {
       key: "non_phone",
       label: "Non-phone repair bonus (Duncan)",
       status: "ok",
-      // This WAS described here as "not built", which was wrong: the rule has
-      // been computed on the Non-Phone Repair Traffic tab since 2026-09-01.
-      // What was missing is the wiring into this ledger, so the figure is
-      // recorded by hand against the month rather than pulled.
+      // Computed from advanced-repair-traffic -- the same month entry the
+      // Paycheck tab reads -- since 2026-11-05. It was typed in by hand before,
+      // and October 2026's was never typed, so the ledger dropped $100 the
+      // Paycheck was showing.
       detail: "$100 on reaching $15,000/month of console + tablet + computer + misc profit, "
         + "then $50 per FULL $1,000 above it; partial thousands do not pay. Computed on the "
-        + "Non-Phone Repair Traffic tab (BONUS_THRESHOLD / BONUS_BASE / BONUS_PER_1000 in "
-        + "advanced-repair-traffic) and recorded here by hand, so the two cannot silently diverge — "
-        + "check the figure matches that card before paying. "
+        + "Non-Phone Repair Traffic tab and read here from the same figures the Paycheck tab uses. "
+        + "A month is only paid once enough of its tickets are categorised. "
         + "⚠ The base excludes tickets with no device category; September had $4,928 of those, "
         + "which would move the payout if they are really non-phone work (open item 11).",
-      source: "advanced-repair-traffic → recorded by hand",
+      source: "advanced-repair-traffic (computed)",
     },
   ];
 }
