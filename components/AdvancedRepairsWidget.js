@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import RosterSelect from "@/components/RosterSelect";
 
 // Fuzzy name match — handles "Duncan Hitti" vs "Duncan" vs "Hitti, Duncan"
 function namesMatch(a, b) {
@@ -589,7 +590,7 @@ function QuickRepairForm(props) {
               </div>
               <div>
                 <label style={labelSt}>Repaired By</label>
-                <input value={form.repaired_by || ""} onChange={function(e) { update("repaired_by", e.target.value); }} placeholder="e.g. Duncan, Luke — set when work is done" style={inputSt} />
+                <RosterSelect value={form.repaired_by} onChange={function(v) { update("repaired_by", v); }} emptyLabel="— not yet (set when work is done) —" style={inputSt} />
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <div>

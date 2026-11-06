@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
+import RosterSelect from "@/components/RosterSelect";
 
 // Hardcoded brand palette — matches ScorecardTab and other DialpadDashboard tabs
 var CYAN = "var(--cyan)";
@@ -516,8 +517,8 @@ function RepairFormModal(props) {
               <option value="no">No</option><option value="yes">Yes</option>
             </select>
           </Field>
-          <Field label="Intake Employee"><input value={form.intake_employee} onChange={function(e) { update("intake_employee", e.target.value); }} placeholder="who logged this" style={inputStyle()} /></Field>
-          <Field label="Repaired By" hint="Set when work is done"><input value={form.repaired_by} onChange={function(e) { update("repaired_by", e.target.value); }} placeholder="e.g. Duncan, Luke" style={inputStyle()} /></Field>
+          <Field label="Intake Employee"><RosterSelect value={form.intake_employee} onChange={function(v) { update("intake_employee", v); }} emptyLabel="— who logged this —" style={inputStyle()} /></Field>
+          <Field label="Repaired By" hint="Set when work is done"><RosterSelect value={form.repaired_by} onChange={function(v) { update("repaired_by", v); }} style={inputStyle()} /></Field>
           <Field label="Status*">
             <select value={form.status} onChange={function(e) { update("status", e.target.value); }} style={inputStyle()}>
               {STATUSES.map(function(s) { return <option key={s.value} value={s.value}>{s.label}</option>; })}
