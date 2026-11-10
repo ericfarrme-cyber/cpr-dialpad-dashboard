@@ -225,7 +225,7 @@ export default function TVDashboard(props) {
           opacity: screenIdx === 1 ? 1 : 0,
           pointerEvents: screenIdx === 1 ? "auto" : "none",
         })}>
-          <ScreenRankings store={store} storeName={storeName} dailyCalls={dailyCalls} scorecard={scorecard} callLeaders={callLeaders} />
+          <ScreenRankings store={store} storeName={storeName} dailyCalls={dailyCalls} scorecard={scorecard} callLeaders={callLeaders} bonusData={bonusData} />
         </div>
         {/* Reviews screen */}
         <div style={Object.assign({}, screenStyle, {

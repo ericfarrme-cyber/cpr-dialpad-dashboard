@@ -80,6 +80,21 @@ export default function ScreenRankings(props) {
   var weekStats = sumCalls(dailyCalls, weekStart);
   var monthStats = sumCalls(dailyCalls, monthStart);
 
+  // This Month reads the BONUS route's own counts, so the ranking and the
+  // bonus tile on the Daily screen show one number. Summing dailyCalls here
+  // still counted answered calls under 15 seconds, which the bonus has dropped
+  // since 2026-09 — Fishers read 92% here beside a 90% bonus tile (Eric,
+  // 2026-11-10: "use the right bonus number"). Only when the bonus answer is
+  // for this same month; otherwise the old sum stands and the subtitle says so.
+  var bonusData = props.bonusData || null;
+  var monthFromBonus = !!(bonusData && bonusData.month === monthStart.slice(0, 7) && Array.isArray(bonusData.stores));
+  if (monthFromBonus) {
+    STORE_KEYS.forEach(function(sk) {
+      var b = bonusData.stores.find(function(x) { return x.store === sk; });
+      monthStats[sk] = b ? { total: b.total_open || 0, answered: b.answered || 0 } : { total: 0, answered: 0 };
+    });
+  }
+
   // Compute rows with rate, then rank by rate.
   // Stores below minimum call threshold get ranked last regardless of rate —
   // prevents "1 call, 100%" outranking real performance.
@@ -133,7 +148,7 @@ export default function ScreenRankings(props) {
       {/* ─── LEFT: Store rankings (stacked: this week + this month) ─── */}
       <div style={{ display: "flex", flexDirection: "column", gap: "clamp(8px, 1.5vh, 16px)", minHeight: 0 }}>
         <StoreRankPanel title="🏪 Stores · This Week" subtitle="Answer rate" ranked={weekRanked} highlightStore={store} />
-        <StoreRankPanel title="🏪 Stores · This Month" subtitle="Answer rate" ranked={monthRanked} highlightStore={store} />
+        <StoreRankPanel title="🏪 Stores · This Month" subtitle={monthFromBonus ? "Answer rate · bonus count" : "Answer rate"} ranked={monthRanked} highlightStore={store} />
       </div>
 
       {/* ─── RIGHT: Employee rankings (4 categories side by side) ─── */}

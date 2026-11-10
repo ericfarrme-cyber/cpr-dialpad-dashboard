@@ -231,7 +231,9 @@ export default function ScreenDaily(props) {
                 : nextTier
                   ? "Reach " + nextTier.min + "% \u2192 bump to $" + nextTier.amount + " each"
                   : monthBonus > 0
-                    ? "Top tier locked in \uD83D\uDD25"
+                    // Not "locked in": the rate is month-to-date and one bad
+                    // afternoon can drop it back a tier before the month ends.
+                    ? "On track for top tier \u2014 hold it to month end"
                     : "Hit 80% \u2192 $50 each"}
             </div>
             <BonusTrack rate={monthRate} tiers={bonusTiers} />
