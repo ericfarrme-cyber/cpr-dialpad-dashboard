@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { indexClosures, isOutsideHours, isOutsideRegularHours } from "@/lib/store-closures";
+import { indexClosures, isOutsideHours, isOutsideRegularHours, isNeverRangHangup, NEVER_RANG_EFFECTIVE_DAY } from "@/lib/store-closures";
 import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -129,7 +129,7 @@ export async function GET(request) {
     // ── 2. Missed inbound dept calls (with availability) for the month ──
     var missedRes = await supabase
       .from("call_records")
-      .select("date_started, store, categories, availability")
+      .select("date_started, store, categories, availability, ringing_duration")
       .eq("target_type", "department")
       .eq("direction", "inbound")
       .eq("is_missed", true)
@@ -196,7 +196,8 @@ export async function GET(request) {
     var closureIdx = indexClosures(closuresRes.data || []);
     var earlyCloseMissedByStore = {};
     var untaggedAfterHoursByStore = {};
-    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; untaggedAfterHoursByStore[s] = 0; });
+    var neverRangByStore = {};
+    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; untaggedAfterHoursByStore[s] = 0; neverRangByStore[s] = 0; });
 
     (missedRes.data || []).forEach(function(row) {
       if (!row.store || openMissedByStore[row.store] === undefined) return;
@@ -218,6 +219,12 @@ export async function GET(request) {
         // after-hours miss: out of the rate, still visible.
         closedMissedByStore[row.store] += 1;
         earlyCloseMissedByStore[row.store] += 1;
+      } else if (isNeverRangHangup(row)) {
+        // The caller hung up before any phone rang, so there was nothing to
+        // answer (Eric, 2026-11-10). From 2026-11 only, by the call's own day:
+        // no closed month moves. Out of the rate on both sides — it was only
+        // ever in the missed count.
+        neverRangByStore[row.store] += 1;
       } else {
         openMissedByStore[row.store] += 1;
       }
@@ -250,6 +257,9 @@ export async function GET(request) {
         // Travels so a jump here is visible rather than quietly shrinking the
         // denominator — the second writer went from 4 rows a month to 1,052.
         untagged_after_hours_missed: untaggedAfterHoursByStore[s],
+        // Hung up before anything rang. Excluded, and shown so it stays visible.
+        never_rang_excluded: neverRangByStore[s],
+        never_rang_effective_day: NEVER_RANG_EFFECTIVE_DAY,
         total_open: total,
         answer_rate: total > 0 ? Math.round(rate * 10) / 10 : null,
         tier: t.tier,

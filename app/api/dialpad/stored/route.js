@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getDailyCallVolume, getHourlyMissed, getDOWMissed, getCallbackData, getCallRecords, getCallSyncState, getStoreClosures } from "@/lib/supabase";
-import { indexClosures, isOutsideHours, isOutsideRegularHours, callLocalDay, callLocalTime } from "@/lib/store-closures";
+import { indexClosures, isOutsideHours, isOutsideRegularHours, isNeverRangHangup, callLocalDay, callLocalTime } from "@/lib/store-closures";
 
 // GET /api/dialpad/stored — returns all dashboard data from Supabase
 export async function GET(request) {
@@ -46,6 +46,9 @@ export async function GET(request) {
     // Count missed calls per day per store from missedRaw, split open vs closed
     const dailyMissedOpen = {};
     const dailyAfterHours = {};
+    // Callers who hung up before any phone rang (from 2026-11). Out of the
+    // missed count and the rate, same rule as the bonus, still reported.
+    const dailyNeverRang = {};
     for (const row of missedRaw) {
       if (!row.date_started || !row.store) continue;
       // The store's calendar day, not the UTC one: an untagged row stores a UTC
@@ -55,6 +58,8 @@ export async function GET(request) {
       const key = dateStr + "|" + row.store;
       if (isClosed(row)) {
         dailyAfterHours[key] = (dailyAfterHours[key] || 0) + 1;
+      } else if (isNeverRangHangup(row)) {
+        dailyNeverRang[key] = (dailyNeverRang[key] || 0) + 1;
       } else {
         dailyMissedOpen[key] = (dailyMissedOpen[key] || 0) + 1;
       }
@@ -71,6 +76,7 @@ export async function GET(request) {
           dailyMap[dateStr][`${s}_answered`] = 0;
           dailyMap[dateStr][`${s}_missed`] = 0;
           dailyMap[dateStr][`${s}_after_hours_missed`] = 0;
+          dailyMap[dateStr][`${s}_never_rang`] = 0;
         });
       }
       const answered = row.answered || 0;
@@ -80,6 +86,7 @@ export async function GET(request) {
       dailyMap[dateStr][`${row.store}_answered`] = answered;
       dailyMap[dateStr][`${row.store}_missed`] = missedOpen;
       dailyMap[dateStr][`${row.store}_after_hours_missed`] = afterHours;
+      dailyMap[dateStr][`${row.store}_never_rang`] = dailyNeverRang[key] || 0;
       // Total and answer rate use OPEN-hours missed only.
       dailyMap[dateStr][`${row.store}_total`] = answered + missedOpen;
     }
@@ -96,12 +103,14 @@ export async function GET(request) {
           dailyMap[dateStr][`${s}_answered`] = 0;
           dailyMap[dateStr][`${s}_missed`] = 0;
           dailyMap[dateStr][`${s}_after_hours_missed`] = 0;
+          dailyMap[dateStr][`${s}_never_rang`] = 0;
         });
       }
       // Ensure open-missed + after-hours counts are set from the split maps
       const key = dateStr + "|" + row.store;
       dailyMap[dateStr][`${row.store}_missed`] = dailyMissedOpen[key] || 0;
       dailyMap[dateStr][`${row.store}_after_hours_missed`] = dailyAfterHours[key] || 0;
+      dailyMap[dateStr][`${row.store}_never_rang`] = dailyNeverRang[key] || 0;
       // Total includes OPEN-hours missed only
       dailyMap[dateStr][`${row.store}_total`] = (dailyMap[dateStr][`${row.store}_answered`] || 0) + (dailyMap[dateStr][`${row.store}_missed`] || 0);
     }
@@ -110,14 +119,15 @@ export async function GET(request) {
 
     // Per-store aggregate stats
     const storePerf = ["fishers", "bloomington", "indianapolis"].map(s => {
-      let total = 0, answered = 0, missed = 0, afterHoursMissed = 0;
+      let total = 0, answered = 0, missed = 0, afterHoursMissed = 0, neverRang = 0;
       dailyCalls.forEach(d => {
         total += d[`${s}_total`] || 0;
         answered += d[`${s}_answered`] || 0;
         missed += d[`${s}_missed`] || 0;
         afterHoursMissed += d[`${s}_after_hours_missed`] || 0;
+        neverRang += d[`${s}_never_rang`] || 0;
       });
-      return { store: s, total_calls: total, answered, missed, after_hours_missed: afterHoursMissed, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
+      return { store: s, total_calls: total, answered, missed, after_hours_missed: afterHoursMissed, never_rang: neverRang, answer_rate: total > 0 ? Math.round(answered / total * 100) : 0 };
     });
 
     // Transform hourly missed into dashboard format
