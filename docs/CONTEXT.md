@@ -47,7 +47,7 @@ Constants live at the top of `answer-rate-bonus/route.js`
 15s is `0.25`; writing `< 15` matches every call ever recorded and zeroes every rate.
 Expected first clean month: **September 2026**. Measured effect if it had applied:
 Jul 80.4/80.4/79.2 → 77.6/79.1/77.6 · Aug 87.5/80.4/82.0 → 85.4/79.7/80.5.
-**A caller who hangs up before any phone rings is not a miss from 2026-11** (Eric, 2026-11-10; § 10bi).
+**A caller who hangs up before any phone rings, or a miss that rang 3 seconds or less, is not a miss from 2026-11** (Eric, 2026-11-10; § 10bi).
 Forward-only for the same reason as the short-call rule.
 
 ### Answer-rate bonus — AGREED DIRECTION (NOT YET IMPLEMENTED, exact table pending Eric)
@@ -1468,6 +1468,14 @@ and only 1–2 of the 5 on the 11-06 board were real.
     **Aug–Oct identical, no tier moves.** November so far: **Fishers 85.2 → 89.7, Bloomington
     87.2 → 87.8, Indianapolis 73.7 → 76.7**. ⚠ The live today-leg never writes `abandoned`, so an intraday
     hang-up still shows as missed on the TV until next morning's export re-tags it.
+  • **Misses that rang 3 seconds or less are excluded too — SHIPPED 2026-11-10** (payroll, Eric: *"Yes just 3
+    seconds"*). Of 4,654 answered calls Aug 1 – Nov 9, **one** was picked up within 3s (3 within 4s, 137 within
+    5s — which is why the line is 3, not 5); the fastest 5% take 5.4s. ~10 a month at every store, so not an
+    Indy fault. `isShortRingMiss()` beside `isNeverRangHangup()`: ringing **above zero** and ≤ 0.05 min, from
+    2026-11-01; reported as `short_ring_excluded` / `<store>_short_ring`. Ringing is stored at 0.01-minute
+    (0.6s) resolution. Replayed: Aug–Oct identical; November so far **Fishers 89.7 → 90.4, which crosses into
+    the $100 tier**, Bloomington 87.8 → 88.4, Indianapolis 76.7 → 77.7. My pre-build estimate said Fishers
+    91.2 — it had counted one zero-ring straight-to-voicemail call, which correctly stays a miss.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
