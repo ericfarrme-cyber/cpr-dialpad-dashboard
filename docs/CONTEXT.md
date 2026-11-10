@@ -47,6 +47,8 @@ Constants live at the top of `answer-rate-bonus/route.js`
 15s is `0.25`; writing `< 15` matches every call ever recorded and zeroes every rate.
 Expected first clean month: **September 2026**. Measured effect if it had applied:
 Jul 80.4/80.4/79.2 → 77.6/79.1/77.6 · Aug 87.5/80.4/82.0 → 85.4/79.7/80.5.
+**A caller who hangs up before any phone rings is not a miss from 2026-11** (Eric, 2026-11-10; § 10bi).
+Forward-only for the same reason as the short-call rule.
 
 ### Answer-rate bonus — AGREED DIRECTION (NOT YET IMPLEMENTED, exact table pending Eric)
 With two people per shift: **85% becomes the bonus floor, 90% is the expectation, <80% is poor performance.** Eric has NOT confirmed the exact new tier table or effective month. **Sequencing: test-call scrub first → one clean month → then re-tier.**
@@ -1457,9 +1459,15 @@ and only 1–2 of the 5 on the 11-06 board were real.
   • **Drop signature** (answered under 15s, same number back within 3 min): Indy 10, Fishers 3, Bloomington 5
     in the same window — a small real excess, ~1 a week, and those calls count as answered, so they cost no
     answer rate. Worth a Dialpad ticket only if Matt can give the exact time of one.
-  • **Open, Eric's call (payroll):** zero-ring hang-ups count as missed at every store (Indy 15, Fishers 11,
-    Bloomington 8). Excluding them forward-only would move Oct–Nov Indy 77.8 → 79.7%, Fishers 88.1 → 90.0,
-    Bloomington 89.2 → 90.5.
+  • ~~Zero-ring hang-ups count as missed~~ **FIXED 2026-11-10** (`05623fc`, payroll, Eric: *"i think thats
+    fair"*). `isNeverRangHangup()` in `lib/store-closures.js`: tagged `abandoned` **and** no ringing time,
+    from **2026-11-01** by the call's local day. Used by the bonus route and the TV route, so the wall and
+    the pay agree; reported as `never_rang_excluded` / `<store>_never_rang`. Both halves are needed —
+    `abandoned` alone also catches 12 callers since May who hung up WHILE it rang, and no-ringing alone
+    catches 15 straight-to-voicemail calls in open hours; both stay counted. Replayed against production:
+    **Aug–Oct identical, no tier moves.** November so far: **Fishers 85.2 → 89.7, Bloomington
+    87.2 → 87.8, Indianapolis 73.7 → 76.7**. ⚠ The live today-leg never writes `abandoned`, so an intraday
+    hang-up still shows as missed on the TV until next morning's export re-tags it.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
