@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
-import { indexClosures, isOutsideHours, isOutsideRegularHours, isNeverRangHangup, NEVER_RANG_EFFECTIVE_DAY } from "@/lib/store-closures";
+import { indexClosures, isOutsideHours, isOutsideRegularHours, isNeverRangHangup, NEVER_RANG_EFFECTIVE_DAY, isShortRingMiss, SHORT_RING_MAX_MINUTES } from "@/lib/store-closures";
 import { buildResolver, resolveNamePersonish } from "@/lib/roster-resolver";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -197,7 +197,8 @@ export async function GET(request) {
     var earlyCloseMissedByStore = {};
     var untaggedAfterHoursByStore = {};
     var neverRangByStore = {};
-    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; untaggedAfterHoursByStore[s] = 0; neverRangByStore[s] = 0; });
+    var shortRingByStore = {};
+    STORE_KEYS.forEach(function(s) { earlyCloseMissedByStore[s] = 0; untaggedAfterHoursByStore[s] = 0; neverRangByStore[s] = 0; shortRingByStore[s] = 0; });
 
     (missedRes.data || []).forEach(function(row) {
       if (!row.store || openMissedByStore[row.store] === undefined) return;
@@ -225,6 +226,10 @@ export async function GET(request) {
         // no closed month moves. Out of the rate on both sides — it was only
         // ever in the missed count.
         neverRangByStore[row.store] += 1;
+      } else if (isShortRingMiss(row)) {
+        // Rang 3 seconds or less — nobody answers that fast (Eric, 2026-11-10:
+        // "Yes just 3 seconds"). Same forward-only window as the line above.
+        shortRingByStore[row.store] += 1;
       } else {
         openMissedByStore[row.store] += 1;
       }
@@ -260,6 +265,8 @@ export async function GET(request) {
         // Hung up before anything rang. Excluded, and shown so it stays visible.
         never_rang_excluded: neverRangByStore[s],
         never_rang_effective_day: NEVER_RANG_EFFECTIVE_DAY,
+        short_ring_excluded: shortRingByStore[s],
+        short_ring_threshold_seconds: Math.round(SHORT_RING_MAX_MINUTES * 60),
         total_open: total,
         answer_rate: total > 0 ? Math.round(rate * 10) / 10 : null,
         tier: t.tier,
