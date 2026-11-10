@@ -1438,6 +1438,29 @@ Paycheck was right.
     names; editing #16673836 shows "General Access (as saved)" for intake and Samuel Tomey selected; no console errors.
     Still free text upstream: the sync's auto-fill from `ticket_grades.employee_repaired`, which today writes full names.
 
+10bi. **"The other phone rings late and declines itself" — MEASURED 2026-11-10, not what the board counts.**
+Sam (Indy), relayed by Matt: misses come from picking up one phone while the other rings late and drops,
+and only 1–2 of the 5 on the 11-06 board were real.
+  • **The second-phone leg is real and is never counted.** The live feed keeps Dialpad's per-handset leg for
+    the phone that did NOT answer (~470 per store since September). It starts at the **same second** as the
+    answering leg on 439 of 472 Indy calls and within 5s on the rest — **0 start later than that, at any
+    store**. It is a `user` row; the board and the bonus count `department` rows only (§ 10ae). It is what
+    shows as "missed" in Dialpad's own app.
+  • **The 11-06 five, one by one:** 10:38 both phones rang 29s, caller rang back 2 min later and was answered ·
+    10:38:09 a second caller hung up before the phone rang (0s) · 11:45 both rang 5s, caller hung up, never
+    rang back · 11:52 one tech on a call that began 9s earlier, the other phone rang 32s unanswered · 13:06
+    both rang 34s, no callback. **3 real ring-outs, 2 debatable, 0 pick-up drops.**
+  • **Indy's real gap is coverage.** Oct 8 – Nov 9: Indy **124 missed after ringing** vs Fishers 53 /
+    Bloomington 53 on near-equal volume, and **99 rang ~30s on both phones** (37 / 35). Clustered at
+    **10am 22, 1pm 25, 5–6pm 28** (Fishers 12 / 1 / 4) — opening, lunch, close. Week to week it swings
+    45 → 10 → 31, which is who is on shift, not a fixed fault. Oct 2026 was Indy's worst month (76%).
+  • **Drop signature** (answered under 15s, same number back within 3 min): Indy 10, Fishers 3, Bloomington 5
+    in the same window — a small real excess, ~1 a week, and those calls count as answered, so they cost no
+    answer rate. Worth a Dialpad ticket only if Matt can give the exact time of one.
+  • **Open, Eric's call (payroll):** zero-ring hang-ups count as missed at every store (Indy 15, Fishers 11,
+    Bloomington 8). Excluding them forward-only would move Oct–Nov Indy 77.8 → 79.7%, Fishers 88.1 → 90.0,
+    Bloomington 89.2 → 90.5.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
