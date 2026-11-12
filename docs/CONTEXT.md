@@ -1485,6 +1485,35 @@ and only 1–2 of the 5 on the 11-06 board were real.
     90.4% on 11-10 and **87.4% ($75) on 11-12**. Verified on the live board: 125 of 143 = 87%, identical to
     the bonus route; Bloomington 155/177, Indy 152/191 likewise; no console errors.
 
+10bj. **Morning Brief $2,390.96 vs RepairQ $2,035.81 for 2026-11-11 — DIAGNOSED + FIXED FORWARD 2026-11-12**
+(`16900d6`, `602a126`; Eric: *"Go ahead"*). Gap $355.15, reconciled to the cent.
+  • **$344.48 is two tablet repairs that had not closed**: #16727283 (Bloomington, Tab S9 FE, $212.44 GP, paid
+    11/7, "called customer for pickup") and #16748963 (Fishers, iPad 11", $132.04, paid 11/10, "will pick up
+    tomorrow"). Grouped by RepairQ's item type, every line type matched to the cent except **Repair - Tablet:
+    ours $491.20, RepairQ $49.99** — exactly those two. Both were graded **before** their saved close time
+    (#16727283 a day early; #16748963 at 4:54 AM before opening): the date was the promised pickup, not a close.
+  • **$10.67 is cost**: $7.50 is RepairQ's "cost adjustments", which the ticket page never shows; $3.17 is
+    inside ticket costs and cannot be placed without the per-ticket export.
+  • **Two holes, both closed.** (1) In `extension/content.js` the `<time>`-element fallback ran right after
+    the status check had discarded a date, putting one straight back — now only runs when the status is
+    "closed" or unknown, and a future close date is dropped client-side. (2) `check_graded` reported every
+    saved ticket as done, so a ticket graded while open was **never read again** after pickup.
+  • **Server rule** `closeDateProblem()` in `tickets/route.js`: drop `date_closed` when the status is not
+    "closed" or the date is later than now (Indiana wall clock, 15 min slack); logged and returned as
+    `date_closed_dropped`. 8 unit cases. `check_graded` now counts a ticket as graded **only once it has a
+    close date**, and a re-grade of a row saved with no close date refreshes its money columns (the
+    profitability import only carries closed tickets, so nothing imported can be overwritten). 25 undated
+    rows since August will be re-read by the next batch. Verified live: an undated ticket is no longer
+    reported as graded, a dated one still is.
+  • ⚠ **The extension half needs Eric to reload it in chrome://extensions** — pushing does not deploy it. The
+    server rule works without it.
+  • ⚠ **Not fixed: history.** 128 tickets since Aug ($11,546 GP; 108 in September) have a close date later than
+    their first grade. Some are genuine (re-graded after closing), some are promised dates, and the row cannot
+    tell which. **#16731679 is "closed" on 2026-11-13, tomorrow.** `tools/import-profitability.py` will NOT fix
+    this — it writes money columns only, never `date_closed`. The fix is the extension's **Re-grade Ticket
+    List** mode on those 128 numbers (list in the session scratchpad, `bad-close-dates.txt`): a re-grade
+    re-reads the date under the new rules, and an open ticket comes back undated instead of on the wrong day.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
