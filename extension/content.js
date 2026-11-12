@@ -530,12 +530,28 @@
       data.date_closed = "";
     }
     
-    // Strategy 2: Fallback to time elements
-    if (!data.date_closed) {
+    // Strategy 2: Fallback to time elements — ONLY when the ticket is closed or
+    // its status could not be read. Running it after the block above had just
+    // discarded a date put a date straight back on open tickets: on 2026-11-11
+    // two paid tablet repairs waiting for pickup were counted as that day's
+    // profit, $344.48, though RepairQ's own report left them out.
+    if (!data.date_closed && (!data.ticket_status || data.ticket_status === "closed")) {
       var dateEls = getAll("time, .ticket-date, .date-closed");
       if (dateEls.length > 0) data.date_closed = dateEls[0].getAttribute("datetime") || getText(dateEls[0]);
     }
     
+    // Nothing closes in the future. The latest date in the Summary can be the
+    // promised pickup time, which is how #16731679 arrived "closed" on 11/13
+    // while being graded on 11/10. The server applies the same rule.
+    if (data.date_closed) {
+      var closedAt = new Date(String(data.date_closed).replace(",", ""));
+      if (!isNaN(closedAt.getTime()) && closedAt.getTime() > Date.now() + 15 * 60 * 1000) {
+        console.warn("[FT-extract] Ticket " + data.ticket_number + " close date " + data.date_closed +
+          " is in the future — discarding it, the ticket has not closed.");
+        data.date_closed = "";
+      }
+    }
+
     console.log("[FT-extract] Dates -> created:", JSON.stringify(data.date_created), "closed:", JSON.stringify(data.date_closed));
 
     // ═══ DIAGNOSTICS ═══

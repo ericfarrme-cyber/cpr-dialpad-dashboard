@@ -37,6 +37,38 @@ function jsonResponse(data, status) {
   return NextResponse.json(data, { status: status || 200, headers: corsHeaders() });
 }
 
+// Why a scraped close date cannot be used, or null if it can.
+//
+// date_closed is what daily-profit (the Morning Brief) files a ticket's profit
+// under, so a wrong one moves money onto the wrong day. On 2026-11-11 two
+// tablet repairs that were paid and waiting for pickup arrived with "closed"
+// dates — #16727283 graded a day before its "close", #16748963 graded at
+// 4:54 AM before the store opened — and the Brief read $2,390.96 against
+// RepairQ's $2,035.81. 128 tickets since August carry a close date later than
+// their first grade. Two rules, both certain rather than heuristic:
+//   1. the extension read the ticket's status and it is not "closed";
+//   2. the date is later than right now — nothing closes in the future.
+// parseSafeDate runs on a UTC server, so the stored value is the store's wall
+// clock labelled UTC; "now" is compared on the same footing. 15 minutes of
+// slack covers a page clock a little ahead of ours.
+function closeDateProblem(dateClosedIso, status) {
+  if (!dateClosedIso) return null;
+  var st = String(status || "").toLowerCase().trim();
+  if (st && st !== "closed") return "ticket status is '" + st + "', not closed";
+  var parts = {};
+  new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Indiana/Indianapolis", hourCycle: "h23",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  }).formatToParts(new Date()).forEach(function(p) { parts[p.type] = p.value; });
+  var nowWall = Date.UTC(+parts.year, +parts.month - 1, +parts.day, +parts.hour, +parts.minute, +parts.second);
+  var closed = Date.parse(dateClosedIso);
+  if (!isNaN(closed) && closed > nowWall + 15 * 60 * 1000) {
+    return "close date " + dateClosedIso.slice(0, 16).replace("T", " ") + " is later than now (" +
+      new Date(nowWall).toISOString().slice(0, 16).replace("T", " ") + " Indiana)";
+  }
+  return null;
+}
+
 function parseSafeDate(val) {
   if (!val) return null;
   // Strip leading "Date:" prefix
@@ -809,6 +841,16 @@ export async function POST(request) {
         graded_by: "extension",
       };
 
+      // ── A ticket that has not closed has no close date ────────────────────
+      // Dropped loudly: logged, and returned on the response so the extension's
+      // progress window can show it. On a re-grade this also clears a bad date
+      // saved earlier, which is the point.
+      var closeProblem = closeDateProblem(record.date_closed, ticket.ticket_status);
+      if (closeProblem) {
+        console.warn("[tickets] " + record.ticket_number + ": close date dropped — " + closeProblem);
+        record.date_closed = null;
+      }
+
       // ── Do not clobber imported financials on a re-grade ──────────────────
       // RepairQ's "Profitability by Ticket" export is the source of truth for
       // money (see tools/import-profitability.py). The ticket PAGE shows the
@@ -839,7 +881,7 @@ export async function POST(request) {
         .upsert(record, { onConflict: "ticket_number" }).select();
       if (error) return jsonResponse({ success: false, error: error.message });
 
-      return jsonResponse({ success: true, grade: grade, saved: data?.[0] });
+      return jsonResponse({ success: true, grade: grade, saved: data?.[0], date_closed_dropped: closeProblem });
     } catch (err) {
       console.error("Grading error:", err);
       return jsonResponse({ success: false, error: err.message });
