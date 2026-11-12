@@ -1476,6 +1476,14 @@ and only 1–2 of the 5 on the 11-06 board were real.
     (0.6s) resolution. Replayed: Aug–Oct identical; November so far **Fishers 89.7 → 90.4, which crosses into
     the $100 tier**, Bloomington 87.8 → 88.4, Indianapolis 76.7 → 77.7. My pre-build estimate said Fishers
     91.2 — it had counted one zero-ring straight-to-voicemail call, which correctly stays a miss.
+  • **TV "Stores · This Month" now reads the bonus route's own count** (`f974550`, Eric: *"use the right bonus
+    number"*). It summed `dailyCalls`, which still counts answered calls under 15s, so Fishers read 92% in the
+    ranking beside a 90% bonus tile. Subtitle reads "Answer rate · bonus count"; falls back to the old sum,
+    labelled plainly, if the bonus response is missing or for another month. **This Week stays on the raw
+    sum** — the bonus is monthly, so there is no bonus number for a week. Also: **"Top tier locked in" →
+    "On track for top tier — hold it to month end"**, and the reason showed up within two days: Fishers was
+    90.4% on 11-10 and **87.4% ($75) on 11-12**. Verified on the live board: 125 of 143 = 87%, identical to
+    the bonus route; Bloomington 155/177, Indy 152/191 likewise; no console errors.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
