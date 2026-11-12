@@ -866,12 +866,17 @@ export async function POST(request) {
       var FINANCIAL_COLS = ["gross_sales", "gross_profit", "gpm_pct", "discount_amount", "total_cost"];
       var existingRes = await supabase
         .from("ticket_grades")
-        .select("id")
+        .select("id, date_closed")
         .eq("ticket_number", record.ticket_number)
         .limit(1);
       if (existingRes.error) return jsonResponse({ success: false, error: existingRes.error.message });
       var isRegrade = !!(existingRes.data && existingRes.data.length);
-      if (isRegrade) {
+      // A row saved with no close date was read while the ticket was still
+      // open, so its money is a snapshot of an unfinished ticket and nothing
+      // imported has replaced it (the profitability import only carries closed
+      // tickets, which have dates). Let this read refresh it.
+      var savedWhileOpen = isRegrade && !existingRes.data[0].date_closed;
+      if (isRegrade && !savedWhileOpen) {
         FINANCIAL_COLS.forEach(function(c) { delete record[c]; });
         console.log("[tickets] " + record.ticket_number +
           ": re-grade — leaving imported financials untouched (" + FINANCIAL_COLS.join(", ") + ")");
@@ -895,11 +900,17 @@ export async function POST(request) {
     var nums = Array.isArray(body.ticket_numbers) ? body.ticket_numbers : [];
     nums = nums.map(function(n) { return String(n).trim(); }).filter(Boolean);
     if (nums.length === 0) return jsonResponse({ success: true, graded: [] });
+    // A ticket saved with no close date was graded while open. Reporting it as
+    // done would mean it is never read again after the customer picks up, so
+    // it would never get a close date and its profit would never reach the
+    // Morning Brief. It is left out of "graded" so the next batch re-reads it.
     var checkRes = await supabase.from("ticket_grades")
-      .select("ticket_number")
+      .select("ticket_number, date_closed")
       .in("ticket_number", nums);
     if (checkRes.error) return jsonResponse({ success: false, error: checkRes.error.message });
-    var gradedSet = (checkRes.data || []).map(function(r) { return String(r.ticket_number); });
+    var gradedSet = (checkRes.data || [])
+      .filter(function(r) { return !!r.date_closed; })
+      .map(function(r) { return String(r.ticket_number); });
     return jsonResponse({ success: true, graded: gradedSet });
   }
 
