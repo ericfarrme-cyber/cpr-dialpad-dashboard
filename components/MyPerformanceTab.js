@@ -2987,14 +2987,15 @@ export default function MyPerformanceTab({ auth, store }) {
 
           {reviewBonus ? (
             <div>
-              {/* NOT APPROVED TO PAY. The route says payable:false and every
-                  screen rendering it has to say so — a dollar figure on a
-                  technician's own page reads as a promise. Delete this banner
-                  the day Eric signs the bonus off, and not before. */}
+              {/* The bonus is approved and runs from 2026-11 (REVIEW_BONUS_FIRST_PERIOD).
+                  These figures ARE in the Paycheck Grand Total (CONTEXT § 10be)
+                  and on the Bonus Ledger, so this banner must not say otherwise:
+                  it read "Nothing here has been added to a paycheck" until
+                  2026-11-14 while the Paycheck tab was adding it. */}
               <div style={{ ...card, marginBottom: 20, borderLeft: "3px solid var(--yellow)", padding: "12px 16px" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "var(--green)", marginBottom: 2 }}>Approved {"—"} your store has to reach 10 for any of it to pay</div>
                 <div style={{ fontSize: 11, color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                  These are the numbers the review bonus would pay under the rule as agreed. Nothing here has been added to a paycheck.
+                  These figures are already in your Paycheck total for this month. They keep moving until the month closes, and they are paid once your store reaches 10.
                 </div>
               </div>
 
