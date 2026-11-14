@@ -1531,8 +1531,14 @@ and only 1–2 of the 5 on the 11-06 board were real.
     Paycheck has included the review bonus since § 10be.
   • ⚠ **Known difference, not changed:** for a month with no tier snapshot yet, the ledger counts the tier
     multiplier as ×1 while the Paycheck applies the live tier (Alec Gold 1.25× = +$21.72). It converges when
-    the 2 December snapshot runs. Also: the Paycheck picks the review store by **roster**, the ledger by
-    **hours** — identical for all 8 people today, but they would split if someone works mostly at another store.
+    the 2 December snapshot runs.
+  • **Review bonus is NOT multiplier-eligible** (Eric, 2026-11-14) — confirmed in code, not changed: the
+    Paycheck adds it after the tier multiplier (which touches base commission only), the ledger lists it as a
+    hand-out, and the snapshot's multiplier applies to `baseTotal` only.
+  • **Paycheck review store now follows hours, like every other bonus** (`3bc7446`, Eric: *"place them the
+    same as other bonuses"*): the answer-rate bonus's `assigned_store`, roster store only as a fallback.
+    Verified live: Duncan's Paycheck **$341.16** ($64.81 base + $126.35 adv. + $50 answer rate + $100 review)
+    equals his ledger card to the cent; Luke $50 review; Alyssa no review line (Fishers at 8).
   • Seen in passing: the "View as employee" picker lists "API, Assurant ServiceNetwork", "Cat Bartholomew"
     and three "Unknown (...)" entries alongside the roster.
 
