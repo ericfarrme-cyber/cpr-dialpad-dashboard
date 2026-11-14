@@ -832,7 +832,12 @@ export default function MyPerformanceTab({ auth, store }) {
     // THE VIEWED PERSON'S STORE, not the page header's. An admin reading a
     // Bloomington technician from the Fishers header was shown Fishers' tier
     // above a banner quoting Bloomington's count -- one card, two stores.
-    var whoseStore = (myReviews && myReviews.store) || empStore;
+    //
+    // And the store the person WORKED most that month, same as the
+    // answer-rate bonus and the Bonus Ledger (Eric, 2026-11-14: "place them the
+    // same as other bonuses"). The roster store is only the fallback, for a
+    // month with no hours record.
+    var whoseStore = (answerRateBonus && answerRateBonus.assigned_store) || (myReviews && myReviews.store) || empStore;
     var st = (reviewTrack.stores || []).filter(function(x) { return x.store === whoseStore; })[0] || null;
     if (!st) return null;
     var tiers = reviewTrack.tiers || [];
@@ -877,7 +882,7 @@ export default function MyPerformanceTab({ auth, store }) {
       periodAsked: (mine && mine.period) || reviewTrack.period,
       periodMismatch: !!(mine && mine.period && reviewTrack.period && mine.period !== reviewTrack.period),
     };
-  }, [reviewTrack, myReviews, empStore]);
+  }, [reviewTrack, myReviews, empStore, answerRateBonus]);
 
   // AI Coaching generator
   var generateCoaching = async function() {
