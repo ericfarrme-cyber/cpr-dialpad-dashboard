@@ -1514,6 +1514,28 @@ and only 1–2 of the 5 on the 11-06 board were real.
     List** mode on those 128 numbers (list in the session scratchpad, `bad-close-dates.txt`): a re-grade
     re-reads the date under the new rules, and an open ticket comes back undated instead of on the wrong day.
 
+10bk. **The Bonus Ledger never showed the review bonus for the running month — FIXED 2026-11-14**
+(`3cf634f` payroll, `7715ce0` copy). Eric: *"I'm not seeing the reviews calculated on the bonus ledger."*
+  • **Cause:** the review row needed a tier score for the month, which is only written on the 2nd of the
+    next month, and it hid every $0 row. So November showed nothing while Bloomington sat at **15 ($75)** and
+    Indianapolis at **11 ($50)**. Now shown whenever the bonus is in effect and the person worked the month
+    (tier score **or** hours), at $0 too, with the count against the floor, the store tier, named credits,
+    and named credits **held** until the store reaches 10. Store = max-hours store, as for the answer rate.
+    No dollar math changed.
+  • **November so far, verified live on all three screens:** Alec $90 / Andrew $90 (Bloomington $75 + $15
+    named), Duncan $100 (Indy $50 + $50), Samuel $60, Luke $50, Aerick $0 and Alyssa $0 (Fishers at 8;
+    Alyssa $20 held), Slade $0 salaried. Ledger card totals include it (Alec $165 handed out = $75 + $90).
+    The Paycheck reads "$75.00 answer-rate bonus + $90.00 review bonus" for Alec; `my_reviews` named amounts
+    match the ledger for all 7 technicians. No console errors.
+  • **My Reviews banner corrected:** it still said "Nothing here has been added to a paycheck" although the
+    Paycheck has included the review bonus since § 10be.
+  • ⚠ **Known difference, not changed:** for a month with no tier snapshot yet, the ledger counts the tier
+    multiplier as ×1 while the Paycheck applies the live tier (Alec Gold 1.25× = +$21.72). It converges when
+    the 2 December snapshot runs. Also: the Paycheck picks the review store by **roster**, the ledger by
+    **hours** — identical for all 8 people today, but they would split if someone works mostly at another store.
+  • Seen in passing: the "View as employee" picker lists "API, Assurant ServiceNetwork", "Cat Bartholomew"
+    and three "Unknown (...)" entries alongside the roster.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
