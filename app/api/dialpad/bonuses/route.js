@@ -229,9 +229,18 @@ function reviewBonusForPeriod(ctx, period) {
   // These follow the PERSON, not the store (Duncan works three), so they are
   // summed by name across every page and added to that person's row.
   var namedByPerson = {};
+  // Credits held because the store has not reached the floor yet: no money,
+  // but the ledger says what they become the moment it does (CONTEXT § 10ay).
+  var namedHeldByPerson = {};
   rows.forEach(function(r) {
     if (r.period !== period) return;
     (r.proposed_credits || []).forEach(function(c) {
+      if (!c.amount && c.amount_if_floor_met) {
+        var hk = c.name;
+        namedHeldByPerson[hk] = namedHeldByPerson[hk] || { name: hk, amount: 0, count: 0 };
+        namedHeldByPerson[hk].amount = money(namedHeldByPerson[hk].amount + c.amount_if_floor_met);
+        namedHeldByPerson[hk].count += 1;
+      }
       if (!c.amount) return;
       var k = c.name;
       namedByPerson[k] = namedByPerson[k] || { name: k, amount: 0, count: 0, pages: {} };
@@ -241,7 +250,7 @@ function reviewBonusForPeriod(ctx, period) {
     });
   });
 
-  return { byStore: byStore, namedByPerson: namedByPerson, rows: rows };
+  return { byStore: byStore, namedByPerson: namedByPerson, namedHeldByPerson: namedHeldByPerson, rows: rows };
 }
 
 // ── Shared loader: everything one period needs ──────────────────────────────
@@ -799,35 +808,64 @@ function buildPerson(ctx, person, period, arForMonth, review, inProgress, sales,
   // because `tier_celebrations` is unique on
   // (employee_name, store, event_period, event_type) — two rows of the same
   // type would collide — so the breakdown lives in `basis` instead.
+  //
+  // Shown whenever the bonus is in effect and the person worked the month,
+  // INCLUDING at $0, so the calculation is on screen ("Fishers 8 of 10").
+  // It used to need a tier score for the month, which is only taken on the
+  // 2nd of the next month — so the running month never showed it at all
+  // (Eric, 2026-11-14: "I'm not seeing the reviews calculated on the bonus
+  // ledger", with Bloomington at 15 and Indianapolis at 11).
+  //
+  // Store = where the HOURS were (max WhenIWork hours that month), the same
+  // assignment the answer-rate bonus uses (CONTEXT § 10al); the tier store
+  // only when there is no hours record.
   var reviewByStore = (review && review.byStore) || {};
   var namedByPerson = (review && review.namedByPerson) || {};
-  var rb = store ? reviewByStore[store] : null;
+  var namedHeldByPerson = (review && review.namedHeldByPerson) || {};
+  var reviewStore = (ar && ar.assigned_store) || store;
+  var rb = reviewStore ? reviewByStore[reviewStore] : null;
   var named = namedByPerson[name] || null;
+  var heldNamed = namedHeldByPerson[name] || null;
   var tierPart = (rb && eligible) ? rb.per_employee : 0;
   var namedPart = named ? named.amount : 0;
-  if ((tierPart > 0 || namedPart > 0) && thisMonth) {
+  // Worked the month: a tier score, or hours on the schedule. Today's roster
+  // alone is not evidence of who worked a past month.
+  var workedMonth = !!(thisMonth || ar);
+  if (reviewBonusApplies(period) && workedMonth && rb) {
     var rrow = ledgerFind(ctx.ledger, name, period, "review_bonus");
+    var reviewAmt = money(tierPart + namedPart);
+    var shortBy = rb.reviews_this_month == null ? null : Math.max(0, rb.floor - rb.reviews_this_month);
     items.push({
       program: "review_bonus",
       event_type: "review_bonus",
       label: "Google review bonus",
       basis: [
-        rb ? rb.store + ": " + rb.basis : null,
-        tierPart > 0 ? "store tier $" + tierPart : null,
-        namedPart > 0 ? "named in " + named.count + " review(s) — $" + namedPart : null,
+        rb.reviews_this_month == null
+          ? rb.store + ": review count not knowable this month"
+          : rb.store + " at " + rb.reviews_this_month + " review" + (rb.reviews_this_month === 1 ? "" : "s")
+            + (shortBy > 0 ? " · " + shortBy + " more to reach " + rb.floor : ""),
+        !eligible ? "salaried · no store tier"
+          : rb.per_employee > 0 ? "store tier $" + rb.per_employee + (rb.penalty_applied ? " after the 1-star deduction" : "")
+          : rb.reviews_this_month != null && shortBy === 0 && rb.tier_pays_before_penalty > 0 ? "store tier docked to $0 by 1-star reviews"
+          : null,
+        namedPart > 0 ? "named in " + named.count + " review" + (named.count === 1 ? "" : "s") + " — $" + namedPart : null,
+        heldNamed ? "$" + heldNamed.amount + " named credit held until " + rb.store + " reaches " + rb.floor : null,
       ].filter(Boolean).join(" · "),
-      // Credited because this person has a scored month here; the roster as it
-      // stands today is not evidence of who worked a past month.
-      eligibility_basis: "scored in " + period,
-      amount: money(tierPart + namedPart),
+      eligibility_basis: thisMonth ? "scored in " + period : "hours in " + period,
+      amount: reviewAmt,
       tier_amount: money(tierPart),
       named_amount: money(namedPart),
+      named_held: heldNamed ? heldNamed.amount : 0,
+      reviews_this_month: rb.reviews_this_month,
+      floor: rb.floor,
+      review_store: rb.store,
       pto_days: 0,
       unit: "cash",
       ledger_id: rrow ? rrow.id : null,
       paid_at: rrow ? rrow.bonus_paid_at : null,
-      state: rrow ? (rrow.bonus_paid_at ? "paid" : "unpaid") : (inProgress ? "in_progress" : "unrecorded"),
+      state: rrow ? (rrow.bonus_paid_at ? "paid" : "unpaid") : reviewAmt <= 0 ? "none" : (inProgress ? "in_progress" : "unrecorded"),
       owner: "bonuses",
+      store: rb.store,
     });
   }
 
