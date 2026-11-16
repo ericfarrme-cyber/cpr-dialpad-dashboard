@@ -70,6 +70,12 @@ Full business context, personnel, comp structures, open items, and the current p
   EXISTING screen goes through `isMissingTable()` in `lib/constants.js`: a missing table degrades (and is
   reported on the payload), every other error stays loud. The first cut of the flash-sale read threw, which
   would have 500'd `/prices` for every agent until Eric pasted the migration.
+- **Every server-side `createClient()` must pass `NO_STORE_CLIENT_OPTIONS`** (`lib/no-store-fetch.js`).
+  Next.js 14 keeps GET fetch responses in its Data Cache keyed by URL, supabase-js reads are GETs,
+  and on Vercel that cache survives deploys — `force-dynamic` did not stop it. Non-Phone Repair Traffic
+  showed 69 November tickets while the table held 78: windows the app requests (6, 14 months) were
+  stale, every window nobody had requested was right. Symptom to recognise: the same route gives
+  different answers for parameters that should agree, and a never-used parameter gives the fresh one.
 - **Never call `createClient()` at module top level** in API routes — it runs at build time without env vars. Use a lazy initializer (see `lib/supabase.js`).
 - **PostgREST "Max rows" cap** is set to 100,000 in the Supabase dashboard. If any total looks clipped (~546 or ~1000 exactly), suspect the cap or a client-side `limit=`. Paginate reads that can exceed it (`.range()`, pageSize 1000, ordered).
 - **`.range()` without `.order()` returns overlapping pages.** Postgres gives no stable order without one, so page 2 repeats rows from page 1 and drops others — totals then drift between refreshes (Price & Demand read 109, 63, 93 for the same query). Every paginated read must order on a unique column; `fetchAll` in the price-demand and price-book routes makes `orderBy` a required argument for this reason.

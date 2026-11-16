@@ -1542,6 +1542,23 @@ and only 1–2 of the 5 on the 11-06 board were real.
   • Seen in passing: the "View as employee" picker lists "API, Assurant ServiceNetwork", "Cat Bartholomew"
     and three "Unknown (...)" entries alongside the roster.
 
+10bl. **Server reads were being answered from the Next.js fetch cache — FIXED 2026-11-16** (`b8b09e8`).
+Eric: RepairQ's Profitability by Item Type showed $8,351 of non-phone profit for Nov 1–15, the dashboard
+$7,392. The table held **78 tickets / $8,408.28** (within $57 of RepairQ); the tab showed **69 / $7,391.92**
+even after a reload. The route returned 78 for every window nobody had asked for (2, 3, 5, 7, 12 months)
+and stale figures for exactly the two the app requests — **6 months 69, 14 months 61** (My Performance's
+Advanced Repairs card). Next.js 14 caches GET fetches by URL and supabase-js reads are GETs. Every
+server-side client now passes `cache: "no-store"` (`lib/no-store-fetch.js`). No query or calculation
+changed. ⚠ **Which other screens were stale before the fix cannot be measured now** — the cache is
+bypassed, not inspected — and 34 routes share `lib/supabase.js`, the pay screens among them. A screen
+whose number moved after 2026-11-16 moved to the true value. Verified live: tab reads 78 / $8,408 /
+$28,715 business profit, no console errors.
+  • Remaining per-category gaps to RepairQ (consoles −$130.50, misc +$192.88) are attribution: we file the
+    whole ticket under its device, RepairQ splits each line by item type.
+  • **Separate: Nov 1–15 total profit is $28,715 here vs RepairQ $30,868 ($2,153 short)**, almost all phone
+    repairs (RepairQ phone-repair sales $39,716 vs $32,457 held) — ungraded tickets. Batch the extension
+    over Nov 1–15.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
