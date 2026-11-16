@@ -230,8 +230,11 @@ export async function GET(request) {
       var appts = [];
       if (earliest) {
         var { data: aRows, error: apErr } = await supabase.from("appointments")
-          .select("id,store,repair_price_id,appointment_date,quoted_price,price_quoted,did_arrive,ticket_number,scheduled_by")
-          .gte("appointment_date", earliest).limit(20000);
+          // `date_set` is the day the booking was MADE — the thing a sale
+          // moves. (This read first asked for `appointment_date`, a column
+          // that does not exist, and took the whole Promotions tab down.)
+          .select("id,store,repair_price_id,date_set,date_of_appt,quoted_price,price_quoted,did_arrive,ticket_number,scheduled_by")
+          .gte("date_set", earliest).limit(20000);
         if (apErr) return json({ success: false, error: apErr.message }, 500);
         appts = aRows || [];
       }
@@ -239,7 +242,7 @@ export async function GET(request) {
         var hit = appts.filter(function(a) {
           if (String(a.store || "") !== saleRow.store) return false;
           if (Number(a.repair_price_id) !== Number(saleRow.repair_price_id)) return false;
-          var d = String(a.appointment_date || "").slice(0, 10);
+          var d = String(a.date_set || a.date_of_appt || "").slice(0, 10);
           return d >= from && d <= to;
         });
         var q = hit.map(function(a) { return num(a.quoted_price); }).filter(function(x) { return x !== null; });
