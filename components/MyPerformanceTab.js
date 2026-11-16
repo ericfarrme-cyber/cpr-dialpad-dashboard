@@ -1778,7 +1778,9 @@ export default function MyPerformanceTab({ auth, store }) {
                         <td style={{ padding: "10px 12px", color: "var(--text-primary)", fontSize: 13, fontWeight: 600 }}>
                           {"\u2B50"} Google Review Bonus <span style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 500 }}>(no multiplier)</span>
                           <div style={{ color: "var(--text-muted)", fontSize: 10, fontWeight: 400, marginTop: 2 }}>
-                            {rbTier > 0 ? "Store took " + reviewBonus.gained + " reviews this month — " + fmt(rbTier) + " each" : "Store did not reach " + reviewBonus.floor}
+                            {rbTier > 0 ? "Store took " + reviewBonus.gained + " reviews this month — " + fmt(rbTier) + " each"
+                              : reviewBonus.gained !== null && reviewBonus.gained >= reviewBonus.floor ? "Store took " + reviewBonus.gained + " reviews, floor of " + reviewBonus.floor + " reached"
+                              : "Store did not reach " + reviewBonus.floor}
                             {rbNamed > 0 ? " · " + fmt(rbNamed) + " for being named in " + reviewBonus.named.length + (reviewBonus.named.length === 1 ? " review" : " reviews") : ""}
                             {rbDocked ? " · tier halved by a 1-star" : ""}
                             {!reviewBonus.gainComplete ? " · count still incomplete, so this is a floor" : ""}
@@ -1786,7 +1788,7 @@ export default function MyPerformanceTab({ auth, store }) {
                         </td>
                         <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-secondary)", fontSize: 13 }}>{reviewBonus.gained === null ? "—" : reviewBonus.gained}</td>
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-body)", fontSize: 13 }}>—</td>
-                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>flat / store tier + named</td>
+                        <td style={{ padding: "10px 12px", textAlign: "center", color: "var(--text-muted)", fontSize: 11 }}>{reviewBonus.tierMoney ? "flat / store tier + named" : "flat / named reviews"}</td>
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--yellow)", fontSize: 14, fontWeight: 700 }}>+{fmt(rbExtra)}</td>
                       </tr>
                     )}
@@ -1800,8 +1802,10 @@ export default function MyPerformanceTab({ auth, store }) {
                             ? "salaried, not on the per-employee bonuses"
                             : (reviewBonus.gained === null
                               ? "this month's review count isn't knowable yet"
-                              : "store took " + reviewBonus.gained + " of " + reviewBonus.floor
-                                + (rbHeld > 0 ? ", so " + fmt(rbHeld) + " of named credit is held" : ""))}
+                              : reviewBonus.gained >= reviewBonus.floor
+                                ? "store reached " + reviewBonus.floor + " (" + reviewBonus.gained + " reviews) — no review has named you yet this month"
+                                : "store took " + reviewBonus.gained + " of " + reviewBonus.floor
+                                  + (rbHeld > 0 ? ", so " + fmt(rbHeld) + " of named credit is held" : ""))}
                         </td>
                         <td style={{ padding: "10px 12px", textAlign: "right", color: "var(--text-muted)", fontSize: 13 }}>&mdash;</td>
                       </tr>
