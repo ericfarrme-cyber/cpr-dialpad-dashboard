@@ -162,11 +162,27 @@ export default function TVDashboard(props) {
   }, [store]);
 
   // ── Rotation timer ───────────────────────────────────────────────────
+  // Matt, 2026-11-16: "a button on the TV dashboard to scroll to the next
+  // screen — because you just have to wait". A manual jump restarts the timer
+  // (navTick), so the screen you jumped to gets its full turn.
+  var [navTick, setNavTick] = useState(0);
+  function goTo(i) {
+    setScreenIdx(((i % SCREENS.length) + SCREENS.length) % SCREENS.length);
+    setNavTick(function(n) { return n + 1; });
+  }
   useEffect(function() {
     var t = setInterval(function() {
       setScreenIdx(function(i) { return (i + 1) % SCREENS.length; });
     }, ROTATION_MS);
     return function() { clearInterval(t); };
+  }, [navTick]);
+  useEffect(function() {
+    function onKey(e) {
+      if (e.key === "ArrowRight" || e.key === " " || e.key === "PageDown") { e.preventDefault(); setScreenIdx(function(i) { return (i + 1) % SCREENS.length; }); setNavTick(function(n) { return n + 1; }); }
+      if (e.key === "ArrowLeft" || e.key === "PageUp") { e.preventDefault(); setScreenIdx(function(i) { return (i - 1 + SCREENS.length) % SCREENS.length; }); setNavTick(function(n) { return n + 1; }); }
+    }
+    window.addEventListener("keydown", onKey);
+    return function() { window.removeEventListener("keydown", onKey); };
   }, []);
 
   // ── Loading state (first boot only) ──────────────────────────────────
@@ -251,11 +267,21 @@ export default function TVDashboard(props) {
         background: "#FFFFFF",
         flexShrink: 0,
       }}>
-        <div style={{ display: "flex", gap: 10 }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {SCREENS.map(function(sc, i) {
-            return <div key={sc.label} style={{ width: 56, height: 6, borderRadius: 3,
-              background: screenIdx === i ? sc.dot : "#E5E7EB", transition: "background 0.3s" }} />;
+            // Each dot is a button: click to jump straight to that screen.
+            return <button key={sc.label} onClick={function() { goTo(i); }} aria-label={"Show " + sc.label}
+              title={sc.label}
+              style={{ border: "none", padding: "8px 0", background: "transparent", cursor: "pointer" }}>
+              <div style={{ width: 56, height: 6, borderRadius: 3,
+                background: screenIdx === i ? sc.dot : "#E5E7EB", transition: "background 0.3s" }} />
+            </button>;
           })}
+          <button onClick={function() { goTo(screenIdx + 1); }} aria-label="Next screen"
+            style={{ marginLeft: 6, border: "1px solid #E5E7EB", borderRadius: 6, background: "#FFFFFF", color: "#475569",
+              fontSize: 13, fontWeight: 700, padding: "4px 12px", cursor: "pointer" }}>
+            Next {"›"}
+          </button>
         </div>
         <FreshnessIndicator dataAge={dataAge} error={error} />
       </div>

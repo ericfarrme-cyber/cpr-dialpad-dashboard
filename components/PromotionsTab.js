@@ -22,6 +22,7 @@
 "use client";
 
 import { useState, useEffect, useMemo, useCallback } from "react";
+import { groupSales } from "@/lib/sale-groups";
 import { useAuth } from "@/components/AuthProvider";
 
 var STORES = ["fishers", "bloomington", "indianapolis"];
@@ -84,6 +85,59 @@ function btn(tone, on) {
     color: on ? tone : "var(--text-secondary)",
     border: "1px solid " + (on ? tone : "var(--border)"),
   };
+}
+
+// One card per store for a several-devices sale -- ninety cards for one
+// Black Friday sale would bury everything else on the tab.
+function SaleGroupCard(props) {
+  var m = props.members;
+  var s = m[0];
+  var [open, setOpen] = useState(false);
+  var edge = s.state === "live" ? "var(--yellow)" : s.state === "upcoming" ? "var(--cyan)" : "var(--border-heavy)";
+  var booked = m.reduce(function(a, x) { return a + (x.during ? x.during.booked : 0); }, 0);
+  var before = m.reduce(function(a, x) { return a + (x.before ? x.before.booked : 0); }, 0);
+  return (
+    <div style={card({ borderLeft: "3px solid " + edge, display: "grid", gap: 9 })}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)" }}>
+            {m.length} devices <span style={{ fontWeight: 600, color: "var(--text-secondary)" }}>· {s.repair}{s.tier ? " · " + s.tier : ""}</span>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+            {s.starts_on} to {s.ends_on}{s.created_by ? " · started by " + s.created_by : ""}
+          </div>
+        </div>
+        <div style={{ fontSize: 20, fontWeight: 900, color: "var(--yellow)" }}>{money(s.off)} off each</div>
+      </div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <Chip color={STORE_COLORS[s.store]}>{STORE_LABELS[s.store] || s.store}</Chip>
+        {s.state === "live" ? <Chip color="var(--yellow)">live</Chip> : null}
+        {s.state === "upcoming" ? <Chip color="var(--cyan)">starts {s.starts_on}</Chip> : null}
+        {s.state === "finished" ? <Chip>finished</Chip> : null}
+        {s.state === "ended" ? <Chip>ended early</Chip> : null}
+        {s.label ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{s.label}</span> : null}
+      </div>
+      <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
+        {s.state === "upcoming" ? "Not started." : booked + " booked during against these rows, " + before + " in the same number of days before."}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={function() { setOpen(!open); }} style={btn("var(--text-secondary)", false)}>{open ? "Hide" : "Show"} the {m.length} devices</button>
+        {props.onEndAll && (s.state === "live" || s.state === "upcoming") ? (
+          <button onClick={function() { props.onEndAll(m); }} style={btn("var(--text-secondary)", false)}>End all {m.length} now</button>
+        ) : null}
+      </div>
+      {open ? (
+        <div style={{ display: "grid", gap: 2, fontSize: 12 }}>
+          {m.map(function(x) {
+            return <div key={x.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, color: "var(--text-secondary)" }}>
+              <span>{x.device}</span>
+              <span style={{ fontVariantNumeric: "tabular-nums" }}>{money(x.listed_price)} → <b style={{ color: "var(--text-primary)" }}>{money(x.sale_price)}</b></span>
+            </div>;
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 // ── one sale, with what happened ────────────────────────────────────────────
@@ -230,6 +284,73 @@ export default function PromotionsTab() {
     setBusy(false);
   }
 
+  // ── one sale across many rows ($X off each row's own listed price) ────────
+  var [gf, setGf] = useState({
+    device: "", repair: "", tier: "", off: "", starts_on: today, ends_on: plusDays(today, 2),
+    stores: [], label: "", unchecked: {},
+  });
+  function gset(k, v) { setGf(function(p) { var n = Object.assign({}, p); n[k] = v; return n; }); }
+  var gMatchDevice = useMemo(function() {
+    var q = gf.device.trim().toLowerCase();
+    if (!q) return [];
+    return rows.filter(function(r) { return String(r.device || "").toLowerCase().indexOf(q) >= 0; });
+  }, [rows, gf.device]);
+  var gRepairs = useMemo(function() {
+    var s = {}; gMatchDevice.forEach(function(r) { s[r.repair] = 1; }); return Object.keys(s).sort();
+  }, [gMatchDevice]);
+  var gTiers = useMemo(function() {
+    var s = {}; gMatchDevice.forEach(function(r) { if (r.repair === gf.repair && r.tier) s[r.tier] = 1; }); return Object.keys(s).sort();
+  }, [gMatchDevice, gf.repair]);
+  var gRows = useMemo(function() {
+    if (!gf.repair) return [];
+    return gMatchDevice.filter(function(r) { return r.repair === gf.repair && (!gf.tier || r.tier === gf.tier); });
+  }, [gMatchDevice, gf.repair, gf.tier]);
+  var gOff = parseFloat(gf.off);
+  var gPicked = gRows.filter(function(r) { return !gf.unchecked[r.id]; });
+
+  async function startGroupSale() {
+    setNotice(null); setErr(null);
+    if (!gPicked.length) { setErr("Pick the rows the sale covers"); return; }
+    if (!(isFinite(gOff) && gOff > 0)) { setErr("Set how many dollars off"); return; }
+    if (!gf.stores.length) { setErr("Pick at least one store"); return; }
+    if (!gf.ends_on) { setErr("A sale needs an end date."); return; }
+    setBusy(true);
+    try {
+      var r = await af("/api/dialpad/promotions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start_group_sale", repair_price_ids: gPicked.map(function(x) { return x.id; }),
+          amount_off: gOff, starts_on: gf.starts_on, ends_on: gf.ends_on, stores: gf.stores, label: gf.label,
+        }),
+      });
+      var j = await r.json();
+      if (!j.success) throw new Error(j.error + (j.skipped && j.skipped.length ? " (" + j.skipped.length + " skipped)" : ""));
+      setNotice("Started " + j.started + " sale rows — " + money(gOff) + " off " + j.rows + " sheet rows at "
+        + j.stores.map(function(s) { return STORE_LABELS[s]; }).join(", ")
+        + (j.skipped.length ? ". Skipped " + j.skipped.length + ": " + j.skipped.slice(0, 6).map(function(k) { return (k.device || k.repair_price_id) + (k.store ? " @ " + k.store : "") + " (" + k.reason + ")"; }).join("; ") + (j.skipped.length > 6 ? "…" : "") : "")
+        + (j.ledger_written ? "" : " — but the history lines did not write"));
+      setGf({ device: "", repair: "", tier: "", off: "", starts_on: today, ends_on: plusDays(today, 2), stores: [], label: "", unchecked: {} });
+      await load();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  async function endSales(members) {
+    if (!window.confirm("End all " + members.length + " sale rows now? They stay in the history.")) return;
+    setBusy(true); setErr(null); setNotice(null);
+    try {
+      var r = await af("/api/dialpad/promotions", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "end_sales", ids: members.map(function(x) { return x.id; }) }),
+      });
+      var j = await r.json();
+      if (!j.success) throw new Error(j.error);
+      setNotice("Ended " + j.ended + ". They stay in the history.");
+      await load();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  }
+
   async function endSale(s) {
     setBusy(true); setErr(null); setNotice(null);
     try {
@@ -349,8 +470,11 @@ export default function PromotionsTab() {
         </div>
       ) : (
         <div style={{ display: "grid", gap: 9 }}>
-          {live.map(function(s) { return <SaleCard key={s.id} sale={s} onEnd={endSale} />; })}
-          {upcoming.map(function(s) { return <SaleCard key={s.id} sale={s} onEnd={endSale} />; })}
+          {groupSales(live.concat(upcoming)).map(function(m) {
+            return m.length > 1
+              ? <SaleGroupCard key={m[0].id} members={m} onEndAll={endSales} />
+              : <SaleCard key={m[0].id} sale={m[0]} onEnd={endSale} />;
+          })}
         </div>
       )}
 
@@ -442,6 +566,85 @@ export default function PromotionsTab() {
             {ready
               ? "Agents see the sale price on the row with the listed price struck through, and a quote at it is not recorded as their discount."
               : "Nothing can be saved until sql/migration_promotions.sql has been run."}
+          </span>
+        </div>
+      </div>
+
+      {/* ── one sale across several devices ── */}
+      <H2 note="a dollar amount off each row's own listed price">Sale across several devices</H2>
+      <div style={card({ display: "grid", gap: 12 })}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 10 }}>
+          <div>
+            <span style={label}>Device name contains</span>
+            <input value={gf.device} disabled={!ready} placeholder="iPhone"
+              onChange={function(e) { gset("device", e.target.value); gset("repair", ""); gset("tier", ""); gset("unchecked", {}); }} style={input} />
+          </div>
+          <div>
+            <span style={label}>Repair</span>
+            <select value={gf.repair} onChange={function(e) { gset("repair", e.target.value); gset("tier", ""); gset("unchecked", {}); }} style={input} disabled={!gRepairs.length}>
+              <option value="">{gRepairs.length ? "pick one" : "type a device first"}</option>
+              {gRepairs.map(function(x) { return <option key={x} value={x}>{x}</option>; })}
+            </select>
+          </div>
+          <div>
+            <span style={label}>Tier</span>
+            <select value={gf.tier} onChange={function(e) { gset("tier", e.target.value); gset("unchecked", {}); }} style={input} disabled={!gTiers.length}>
+              <option value="">{gTiers.length ? "every tier" : "—"}</option>
+              {gTiers.map(function(x) { return <option key={x} value={x}>{x}</option>; })}
+            </select>
+          </div>
+          <div>
+            <span style={label}>Dollars off each</span>
+            <input value={gf.off} onChange={function(e) { gset("off", e.target.value); }} inputMode="decimal" placeholder="40" style={input} />
+          </div>
+        </div>
+
+        {gRows.length ? (
+          <div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 6 }}>
+              {gPicked.length} of {gRows.length} rows ticked — untick any the sale should not cover.{" "}
+              <button onClick={function() { var u = {}; gRows.forEach(function(r) { u[r.id] = 1; }); gset("unchecked", u); }} style={btn("var(--text-muted)", false)}>untick all</button>{" "}
+              <button onClick={function() { gset("unchecked", {}); }} style={btn("var(--text-muted)", false)}>tick all</button>
+            </div>
+            <div style={{ maxHeight: 260, overflowY: "auto", border: "1px solid var(--border)", borderRadius: 8 }}>
+              {gRows.map(function(r) {
+                var on = !gf.unchecked[r.id];
+                var lp = Number(r.set_price);
+                var sp = isFinite(gOff) && gOff > 0 && isFinite(lp) ? Math.round((lp - gOff) * 100) / 100 : null;
+                return (
+                  <label key={r.id} style={{ display: "flex", gap: 8, alignItems: "center", padding: "6px 10px", fontSize: 12, borderBottom: "1px solid var(--border-light)", color: on ? "var(--text-primary)" : "var(--text-muted)", cursor: "pointer" }}>
+                    <input type="checkbox" checked={on} onChange={function() {
+                      var u = Object.assign({}, gf.unchecked); if (on) u[r.id] = 1; else delete u[r.id]; gset("unchecked", u);
+                    }} />
+                    <span style={{ flex: 1 }}>{r.device} · {r.repair}{r.tier ? " · " + r.tier : ""}</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums" }}>
+                      {r.set_price === null ? "no listed price — skipped" : sp !== null ? money(lp) + " → " + money(sp) : money(lp)}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ) : gf.repair ? <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No rows match.</div> : null}
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          <div><span style={label}>Starts</span><input type="date" value={gf.starts_on} onChange={function(e) { gset("starts_on", e.target.value); }} style={input} /></div>
+          <div><span style={label}>Ends</span><input type="date" value={gf.ends_on} onChange={function(e) { gset("ends_on", e.target.value); }} style={input} /></div>
+          <div><span style={label}>Why (shows on the TV)</span><input value={gf.label} onChange={function(e) { gset("label", e.target.value); }} placeholder="Black Friday" style={input} /></div>
+        </div>
+        <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+          {STORES.map(function(st) {
+            var on = gf.stores.indexOf(st) >= 0;
+            return <button key={st} onClick={function() { gset("stores", on ? gf.stores.filter(function(x) { return x !== st; }) : gf.stores.concat([st])); }} style={btn(STORE_COLORS[st], on)}>{STORE_LABELS[st]}</button>;
+          })}
+          <button onClick={function() { gset("stores", gf.stores.length === STORES.length ? [] : STORES.slice()); }} style={btn("var(--purple)", gf.stores.length === STORES.length)}>All three</button>
+        </div>
+        <div>
+          <button onClick={startGroupSale} disabled={busy || !ready || !gPicked.length} style={Object.assign(btn("var(--yellow)", true), { opacity: (busy || !ready || !gPicked.length) ? .45 : 1, padding: "9px 16px", fontSize: 13 })}>
+            {busy ? "Working…" : "Start " + (gPicked.length ? gPicked.length * Math.max(1, gf.stores.length) + " sale rows" : "the sale")}
+          </button>
+          <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 10 }}>
+            A row already on sale at a store in these dates is skipped and named, not overwritten.
           </span>
         </div>
       </div>

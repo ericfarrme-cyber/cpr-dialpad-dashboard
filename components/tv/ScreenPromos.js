@@ -20,6 +20,7 @@
 // message list scrolls nothing — it shows what fits and says how many it did
 // not.
 "use client";
+import { groupSales } from "@/lib/sale-groups";
 
 var STORE_LABELS = { fishers: "Fishers", bloomington: "Bloomington", indianapolis: "Indianapolis" };
 var STORE_COLORS = { fishers: "#7B2FFF", bloomington: "#FF2D95", indianapolis: "#D97706" };
@@ -106,8 +107,18 @@ export default function ScreenPromos(props) {
 
   var sales = board.sales || [];
   var messages = board.messages || [];
-  var lead = sales[0] || null;
-  var others = sales.slice(1);
+  // A several-devices sale is one row per device; the wall shows it as one
+  // sale ("iPhone · 30 models · $40 off"), not one model plus "29 more".
+  var groups = groupSales(sales);
+  var leadG = groups[0] || null;
+  var lead = leadG ? leadG[0] : null;
+  var leadMany = !!(leadG && leadG.length > 1);
+  var others = groups.slice(1);
+  function summary(g) {
+    var first = String(g[0].device || "").split(" ")[0];
+    var same = first && g.every(function(x) { return String(x.device || "").split(" ")[0] === first; });
+    return (same ? first + " · " : "") + g.length + " models";
+  }
   var shown = messages.slice(0, MAX_MESSAGES);
   var hidden = messages.length - shown.length;
 
@@ -139,25 +150,26 @@ export default function ScreenPromos(props) {
         ) : (
           <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
             <div style={{ fontSize: 44, fontWeight: 800, lineHeight: 1.1, color: SLATE, letterSpacing: "-0.5px" }}>
-              {lead.device}
+              {leadMany ? summary(leadG) : lead.device}
             </div>
             <div style={{ fontSize: 26, fontWeight: 600, color: MUTED, marginTop: 4 }}>
               {lead.repair}{lead.tier ? " · " + lead.tier : ""}
             </div>
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 18, marginTop: 18 }}>
-              {lead.listed_price !== null && lead.off > 0 ? (
+              {leadMany ? null : lead.listed_price !== null && lead.off > 0 ? (
                 <span style={{ fontSize: 34, fontWeight: 700, color: FAINT, textDecoration: "line-through",
                   fontVariantNumeric: "tabular-nums" }}>{money(lead.listed_price)}</span>
               ) : null}
               <span style={{ fontSize: 76, fontWeight: 800, color: GOLD, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-                {money(lead.sale_price)}
+                {leadMany ? money(lead.off) + " off" : money(lead.sale_price)}
               </span>
             </div>
 
             <div style={{ fontSize: 20, fontWeight: 600, color: SLATE, marginTop: 10 }}>
               {lead.turnaround ? lead.turnaround : "Standard turnaround"}
-              {lead.off > 0 ? <span style={{ color: GREEN, marginLeft: 12 }}>{money(lead.off)} off</span> : null}
+              {!leadMany && lead.off > 0 ? <span style={{ color: GREEN, marginLeft: 12 }}>{money(lead.off)} off</span> : null}
+              {leadMany ? <span style={{ color: GREEN, marginLeft: 12 }}>off each model&rsquo;s sheet price</span> : null}
             </div>
 
             <div style={{ height: 1, background: LINE, margin: "18px 0 14px" }} />
@@ -189,13 +201,14 @@ export default function ScreenPromos(props) {
                 <div style={{ fontSize: 12, letterSpacing: ".1em", textTransform: "uppercase", color: MUTED, fontWeight: 700, marginBottom: 6 }}>
                   Also on
                 </div>
-                {others.slice(0, 3).map(function(s) {
+                {others.slice(0, 3).map(function(g) {
+                  var s = g[0];
                   return (
                     <div key={s.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, fontSize: 17, padding: "3px 0" }}>
                       <span style={{ color: SLATE, fontWeight: 600, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {s.device + " · " + s.repair}
+                        {(g.length > 1 ? summary(g) : s.device) + " · " + s.repair}
                       </span>
-                      <span style={{ color: GOLD, fontWeight: 800, flex: "none", fontVariantNumeric: "tabular-nums" }}>{money(s.sale_price)}</span>
+                      <span style={{ color: GOLD, fontWeight: 800, flex: "none", fontVariantNumeric: "tabular-nums" }}>{g.length > 1 ? money(s.off) + " off" : money(s.sale_price)}</span>
                     </div>
                   );
                 })}

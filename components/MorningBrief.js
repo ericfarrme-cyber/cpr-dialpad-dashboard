@@ -492,6 +492,7 @@ export default function MorningBrief({ onGoProfitability, onGoBonuses }) {
                 })}
                 <div style={{ alignSelf: "end", fontSize: 11, color: MUTED, maxWidth: 360, lineHeight: 1.4 }}>
                   “Below average” is under what that model + repair + tier sold for over {state.discounts.baseline_months} months — the same number the booking floor uses.
+                  {state.discounts.at_sale_price > 0 ? " " + state.discounts.at_sale_price + " more rung at a running sale price — not counted as discounts." : ""}
                 </div>
               </div>
               {state.discounts.lines.length > 0 && (

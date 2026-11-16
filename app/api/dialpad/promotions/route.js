@@ -400,6 +400,95 @@ export async function POST(request) {
       });
     }
 
+    // ── one sale across many rows ─────────────────────────────────────────
+    // "$40 off every iPhone 12-and-up OLED screen, Black Friday to Sunday"
+    // (Eric + Matt, 2026-11-16) is ~30 sheet rows x 3 stores. A FIXED AMOUNT
+    // OFF each row's own listed price, never one shared price, because the
+    // rows list at different prices. Rows already on sale at a store in the
+    // window are skipped and NAMED, not 409'd -- one clash must not block
+    // the other ninety.
+    if (action === "start_group_sale") {
+      var ids = (Array.isArray(body.repair_price_ids) ? body.repair_price_ids : [])
+        .map(function(x) { return parseInt(x, 10); }).filter(Boolean);
+      ids = Object.keys(ids.reduce(function(a, x) { a[x] = 1; return a; }, {})).map(Number);
+      if (!ids.length) return json({ success: false, error: "pick at least one row" }, 400);
+      if (ids.length > 200) return json({ success: false, error: "at most 200 rows in one sale" }, 400);
+      var offAmt = num(body.amount_off);
+      if (offAmt === null || offAmt <= 0) return json({ success: false, error: "a dollar amount off is required" }, 400);
+      var gStarts = String(body.starts_on || today).slice(0, 10);
+      var gEnds = String(body.ends_on || "").slice(0, 10);
+      if (!gEnds) return json({ success: false, error: "an end date is required — a sale without one is a price change" }, 400);
+      if (gEnds < gStarts) return json({ success: false, error: "the sale ends before it starts" }, 400);
+      var gStores = (Array.isArray(body.stores) ? body.stores : [body.store])
+        .map(function(s) { return storeKeyFromName(s || ""); }).filter(Boolean);
+      gStores = Object.keys(gStores.reduce(function(a, s) { a[s] = 1; return a; }, {}));
+      if (!gStores.length) return json({ success: false, error: "at least one known store is required" }, 400);
+
+      var { data: gRows, error: gErr } = await supabase.from("repair_prices")
+        .select("id,device,repair,tier,canonical_model,canonical_repair,set_price,active").in("id", ids);
+      if (gErr) return json({ success: false, error: gErr.message }, 500);
+      var { data: gExisting, error: gxErr } = await supabase.from("repair_price_sales")
+        .select("id,repair_price_id,store,starts_on,ends_on").in("repair_price_id", ids).eq("active", true).in("store", gStores);
+      if (gxErr) return json({ success: false, error: gxErr.message }, 500);
+
+      var skipped = [], toInsert = [], rowById = {};
+      (gRows || []).forEach(function(r) { rowById[r.id] = r; });
+      ids.forEach(function(id) {
+        var r = rowById[id];
+        if (!r) { skipped.push({ repair_price_id: id, reason: "row does not exist" }); return; }
+        if (r.active === false) { skipped.push({ repair_price_id: id, device: r.device, reason: "not being offered" }); return; }
+        var lp = num(r.set_price);
+        if (lp === null) { skipped.push({ repair_price_id: id, device: r.device, reason: "no listed price to take money off" }); return; }
+        var sp = round2(lp - offAmt);
+        if (sp <= 0) { skipped.push({ repair_price_id: id, device: r.device, reason: "listed at " + lp + " — $" + offAmt + " off leaves nothing" }); return; }
+        gStores.forEach(function(s) {
+          var c = (gExisting || []).filter(function(e) {
+            return e.repair_price_id === id && e.store === s && !(e.ends_on < gStarts || e.starts_on > gEnds);
+          })[0];
+          if (c) { skipped.push({ repair_price_id: id, device: r.device, store: s, reason: "already on sale " + c.starts_on + " to " + c.ends_on }); return; }
+          toInsert.push({
+            repair_price_id: id, store: s, sale_price: sp, starts_on: gStarts, ends_on: gEnds,
+            label: body.label ? String(body.label).slice(0, 120) : null,
+            note: body.note ? String(body.note).slice(0, 500) : null,
+            created_by: who, active: true,
+          });
+        });
+      });
+      if (!toInsert.length) return json({ success: false, error: "nothing to start — every row was skipped", skipped: skipped }, 409);
+
+      var { data: gIns, error: giErr } = await supabase.from("repair_price_sales").insert(toInsert).select("*");
+      if (giErr) return json({ success: false, error: giErr.message }, 500);
+      var gBatch = (globalThis.crypto && globalThis.crypto.randomUUID) ? globalThis.crypto.randomUUID() : String(Date.now());
+      var { error: gLedErr } = await supabase.from("repair_price_changes").insert((gIns || []).map(function(s) {
+        var r = rowById[s.repair_price_id];
+        return {
+          batch_id: gBatch, repair_price_id: s.repair_price_id,
+          device: r.device, repair: r.repair, tier: r.tier,
+          canonical_model: r.canonical_model, canonical_repair: r.canonical_repair,
+          field: "sale_price", old_value: num(r.set_price), new_value: s.sale_price,
+          changed_by: who, effective_date: gStarts,
+          reason: "Sale ($" + offAmt + " off) at " + s.store + " until " + gEnds + (body.label ? " — " + String(body.label).slice(0, 80) : ""),
+        };
+      }));
+      return json({
+        success: true, started: (gIns || []).length, rows: ids.length - skipped.filter(function(k) { return !k.store; }).length,
+        stores: gStores, skipped: skipped, batch_id: gBatch,
+        ledger_written: !gLedErr, ledger_error: gLedErr ? gLedErr.message : null,
+      });
+    }
+
+    // ── end a group early (a several-devices sale is many rows) ─────────────
+    if (action === "end_sales") {
+      var endIds = (Array.isArray(body.ids) ? body.ids : []).map(function(x) { return parseInt(x, 10); }).filter(Boolean);
+      if (!endIds.length) return json({ success: false, error: "ids are required" }, 400);
+      if (endIds.length > 600) return json({ success: false, error: "too many at once" }, 400);
+      var { data: endUpd, error: euErr } = await supabase.from("repair_price_sales")
+        .update({ active: false, ended_by: who, ended_at: new Date().toISOString() })
+        .in("id", endIds).select("id");
+      if (euErr) return json({ success: false, error: euErr.message }, 500);
+      return json({ success: true, ended: (endUpd || []).length });
+    }
+
     // ── end one early ──────────────────────────────────────────────────────
     if (action === "end_sale") {
       var id = parseInt(body.id, 10);

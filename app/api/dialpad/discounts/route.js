@@ -16,6 +16,7 @@
 // set that price, not the tech.
 import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
+import { isMissingTable } from "@/lib/constants";
 import { resolveModel } from "@/lib/device-model";
 import { classifyCatalogItem, cleanCatalogName, tierOfCatalogLine, isInsuranceLine } from "@/lib/repair-type";
 import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
@@ -267,12 +268,49 @@ export async function GET(request) {
     var { data: dRoster } = await supabase.from("employee_roster").select("name,aliases,active");
     var dMap = buildResolver(dRoster || []).map;
 
+    // Sales running that day. A line rung AT a running sale price is the
+    // price management set, not the agent giving money away -- the console
+    // sale was reading as "$70 discounted, below average" on every job
+    // (2026-11-15: two PS5 HDMI lines). Matched on store + model + repair +
+    // the price actually collected, so a sale on one tier cannot excuse a
+    // discount on another price.
+    var saleHits = [];
+    var { data: sRows, error: sErr } = await supabase.from("repair_price_sales")
+      .select("repair_price_id,store,sale_price,starts_on,ends_on,active,ended_at,label")
+      .lte("starts_on", date).gte("ends_on", date).limit(2000);
+    if (sErr && !isMissingTable(sErr)) throw new Error("repair_price_sales: " + sErr.message);
+    var liveSales = (sRows || []).filter(function(r) {
+      return r.active || (r.ended_at && String(r.ended_at).slice(0, 10) > date);
+    });
+    var saleRowIds = liveSales.map(function(r) { return r.repair_price_id; });
+    var saleRowById = {};
+    if (saleRowIds.length) {
+      var { data: spr, error: sprErr } = await supabase.from("repair_prices")
+        .select("id,canonical_model,canonical_repair").in("id", saleRowIds);
+      if (sprErr) throw new Error("repair_prices: " + sprErr.message);
+      (spr || []).forEach(function(r) { saleRowById[r.id] = r; });
+    }
+    function saleFor(store, l) {
+      if (!store || !l.model) return null;
+      return liveSales.filter(function(s) {
+        var r = saleRowById[s.repair_price_id];
+        return r && s.store === store && r.canonical_model === l.model && r.canonical_repair === l.repair
+          && Math.abs(Number(s.sale_price) - l.collected) <= 0.01;
+      })[0] || null;
+    }
+
     var lines = [];
     var totalLines = 0;
     day.forEach(function(t) {
       retailLines(t).forEach(function(l) {
         totalLines++;
         if (l.discount <= 0) return;
+        var sale = saleFor((meta[t.ticket_number] || {}).store, l);
+        if (sale) {
+          saleHits.push({ ticket_number: t.ticket_number, store: (meta[t.ticket_number] || {}).store, model: l.model, repair: l.repair,
+            list: round2(l.list), collected: round2(l.collected), label: sale.label || null });
+          return;
+        }
         var b = l.key ? base[l.key] : null;
         var avg = b && b.n >= MIN_BASELINE_LINES ? round2(b.sum / b.n) : null;
         var m = meta[t.ticket_number] || {};
@@ -299,6 +337,9 @@ export async function GET(request) {
       below_avg: lines.filter(function(l) { return l.below_avg === true; }).length,
       no_baseline: lines.filter(function(l) { return l.below_avg === null; }).length,
       discount_total: round2(lines.reduce(function(s, l) { return s + l.discount; }, 0)),
+      // Rung at a running sale price: listed, never counted as a discount.
+      at_sale_price: saleHits.length,
+      sale_lines: saleHits,
       baseline_months: BASELINE_MONTHS,
       lines: lines,
     });
