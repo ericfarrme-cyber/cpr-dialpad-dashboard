@@ -1559,6 +1559,33 @@ $28,715 business profit, no console errors.
     repairs (RepairQ phone-repair sales $39,716 vs $32,457 held) — ungraded tickets. Batch the extension
     over Nov 1–15.
 
+10bm. **11-16 meeting (Eric + Matt) — plan proposed, waiting on Eric's decisions. Promotions tab FIXED**
+(`5f55b04`). The tab had shown "column appointments.appointment_date does not exist" since it shipped; the
+sale read now counts bookings by `date_set` (the day booked). Verified live: Indy sale **4 booked during vs
+1 before**.
+  • ⚠ **The console sale sits on the wrong row.** Both sales are on PS5 HDMI **"2-3 business days"**
+    ($159.99 → $129.99, row 570), but Matt sells it as **same day $129.99**, and the register rings it as
+    **$199.99 → $129.99**. So the Price Book still shows same day at $199.99, the Morning Brief counts every
+    promo job as a $70 discount "below average", and Bloomington's sale reads 0/0. Agreed in the meeting:
+    run it **through end of year** (rows end 2026-11-30). Fishers is not in it.
+  • **Agreed in the meeting, not built:** $40 off iPhone OLED screens (iPhone 12 and up) Black Friday
+    through Sunday; a click/arrow on the TV to go to the next screen; **nightly cash + card close-out**
+    (closer counts cash including coins in the RepairQ VCT, checks RepairQ's card total against Square
+    "Items" filtered by device nickname — Square **locations are mislabelled**, **device nicknames are
+    right**; the 2.8% surcharge is a service charge, not an item — writes it on the envelope and enters it
+    on the dashboard, screenshots pasted; a mismatch flags Matt that night); **Matt's every-other-Monday
+    pickup** reconciled against the RepairQ Cash Flow Summary for that store and period; **shrinkage and
+    damage uploaded by store inventory managers** — Alyssa (Fishers), Luke (Indy, Duncan can view), Alec
+    (Bloomington) — from Inventory Usage Summary (Damaged / Shrinkage tabs; the location filter defaults
+    to "3 locations selected", so the reader must reject that), with their own trend view and an admin
+    compliance view. Thresholds/consequences later. Square API to replace the screenshot if feasible.
+  • **Review bonus in question again.** Matt has NOT told staff about the $50/$75/$100 tier and told Duncan
+    the figure on screen was "the old bonus"; he wants named credits only, store floor of 10 as the gate.
+    Eric worried the tier costs ~$6k/yr for an easy bar. November so far: Fishers 10, Bloomington 17,
+    Indianapolis 12 — all three past 10 for the first time.
+  • **Fishers "9 of 12 from the Price Book":** two are Alyssa's (manager, can book blank) on 11-10; the
+    third is a March booking whose `date_set` is typed **3036-03-23**, so it sits in "last 7 days" forever.
+
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
 12. **Console demand analytics.** Keyword/device extraction from call transcripts ("how many PS5 opportunity calls in Indy this month?") surfaced on the Advanced Repair tab → answers whether the constraint is call volume (marketing) vs conversion (pricing/turnaround/phone skills).
