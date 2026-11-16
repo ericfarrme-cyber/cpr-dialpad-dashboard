@@ -1,10 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { NO_STORE_CLIENT_OPTIONS } from "@/lib/no-store-fetch";
 import { validateAuth } from "@/lib/auth";
 
 var adminClient = createClient(
   process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
+  process.env.SUPABASE_SERVICE_ROLE_KEY,
+  NO_STORE_CLIENT_OPTIONS
 );
 
 function json(data, status) {

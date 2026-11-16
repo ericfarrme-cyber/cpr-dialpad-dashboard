@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { NO_STORE_CLIENT_OPTIONS } from "@/lib/no-store-fetch";
 
 function getSupabase() {
   var url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   var key = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
   if (!url || !key) return null;
-  return createClient(url, key);
+  return createClient(url, key, NO_STORE_CLIENT_OPTIONS);
 }
 
 // WhenIWork API Route
