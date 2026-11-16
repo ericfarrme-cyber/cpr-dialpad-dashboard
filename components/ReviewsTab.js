@@ -48,7 +48,7 @@ var STORE_COLOR = { fishers: "var(--red)", bloomington: "var(--cyan)", indianapo
 var TYPE_LABEL = { main: "Main store", consoles: "Consoles", computers: "Computers", electronics: "Electronics" };
 // Fallbacks only, used if the route's payload has not arrived. The route is
 // the definition -- see tracking.tiers / tracking.floor.
-var TIERS_FALLBACK = [{ at: 10, pays: 50 }, { at: 15, pays: 75 }, { at: 20, pays: 100 }];
+var TIERS_FALLBACK = [{ at: 10, pays: 0 }];
 
 function cap(s) { return String(s || "").charAt(0).toUpperCase() + String(s || "").slice(1); }
 
@@ -145,6 +145,9 @@ export default function ReviewsTab() {
   // The tier table and the floor come from the route, which owns them.
   var TIERS = (tracking && tracking.tiers) || TIERS_FALLBACK;
   var FLOOR = (tracking && tracking.floor) || TIERS[0].at;
+  // False since 2026-11-16 (Matt's version): the store count is a floor that
+  // unlocks named credits, not a $ tier.
+  var TIER_MONEY = TIERS.some(function(t) { return t.pays > 0; });
   var THIN = (credits && credits.rules && credits.rules.thin_under) || 10;
   var stores = (tracking && tracking.stores) || [];
   var competitors = (tracking && tracking.competitors) || [];
@@ -288,11 +291,13 @@ export default function ReviewsTab() {
             : oneStarMonth + " 1\u2605 posted this month \u2014 "
               + (storesDocked
                   ? storesDocked + " store" + (storesDocked === 1 ? "" : "s") + " docked $" + dockedTotal + " each"
-                  : "no store has reached a tier, so there is nothing to halve yet")}
+                  : TIER_MONEY ? "no store has reached a tier, so there is nothing to halve yet" : "flagged, not deducted")}
         </b>{" "}
-        Every review counts toward a store&rsquo;s tier. <b style={{ color: "var(--text-primary)" }}>One 1&#9733; halves
+        {TIER_MONEY ? (<>Every review counts toward a store&rsquo;s tier. <b style={{ color: "var(--text-primary)" }}>One 1&#9733; halves
         that tier for the month; a second zeroes it.</b> The 1&#9733; still counts as a review toward the threshold &mdash;
-        one lever, not two &mdash; and the $10/$20 for being named in a review survives it.
+        one lever, not two &mdash; and the $10/$20 for being named in a review survives it.</>)
+        : (<>There is no store tier any more (Eric, 2026-11-16), so a 1&#9733; has nothing to halve. It is flagged here so
+        a manager sees it; it pays its own named employee nothing.</>)}
         {sampledPages ? (
           <div style={{ marginTop: 9, color: "var(--text-secondary)", fontSize: 12.5 }}>
             <b style={{ color: "var(--text-primary)" }}>The deduction runs on evidence.</b> Google shows us only a sample
@@ -330,7 +335,7 @@ export default function ReviewsTab() {
           { k: "Reviews this month", v: String(gainedAll),
             h: anyGainUnknown ? "company · pages with a baseline only" : "company · every page counted",
             color: anyGainUnknown ? "var(--yellow)" : "var(--text-primary)" },
-          { k: "Stores at a tier", v: String(storesAtTier),
+          { k: TIER_MONEY ? "Stores at a tier" : "Stores at the floor", v: String(storesAtTier),
             suffix: " of " + stores.length, h: "stores at or over the " + (tracking && tracking.floor || 10) + "-review floor", color: "var(--text-secondary)" },
           { k: "Credits to confirm", v: String(pendingCredits),
             h: "proposed from review text \u00b7 " + (monthLabel(creditPeriod) || "this month"), color: "var(--text-primary)" },
@@ -415,7 +420,8 @@ export default function ReviewsTab() {
                       ? <><b style={{ color: "var(--text-primary)" }}>{ones} 1★ posted this month</b>{" "}
                         {s.penalty_applied
                           ? <>— {ones === 1 ? "tier halved" : "tier zeroed"}.</>
-                          : <>— no tier reached this month, so there is nothing to halve.</>}</>
+                          : TIER_MONEY ? <>— no tier reached this month, so there is nothing to halve.</>
+                          : <>— flagged. There is no store tier any more, so it docks nothing.</>}</>
                       : <>
                           {s.flag_pages_sampled
                             ? "No 1★ this month — but " + s.flag_pages_sampled + " of this store's pages are sampled, so that is not proof."
@@ -430,7 +436,10 @@ export default function ReviewsTab() {
                       deduction landed, so the dock is visible rather than
                       baked into a smaller number. */}
                   <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-light)" }}>
-                    {tier ? (
+                    {!TIER_MONEY ? (
+                      tier ? <>Floor reached — <b style={{ color: "var(--green)" }}>named credits at this store pay this month</b></>
+                        : <>Named credits at this store are held until it reaches {FLOOR} — <b style={{ color: "var(--text-primary)" }}>{gained == null ? "count not knowable yet" : (FLOOR - gained) + " to go"}</b></>
+                    ) : tier ? (
                       s.penalty_applied ? (
                         <>
                           <span style={{ textDecoration: "line-through", opacity: .6 }}>${s.tier_pays_before_penalty}</span>{" "}
@@ -439,7 +448,7 @@ export default function ReviewsTab() {
                         </>
                       ) : <>Would pay <b style={{ color: "var(--text-primary)" }}>${s.tier_pays} each</b> — </>
                     ) : "At " + FLOOR + " reviews, $" + TIERS[0].pays + " each — "}
-                    <b style={{ color: "var(--text-primary)" }}>approved — pays when the store clears the floor</b>
+                    {TIER_MONEY ? <b style={{ color: "var(--text-primary)" }}>approved — pays when the store clears the floor</b> : null}
                   </div>
 
                   {/* Recording a 1-star from the inbox. This is what keeps the
@@ -755,7 +764,17 @@ export default function ReviewsTab() {
 
       {/* ── the rules, collapsed ── */}
       {[
-        { id: "rules", title: "How the bonus works — approved 2026-11-05, effective November", rows: [
+        { id: "rules", title: TIER_MONEY ? "How the bonus works — approved 2026-11-05, effective November" : "How the bonus works — named reviews only, from 2026-11-16", rows: !TIER_MONEY ? [
+          ["Named in the review", "The customer writes your name. Paid to the person after a manager confirms it.", "$10"],
+          ["Named on a page under 10 reviews", "A department page that is not established yet pays double. Retires itself as pages fill.", "$20"],
+          ["Two people named", "The credit splits evenly between them.", "$5 / $5"],
+          ["The store floor", "Your store has to reach 10 reviews in the month, across its four pages, or nobody's named credits pay that month. Held credits pay the moment the store clears it.", "10 reviews"],
+          ["Unnamed review", "Counts one toward the store's 10. Nothing individually.", "store count"],
+          ["A 1★", "Counts toward the 10 like any review, pays its named employee nothing, and is flagged for a manager. There is no store tier for it to halve.", "flagged"],
+          ["No store tier", "The $50 / $75 / $100 per person at 10 / 15 / 20 reviews was dropped before it ever paid (Eric, 2026-11-16) — the money follows the person a customer names.", "dropped"],
+          ["Which store you count for", "The one where you logged the most hours that month, same as the answer-rate bonus.", "most hours"],
+          ["Tier multiplier", "Does not apply. Gold and Platinum multiply per-repair commission only.", "none"],
+        ] : [
           ["Every review counts", "A review is a review. No star threshold, nothing to type in, nothing estimated — the count is the figure Google publishes, which is the one thing it reports exactly. This replaced a five-star-only rule that this data source could not measure at all.", "simple"],
           ["Store tier", "10 / 15 / 20 reviews in the month across that store's four pages. Highest tier only, paid to each eligible person — not split.", "$50 / $75 / $100"],
           ["10 pays, tell them 13", "Ten is a small number, so luck matters. A store genuinely at ten a month still lands at nine or fewer 46% of the time; at thirteen it misses twice a year. The count is exact — this is month-to-month variation, not measurement error. Counting every review rather than only five-star lowers the real bar by about a fifth, which makes ten more reachable than it was.", "by design"],

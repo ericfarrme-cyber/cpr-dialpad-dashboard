@@ -59,7 +59,7 @@ import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster
 export const dynamic = "force-dynamic";
 
 import {
-  indyToday, monthStart, TIERS, tierFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies,
+  indyToday, monthStart, TIERS, tierFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies, STORE_TIER_PAYS,
   THIN_UNDER, NAMED_MAIN, NAMED_THIN,
   SPLIT_NAMED_CREDIT, NAMED_CREDIT_NEEDS_STORE_FLOOR,
   storeGainsByMonth, storeFloorState, creditRowsFor,
@@ -431,7 +431,9 @@ export async function GET(request) {
       // tier). `penalty_pending` is the honest version of that state: the
       // deduction is on the books and will bite if they reach the floor.
       st.penalty_applied = st.penalty_factor < 1 && st.tier_pays_before_penalty > 0;
-      st.penalty_pending = st.penalty_factor < 1 && st.tier_pays_before_penalty === 0;
+      // With no store tier money (STORE_TIER_PAYS false) there is nothing a
+      // 1-star could ever halve, so it is never "pending" either.
+      st.penalty_pending = STORE_TIER_PAYS && st.penalty_factor < 1 && st.tier_pays_before_penalty === 0;
       st.penalty_reason = st.penalty_applied
         ? (st.one_star_this_month === 1 ? "one 1-star this month — tier halved"
            : st.one_star_this_month + " 1-star reviews this month — tier zeroed")

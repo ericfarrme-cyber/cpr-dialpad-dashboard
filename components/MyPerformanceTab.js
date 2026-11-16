@@ -852,6 +852,9 @@ export default function MyPerformanceTab({ auth, store }) {
       tiers: tiers,
       floor: floor,
       next: next,
+      // False since 2026-11-16 (Matt's version): the store count is only a
+      // floor that unlocks named credits, so the card must not show a $ tier.
+      tierMoney: tiers.some(function(t) { return t.pays > 0; }),
       gained: gained,
       // An incomplete gain must never be read as a tier. The route already
       // refuses to call it complete; this just carries the reason through.
@@ -3009,8 +3012,21 @@ export default function MyPerformanceTab({ auth, store }) {
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16, gap: 16, flexWrap: "wrap" }}>
                   <div>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>
-                      Your store{"’"}s review bonus {"·"} {reviewBonus.period}
+                      {reviewBonus.tierMoney ? "Your store’s review bonus" : "Your store’s floor"} {"·"} {reviewBonus.period}
                     </div>
+                    {!reviewBonus.tierMoney ? (
+                      <div>
+                        <div style={{ fontSize: 28, fontWeight: 900, color: reviewBonus.gained !== null && reviewBonus.gained >= reviewBonus.floor ? "var(--green)" : "var(--yellow)" }}>
+                          {reviewBonus.gained === null ? "Not knowable yet"
+                            : reviewBonus.gained >= reviewBonus.floor ? "Reached"
+                            : (reviewBonus.floor - reviewBonus.gained) + " to go"}
+                        </div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>
+                          Your named reviews pay only once the store reaches {reviewBonus.floor} reviews this month.
+                        </div>
+                      </div>
+                    ) : (
+                    <div>
                     <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
                       {/* BOTH figures always travel. A card showing only the
                           final number cannot tell "missed the threshold" from
@@ -3026,6 +3042,8 @@ export default function MyPerformanceTab({ auth, store }) {
                       </span>
                     </div>
                     <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>to each eligible person at this store</div>
+                    </div>
+                    )}
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 10, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>Reviews this month</div>
@@ -3045,14 +3063,16 @@ export default function MyPerformanceTab({ auth, store }) {
                     <div style={{ marginBottom: 14 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "var(--text-secondary)", marginBottom: 4 }}>
                         <span>{g} review{g === 1 ? "" : "s"}</span>
-                        <span>{reviewBonus.next ? reviewBonus.next.at + " pays " + fmt(reviewBonus.next.pays) : "top tier reached"}</span>
+                        <span>{!reviewBonus.tierMoney
+                          ? (g >= reviewBonus.floor ? "floor reached" : "floor: " + reviewBonus.floor)
+                          : reviewBonus.next ? reviewBonus.next.at + " pays " + fmt(reviewBonus.next.pays) : "top tier reached"}</span>
                       </div>
                       <div style={{ background: "var(--bg-card-inner)", borderRadius: 4, height: 8, overflow: "hidden" }}>
                         <div style={{ width: pct + "%", height: "100%", borderRadius: 4, background: g >= reviewBonus.floor ? "var(--green)" : "var(--yellow)" }} />
                       </div>
                       {reviewBonus.next && (
                         <div style={{ fontSize: 11, color: g >= reviewBonus.floor ? "var(--text-secondary)" : "var(--yellow)", marginTop: 4 }}>
-                          {reviewBonus.next.at - g} more to {g >= reviewBonus.floor ? "reach " + fmt(reviewBonus.next.pays) : "clear the floor"}
+                          {reviewBonus.next.at - g} more to {g >= reviewBonus.floor ? "reach " + fmt(reviewBonus.next.pays) : reviewBonus.tierMoney ? "clear the floor" : "unlock named credits"}
                           {g < reviewBonus.floor ? " · aim for " + (reviewBonus.floor + 3) + " to clear it most months" : ""}
                         </div>
                       )}
@@ -3061,7 +3081,7 @@ export default function MyPerformanceTab({ auth, store }) {
                 })()}
 
                 {/* The tier table, from the route — never a second copy */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.max(1, reviewBonus.tiers.length) + ", 1fr)", gap: 10 }}>
+                {reviewBonus.tierMoney && <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.max(1, reviewBonus.tiers.length) + ", 1fr)", gap: 10 }}>
                   {reviewBonus.tiers.map(function(t) {
                     var hit = reviewBonus.gained !== null && reviewBonus.gained >= t.at;
                     var isCurrent = reviewBonus.store.tier_at === t.at;
@@ -3073,7 +3093,7 @@ export default function MyPerformanceTab({ auth, store }) {
                       </div>
                     );
                   })}
-                </div>
+                </div>}
 
                 {/* A 1-star. Applied vs pending, never conflated. */}
                 {reviewBonus.store.penalty_reason && (

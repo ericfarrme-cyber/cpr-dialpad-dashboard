@@ -64,7 +64,7 @@ var YEAR_EVENT_TYPES = ["diamond_plaque"];
 // far apart would be a guess wearing a decimal point, so Eric sets the figure
 // per month until the category diagnostic (open item 11) settles the base.
 import {
-  TIERS, tierFor, storeGainsByMonth, creditRowsFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies,
+  TIERS, tierFor, storeGainsByMonth, creditRowsFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies, STORE_TIER_PAYS,
   penaltyFactor, dedupeListings,
 } from "@/lib/review-bonus";
 
@@ -215,12 +215,12 @@ function reviewBonusForPeriod(ctx, period) {
       // different conversations with a store manager.
       per_employee: money(before * factor),
       penalty_applied: bad > 0 && before > 0,
-      penalty_pending: bad > 0 && before === 0,
+      penalty_pending: STORE_TIER_PAYS && bad > 0 && before === 0,
       basis: !inEffect
         ? "the review bonus starts " + REVIEW_BONUS_FIRST_PERIOD + "; " + period + " is not eligible"
         : gained === null
         ? "no pre-month reading, so " + st + "'s " + period + " count is not knowable"
-        : gained + " reviews in " + period + (tier ? " \u2014 tier $" + before : " \u2014 under the " + REVIEW_FLOOR + " floor")
+        : gained + " reviews in " + period + (tier ? (STORE_TIER_PAYS ? " \u2014 tier $" + before : " \u2014 floor reached, named credits pay") : " \u2014 under the " + REVIEW_FLOOR + " floor")
           + (bad > 0 ? " \u2014 " + bad + " one-star, tier \u00d7" + factor : ""),
     };
   });
@@ -1080,8 +1080,11 @@ function programStatuses(period, arForMonth, review, roster, ctx, sales, adv) {
         ? "No snapshot before " + monthLabel(period) + " began, so no store's count is knowable that month. This is 'not measurable', not 'nothing earned'."
         : reviewStores.length + " of 3 stores counted: " + reviewStores.map(function(k) {
             return k + " " + reviewByStore[k].reviews_this_month;
-          }).join(", ") + ". Tier " + TIERS.map(function(t) { return t.at + "→$" + t.pays; }).join(" / ")
-          + " per eligible person, plus $10/$20 for being named. One 1-star halves the tier, a second zeroes it.",
+          }).join(", ") + ". "
+          + (STORE_TIER_PAYS
+            ? "Tier " + TIERS.map(function(t) { return t.at + "→$" + t.pays; }).join(" / ")
+              + " per eligible person, plus $10/$20 for being named. One 1-star halves the tier, a second zeroes it."
+            : "Named reviews only: $10 when a customer names you, $20 on a page under 10 reviews, split evenly between the people named. Nothing pays unless the store reaches " + REVIEW_FLOOR + " reviews that month (Eric, 2026-11-16)."),
       source: "google_review_snapshots + google_review_items (synced)",
     },
     {
