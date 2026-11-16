@@ -1584,7 +1584,19 @@ sale read now counts bookings by `date_set` (the day booked). Verified live: Ind
     Eric worried the tier costs ~$6k/yr for an easy bar. November so far: Fishers 10, Bloomington 17,
     Indianapolis 12 — all three past 10 for the first time.
   • **Fishers "9 of 12 from the Price Book":** two are Alyssa's (manager, can book blank) on 11-10; the
-    third is a March booking whose `date_set` is typed **3036-03-23**, so it sits in "last 7 days" forever.
+    third is a March booking whose `date_set` was typed **3036-03-23** — corrected to 2026-03-23 on Eric's
+    OK, the card now reads 9 of 11.
+  • **Eric's answers, same day:** (1) **review bonus = Matt's version** — SHIPPED (`ce979fa`, `60fbdd9`,
+    payroll): `STORE_TIER_PAYS = false` in `lib/review-bonus.js`, TIERS is now the floor only
+    `[{at:10, pays:0}]`; named credits $10 / $20 / $5-$5 unchanged and still gated on the store reaching 10.
+    Alec's November Paycheck review line went $90 → **$15**. ⚠ A 1★ now has no tier to halve, so it is
+    flagged, not deducted — whether it should touch named credits is Eric's call. (2) **close-out tolerance
+    $10** (cash and card). (3) Square API: "maybe, walk me through it". (4) console sale moved — **PS5 HDMI
+    Same day $199.99 → $129.99, Bloomington + Indianapolis, 11-16 to 12-31**; the two 2-3 day rows ended.
+    Fishers not added (not asked). (5) **Black Friday: $40 off 26 iPhone OLED rows (12 and up, incl. 16e,
+    17e, Air), all three stores, 11-27 to 11-29 = 78 sale rows**, entered through the new several-devices
+    form (`e08d191`). Same commit: Discounts card no longer counts a line rung at a live sale price (11-15:
+    10 → 8 discounted, $371.34 → $231.34), and the TV has clickable dots, a Next button and arrow keys.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
