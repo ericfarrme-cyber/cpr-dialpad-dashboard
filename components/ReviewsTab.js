@@ -716,6 +716,13 @@ export default function ReviewsTab() {
                             if (c.amount_if_floor_met > 0) return c.name + " · $" + c.amount_if_floor_met + " held (" + c.blocked + ")";
                             return c.name + " · no credit (" + c.blocked + ")";
                           }).join(" · ")}
+                      {/* A near-miss spelling ("Dunkin"): a hint for the
+                          person confirming, never a credit. */}
+                      {(it.possible_names || []).length ? (
+                        <span style={{ display: "block", marginTop: 3, color: "var(--orange)" }}>
+                          possibly {it.possible_names.map(function(p) { return p.name + " (“" + p.word + "”)"; }).join(" or ")}? — not credited until that spelling is added
+                        </span>
+                      ) : null}
                     </span>
                     <span style={{ display: "flex", gap: 6 }}>
                       {(pays.length || held.length) && !done ? (
