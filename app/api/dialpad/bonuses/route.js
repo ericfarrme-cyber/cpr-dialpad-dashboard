@@ -39,6 +39,7 @@
 // GET  ?action=statement&period=YYYY-MM the monthly note, as text
 // POST  mark_paid / unmark_paid / record_payment / mark_month_paid
 import { NextResponse } from "next/server";
+import { loadCreditDecisions } from "@/lib/review-decisions";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { GET as answerRateGET } from "../answer-rate-bonus/route";
@@ -187,7 +188,7 @@ function reviewBonusForPeriod(ctx, period) {
 
   var gains = storeGainsByMonth(ctx.snapshots || [], listings);
   var items = ctx.reviewItems || [];
-  var rows = creditRowsFor(items, lById, totalById, ctx.roster || [], gains);
+  var rows = creditRowsFor(items, lById, totalById, ctx.roster || [], gains, ctx.creditDecisions ? ctx.creditDecisions.map : null);
 
   // ── the store tier, after the 1-star deduction ──
   var byStore = {};
@@ -232,10 +233,18 @@ function reviewBonusForPeriod(ctx, period) {
   // Credits held because the store has not reached the floor yet: no money,
   // but the ledger says what they become the moment it does (CONTEXT § 10ay).
   var namedHeldByPerson = {};
+  // Credits the store floor has released but no manager has confirmed yet.
+  var namedAwaitingByPerson = {};
   rows.forEach(function(r) {
     if (r.period !== period) return;
     (r.proposed_credits || []).forEach(function(c) {
-      if (!c.amount && c.amount_if_floor_met) {
+      if (c.held_for === "confirmation") {
+        var ak = c.name;
+        namedAwaitingByPerson[ak] = namedAwaitingByPerson[ak] || { name: ak, amount: 0, count: 0 };
+        namedAwaitingByPerson[ak].amount = money(namedAwaitingByPerson[ak].amount + c.amount_awaiting_confirmation);
+        namedAwaitingByPerson[ak].count += 1;
+      }
+      if (c.held_for === "floor") {
         var hk = c.name;
         namedHeldByPerson[hk] = namedHeldByPerson[hk] || { name: hk, amount: 0, count: 0 };
         namedHeldByPerson[hk].amount = money(namedHeldByPerson[hk].amount + c.amount_if_floor_met);
@@ -250,7 +259,7 @@ function reviewBonusForPeriod(ctx, period) {
     });
   });
 
-  return { byStore: byStore, namedByPerson: namedByPerson, namedHeldByPerson: namedHeldByPerson, rows: rows };
+  return { byStore: byStore, namedByPerson: namedByPerson, namedHeldByPerson: namedHeldByPerson, namedAwaitingByPerson: namedAwaitingByPerson, rows: rows };
 }
 
 // ── Shared loader: everything one period needs ──────────────────────────────
@@ -322,6 +331,10 @@ async function loadPeriod(period) {
     .select("id,listing_id,rating,author,text,has_photo,posted_at,first_seen_at").limit(5000);
   if (itRes.error) throw new Error("Review items load failed: " + itRes.error.message);
   out.reviewItems = itRes.data || [];
+  // Manager confirmations: a named credit pays only once confirmed (Eric,
+  // 2026-11-20). Same loader as the Reviews tab, so the queue and the payout
+  // read the same decisions.
+  out.creditDecisions = await loadCreditDecisions(supabase);
 
   return out;
 }
@@ -826,6 +839,7 @@ function buildPerson(ctx, person, period, arForMonth, review, inProgress, sales,
   var rb = reviewStore ? reviewByStore[reviewStore] : null;
   var named = namedByPerson[name] || null;
   var heldNamed = namedHeldByPerson[name] || null;
+  var awaitingNamed = ((review && review.namedAwaitingByPerson) || {})[name] || null;
   var tierPart = (rb && eligible) ? rb.per_employee : 0;
   var namedPart = named ? named.amount : 0;
   // Worked the month: a tier score, or hours on the schedule. Today's roster
@@ -850,12 +864,14 @@ function buildPerson(ctx, person, period, arForMonth, review, inProgress, sales,
           : null,
         namedPart > 0 ? "named in " + named.count + " review" + (named.count === 1 ? "" : "s") + " — $" + namedPart : null,
         heldNamed ? "$" + heldNamed.amount + " named credit held until " + rb.store + " reaches " + rb.floor : null,
+        awaitingNamed ? "$" + awaitingNamed.amount + " in " + awaitingNamed.count + " review" + (awaitingNamed.count === 1 ? "" : "s") + " waiting for a manager to confirm on the Reviews tab" : null,
       ].filter(Boolean).join(" · "),
       eligibility_basis: thisMonth ? "scored in " + period : "hours in " + period,
       amount: reviewAmt,
       tier_amount: money(tierPart),
       named_amount: money(namedPart),
       named_held: heldNamed ? heldNamed.amount : 0,
+      named_awaiting_confirmation: awaitingNamed ? awaitingNamed.amount : 0,
       reviews_this_month: rb.reviews_this_month,
       floor: rb.floor,
       review_store: rb.store,

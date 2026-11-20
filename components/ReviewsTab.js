@@ -97,6 +97,12 @@ function Chip(props) {
   );
 }
 
+function smallBtn(color) {
+  return { fontSize: 11, padding: "4px 10px", borderRadius: 7, cursor: "pointer",
+    background: "var(--bg-card-inner)", color: color, border: "1px solid var(--border)",
+    fontFamily: "'Space Grotesk', sans-serif" };
+}
+
 export default function ReviewsTab() {
   var authCtx = useAuth();
   var af = authCtx && authCtx.authFetch ? authCtx.authFetch : fetch;
@@ -104,7 +110,12 @@ export default function ReviewsTab() {
   var [credits, setCredits] = useState(null);
   var [err, setErr] = useState(null);
   var [loading, setLoading] = useState(true);
-  var [acted, setActed] = useState({});
+  // Saved decisions (review_credit_decisions). Before 2026-11-20 this was a
+  // local-only `acted` map: Confirm changed the page and saved nothing, and
+  // the ledger paid every proposed credit regardless.
+  var [reloadTick, setReloadTick] = useState(0);
+  var [deciding, setDeciding] = useState(null);
+  var [decideErr, setDecideErr] = useState(null);
   var [copied, setCopied] = useState(null);
   var [openPanel, setOpenPanel] = useState(null);
   var [recStore, setRecStore] = useState(null);           // store key the form is open for
@@ -136,7 +147,21 @@ export default function ReviewsTab() {
       setLoading(false);
     });
     return function() { alive = false; };
-  }, [af, creditMonth]);
+  }, [af, creditMonth, reloadTick]);
+
+  async function decide(itemId, name, status) {
+    setDeciding(itemId + "|" + name); setDecideErr(null);
+    try {
+      var r = await af("/api/dialpad/google-tracking", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "decide_credit", review_item_id: itemId, employee_name: name, status: status }),
+      });
+      var j = await r.json();
+      if (!j.success) throw new Error(j.error || "could not save");
+      setReloadTick(function(n) { return n + 1; });
+    } catch (e) { setDecideErr(e.message); }
+    setDeciding(null);
+  }
 
   if (loading) {
     return <div style={{ padding: 40, textAlign: "center", color: "var(--text-muted)", fontSize: 13 }}>Loading review tracking…</div>;
@@ -175,7 +200,7 @@ export default function ReviewsTab() {
   // this file has already had twice.
   function worthWorking(c) { return c.amount > 0 || c.amount_if_floor_met > 0; }
   var pendingCredits = items.filter(function(it) {
-    return !acted[it.id] && (it.proposed_credits || []).some(worthWorking);
+    return (it.proposed_credits || []).some(function(c) { return worthWorking(c) && c.confirmation === "pending"; });
   }).length;
 
   // The credit queue is one month at a time. These drive the month picker and
@@ -666,6 +691,22 @@ export default function ReviewsTab() {
           </div>
         ) : null}
 
+        {/* Confirmation is what releases the money (Eric, 2026-11-20). Say
+            so here, and say loudly when it cannot be saved yet. */}
+        {credits && credits.decisions_available === false ? (
+          <div style={card({ marginBottom: 10, borderLeft: "3px solid var(--orange)", fontSize: 12.5, color: "var(--text-secondary)" })}>
+            <b style={{ color: "var(--orange)" }}>Confirmations can't be saved yet.</b> {credits.decisions_note}
+          </div>
+        ) : credits && credits.month_awaiting_confirmation > 0 ? (
+          <div style={{ fontSize: 12, color: "var(--text-secondary)", marginBottom: 10 }}>
+            <b style={{ color: "var(--orange)" }}>${credits.month_amount_awaiting_confirmation}</b> in {credits.month_awaiting_confirmation} credit{credits.month_awaiting_confirmation === 1 ? "" : "s"} waiting for you to confirm.
+            A named credit pays only once it is confirmed here — the Bonus Ledger and each technician's Paycheck count confirmed credits only.
+          </div>
+        ) : null}
+        {decideErr ? (
+          <div style={card({ marginBottom: 10, borderLeft: "3px solid var(--red)", fontSize: 12.5, color: "var(--red)" })}>{decideErr}</div>
+        ) : null}
+
         {items.length === 0 ? (
           <div style={card({ fontSize: 13, color: "var(--text-secondary)" })}>
             No review text captured for {monthLabel(creditPeriod) || "this month"}.
@@ -680,7 +721,8 @@ export default function ReviewsTab() {
               var pays = (it.proposed_credits || []).filter(function(c) { return c.amount > 0; });
               var held = (it.proposed_credits || []).filter(function(c) { return c.amount === 0 && c.amount_if_floor_met > 0; });
               var named = (it.proposed_credits || []);
-              var done = !!acted[it.id];
+              var undecided = named.filter(function(c) { return worthWorking(c) && c.confirmation === "pending"; });
+              var done = named.length ? undecided.length === 0 : !!it.acknowledged;
               var edge = it.rating === 1 || it.rating === 2 ? "var(--red)"
                 : it.counts_for_tier ? "var(--green)" : "var(--border-heavy)";
               return (
@@ -703,42 +745,61 @@ export default function ReviewsTab() {
                       &ldquo;{it.text.length > 320 ? it.text.slice(0, 320) + "…" : it.text}&rdquo;
                     </p>
                   ) : null}
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11.5, color: pays.length ? "var(--cyan)" : (held.length ? "var(--yellow)" : "var(--text-muted)") }}>
-                      {named.length === 0
-                        ? "→ names nobody on the roster — counts toward the store total only"
-                        : named.map(function(c) {
-                            if (c.amount > 0) return c.name + " · $" + c.amount + (c.shared_with > 1 ? " (split " + c.shared_with + ")" : "");
-                            // HELD is not REFUSED. A credit the store's own
-                            // review count is holding back reads as the dollar
-                            // figure it is worth, struck through in words, with
-                            // the store named -- not as "no credit".
-                            if (c.amount_if_floor_met > 0) return c.name + " · $" + c.amount_if_floor_met + " held (" + c.blocked + ")";
-                            return c.name + " · no credit (" + c.blocked + ")";
-                          }).join(" · ")}
-                      {/* A near-miss spelling ("Dunkin"): a hint for the
-                          person confirming, never a credit. */}
-                      {(it.possible_names || []).length ? (
-                        <span style={{ display: "block", marginTop: 3, color: "var(--orange)" }}>
-                          possibly {it.possible_names.map(function(p) { return p.name + " (“" + p.word + "”)"; }).join(" or ")}? — not credited until that spelling is added
+                  {/* One line per person the review names: a decision is per
+                      person, because a review can name two and only one of
+                      them may be right. Nothing pays until it says confirmed. */}
+                  {named.length === 0 ? (
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                        → names nobody on the roster — counts toward the store total only
+                        {(it.possible_names || []).length ? (
+                          <span style={{ display: "block", marginTop: 3, color: "var(--orange)" }}>
+                            possibly {it.possible_names.map(function(p) { return p.name + " (\u201c" + p.word + "\u201d)"; }).join(" or ")}? — not credited until that spelling is added
+                          </span>
+                        ) : null}
+                      </span>
+                      {it.acknowledged ? (
+                        <span style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 11, color: "var(--text-muted)" }}>
+                          acknowledged
+                          <button onClick={function() { decide(it.id, "", "clear"); }} disabled={!!deciding} style={smallBtn("var(--text-muted)")}>undo</button>
                         </span>
-                      ) : null}
+                      ) : (
+                        <button onClick={function() { decide(it.id, "", "acknowledged"); }} disabled={!!deciding} style={smallBtn("var(--text-secondary)")}>Acknowledge</button>
+                      )}
+                    </div>
+                  ) : named.map(function(c) {
+                    var key = it.id + "|" + c.name;
+                    var amt = c.amount > 0 ? c.amount : (c.amount_awaiting_confirmation || c.amount_if_floor_met || 0);
+                    var split = c.shared_with > 1 ? " (split " + c.shared_with + ")" : "";
+                    var line = c.confirmation === "rejected" ? c.name + " · not them" + (c.decided_by ? " (" + c.decided_by + ")" : "")
+                      : c.amount > 0 ? c.name + " · $" + c.amount + split + " · confirmed" + (c.decided_by ? " by " + c.decided_by : "")
+                      : c.held_for === "confirmation" ? c.name + " · $" + amt + split + " · waiting for you to confirm"
+                      : c.held_for === "floor" ? c.name + " · $" + amt + " held (" + c.blocked + ")" + (c.confirmation === "confirmed" ? " · confirmed" : "")
+                      : c.name + " · no credit (" + c.blocked + ")";
+                    var color = c.amount > 0 ? "var(--cyan)" : c.held_for === "confirmation" ? "var(--orange)" : c.held_for === "floor" ? "var(--yellow)" : "var(--text-muted)";
+                    var canDecide = worthWorking(c) || c.held_for === "confirmation";
+                    return (
+                      <div key={key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 11.5, color: color }}>{line}</span>
+                        <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          {deciding === key ? <span style={{ fontSize: 11, color: "var(--text-muted)" }}>saving…</span>
+                            : c.confirmation === "pending" && canDecide ? (
+                              <>
+                                <button onClick={function() { decide(it.id, c.name, "confirmed"); }} disabled={!!deciding} style={smallBtn("var(--green)")}>Confirm</button>
+                                <button onClick={function() { decide(it.id, c.name, "rejected"); }} disabled={!!deciding} style={smallBtn("var(--text-secondary)")}>Not them</button>
+                              </>
+                            ) : c.confirmation !== "pending" ? (
+                              <button onClick={function() { decide(it.id, c.name, "clear"); }} disabled={!!deciding} style={smallBtn("var(--text-muted)")}>undo</button>
+                            ) : null}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {named.length && (it.possible_names || []).length ? (
+                    <span style={{ fontSize: 11.5, color: "var(--orange)" }}>
+                      possibly also {it.possible_names.map(function(p) { return p.name + " (\u201c" + p.word + "\u201d)"; }).join(" or ")}? — not credited until that spelling is added
                     </span>
-                    <span style={{ display: "flex", gap: 6 }}>
-                      {(pays.length || held.length) && !done ? (
-                        <button onClick={function() { setActed(function(a) { var n = Object.assign({}, a); n[it.id] = "ok"; return n; }); }}
-                          style={{ fontSize: 11, padding: "4px 10px", borderRadius: 7, cursor: "pointer",
-                            background: "var(--bg-card-inner)", color: "var(--green)", border: "1px solid " + tint("var(--green)", 42),
-                            fontFamily: "'Space Grotesk', sans-serif" }}>Confirm</button>
-                      ) : null}
-                      {!done ? (
-                        <button onClick={function() { setActed(function(a) { var n = Object.assign({}, a); n[it.id] = "no"; return n; }); }}
-                          style={{ fontSize: 11, padding: "4px 10px", borderRadius: 7, cursor: "pointer",
-                            background: "var(--bg-card-inner)", color: "var(--text-secondary)", border: "1px solid var(--border)",
-                            fontFamily: "'Space Grotesk', sans-serif" }}>{(pays.length || held.length) ? "Not them" : "Acknowledge"}</button>
-                      ) : <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{acted[it.id] === "ok" ? "confirmed" : "acknowledged"}</span>}
-                    </span>
-                  </div>
+                  ) : null}
                 </div>
               );
             })}

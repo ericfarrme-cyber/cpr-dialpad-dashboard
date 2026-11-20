@@ -53,6 +53,8 @@ import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { placeLooksLikeOurs, searchQueryFor } from "@/lib/place-match";
 import { creditReview } from "@/lib/review-credit";
+import { loadCreditDecisions } from "@/lib/review-decisions";
+import { isMissingTable } from "@/lib/constants";
 import { normalizeReview, reconcile, sweepStatus } from "@/lib/gbp-reviews";
 import { buildResolver, resolveNamePersonish, isSystemActor } from "@/lib/roster-resolver";
 
@@ -62,7 +64,7 @@ import {
   indyToday, monthStart, TIERS, tierFor, REVIEW_BONUS_FIRST_PERIOD, reviewBonusApplies, STORE_TIER_PAYS,
   THIN_UNDER, NAMED_MAIN, NAMED_THIN,
   SPLIT_NAMED_CREDIT, NAMED_CREDIT_NEEDS_STORE_FLOOR,
-  storeGainsByMonth, storeFloorState, creditRowsFor,
+  storeGainsByMonth, storeFloorState, creditRowsFor, NAMED_CREDIT_NEEDS_CONFIRMATION, decisionKey,
   PENALTY_AT_OR_BELOW, PENALTY_STEPS, penaltyFactor,
   dedupeListings, oneStarWatch,
 } from "@/lib/review-bonus";
@@ -827,7 +829,8 @@ export async function GET(request) {
 
     // Same rule object as the manager's queue, by construction.
     var mrGains = storeGainsByMonth(mrSnap, mrL);
-    var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive, mrGains);
+    var mrDec = await loadCreditDecisions(supabase);
+    var mrRows = creditRowsFor(mrItems, mrById, mrTotal, mrActive, mrGains, mrDec.map);
     var mrManual = {};
     (mrItems || []).forEach(function(it) { mrManual[it.id] = /^manual:/.test(String(it.review_key || "")); });
     mrRows.forEach(function(r) { r.recorded_by_hand = !!mrManual[r.id]; });
@@ -864,6 +867,12 @@ export async function GET(request) {
         // Travels with the amount, always: the card has to be able to say
         // "$10, held because the store missed 10" rather than a bare $0.
         amount_if_floor_met: c.amount_if_floor_met,
+        // Confirmation (Eric, 2026-11-20): a credit pays only once a manager
+        // has confirmed it. Both travel so the card can say "$10, waiting for
+        // Matt to confirm" rather than a bare $0.
+        confirmation: c.confirmation,
+        held_for: c.held_for,
+        amount_awaiting_confirmation: c.amount_awaiting_confirmation,
         shared_with: c.shared_with,
         blocked: c.blocked,
         counts_for_tier: r.counts_for_tier,
@@ -951,6 +960,8 @@ export async function GET(request) {
       },
       my_credits: mrMonth,
       my_amount: sum(mrMonth),
+      my_amount_awaiting_confirmation: Math.round(mrMonth.reduce(function(x, y) { return x + (y.amount_awaiting_confirmation || 0); }, 0) * 100) / 100,
+      decisions_available: mrDec.available,
       my_credit_count: mrMonth.length,
       all_time_credits: mrAll.length,
       all_time_amount: sum(mrAll),
@@ -1023,7 +1034,8 @@ export async function GET(request) {
     var cPeriod = searchParams.get("period") || indyToday().slice(0, 7);
 
     var cGains = storeGainsByMonth(cSnap, cL);
-    var rows = creditRowsFor(cItems, lById, totalById, cRoster, cGains);
+    var cDec = await loadCreditDecisions(supabase);
+    var rows = creditRowsFor(cItems, lById, totalById, cRoster, cGains, cDec.map);
 
     function emptyMix() { return { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0, unknown: 0 }; }
     var mix = emptyMix(), mixAll = emptyMix();
@@ -1045,7 +1057,9 @@ export async function GET(request) {
         // floor that month. Under the floor gate this is the NORMAL state, so
         // a month index that only counted payable credits would report every
         // month as empty and the queue would read "nothing to settle".
-        held_credits: 0, amount_if_floor_met: 0 };
+        held_credits: 0, amount_if_floor_met: 0,
+        // Payable once a manager confirms it (store floor met, not signed off).
+        awaiting_confirmation: 0, amount_awaiting_confirmation: 0 };
       return monthIdx[ym];
     }
     monthBucket(cPeriod);
@@ -1056,6 +1070,10 @@ export async function GET(request) {
       (r.proposed_credits || []).forEach(function(c) {
         m.credits += 1;
         if (c.amount > 0) { m.payable_credits += 1; m.amount += c.amount; }
+        if (c.amount_awaiting_confirmation > 0) {
+          m.awaiting_confirmation += 1;
+          m.amount_awaiting_confirmation = Math.round((m.amount_awaiting_confirmation + c.amount_awaiting_confirmation) * 100) / 100;
+        }
         if (c.amount_if_floor_met > 0) {
           m.amount_if_floor_met = Math.round((m.amount_if_floor_met + c.amount_if_floor_met) * 100) / 100;
           if (c.amount === 0) m.held_credits += 1;
@@ -1082,7 +1100,8 @@ export async function GET(request) {
       period: cPeriod,
       months: months,
       rules: { thin_under: THIN_UNDER, named_main: NAMED_MAIN, named_thin: NAMED_THIN, every_review_counts: true, one_star_pays_nobody: true,
-               split_named_credit: SPLIT_NAMED_CREDIT, named_credit_needs_store_floor: NAMED_CREDIT_NEEDS_STORE_FLOOR },
+               split_named_credit: SPLIT_NAMED_CREDIT, named_credit_needs_store_floor: NAMED_CREDIT_NEEDS_STORE_FLOOR,
+               named_credit_needs_confirmation: NAMED_CREDIT_NEEDS_CONFIRMATION },
       // The mix is THIS MONTH's, because the sentence it sits under is about
       // the store tier and the tier is monthly. All-time kept beside it.
       rating_mix: mix,
@@ -1105,6 +1124,12 @@ export async function GET(request) {
       // travel for the same reason the tier's two do.
       month_held_credits: thisMonth.held_credits,
       month_amount_if_floor_met: thisMonth.amount_if_floor_met,
+      month_awaiting_confirmation: thisMonth.awaiting_confirmation,
+      month_amount_awaiting_confirmation: thisMonth.amount_awaiting_confirmation,
+      // False until sql/migration_review_credit_decisions.sql is run. Then the
+      // Confirm buttons cannot save and nothing pays -- said, not hidden.
+      decisions_available: cDec.available,
+      decisions_note: cDec.note,
       // Per store, the count the gate is reading and whether it cleared --
       // so the queue can explain a held credit without recomputing anything.
       store_floor_this_month: (function() {
@@ -1454,6 +1479,48 @@ export async function POST(request) {
   try { body = await request.json(); } catch (e) { return json({ success: false, error: "Body is not JSON" }, 400); }
   var action = body && body.action;
   var who = (function() { var w = gate.result || {}; return w.name || w.email || "unknown"; })();
+
+  // ── a manager's decision on one review credit ──────────────────────────
+  // Eric, 2026-11-20: a named credit pays only once it is confirmed. status:
+  // confirmed | rejected ("not them") | acknowledged (a review naming nobody,
+  // or a 1-star, has been looked at; name ''). An upsert, so changing your
+  // mind replaces the decision and records who changed it. "clear" deletes
+  // it, which puts the credit back to awaiting confirmation.
+  if (action === "decide_credit") {
+    var rid = parseInt(body.review_item_id, 10);
+    if (!rid) return json({ success: false, error: "review_item_id is required" }, 400);
+    var st = String(body.status || "");
+    var emp = String(body.employee_name || "");
+    if (["confirmed", "rejected", "acknowledged", "clear"].indexOf(st) < 0) {
+      return json({ success: false, error: "status must be confirmed, rejected, acknowledged or clear" }, 400);
+    }
+    if (st !== "acknowledged" && st !== "clear" && !emp) {
+      return json({ success: false, error: "employee_name is required to confirm or reject a credit" }, 400);
+    }
+    var { data: exists, error: exErr } = await supabase.from("google_review_items").select("id").eq("id", rid).maybeSingle();
+    if (exErr) return json({ success: false, error: exErr.message }, 500);
+    if (!exists) return json({ success: false, error: "no review with id " + rid }, 404);
+    if (st === "clear") {
+      var { error: clErr } = await supabase.from("review_credit_decisions").delete()
+        .eq("review_item_id", rid).eq("employee_name", emp);
+      if (clErr) return json({ success: false, error: clErr.message, missing_table: isMissingTable(clErr) }, isMissingTable(clErr) ? 503 : 500);
+      return json({ success: true, cleared: true });
+    }
+    var { data: up, error: upErr } = await supabase.from("review_credit_decisions").upsert({
+      review_item_id: rid, employee_name: emp, status: st,
+      decided_by: who, decided_at: new Date().toISOString(),
+      note: body.note ? String(body.note).slice(0, 300) : null,
+    }, { onConflict: "review_item_id,employee_name" }).select("*").single();
+    if (upErr) {
+      // Loud, and specific when the migration has not been run.
+      return json({
+        success: false,
+        error: isMissingTable(upErr) ? "Confirmations cannot be saved until sql/migration_review_credit_decisions.sql is run." : upErr.message,
+        missing_table: isMissingTable(upErr),
+      }, isMissingTable(upErr) ? 503 : 500);
+    }
+    return json({ success: true, decision: up });
+  }
 
   if (action === "record_one_star" || action === "record_review") {
     var store = String(body.store || "").trim().toLowerCase();

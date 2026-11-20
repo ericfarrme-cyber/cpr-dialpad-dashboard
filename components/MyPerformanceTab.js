@@ -863,6 +863,9 @@ export default function MyPerformanceTab({ auth, store }) {
       penalty: reviewTrack.penalty || null,
       named: mine ? (mine.my_credits || []) : [],
       namedAmount: mine ? (mine.my_amount || 0) : 0,
+      // Released by the store floor but not yet confirmed by a manager (Eric,
+      // 2026-11-20: confirmation required before pay). Not in the total.
+      namedAwaiting: mine ? (mine.my_amount_awaiting_confirmation || 0) : 0,
       // Eric, 2026-11-03: a named credit does not pay if the store misses 10.
       // So the card has to show BOTH what it pays and what it would have paid,
       // or a technician sees $0 beside a review that names them and has no way
@@ -1781,7 +1784,8 @@ export default function MyPerformanceTab({ auth, store }) {
                             {rbTier > 0 ? "Store took " + reviewBonus.gained + " reviews this month — " + fmt(rbTier) + " each"
                               : reviewBonus.gained !== null && reviewBonus.gained >= reviewBonus.floor ? "Store took " + reviewBonus.gained + " reviews, floor of " + reviewBonus.floor + " reached"
                               : "Store did not reach " + reviewBonus.floor}
-                            {rbNamed > 0 ? " · " + fmt(rbNamed) + " for being named in " + reviewBonus.named.length + (reviewBonus.named.length === 1 ? " review" : " reviews") : ""}
+                            {rbNamed > 0 ? " · " + fmt(rbNamed) + " confirmed for being named" : ""}
+                            {reviewBonus.namedAwaiting > 0 ? " · " + fmt(reviewBonus.namedAwaiting) + " more waiting for a manager to confirm (not in this total)" : ""}
                             {rbDocked ? " · tier halved by a 1-star" : ""}
                             {!reviewBonus.gainComplete ? " · count still incomplete, so this is a floor" : ""}
                           </div>
@@ -1803,7 +1807,9 @@ export default function MyPerformanceTab({ auth, store }) {
                             : (reviewBonus.gained === null
                               ? "this month's review count isn't knowable yet"
                               : reviewBonus.gained >= reviewBonus.floor
-                                ? "store reached " + reviewBonus.floor + " (" + reviewBonus.gained + " reviews) — no review has named you yet this month"
+                                ? (reviewBonus.namedAwaiting > 0
+                                    ? "store reached " + reviewBonus.floor + " — " + fmt(reviewBonus.namedAwaiting) + " of named credit waiting for a manager to confirm"
+                                    : "store reached " + reviewBonus.floor + " (" + reviewBonus.gained + " reviews) — no review has named you yet this month")
                                 : "store took " + reviewBonus.gained + " of " + reviewBonus.floor
                                   + (rbHeld > 0 ? ", so " + fmt(rbHeld) + " of named credit is held" : ""))}
                         </td>
@@ -3197,7 +3203,7 @@ export default function MyPerformanceTab({ auth, store }) {
                           </div>
                           <div style={{ textAlign: "right", flexShrink: 0 }}>
                             <div style={{ fontSize: 14, fontWeight: 800, color: c.amount > 0 ? "var(--green)" : "var(--text-muted)" }}>
-                              {c.amount === 0 && c.amount_if_floor_met > 0 && (
+                              {c.amount === 0 && c.amount_if_floor_met > 0 && c.held_for !== "confirmation" && (
                                 <span style={{ fontWeight: 600, color: "var(--text-muted)", textDecoration: "line-through", marginRight: 6 }}>{fmt(c.amount_if_floor_met)}</span>
                               )}
                               {fmt(c.amount)}
@@ -3208,7 +3214,8 @@ export default function MyPerformanceTab({ auth, store }) {
                                 card and pushed the figures out of alignment. */}
                             {c.blocked && (
                               <div style={{ fontSize: 9, color: "var(--text-muted)" }}>
-                                {c.amount === 0 && c.amount_if_floor_met > 0 ? "held — store under " + reviewBonus.floor : c.blocked}
+                                {c.held_for === "confirmation" ? fmt(c.amount_awaiting_confirmation) + " once a manager confirms it"
+                                  : c.amount === 0 && c.amount_if_floor_met > 0 ? "held — store under " + reviewBonus.floor : c.blocked}
                               </div>
                             )}
                             {c.shared_with > 1 && <div style={{ fontSize: 9, color: "var(--text-muted)" }}>split {c.shared_with} ways</div>}
