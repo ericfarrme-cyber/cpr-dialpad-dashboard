@@ -1597,6 +1597,20 @@ sale read now counts bookings by `date_set` (the day booked). Verified live: Ind
     17e, Air), all three stores, 11-27 to 11-29 = 78 sale rows**, entered through the new several-devices
     form (`e08d191`). Same commit: Discounts card no longer counts a line rung at a live sale price (11-15:
     10 → 8 discounted, $371.34 → $231.34), and the TV has clickable dots, a Next button and arrow keys.
+  • **2026-11-20 audit (Eric: PS5 bookings "very, very low"; reviews/ledger accuracy).** (a) **Sale
+    measurement rebuilt** (`bf34ef7`): it counted only bookings on the one row on sale, and the 11-16 move
+    to the same-day row restarted "before" inside the first sale. Now a campaign = touching sales on the
+    same model + repair at a store; counts **register jobs** (any tier, walk-ins) + bookings on any tier.
+    Indy: **10 PS5 HDMI jobs in 16 days vs 1 in the 16 before; bookings 13 vs 1**. Bloomington 5 vs 3,
+    average collected **$145.99 vs $106.66**. (b) **Review spellings** (`ce84d70`, payroll): "Aeric"
+    (Fishers 11-08) and "Dunkin" (Indy 11-19) paid nobody — now Aerick +$10, Duncan +$20; near-miss
+    spellings show as "possibly X?" (hint only; fires once across all 79 reviews: "Allisa", March).
+    November named credits **$210** = ledger total, person by person. (c) ⚠ **The credits queue's
+    Confirm / Not them buttons are local only** — nothing is saved, and the ledger pays every proposed
+    credit. (d) ⚠ **Nov 19 has 1 graded ticket**, so the Morning Brief's "$128 · 1 ticket" is a grading
+    gap. (e) An Indy electronics review is about a hair-supply store (customer posted on the wrong
+    business); it counts toward Indy's total. (f) Eric is weighing **$5 per review over 10, per
+    employee** — at November's pace ~$580/month, about what the dropped tier would have cost.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
