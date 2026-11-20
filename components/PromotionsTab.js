@@ -94,8 +94,8 @@ function SaleGroupCard(props) {
   var s = m[0];
   var [open, setOpen] = useState(false);
   var edge = s.state === "live" ? "var(--yellow)" : s.state === "upcoming" ? "var(--cyan)" : "var(--border-heavy)";
-  var booked = m.reduce(function(a, x) { return a + (x.during ? x.during.booked : 0); }, 0);
-  var before = m.reduce(function(a, x) { return a + (x.before ? x.before.booked : 0); }, 0);
+  var booked = m.reduce(function(a, x) { return a + (x.during ? x.during.jobs : 0); }, 0);
+  var before = m.reduce(function(a, x) { return a + (x.before ? x.before.jobs : 0); }, 0);
   return (
     <div style={card({ borderLeft: "3px solid " + edge, display: "grid", gap: 9 })}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
@@ -118,7 +118,7 @@ function SaleGroupCard(props) {
         {s.label ? <span style={{ fontSize: 11.5, color: "var(--text-secondary)" }}>{s.label}</span> : null}
       </div>
       <div style={{ fontSize: 12, color: "var(--text-secondary)" }}>
-        {s.state === "upcoming" ? "Not started." : booked + " booked during against these rows, " + before + " in the same number of days before."}
+        {s.state === "upcoming" ? "Not started." : booked + " jobs closed during across these models, " + before + " in the same number of days before."}
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <button onClick={function() { setOpen(!open); }} style={btn("var(--text-secondary)", false)}>{open ? "Hide" : "Show"} the {m.length} devices</button>
@@ -182,7 +182,7 @@ function SaleCard(props) {
           sentence cannot drift from the numbers beside it. */}
       <div style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5 }}>
         {s.reading}
-        {s.during && s.during.booked > 0 && s.revenue_given_up ? (
+        {s.during && s.revenue_given_up ? (
           <span style={{ color: "var(--text-muted)" }}> {money(s.revenue_given_up)} of revenue given up so far — margin not computable, the sheet{"’"}s part costs are stale.</span>
         ) : null}
       </div>

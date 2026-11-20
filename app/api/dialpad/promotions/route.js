@@ -32,6 +32,8 @@ import { NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import { requireAuth } from "@/lib/auth";
 import { storeKeyFromName, isMissingTable } from "@/lib/constants";
+import { resolveModel } from "@/lib/device-model";
+import { classifyCatalogItem, cleanCatalogName, isInsuranceLine } from "@/lib/repair-type";
 
 export const dynamic = "force-dynamic";
 
@@ -107,6 +109,7 @@ function decorate(sale, row, today) {
     created_by: sale.created_by || null,
     created_at: sale.created_at,
     ended_by: sale.ended_by || null,
+    ended_at: sale.ended_at || null,
     active: sale.active !== false,
     device: row ? row.device : null,
     repair: row ? row.repair : null,
@@ -213,62 +216,146 @@ export async function GET(request) {
       var decorated = (all || []).map(function(s) { return decorate(s, byRow[s.repair_price_id], today); });
 
       // ── did it bring work in ──────────────────────────────────────────────
-      // Appointments booked against that sheet row at that store, inside the
-      // window, against the SAME NUMBER OF DAYS immediately before it. That is
-      // the right comparison for a sale and the wrong one for a permanent
-      // price change, which is why this is computed here rather than left to
-      // quote-metrics' 60-day markers.
-      //
-      // ⚠ Appointments, not tickets. A booking is the thing a sale directly
-      // causes and it is exact; matching closed register lines back to a sheet
-      // row needs the device-model machinery and would make this read heavy.
-      // So this measures DEMAND, not revenue, and says so.
+      // Rebuilt 2026-11-20 after Eric: "this booking amount seems very, very
+      // low compared to our volume". Three things were wrong with the first cut:
+      //   (1) it counted ONLY bookings made against the one sheet row on sale.
+      //       Agents book the same PS5 HDMI job on the 2-3 day row, as "Other
+      //       repair", or not at all -- most console jobs are walk-ins.
+      //   (2) a sale moved to another row (11-16, 2-3 day -> same day) started
+      //       a new "before" window INSIDE the first sale, so it compared the
+      //       sale with itself: Indy read "3 booked during, 4 before -- down 1"
+      //       while the register closed 10 PS5 HDMI jobs in Nov 5-19 against 3
+      //       in the 20 days before.
+      //   (3) bookings are not the work. Closed register jobs are.
+      // So now: a CAMPAIGN is every sale at that store on the same model +
+      // repair whose dates touch (gap of a day or less); "during" runs from the
+      // campaign's first day, "before" is the same number of days immediately
+      // before it; and both windows count JOBS CLOSED at the register (any
+      // tier, walk-in or booked) as well as bookings on any row of that model
+      // + repair. Insurance lines are excluded, as everywhere else.
+      // Jobs only exist here once a ticket is graded, so the during window
+      // lags the register by however far behind grading is -- reported as
+      // graded_through, never hidden.
+      function campaignStart(sale) {
+        var same = decorated.filter(function(x) {
+          return x.store === sale.store && x.canonical_model && x.canonical_model === sale.canonical_model
+            && x.canonical_repair === sale.canonical_repair;
+        });
+        var start = sale.starts_on, moved = true;
+        while (moved) {
+          moved = false;
+          same.forEach(function(x) {
+            var xEnd = x.state === "ended" && x.ended_at ? String(x.ended_at).slice(0, 10) : x.ends_on;
+            if (x.starts_on < start && xEnd >= addDays(start, -1)) { start = x.starts_on; moved = true; }
+          });
+        }
+        return start;
+      }
+      decorated.forEach(function(s) {
+        s.campaign_starts_on = s.canonical_model ? campaignStart(s) : s.starts_on;
+        var to = s.state === "live" ? today
+          : s.state === "ended" && s.ended_at ? String(s.ended_at).slice(0, 10) : s.ends_on;
+        if (to > today) to = today;
+        s._to = to;
+        s._days = s.state === "upcoming" ? 0 : daysBetween(s.campaign_starts_on, to) + 1;
+      });
       var earliest = decorated.reduce(function(m, s) {
-        var from = addDays(s.starts_on, -(s.days));
+        if (s.state === "upcoming") return m;
+        var from = addDays(s.campaign_starts_on, -s._days);
         return (!m || from < m) ? from : m;
       }, null);
-      var appts = [];
+
+      var models = {};
+      decorated.forEach(function(s) { if (s.canonical_model) models[s.canonical_model] = 1; });
+      var rowKeyById = {};
+      if (Object.keys(models).length) {
+        var { data: mRows, error: mrErr } = await supabase.from("repair_prices")
+          .select("id,canonical_model,canonical_repair").in("canonical_model", Object.keys(models)).limit(5000);
+        if (mrErr) return json({ success: false, error: mrErr.message }, 500);
+        (mRows || []).forEach(function(r) { rowKeyById[r.id] = r.canonical_model + "|" + r.canonical_repair; });
+      }
+
+      var appts = [], jobs = [], gradedThrough = null;
       if (earliest) {
         var { data: aRows, error: apErr } = await supabase.from("appointments")
-          // `date_set` is the day the booking was MADE — the thing a sale
-          // moves. (This read first asked for `appointment_date`, a column
-          // that does not exist, and took the whole Promotions tab down.)
-          .select("id,store,repair_price_id,date_set,date_of_appt,quoted_price,price_quoted,did_arrive,ticket_number,scheduled_by")
-          .gte("date_set", earliest).limit(20000);
+          .select("id,store,repair_price_id,date_set,date_of_appt,quoted_price,did_arrive,ticket_number")
+          .gte("date_set", earliest).lte("date_set", today).limit(20000);
         if (apErr) return json({ success: false, error: apErr.message }, 500);
         appts = aRows || [];
+
+        // Register jobs: one per ticket per model + repair, paginated on a
+        // unique column (an unordered .range() repeats rows -- CLAUDE.md).
+        var tFrom = 0;
+        while (true) {
+          var { data: tRows, error: tErr } = await supabase.from("ticket_grades")
+            .select("id,ticket_number,store,device,item_details,date_closed")
+            .gte("date_closed", earliest).not("date_closed", "is", null)
+            .order("id", { ascending: true }).range(tFrom, tFrom + 999);
+          if (tErr) return json({ success: false, error: "ticket_grades: " + tErr.message }, 500);
+          (tRows || []).forEach(function(t) {
+            var d = String(t.date_closed).slice(0, 10);
+            if (!gradedThrough || d > gradedThrough) gradedThrough = d;
+            var rm = resolveModel(t.device);
+            if (!rm.specified || !models[rm.canonical]) return;
+            var seen = {};
+            (Array.isArray(t.item_details) ? t.item_details : []).forEach(function(it) {
+              if (!it || String(it.category || "").toLowerCase().indexOf("repair") < 0) return;
+              var name = cleanCatalogName(it.catalog_item);
+              if (isInsuranceLine(name)) return;
+              var rt = classifyCatalogItem(it.catalog_item).type;
+              if (!rt) return;
+              var key = rm.canonical + "|" + rt;
+              var collected = it.line_total !== undefined && it.line_total !== null ? num(it.line_total) : num(it.unit_price) - num(it.discount);
+              if (seen[key]) { seen[key].collected += collected || 0; return; }
+              seen[key] = { ticket_number: t.ticket_number, store: t.store, day: d, key: key, collected: collected || 0 };
+            });
+            Object.keys(seen).forEach(function(k) { jobs.push(seen[k]); });
+          });
+          if (!tRows || tRows.length < 1000) break;
+          tFrom += 1000;
+        }
       }
-      function window_(saleRow, from, to) {
-        var hit = appts.filter(function(a) {
-          if (String(a.store || "") !== saleRow.store) return false;
-          if (Number(a.repair_price_id) !== Number(saleRow.repair_price_id)) return false;
+
+      function window_(sale, from, to) {
+        var key = sale.canonical_model + "|" + sale.canonical_repair;
+        var booked = appts.filter(function(a) {
+          if (String(a.store || "") !== sale.store) return false;
           var d = String(a.date_set || a.date_of_appt || "").slice(0, 10);
-          return d >= from && d <= to;
+          return d >= from && d <= to && rowKeyById[a.repair_price_id] === key;
         });
-        var q = hit.map(function(a) { return num(a.quoted_price); }).filter(function(x) { return x !== null; });
+        var done = jobs.filter(function(j) { return j.store === sale.store && j.key === key && j.day >= from && j.day <= to; });
+        var paid = done.map(function(j) { return j.collected; }).filter(function(x) { return x > 0; });
         return {
           from: from, to: to, days: daysBetween(from, to) + 1,
-          booked: hit.length,
-          avg_quoted: q.length ? round2(q.reduce(function(a, b) { return a + b; }, 0) / q.length) : null,
-          showed: hit.filter(function(a) { return a.did_arrive === true; }).length,
-          with_ticket: hit.filter(function(a) { return a.ticket_number && a.ticket_number !== ""; }).length,
+          booked: booked.length,
+          showed: booked.filter(function(a) { return a.did_arrive === true; }).length,
+          jobs: done.length,
+          avg_collected: paid.length ? round2(paid.reduce(function(a, b) { return a + b; }, 0) / paid.length) : null,
+          at_sale_price: sale.sale_price !== null ? done.filter(function(j) { return Math.abs(j.collected - sale.sale_price) <= 0.01; }).length : 0,
         };
       }
       decorated.forEach(function(s) {
-        var to = s.state === "live" ? today : s.ends_on;
-        s.during = window_(s, s.starts_on, to);
-        s.before = window_(s, addDays(s.starts_on, -s.during.days), addDays(s.starts_on, -1));
-        s.change = s.during.booked - s.before.booked;
-        // A sale nobody has booked at yet is early, not failed. The sentence a
-        // screen prints has to come from the numbers, so it is computed here.
-        s.reading = s.state === "upcoming" ? "Not started."
-          : (s.during.booked + s.before.booked) < 4
-            ? "Too early to read — " + s.during.booked + " booked during, " + s.before.booked + " in the same number of days before."
-            : s.change > 0 ? s.during.booked + " booked during, " + s.before.booked + " before — up " + s.change + "."
-            : s.change < 0 ? s.during.booked + " booked during, " + s.before.booked + " before — down " + Math.abs(s.change) + "."
-            : "Level: " + s.during.booked + " booked during and before.";
-        s.revenue_given_up = s.off !== null ? round2(s.off * s.during.booked) : null;
+        if (s.state === "upcoming" || !s.canonical_model) {
+          s.reading = s.state === "upcoming" ? "Not started." : "This sheet row has no model to measure against.";
+          s.during = null; s.before = null; s.revenue_given_up = null;
+          return;
+        }
+        s.during = window_(s, s.campaign_starts_on, s._to);
+        s.before = window_(s, addDays(s.campaign_starts_on, -s._days), addDays(s.campaign_starts_on, -1));
+        s.change = s.during.jobs - s.before.jobs;
+        var since = s.campaign_starts_on !== s.starts_on ? " (counted from " + s.campaign_starts_on + ", when this sale first started on another tier)" : "";
+        var n = s.during.jobs + s.before.jobs;
+        s.reading = (n < 4 ? "Too early to read — " : "")
+          + s.during.jobs + " " + (s.canonical_model + " " + s.canonical_repair) + " job" + (s.during.jobs === 1 ? "" : "s") + " closed in "
+          + s.during.days + " days" + since + ", against " + s.before.jobs + " in the " + s.during.days + " days before"
+          + (n >= 4 && s.change !== 0 ? " — " + (s.change > 0 ? "up " : "down ") + Math.abs(s.change) : "")
+          + ". Bookings on any tier: " + s.during.booked + " vs " + s.before.booked + "."
+          + (s.during.avg_collected !== null && s.before.avg_collected !== null
+              ? " Average collected $" + s.during.avg_collected + " vs $" + s.before.avg_collected + "." : "");
+        // Money given up: only on jobs that actually rang at the sale price.
+        s.revenue_given_up = s.off !== null ? round2(s.off * s.during.at_sale_price) : null;
       });
+      decorated.forEach(function(s) { delete s._to; delete s._days; });
 
       var { data: msgs, error: msErr } = await supabase.from("store_messages")
         .select("*").order("created_at", { ascending: false }).limit(500);
@@ -290,7 +377,8 @@ export async function GET(request) {
           };
         }),
         kinds: KINDS,
-        measurement: "Appointments booked against that sheet row at that store, during the sale against the same number of days immediately before it. Demand, not revenue — and a sale's effect on PROFIT is not computable, because the sheet's part costs are the stale ones and no console row carries one at all.",
+        graded_through: gradedThrough,
+        measurement: "Jobs closed at the register for that model and repair at that store — any tier, walk-in or booked — from the day the sale first started (a sale moved to another tier keeps its start), against the same number of days immediately before. Bookings on any tier of that repair are shown beside it. Jobs appear once a ticket is graded" + (gradedThrough ? ", which currently runs through " + gradedThrough : "") + ". A sale's effect on PROFIT is not computable: the sheet's part costs are stale and no console row carries one.",
       });
     }
 
