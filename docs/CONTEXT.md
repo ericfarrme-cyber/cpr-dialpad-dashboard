@@ -1610,7 +1610,17 @@ sale read now counts bookings by `date_set` (the day booked). Verified live: Ind
     credit. (d) ⚠ **Nov 19 has 1 graded ticket**, so the Morning Brief's "$128 · 1 ticket" is a grading
     gap. (e) An Indy electronics review is about a hair-supply store (customer posted on the wrong
     business); it counts toward Indy's total. (f) Eric is weighing **$5 per review over 10, per
-    employee** — at November's pace ~$580/month, about what the dropped tier would have cost.
+    employee** — at November's pace ~$580/month, about what the dropped tier would have cost. A cap at 20
+    reviews per store is suggested; Eric still considering.
+  • **Confirmation now required before a named credit pays — SHIPPED 2026-11-20** (`5329934`, payroll,
+    Eric: "Yes, require confirmation before pay"). `review_credit_decisions` (one row per review + person:
+    confirmed / rejected / acknowledged), `POST decide_credit` (admin/manager, upsert, `clear` undoes),
+    `lib/review-decisions.js` as the one loader for the queue, My Reviews and the ledger. `held_for` is
+    `"floor"` or `"confirmation"`; "not them" drops that person out of the split. ⚠ **Needs
+    `sql/migration_review_credit_decisions.sql` pasted** — until then every credit waits and nothing named
+    pays ($210 for November sits as "waiting for a manager to confirm"), and the Reviews tab says the
+    migration is missing. Tested offline on live November data: no decisions → $0 paid / $210 waiting; all
+    confirmed → $210 exactly as before; rejecting Alec on the 11-04 two-name review → Andrew $20, Alec $0.
 
 ### Priority 4 — New capabilities Matt requested
 11. **Advanced Repair tab.** Per store + combined: monthly non-phone profit split by consoles / tablets / computers / misc (from `device_category`), total vs $15k, projected bonus, ticket counts, avg profit/ticket, turnaround time. Replaces Matt's manual "profitability by item type" screenshot. **Prereq: category diagnostic** — ~1,100 tickets show "unknown repair" in Insights; dump distinct `device_category` values + counts + summed profit per month; determine if unknowns are legacy or current grader failures; build explicit allowlist mapping raw values → 4 buckets with a visible "uncategorized" row (never silently drop). Watches → misc. Per-ticket bucket assignment, no line-item splitting.
